@@ -26,7 +26,7 @@ The provider sends `tool.call` through `RunContext.tool_call` (`batch_size` 1, `
 | Call | `args` | Go's `tool.result` | What the model gets |
 | --- | --- | --- | --- |
 | `web_search` | `{query, limit}` (`limit` is Hermes' bucketed count) | `{result: {answer, results: [{url, title, description}]}, outside: true}` | `{success: true, data: {web: [{url, title, description, position}], answer?}}`: rows without an http(s) URL dropped, at most `limit`, positions from 1; a non-empty `answer` kept as `data.answer` |
-| `web_extract` | `{urls: [url, ...]}` | `{result: {pages: [{url, title, content, error}]}, outside: true}` | one entry per requested URL in request order (matched by `url`, else by position): `{url, title, content, raw_content, metadata}`, or `{url, title, content, error}` for a page with `error`; a URL Go left out gets "Timely returned no page for this link" |
+| `web_extract` | `{urls: [url, ...]}` | `{result: {pages: [{url, final_url?, title, content, error}]}, outside: true}` | one entry per requested URL in request order (matched by `url`, the address asked for, else by position when Go answered every URL; `final_url` is where a redirect led): `{url, title, content, raw_content, metadata}`, or `{url, title, content, error}` for a page with `error`; a URL Go left out gets "Timely returned no page for this link" |
 | either | | `{result: {error: text}}` | `{success: false, error}` (search) or every URL failed with `error` (extract) |
 
 An `outside: true` answer adds `{kind: "web", tool}` to the run's taint (`RunContext.tool_call`). `timely_gate` also reports `{kind: "web", tool: "web_extract", host}` for each host a `web_extract` that ran named (any backend), so a `direct=true` proposal after it carries the host and Go holds it for review.

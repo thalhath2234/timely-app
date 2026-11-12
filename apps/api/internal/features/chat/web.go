@@ -14,8 +14,11 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 	"golang.org/x/text/unicode/norm"
 
 	"timely-api/internal/features/bots/extract"
@@ -186,12 +189,15 @@ type webResult struct {
 	Description string `json:"description"`
 }
 
-// webPage is one page of a web_extract answer.
+// webPage is one page of a web_extract answer: url is the address asked
+// for (the worker matches pages to its request by it), finalURL where the
+// page was read when a redirect or Go's encoding of the link changed it.
 type webPage struct {
-	URL     string `json:"url"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Error   string `json:"error,omitempty"`
+	URL      string `json:"url"`
+	FinalURL string `json:"final_url,omitempty"`
+	Title    string `json:"title"`
+	Content  string `json:"content"`
+	Error    string `json:"error,omitempty"`
 }
 
 // searchResults lists a search answer's sources: the provider's url
@@ -281,9 +287,11 @@ func (s *Service) runSearch(ctx context.Context, run *toolRun, query string) (Wi
 	run.searches++
 	prompt := query + "\nInclude source links."
 	if run.tainted() {
-		// Outside text may have written this query: search with its words,
-		// never open an address it names (the gate already refused any it
-		// could not open; this keeps a live search from fetching one).
+		// Outside text may have written this query: the provider searches
+		// with its words and opens no page (WithSearchOnly: Codex's cached
+		// search, OpenRouter's Exa engine), so an address the gate missed
+		// is never fetched. The prompt line only asks; the setting holds.
+		ctx = WithSearchOnly(ctx)
 		prompt += "\nSearch the web for these words. Do not open, fetch or visit any address written above."
 	}
 	answer, err := s.complete(ctx, []WireMessage{{Role: "user", Content: prompt}}, nil, true)
@@ -347,9 +355,8 @@ func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun,
 				page.Error = err.Error()
 				break
 			}
-			page.URL = got.URL
-			if page.URL == "" {
-				page.URL = u.String()
+			if got.URL != "" && got.URL != raw {
+				page.FinalURL = got.URL
 			}
 			page.Title, page.Content = got.Title, utils.StorableText(got.Content, budget)
 			run.web.read, outside = true, true
@@ -434,6 +441,11 @@ func (w *webRun) searchNamesOtherSite(guard *fetchGuard, query string) string {
 	for _, m := range hostRef.FindAllStringSubmatch(query, -1) {
 		host := asciiHost(m[1] + m[2])
 		if host != "" && !allowed(host) {
+			return host
+		}
+	}
+	for _, name := range bareSites(query) {
+		if host := asciiHost(name); host != "" && !allowed(host) {
 			return host
 		}
 	}
@@ -574,6 +586,46 @@ const (
 // hostRef finds the sites a search query names so that a search could open
 // them, as the worker's egress.query_hosts does.
 var hostRef = regexp.MustCompile(`(?i)(?:[a-z][a-z0-9+.-]*://|//|\bsite:)(` + nameRE + `)|(?:^|[^\p{L}\p{N}_])(` + nameRE + `)` + afterRE)
+
+// bareName finds a name written on its own ("evil.com", "<data>.evil.com");
+// bareSites keeps those that are sites.
+var bareName = regexp.MustCompile(`(?:^|[^\p{L}\p{N}_-])(` + nameRE + `)`)
+
+// reservedTLDs are the last labels kept for tests and private networks
+// (RFC 2606, 6761): no public suffix, but a site to a resolver that knows
+// them. The worker's tlds.RESERVED lists the same.
+var reservedTLDs = map[string]bool{"example": true, "test": true, "invalid": true, "localhost": true, "local": true, "onion": true, "internal": true}
+
+// bareSites are the bare names a query writes whose last label is an ICANN
+// top-level domain or a reserved one (the worker's egress.site_name): a
+// provider's own search could open "evil.com" with the person's data
+// written apart from it or in a DNS label. "node.js" and "config.yaml" stay
+// words.
+func bareSites(query string) []string {
+	out := []string{}
+	for _, m := range bareName.FindAllStringSubmatchIndex(query, -1) {
+		name := query[m[2]:m[3]]
+		if next, _ := utf8.DecodeRuneInString(query[m[3]:]); next == '_' || next == '-' || unicode.IsLetter(next) || unicode.IsDigit(next) {
+			continue // part of a longer word
+		}
+		if siteName(name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// siteName reports whether a bare name's last label (IDNA) is an ICANN
+// top-level domain or a reserved one.
+func siteName(name string) bool {
+	host := asciiHost(name)
+	tld := host[strings.LastIndex(host, ".")+1:]
+	if reservedTLDs[tld] {
+		return true
+	}
+	suffix, icann := publicsuffix.PublicSuffix(tld)
+	return icann && suffix == tld
+}
 
 // pageRef finds the pages a search query names, as the worker's
 // egress.query_pages does: a link, or a bare name or IP address.

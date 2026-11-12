@@ -57,6 +57,20 @@ def test_search_maps_go_results_to_hermes_rows():
     assert mapping.search("nonsense", 5)["success"] is False
 
 
+def test_extract_matches_a_redirected_page_to_its_request():
+    """Review round 6: a page Go read after a redirect, or under its own encoding of the link,
+    answers under another address; it still belongs to the URL asked for, not NO_PAGE."""
+    got = mapping.extract(["http://news.example/a", "https://en.wikipedia.org/wiki/Café"], {"pages": [
+        {"url": "https://www.news.example/a", "title": "T", "content": "the article text"},
+        {"url": "https://en.wikipedia.org/wiki/Caf%C3%A9", "title": "Café", "content": "about coffee"}]})
+    assert [(e["url"], e["content"], e.get("error")) for e in got] == [
+        ("http://news.example/a", "the article text", None),
+        ("https://en.wikipedia.org/wiki/Café", "about coffee", None)], got
+    got = mapping.extract(["http://news.example/a"], {"pages": [
+        {"url": "http://news.example/a", "final_url": "https://www.news.example/a", "title": "T", "content": "x"}]})
+    assert got[0]["content"] == "x" and "error" not in got[0], got
+
+
 def test_extract_maps_pages_in_request_order():
     urls = ["https://a.example/1", "https://b.example/2", "https://c.example/3"]
     got = mapping.extract(urls, {"pages": [

@@ -74,10 +74,13 @@ def search(result: Any, limit: int) -> dict[str, Any]:
 
 
 def extract(urls: list[str], result: Any) -> list[dict[str, Any]]:
-    """``{pages: [{url, title, content, error}]}`` -> one Hermes extract entry per requested URL,
-    in request order. A page is matched to its URL by ``url``, else by position; a page with
-    ``error`` is a per-URL failure (its content kept, as Hermes' vendors keep an error page); a
-    URL Go left out gets ``NO_PAGE``. ``{error}`` fails every URL with that text."""
+    """``{pages: [{url, final_url?, title, content, error}]}`` -> one Hermes extract entry per
+    requested URL, in request order. Go answers each page under the address asked for (``url``;
+    ``final_url`` is where a redirect or Go's encoding of the link read it). A page is matched to
+    its URL by ``url``, else by position when Go answered as many pages as were asked for (or the
+    page has no ``url``); a page with ``error`` is a per-URL failure (its content kept, as Hermes'
+    vendors keep an error page); a URL Go left out gets ``NO_PAGE``. ``{error}`` fails every URL
+    with that text."""
     if not isinstance(result, dict):
         return [page_error(u, BAD_ANSWER.format(name="web_extract")) for u in urls]
     if result.get("error"):
@@ -88,7 +91,7 @@ def extract(urls: list[str], result: Any) -> list[dict[str, Any]]:
     out = []
     for i, url in enumerate(urls):
         page = by_url.get(url)
-        if page is None and i < len(pages) and not isinstance(pages[i].get("url"), str):
+        if page is None and i < len(pages) and (len(pages) == len(urls) or not isinstance(pages[i].get("url"), str)):
             page = pages[i]
         if page is None:
             out.append(page_error(url, NO_PAGE))
