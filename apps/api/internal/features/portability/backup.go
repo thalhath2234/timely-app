@@ -405,6 +405,9 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 			if err := learning.MarkRestored(tx, userID, staged.RestoredSkills); err != nil {
 				return fmt.Errorf("restore: mark restored skills: %w", err)
 			}
+			if err := forgetGoneChats(tx, userID, staged.Sessions); err != nil {
+				return err
+			}
 		}
 		if s.vetRestore != nil {
 			if err := s.vetRestore(tx, userID, fromMCP); err != nil {

@@ -4,7 +4,8 @@ Three helpers that ``boot.py`` runs for Go, each printing one JSON object:
 
 - :func:`export_state` (``agent-export``): a zip of what the account learned and talked about.
   Built with Hermes' own walker (``hermes_cli.backup._iter_backup_files``: no symlinks, no caches,
-  no SQLite sidecars) and its WAL-safe SQLite snapshot (``_zip_sqlite_snapshot``), then narrowed
+  no SQLite sidecars) and its WAL-safe SQLite copy (``_safe_copy_db``; deleted chats whose
+  ``session.delete`` still waits are dropped from the ``state.db`` copy), then narrowed
   to Timely's list: ``memories/``, ``skills/`` minus pristine bundled copies (per
   ``.bundled_manifest``), ``skills/.usage.json``, the skill ledger and ``.curator_backups/blobs``,
   ``pending/``, ``.timely/`` and a ``state.db`` snapshot. Never ``config.yaml``, ``.env*``,
@@ -168,9 +169,57 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def export_state(layout: paths.AgentLayout, account: str, out: Path) -> dict[str, Any]:
-    """Write the account's agent state to ``out`` (a zip); see the module docstring."""
-    from hermes_cli.backup import _iter_backup_files, _write_zip_file, _zip_sqlite_snapshot
+def _drop_sessions(db: Path, ids: Iterable[str]) -> list[str]:
+    """Delete ``ids`` from a database copy with Hermes' own ``delete_session`` (what ``session.delete``
+    runs for a deleted chat), then rewrite the file so no deleted page keeps their text. Returns the
+    ids that were there."""
+    import sqlite3
+    from hermes_state import SessionDB
+    gone: list[str] = []
+    sdb = SessionDB(db_path=db)
+    try:
+        for sid in dict.fromkeys(i for i in ids if isinstance(i, str) and i):
+            if sdb.delete_session(sid):
+                gone.append(sid)
+    finally:
+        sdb.close()
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("PRAGMA journal_mode=DELETE")
+        conn.execute("VACUUM")
+    finally:
+        conn.close()
+    for sidecar in ("-wal", "-shm", "-journal"):
+        Path(str(db) + sidecar).unlink(missing_ok=True)
+    return gone
+
+
+def chat_sessions(db: Path) -> list[str]:
+    """The chats a ``state.db`` holds: Timely's root sessions (one per conversation id)."""
+    import sqlite3
+    if not db.is_file():
+        return []
+    try:
+        conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            rows = conn.execute("SELECT id FROM sessions WHERE source = 'timely' AND parent_session_id IS NULL "
+                                "ORDER BY id").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    return [str(r[0]) for r in rows if r and r[0]]
+
+
+def export_state(layout: paths.AgentLayout, account: str, out: Path,
+                 drop_sessions: Iterable[str] = ()) -> dict[str, Any]:
+    """Write the account's agent state to ``out`` (a zip); see the module docstring.
+    ``drop_sessions`` are chats the person deleted whose ``session.delete`` has not reached a worker
+    yet (Go's ``agent_session_forgets``): the snapshot leaves them out (review round 6)."""
+    from hermes_cli.backup import _iter_backup_files, _write_zip_file
+    from hermes_cli.backup_sqlite import _safe_copy_db
+    drop = [str(i) for i in drop_sessions if isinstance(i, str) and i]
     home = layout.account_home(account)
     if not home.is_dir():
         raise BackupError(f"the account has no agent home ({home.name})")
@@ -196,8 +245,20 @@ def export_state(layout: paths.AgentLayout, account: str, out: Path) -> dict[str
         with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for abs_path, rel in chosen:
                 if abs_path.suffix == ".db":
-                    if _zip_sqlite_snapshot(zf, abs_path, rel, out) is None:
-                        raise BackupError(f"no consistent snapshot of {rel.as_posix()} (database busy?)")
+                    # A WAL-safe copy staged beside the zip (/tmp may be a small tmpfs), the
+                    # deleted chats dropped from state.db, then zipped.
+                    fd, snap_name = tempfile.mkstemp(prefix=".agent-db-", suffix=".db", dir=out.parent)
+                    os.close(fd)
+                    snap = Path(snap_name)
+                    try:
+                        if not _safe_copy_db(abs_path, snap):
+                            raise BackupError(f"no consistent snapshot of {rel.as_posix()} (database busy?)")
+                        if drop and rel.as_posix() == "state.db":
+                            _drop_sessions(snap, drop)
+                        _write_zip_file(zf, snap, rel.as_posix())
+                    finally:
+                        for suffix in ("", "-wal", "-shm", "-journal"):
+                            Path(str(snap) + suffix).unlink(missing_ok=True)
                 else:
                     _write_zip_file(zf, abs_path, rel.as_posix())
                 files += 1
@@ -501,8 +562,10 @@ def import_state(layout: paths.AgentLayout, account: str, zip_path: Path) -> dic
         except BaseException:
             shutil.rmtree(staged, ignore_errors=True)
             raise
+    # The chats the restored state.db holds: Go deletes those the account no longer has (a chat
+    # deleted after this backup was made), as it does for any deleted chat (review round 6).
     return {"ok": True, "staged_dir": str(staged), "restored_skills": restored, "dropped": dropped,
-            "blocked": sorted(blocked)}
+            "blocked": sorted(blocked), "sessions": chat_sessions(staged / "state.db")}
 
 
 # ---------------------------------------------------------------- reconcile

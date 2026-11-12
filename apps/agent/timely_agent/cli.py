@@ -211,7 +211,12 @@ def agent_state(command: str, layout: paths.AgentLayout, args: argparse.Namespac
         raise backup.BackupError(f"{layout.root} has no instance.json; run prepare first")
     _isolate_for_hermes(layout)
     if command == "agent-export":
-        return backup.export_state(layout, args.account, Path(args.out))
+        drop: list[str] = []
+        if args.drop_sessions:
+            drop = json.loads(Path(args.drop_sessions).read_text(encoding="utf-8"))
+            if not isinstance(drop, list) or not all(isinstance(i, str) for i in drop):
+                raise backup.BackupError("--drop-sessions must name a JSON list of conversation ids")
+        return backup.export_state(layout, args.account, Path(args.out), drop)
     return backup.import_state(layout, args.account, Path(args.zip))
 
 
@@ -225,6 +230,8 @@ def main(command: str, argv: list[str]) -> int:
                             help="prepare's answer as JSON (" + ", ".join(PREPARED_KEYS) + ")")
     if command == "agent-export":
         parser.add_argument("--out", required=True, help="the zip to write")
+        parser.add_argument("--drop-sessions", default="",
+                            help="a JSON file listing deleted chats' conversation ids to leave out of state.db")
     if command == "agent-import":
         parser.add_argument("--zip", required=True, help="the zip agent-export wrote")
     args = parser.parse_args(argv)

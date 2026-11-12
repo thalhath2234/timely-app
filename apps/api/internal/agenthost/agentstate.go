@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -63,14 +64,18 @@ type Staged struct {
 	// scan refused.
 	Dropped []string
 	Blocked []string
+	// Sessions are the chats (conversation ids) the restored state.db
+	// holds; the restore deletes those the account no longer has.
+	Sessions []string
 }
 
 // ExportState zips the account's agent state with agent-export and returns
 // the zip and its sha256. An account with no home answers ErrNoAgentState;
 // a zip above MaxStateBytes answers ErrStateTooLarge (wrapped with its size)
 // without reading it. The worker may keep running: the helper snapshots
-// state.db the WAL-safe way.
-func (s *Supervisor) ExportState(ctx context.Context, account string) ([]byte, string, error) {
+// state.db the WAL-safe way. dropSessions are deleted chats whose
+// session.delete has not reached a worker yet: the snapshot leaves them out.
+func (s *Supervisor) ExportState(ctx context.Context, account string, dropSessions []string) ([]byte, string, error) {
 	if account == "" {
 		return nil, "", errors.New("agenthost: no account")
 	}
@@ -92,7 +97,20 @@ func (s *Supervisor) ExportState(ctx context.Context, account string) ([]byte, s
 		SHA256  string `json:"sha256"`
 		Size    int64  `json:"size"`
 	}
-	if err := s.runHelper(ctx, stateTimeout, env, nil, &res, "agent-export", "--agent-dir", s.layout.Root, "--account", account, "--out", out); err != nil {
+	args := []string{"agent-export", "--agent-dir", s.layout.Root, "--account", account, "--out", out}
+	if len(dropSessions) > 0 {
+		list, err := s.stateTemp("drop", ".json")
+		if err != nil {
+			return nil, "", err
+		}
+		defer os.Remove(list)
+		data, _ := json.Marshal(dropSessions)
+		if err := os.WriteFile(list, data, 0o600); err != nil {
+			return nil, "", err
+		}
+		args = append(args, "--drop-sessions", list)
+	}
+	if err := s.runHelper(ctx, stateTimeout, env, nil, &res, args...); err != nil {
 		return nil, "", err
 	}
 	if res.Format != AgentStateFormat || res.Version != AgentStateVersion {
@@ -145,11 +163,12 @@ func (s *Supervisor) StageRestore(ctx context.Context, account string, zip []byt
 		RestoredSkills []string `json:"restored_skills"`
 		Dropped        []string `json:"dropped"`
 		Blocked        []string `json:"blocked"`
+		Sessions       []string `json:"sessions"`
 	}
 	if err := s.runHelper(ctx, stateTimeout, env, nil, &res, "agent-import", "--agent-dir", s.layout.Root, "--account", account, "--zip", in); err != nil {
 		return Staged{}, err
 	}
-	staged := Staged{Account: account, Dir: res.StagedDir, RestoredSkills: res.RestoredSkills, Dropped: res.Dropped, Blocked: res.Blocked}
+	staged := Staged{Account: account, Dir: res.StagedDir, RestoredSkills: res.RestoredSkills, Dropped: res.Dropped, Blocked: res.Blocked, Sessions: res.Sessions}
 	if err := s.checkStaged(staged); err != nil {
 		// Not ours to delete: a folder outside the account's staging names.
 		return Staged{}, err

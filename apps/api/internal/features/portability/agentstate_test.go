@@ -23,12 +23,17 @@ type fakeAgent struct {
 	commitErr error
 	restored  []string
 	blocked   []string
+	sessions  []string
+	dropped   [][]string
 	staged    [][]byte
 	committed []agenthost.Staged
 	discarded []agenthost.Staged
 }
 
-func (f *fakeAgent) ExportState(_ context.Context, _ string) ([]byte, string, error) {
+func (f *fakeAgent) ExportState(_ context.Context, _ string, drop []string) ([]byte, string, error) {
+	f.mu.Lock()
+	f.dropped = append(f.dropped, drop)
+	f.mu.Unlock()
 	if f.exportErr != nil {
 		return nil, "", f.exportErr
 	}
@@ -42,7 +47,7 @@ func (f *fakeAgent) StageRestore(_ context.Context, account string, zip []byte) 
 	if f.stageErr != nil {
 		return agenthost.Staged{}, f.stageErr
 	}
-	return agenthost.Staged{Account: account, Dir: fmt.Sprintf("staged-%d", len(f.staged)), RestoredSkills: f.restored, Blocked: f.blocked}, nil
+	return agenthost.Staged{Account: account, Dir: fmt.Sprintf("staged-%d", len(f.staged)), RestoredSkills: f.restored, Blocked: f.blocked, Sessions: f.sessions}, nil
 }
 
 func (f *fakeAgent) CommitRestore(_ context.Context, staged agenthost.Staged) error {

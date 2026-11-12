@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
+
 	"timely-api/internal/agenthost"
 )
 
@@ -16,7 +18,7 @@ import (
 // (*agenthost.Supervisor; plan 6.5, Q-3.4). Without one, backups carry no
 // agent state and a restore says it left the backup's out.
 type AgentStore interface {
-	ExportState(ctx context.Context, account string) (zip []byte, sha string, err error)
+	ExportState(ctx context.Context, account string, dropSessions []string) (zip []byte, sha string, err error)
 	StageRestore(ctx context.Context, account string, zip []byte) (agenthost.Staged, error)
 	CommitRestore(ctx context.Context, staged agenthost.Staged) error
 	DiscardRestore(staged agenthost.Staged) error
@@ -66,7 +68,14 @@ func (s *Service) exportAgent(ctx context.Context, userID string) (*AgentState, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, agentStateTimeout)
 	defer cancel()
-	zip, sha, err := s.agent.ExportState(ctx, userID)
+	// A chat deleted while no worker ran still waits for its session.delete:
+	// the backup leaves its transcript out (review round 6).
+	var forgotten []string
+	if err := s.db.Raw(`SELECT conversation_id FROM agent_session_forgets WHERE user_id = ? ORDER BY conversation_id`, userID).Scan(&forgotten).Error; err != nil {
+		log.Printf("backup %s: agent state left out: %v", safeAccountDirectory(userID), err)
+		return nil, []string{warnAgentUnreadable}
+	}
+	zip, sha, err := s.agent.ExportState(ctx, userID, forgotten)
 	if err == nil && len(zip) > agenthost.MaxStateBytes {
 		err = agenthost.ErrStateTooLarge
 	}
@@ -126,6 +135,26 @@ func (s *Service) stageAgent(userID string, state *AgentState) (*agenthost.Stage
 		log.Printf("restore %s: agent state: left out %d path(s): %s", safeAccountDirectory(userID), len(staged.Dropped), strings.Join(staged.Dropped, "; "))
 	}
 	return &staged, warnings
+}
+
+// forgetGoneChats queues session.delete for each chat the staged state.db
+// holds that the account no longer has (deleted after the backup was
+// made): restore never brings chats back, so nothing else would delete it,
+// and it would ride along in every later backup (review round 6). The
+// worker sends them at the account's next run, as for any deleted chat.
+func forgetGoneChats(tx *gorm.DB, userID string, sessions []string) error {
+	for _, cid := range sessions {
+		if cid == "" {
+			continue
+		}
+		err := tx.Exec(`INSERT INTO agent_session_forgets (user_id, conversation_id, created_at)
+			SELECT ?, ?, now() WHERE NOT EXISTS (SELECT 1 FROM agent_conversations WHERE id = ? AND user_id = ?)
+			ON CONFLICT DO NOTHING`, userID, cid, cid, userID).Error
+		if err != nil {
+			return fmt.Errorf("restore: forget deleted chats: %w", err)
+		}
+	}
+	return nil
 }
 
 // commitAgent swaps the staged agent state in once the rows committed. A

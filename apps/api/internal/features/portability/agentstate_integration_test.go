@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -554,5 +555,43 @@ func TestIntegrationRestoreOlderSchema3LearningRows(t *testing.T) {
 	}
 	if got := learningSettings(t, db, uid); got.Learning || got.SkillsDisabled != "[]" {
 		t.Fatalf("settings after restore: %+v", got)
+	}
+}
+
+// Review round 6: a chat deleted while no worker ran waits in
+// agent_session_forgets; the backup's export leaves its session out. A
+// restored state.db that holds chats the account no longer has (deleted
+// after the backup) queues their session.delete, and keeps the chats it has.
+func TestIntegrationBackupLeavesOutAndForgetsDeletedChats(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_forgets"
+	agentAccount(t, db, uid)
+	for _, q := range []string{
+		`INSERT INTO agent_session_forgets (user_id, conversation_id, created_at) VALUES (?, 'cnv_deleted_waiting', now())`,
+		`INSERT INTO agent_conversations (id, user_id, title) VALUES ('cnv_kept_r6', ?, 'Kept')`,
+	} {
+		if err := db.Exec(q, uid).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent := &fakeAgent{zip: []byte("agent zip"), sessions: []string{"cnv_kept_r6", "cnv_deleted_since", "cnv_deleted_waiting"}}
+	service := NewService(db, nil)
+	service.SetAgentState(agent)
+	backup, err := service.ExportAccount(context.Background(), uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agent.dropped) != 1 || len(agent.dropped[0]) != 1 || agent.dropped[0][0] != "cnv_deleted_waiting" {
+		t.Fatalf("export left out %v, want the waiting delete", agent.dropped)
+	}
+	if _, err := service.Restore(uid, strictCopy(t, backup)); err != nil {
+		t.Fatal(err)
+	}
+	var waiting []string
+	if err := db.Raw(`SELECT conversation_id FROM agent_session_forgets WHERE user_id = ? ORDER BY conversation_id`, uid).Scan(&waiting).Error; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(waiting, ",") != "cnv_deleted_since,cnv_deleted_waiting" {
+		t.Fatalf("session deletes after restore: %v", waiting)
 	}
 }

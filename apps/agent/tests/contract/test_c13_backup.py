@@ -247,6 +247,41 @@ def test_c13_state_db_comes_back_with_the_session(restored):
     assert hits >= 1 and sessions >= 1
 
 
+def test_c13_import_lists_the_chats_its_state_db_holds(restored):
+    """Go deletes a restored chat the account no longer has (deleted after the backup), so the
+    import names the chats the restored state.db holds (review round 6)."""
+    _dst, res = restored
+    assert res["sessions"] == ["c13-conv"], res
+
+
+def test_c13_export_leaves_out_a_deleted_chat_whose_delete_waits(src):
+    """A chat deleted while no worker ran waits in agent_session_forgets; the export Go runs then
+    leaves its session out of the state.db snapshot, with no deleted page keeping its text
+    (review round 6)."""
+    root = harness.new_root("c13drop")
+    drop = root / "drop.json"
+    drop.write_text(json.dumps(["c13-conv", "never-there"]), encoding="utf-8")
+    out = root / "dropped.zip"
+    cli("agent-export", src, "--account", UID, "--out", str(out), "--drop-sessions", str(drop))
+    with zipfile.ZipFile(out) as zf:
+        raw = zf.read("state.db")
+    assert b"c13-marker" not in raw
+    snap = root / "snap.db"
+    snap.write_bytes(raw)
+    conn = sqlite3.connect(snap)
+    try:
+        assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert conn.execute("SELECT COUNT(*) FROM sessions WHERE id = 'c13-conv'").fetchone()[0] == 0
+    finally:
+        conn.close()
+    assert (src.home / "state.db").is_file()
+    live = sqlite3.connect(f"{(src.home / 'state.db').as_uri()}?mode=ro", uri=True)
+    try:  # the live home is untouched: the worker's session.delete still settles it
+        assert live.execute("SELECT COUNT(*) FROM sessions WHERE id = 'c13-conv'").fetchone()[0] == 1
+    finally:
+        live.close()
+
+
 def test_c13_committed_restore_is_swapped_in_and_undo_works_in_the_new_home(src, restored):
     """After Go's commit, reconcile swaps the staged home in; the restored skill and its history
     work there (a rollback of its ledger entry finds the rewritten paths)."""

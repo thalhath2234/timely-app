@@ -162,11 +162,11 @@ func TestStagedFolderMustBeTheAccounts(t *testing.T) {
 // without running anything; one with a home needs the runtime.
 func TestExportStateWithoutAHomeOrARuntime(t *testing.T) {
 	sup := New(Config{Root: testRoot(t), Logf: newTestLog(t).logf})
-	if _, _, err := sup.ExportState(context.Background(), "acct-1"); !errors.Is(err, ErrNoAgentState) {
+	if _, _, err := sup.ExportState(context.Background(), "acct-1", nil); !errors.Is(err, ErrNoAgentState) {
 		t.Fatalf("no home: %v", err)
 	}
 	writeFile(t, filepath.Join(sup.Layout().Home("acct-1"), "memories", "USER.md"), "x")
-	if _, _, err := sup.ExportState(context.Background(), "acct-1"); !errors.Is(err, ErrNoRuntime) {
+	if _, _, err := sup.ExportState(context.Background(), "acct-1", nil); !errors.Is(err, ErrNoRuntime) {
 		t.Fatalf("no runtime: %v", err)
 	}
 	if _, err := sup.StageRestore(context.Background(), "acct-1", []byte("zip")); !errors.Is(err, ErrNoRuntime) {
@@ -224,7 +224,7 @@ func TestExportStateChecksTheHelpersZip(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			sup := scriptSupervisor(t, c.body)
 			writeFile(t, filepath.Join(sup.Layout().Home("acct-1"), "memories", "USER.md"), "x")
-			zip, sha, err := sup.ExportState(context.Background(), "acct-1")
+			zip, sha, err := sup.ExportState(context.Background(), "acct-1", nil)
 			if c.want != nil {
 				if !errors.Is(err, c.want) || !strings.Contains(err.Error(), c.wantText) {
 					t.Fatalf("err = %v, want %v with %q", err, c.want, c.wantText)
