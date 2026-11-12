@@ -466,8 +466,10 @@ func TestIntegrationRestoreKeepsLearningSwitchesWithoutAgentState(t *testing.T) 
 				FROM agent_learning_settings WHERE user_id = ?`, uid).Scan(&row).Error; err != nil {
 				t.Fatal(err)
 			}
-			if row.Learning || row.SearchHistory || !row.Copied || row.SkillsDisabled != "[]" {
-				t.Fatalf("settings after restore: %+v", row)
+			// The backup's use_case_copied_at describes its own home, not the
+			// one this account keeps (review round 7): the next ready copies.
+			if row.Learning || row.SearchHistory || row.Copied || row.SkillsDisabled != "[]" {
+				t.Fatalf("settings after restore: %+v (want the backup's switches, no copied mark)", row)
 			}
 			if countRows(t, db, "agent_learning_events", uid) != 0 {
 				t.Fatal("the backup's feed came back without its agent home")
@@ -518,6 +520,50 @@ func TestIntegrationRestoreKeepsUseCaseCopiedWithoutAgentState(t *testing.T) {
 			}
 			if !row.Learning || row.SearchHistory || !row.Copied {
 				t.Fatalf("settings after restore: %+v (want the backup's switches, the account's copied mark)", row)
+			}
+		})
+	}
+}
+
+// Review round 7: a restore that keeps the account's agent home never takes
+// the backup's use_case_copied_at. The kept home never got that copy, so the
+// mark stays NULL and the next worker ready copies "What you use Timely for"
+// into About you (Q-3.3).
+func TestIntegrationRestoreKeepsNoUseCaseMarkFromTheBackup(t *testing.T) {
+	db := migratedDB(t)
+	cases := []struct {
+		name  string
+		agent *fakeAgent
+	}{
+		{"over the cap", &fakeAgent{exportErr: fmt.Errorf("%w: 70 MB", agenthost.ErrStateTooLarge)}},
+		{"stage fails", &fakeAgent{zip: []byte("agent zip"), stageErr: fmt.Errorf("%w: not a zip", agenthost.ErrHelperFailed)}},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uid := fmt.Sprintf("usr_portability_nomark_%d", i)
+			agentAccount(t, db, uid)
+			if err := db.Exec(`UPDATE agent_learning_settings SET learning = true, use_case_copied_at = now() WHERE user_id = ?`, uid).Error; err != nil {
+				t.Fatal(err)
+			}
+			service := NewService(db, nil)
+			service.SetAgentState(tc.agent)
+			backup, err := service.ExportAccount(context.Background(), uid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The account's home has no copy (a new server's fresh home).
+			if err := db.Exec(`UPDATE agent_learning_settings SET use_case_copied_at = NULL WHERE user_id = ?`, uid).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Restore(uid, strictCopy(t, backup)); err != nil {
+				t.Fatal(err)
+			}
+			var copied bool
+			if err := db.Raw(`SELECT use_case_copied_at IS NOT NULL FROM agent_learning_settings WHERE user_id = ?`, uid).Scan(&copied).Error; err != nil {
+				t.Fatal(err)
+			}
+			if copied {
+				t.Fatal("use_case_copied_at set after a restore that kept a home without the copy")
 			}
 		})
 	}

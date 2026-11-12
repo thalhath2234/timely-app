@@ -653,33 +653,30 @@ func (s *Service) putBackAgentRows(userID string, rows map[string][]json.RawMess
 // (creating it). They are the person's choices, not the agent home's, so
 // they come back even when the home stays as it is; the skill lists stay
 // the account's, as they must match its home. use_case_copied_at is a fact
-// about the home (its About you already holds the copy), so the account's
-// mark is never cleared: a backup taken before the copy would otherwise
-// have the next worker ready copy it into the kept home again (Q-3.3, review
-// round 6). Nothing to do for a backup without the row.
+// about the home (its About you already holds the copy), and this home is
+// the account's own, so the backup's mark is never taken here: the
+// account's stays as it is (NULL on a new row), so the next worker ready
+// copies "What you use Timely for" into a kept home that never got it, and
+// never twice into one that did (Q-3.3, review rounds 6 and 7). Only a
+// restore that swaps the backup's home in takes the backup's mark, with its
+// rows. Nothing to do for a backup without the row.
 func restoreLearningSwitches(tx *gorm.DB, userID string, backup *Backup) error {
 	rows := backup.Rows["agent_learning_settings"]
 	if len(rows) == 0 {
 		return nil
 	}
 	var row struct {
-		Learning        *bool   `json:"learning"`
-		SearchHistory   *bool   `json:"search_history"`
-		UseCaseCopiedAt *string `json:"use_case_copied_at"`
+		Learning      *bool `json:"learning"`
+		SearchHistory *bool `json:"search_history"`
 	}
 	if err := json.Unmarshal(rows[0], &row); err != nil {
 		return fmt.Errorf("restore learning switches: %w", err)
 	}
 	learningOn, searchOn := row.Learning == nil || *row.Learning, row.SearchHistory == nil || *row.SearchHistory
-	var copiedAt any
-	if row.UseCaseCopiedAt != nil && *row.UseCaseCopiedAt != "" {
-		copiedAt = *row.UseCaseCopiedAt
-	}
-	return tx.Exec(`INSERT INTO agent_learning_settings (user_id, learning, search_history, use_case_copied_at)
-		VALUES (?, ?, ?, CAST(? AS timestamptz))
-		ON CONFLICT (user_id) DO UPDATE SET learning = EXCLUDED.learning, search_history = EXCLUDED.search_history,
-			use_case_copied_at = COALESCE(agent_learning_settings.use_case_copied_at, EXCLUDED.use_case_copied_at), updated_at = now()`,
-		userID, learningOn, searchOn, copiedAt).Error
+	return tx.Exec(`INSERT INTO agent_learning_settings (user_id, learning, search_history)
+		VALUES (?, ?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET learning = EXCLUDED.learning, search_history = EXCLUDED.search_history, updated_at = now()`,
+		userID, learningOn, searchOn).Error
 }
 
 // clearAccountData deletes the rows a restore replaces; withAgent also
