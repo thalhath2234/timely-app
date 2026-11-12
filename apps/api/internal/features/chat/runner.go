@@ -480,8 +480,12 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 		messages = append(messages, WireMessage{Role: "user", Content: s.tagNotice(ctx, c.UserID, tags)})
 	}
 	messages = append(messages, c.Transcript...)
-	// What this run did with the bot tools, a resumed lease included.
-	run := &toolRun{catalog: catalog, loc: loc, tags: tags, answerOnly: answerOnly, searchOn: searchOn, targets: targets, offered: offered, bots: replayBotRun(c.Transcript), reads: map[string]string{}}
+	// What this run did with the bot tools, a resumed lease included. A chat
+	// that already read outside text is tainted from the start, on classic
+	// as on the agent engine: its first search is search-only, and a page
+	// read follows the exfiltration rule's second line (review round 7).
+	run := &toolRun{catalog: catalog, loc: loc, tags: tags, answerOnly: answerOnly, searchOn: searchOn, targets: targets, offered: offered, bots: replayBotRun(c.Transcript), reads: map[string]string{},
+		taintSeen: len(c.TaintedSources) > 0}
 	nudges := 0
 	for turn := 0; turn < 12; turn++ {
 		if err := ctx.Err(); err != nil {

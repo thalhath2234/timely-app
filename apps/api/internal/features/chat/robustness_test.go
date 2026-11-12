@@ -301,6 +301,47 @@ func TestIntegrationWebSearchSkipsBlankQueriesAndStopsAfterFailures(t *testing.T
 	}
 }
 
+// onlyProbe answers the run's calls from main and records whether each web
+// search sub-call was asked to search only.
+type onlyProbe struct {
+	main *scripted
+	only []bool
+}
+
+func (p *onlyProbe) Complete(ctx context.Context, messages []WireMessage, tools []any, search bool) (WireMessage, error) {
+	if search {
+		p.only = append(p.only, SearchOnly(ctx))
+		return WireMessage{Role: "assistant", Content: "an answer"}, nil
+	}
+	return p.main.Complete(ctx, messages, tools, search)
+}
+
+// Review round 7: on classic, a chat that already read outside text
+// (tainted_sources) searches search-only from its first search, as the agent
+// engine does; a clean chat's first search does not.
+func TestIntegrationClassicSearchInATaintedChatIsSearchOnly(t *testing.T) {
+	db := integrationDB(t)
+	for _, tainted := range []bool{false, true} {
+		probe := &onlyProbe{main: &scripted{responses: []WireMessage{
+			call("web_search", map[string]string{"query": "weather tomorrow"}),
+			{Role: "assistant", Content: "Sunny."},
+		}}}
+		s := New(db, readCatalog, probe)
+		c := planFixture(t, db)
+		c.WebSearch = true
+		if tainted {
+			c.TaintedSources = TaintSources{{Kind: "web", Tool: "web_extract", Host: "news.example"}}
+		}
+		db.Save(&c)
+		if err := s.plan(context.Background(), &c); err != nil {
+			t.Fatal(err)
+		}
+		if len(probe.only) != 1 || probe.only[0] != tainted {
+			t.Fatalf("tainted chat %v: search-only marks %v", tainted, probe.only)
+		}
+	}
+}
+
 func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T) {
 	db := integrationDB(t)
 	model := &scripted{responses: []WireMessage{
