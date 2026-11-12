@@ -86,7 +86,6 @@ TIMELY_SEAMS = [
     ("advisory threat scan of untrusted output", "agent/tool_dispatch_helpers.py", "_tool_output_risk_metadata"),
     ("web_extract secret-URL block", "tools/web_tools_extract.py", "_validate_extract_urls"),
     ("web_extract entry (validation before the backend)", "tools/web_tools.py", "web_extract_tool"),
-    ("transform_tool_result hook", "model_tools.py", "_apply_transform_tool_result_hook"),
     ("url safety: is_safe_url", "tools/url_safety.py", "is_safe_url"),
     ("threat scan: first_threat_message", "tools/threat_patterns.py", "first_threat_message"),
     ("threat scan: scan_for_threats", "tools/threat_patterns.py", "scan_for_threats"),

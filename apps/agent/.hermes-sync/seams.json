@@ -427,14 +427,6 @@
       "signature": "async def web_extract_tool(urls: list[Any], format: str | None=None, char_limit: Optional[int]=None) -> str",
       "sha256": "cc07d270be812107f46622d273fe00157e7f67f5349facbe653ed2009c75b3a4"
     },
-    "transform_tool_result hook": {
-      "file": "model_tools.py",
-      "qualname": "_apply_transform_tool_result_hook",
-      "line": 862,
-      "end_line": 879,
-      "signature": "def _apply_transform_tool_result_hook(function_name: str, function_args: dict[str, Any], result: Any, duration_ms: int, ids: _CallIds) -> Any",
-      "sha256": "abe49aaf03fa1baddbe024613a5b06506314aed6105890a96ba7447c6e130306"
-    },
     "url safety: is_safe_url": {
       "file": "tools/url_safety.py",
       "qualname": "is_safe_url",
@@ -946,6 +938,14 @@
       "end_line": 1959,
       "signature": "def _get_pre_tool_call_directive_details(tool_name: str, args: Optional[dict[str, Any]], task_id: str='', session_id: str='', tool_call_id: str='', turn_id: str='', api_request_id: str='', middleware_trace: Optional[list[dict[str, Any]]]=None) -> _PreToolCallDirective",
       "sha256": "07739ecb916cddb0ef90fe6b507ff10cbfd1f0baa4578bf5a1385dd93dc19345"
+    },
+    "transform_tool_result hook": {
+      "file": "model_tools.py",
+      "qualname": "_apply_transform_tool_result_hook",
+      "line": 862,
+      "end_line": 879,
+      "signature": "def _apply_transform_tool_result_hook(function_name: str, function_args: dict[str, Any], result: Any, duration_ms: int, ids: _CallIds) -> Any",
+      "sha256": "abe49aaf03fa1baddbe024613a5b06506314aed6105890a96ba7447c6e130306"
     },
     "session_search inline executor": {
       "file": "agent/inline_tool_executors.py",
