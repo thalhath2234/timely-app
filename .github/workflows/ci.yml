@@ -147,6 +147,10 @@ jobs:
       run:
         shell: bash
     steps:
+      # Git for Windows checks text out with CRLF (core.autocrlf=true); the agent runtime
+      # needs the committed bytes (apps/agent/.gitattributes says so too).
+      - name: Check files out as committed
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
@@ -194,6 +198,10 @@ jobs:
       run:
         shell: bash
     steps:
+      # Git for Windows checks text out with CRLF (core.autocrlf=true); the agent runtime
+      # needs the committed bytes (apps/agent/.gitattributes says so too).
+      - name: Check files out as committed
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false

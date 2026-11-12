@@ -762,3 +762,35 @@ test("docker compose pins the image's agent runtime, so the shared root .env can
   assert.match(env, new RegExp(`\\n      TIMELY_AGENT_RUNTIME: ${runtime}\\n`));
   assert.match(env, /\n      TIMELY_DATA_DIR: \/data\n/);
 });
+
+// ------------------------------------------------------------ Windows checkouts
+
+test("apps/agent is checked out byte for byte on every OS, so skill tree ids match skills-reviewed.json", () => {
+  // Git for Windows defaults to core.autocrlf=true: an extensionless LICENSE in a seed skill
+  // came out with CRLF, its tree id changed and the Windows stage's seed check failed.
+  const attrs = readFileSync(path.join(repo, "apps/agent/.gitattributes"), "utf8");
+  assert.match(attrs, /^\* -text$/m);
+  const probe = ["apps/agent/hermes/skills/creative/humanizer/LICENSE", "apps/agent/timely_agent/seed.py", "apps/agent/packaging/boot.py"];
+  const r = spawnSync("git", ["check-attr", "text", "eol", "--", ...probe], { cwd: repo, encoding: "utf8" });
+  if (r.status !== 0) return; // not a git checkout (the Docker build stage)
+  const humanizer = r.stdout.split("\n").filter((l) => l.startsWith(probe[0]));
+  assert.ok(humanizer.some((l) => l.endsWith(": text: unset")), r.stdout);
+});
+
+test("every Windows job turns core.autocrlf off before checking out", () => {
+  const jobs = { ".github/workflows/ci.yml": ["agent-windows", "agent-stage"], ".github/workflows/release.yml": ["desktop"] };
+  for (const [file, names] of Object.entries(jobs)) {
+    const text = readFileSync(path.join(repo, file), "utf8");
+    for (const name of names) {
+      const start = text.indexOf(`\n  ${name}:\n`);
+      assert.ok(start >= 0, `${file} ${name}`);
+      const rest = text.slice(start + 1);
+      const next = rest.slice(1).search(/\n {2}[a-z][a-z0-9-]*:\n/);
+      const job = next < 0 ? rest : rest.slice(0, next + 1);
+      assert.match(job, /windows-latest/, `${file} ${name} runs on Windows`);
+      const off = job.indexOf("git config --global core.autocrlf false");
+      const checkout = job.indexOf("uses: actions/checkout@");
+      assert.ok(off >= 0 && off < checkout, `${file} ${name}: core.autocrlf false before actions/checkout`);
+    }
+  }
+});

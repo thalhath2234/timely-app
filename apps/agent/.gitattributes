@@ -1,0 +1,6 @@
+# Check every file out exactly as committed, on every OS. Git for Windows defaults to
+# core.autocrlf=true, which rewrote line endings of files no rule below hermes/ covers (the
+# LICENSE of a seed skill), so the skill's git tree id no longer matched skills-reviewed.json
+# and the Windows stage failed. Hermes' own hermes/.gitattributes is more specific and still
+# wins for the files it names (its *.ps1 are CRLF everywhere).
+* -text
