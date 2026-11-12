@@ -124,8 +124,8 @@ read-only Timely skills copy) lands in `/data/agent`, on the same `apidata` volu
 the API's data, so back up that volume. Terminal and file tools the agent is allowed to run act
 inside the container, on its filesystem and network, not on the Docker host (ADR 0026).
 
-The image is about 1.08 GB on disk (259 MB compressed content), against 104 MB for the old Alpine
-image. `make docker-agent-smoke` builds it for linux/amd64 and checks the runtime read-only as uid
+The image is about 904 MB on disk (about 220 MB as a gzipped `docker save`), against 104 MB for the
+old Alpine image. `make docker-agent-smoke` builds it for linux/amd64 and checks the runtime read-only as uid
 10001, a real worker inside the image on a stub model, and the API against a throwaway PostgreSQL.
 The Dockerfile maps `TARGETARCH=arm64` to the linux-arm64 runtime, but no arm64 image has been built
 or run yet.

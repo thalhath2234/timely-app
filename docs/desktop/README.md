@@ -462,7 +462,9 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   compileall and the checks always run, so a re-stage after a source change takes about 10-15 s.
   `make clean-agent-stage` deletes every stage and keeps the download cache.
 - **Trims.** `include/`, `share/`, `idlelib`, `tkinter`, `turtledemo`, `ensurepip`, Tcl/Tk, the
-  interpreter's own `pip` and the `pydoc`/`idle`/`-config` scripts (22 MB on linux-x64). The stdlib
+  interpreter's own `pip` and the `pydoc`/`idle`/`-config` scripts, and on Linux `lib/libpython3*.so*`
+  (131 MB: the interpreter is linked statically and never loads it; the interpreter check below runs
+  the trimmed interpreter), 153 MB on linux-x64 in all. The stdlib
   `test` package is dropped when nothing staged imports it (python-build-standalone 3.14.9 ships
   none). The CPython licence stays.
 - **What of the source ships.** `app/hermes/skills/` holds only the seed set (reviewed in
@@ -478,9 +480,11 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
 - **Bytecode.** `compileall -j0 --invalidation-mode unchecked-hash` over `app/` and the stdlib.
   Installers do not keep source mtimes, and the packaged worker never writes bytecode (the
   `boot.py` shim sets `sys.dont_write_bytecode`, since `-I` ignores `PYTHONDONTWRITEBYTECODE`).
+  A `.pyc` whose path would pass the 150-character rule below is deleted again and its module
+  imports from source (one file of `anthropic` 0.125.0 at Hermes v0.23.0; the stage log names each).
 - **Checks** (any failure lists every problem and writes no `MANIFEST.json`): no symlink with an
   absolute target or one that resolves outside the root; no path over 150 characters relative to
-  the agent root, counted after compileall; no staged text file containing the absolute stage path
+  the agent root, counted after compileall (and after over-long bytecode is dropped); no staged text file containing the absolute stage path
   (the v0.1.1 class of bug); no browser (`playwright`, `pyppeteer`, Chromium or a Chrome binary:
   Timely never bundles Chromium and uses the installed Chrome or Edge, ADR 0022); every installed
   distribution has a licence file or licence metadata; the interpreter starts and reports the
@@ -494,12 +498,11 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   folders of an `extraResources` tree without a word. Empty folders are not compared:
   electron-builder drops them, and the runtime does not need them.
 
-Measured on linux-x64 (2026-11-13, Hermes v0.23.0): 21,399 files, 573 MB unpacked (python/ 230 MB,
-app/site-packages/ 210 MB, app/hermes/ 132 MB, app/timely_agent/ 1 MB), about 122 MB as an xz tarball.
-The AppImage of "Timely Dev" grew about 203 MB (about 128 MB under xz) against the 0.3.4 one; plan 11.4
-estimated +105 MB compressed and 420-460 MB unpacked. Most of the difference is the unstripped
-python-build-standalone build: `bin/python3.14` (75 MB) and `lib/libpython3.14.so.1.0` (131 MB, which
-the statically linked interpreter does not load) carry debug info. Windows and macOS sizes are not
+Measured on linux-x64 (2026-11-13, Hermes v0.23.0, without `libpython`): 21,396 files, 442 MB
+unpacked (app/ 343 MB: site-packages 210 MB, hermes 132 MB, timely_agent 1 MB; python/ 99 MB), about
+107 MB as an xz tarball and 157 MB under gzip. Plan 11.4 estimated 420-460 MB unpacked and +105 MB
+compressed. `bin/python3.14` (75 MB) still carries debug info; stripping it is not done (the lock pins
+the `install_only` build, and the Docker build has no `strip`). Windows and macOS sizes are not
 measured yet.
 
 **Smoke test.** `node electron/smoke-agent.mjs [--root <agent dir>] [--read-only]`
@@ -520,7 +523,26 @@ make clean-agent-stage
 ```
 
 Permissions are restored afterwards in every case. On this Linux machine the read-only smoke took
-about 4 s (prepare 0.2 s, the Go worker test 3.4 s).
+about 4 s (prepare 0.2 s, the Go worker test 3.1 s).
+
+**The whole app from a read-only install, locally** (how phase 3b's exit was checked, 2026-11-13).
+Build the release flavour unpacked (`TIMELY_RELEASE=1 make build-desktop`), copy
+`apps/web/release/linux-unpacked` elsewhere and `chmod -R a-w` the copy, then start its `Timely`
+binary with `env -i` and only what a person's desktop session has: a throwaway `HOME`, a `PATH`
+that holds nothing but the CLIs you want the app to find (no `node`, `python`, `uv` or `go`), a
+`SHELL` that does not exist (so the login-shell `PATH` lookup falls back to that `PATH`),
+`--user-data-dir=<throwaway>` with a `config.json` that sets `postgresPort`, `apiPort` and
+`webPort` off the ports anything else uses, and `--password-store=basic`. Without Xvfb, a headless
+compositor works: `kwin_wayland --virtual --socket <name>` and `--ozone-platform=wayland`
+(Electron 44's `--ozone-platform=headless` crashes). Compare a listing of the install copy (path,
+size, mtime, mode) before and after: nothing in it may change. The supervisor's boot line in
+`logs/supervisor.log` names `agent=<resources>/agent`, and the worker shows in the process list as
+`<resources>/agent/python/bin/python3 -I <resources>/agent/boot.py worker`.
+
+Account homes stay owner-writable even then: the seed tree is made owner-writable after it is
+copied from the install (Hermes copies it into each home keeping the modes), and "Back up now"
+renames its partial copies into place and can prune and restore homes that hold read-only
+folders.
 
 ### Signing and notarization
 
