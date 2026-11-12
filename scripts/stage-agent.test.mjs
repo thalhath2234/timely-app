@@ -623,3 +623,14 @@ test("the docker CI job runs on a PR that changes anything the image copies or i
   assert.ok(sources.includes("Makefile") && sources.includes("apps/api"));
   for (const src of [...sources, "apps/api/Dockerfile", "scripts/docker-agent-smoke.sh"]) assert.ok(covered(src), `${src} is not in the docker job's filter`);
 });
+
+test("docker compose pins the image's agent runtime, so the shared root .env cannot point it at a host path", () => {
+  const docker = readFileSync(path.join(repo, "apps/api/Dockerfile"), "utf8");
+  const runtime = /TIMELY_AGENT_RUNTIME=(\S+)/.exec(docker)?.[1];
+  assert.equal(runtime, "/app/agent");
+  const compose = readFileSync(path.join(repo, "docker-compose.yml"), "utf8");
+  const api = compose.slice(compose.indexOf("\n  api:"));
+  const env = `${api.slice(api.indexOf("    environment:"), api.indexOf("\n    ports:"))}\n`;
+  assert.match(env, new RegExp(`\\n      TIMELY_AGENT_RUNTIME: ${runtime}\\n`));
+  assert.match(env, /\n      TIMELY_DATA_DIR: \/data\n/);
+});
