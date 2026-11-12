@@ -340,7 +340,9 @@ SYMBOLS: dict[str, list[str] | None] = {
     "hermes_cli.plugins:PluginContext.register_tool": ["name", "toolset", "schema", "handler", "description"],
     "hermes_cli.plugins:PluginContext.register_hook": ["hook_name", "callback"],
     "tools.registry:registry.get_tool_names_for_toolset": ["toolset"],
-    "hermes_state:SessionDB.get_messages_as_conversation": [],
+    # the exfiltration rule reads archived rows too; seeded rows carry their own message_uid
+    "hermes_state:SessionDB.get_messages_as_conversation": ["include_inactive", "include_row_ids"],
+    "agent.message_metadata:MESSAGE_UID": None,
     "hermes_state:SessionDB.delete_session": [],
     "hermes_state:SessionDB.ensure_session": ["source", "model"],
     "hermes_state:SessionDB.append_messages_batch": [],

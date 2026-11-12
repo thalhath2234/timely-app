@@ -33,6 +33,11 @@ BLOCKED_TOOLS = frozenset({
 })
 BLOCKED_PREFIXES = ("kanban_", "meet_")  # meet_: the opt-in google_meet plugin (joins calls, speaks)
 
+# The message_uid prefix of a history row run_chat seeded from Go's run.start.history: a seeded
+# reply stands for turns whose tool results the worker no longer holds (archived by a reseed, or
+# run by classic), so the exfiltration rule counts its text as the person's data.
+SEED_UID_PREFIX = "timely-seed-"
+
 # Every tools.yaml entry with `phase: never` must be blocked by the names above;
 # scripts/hermes-sync/check_policy.py fails the sync check when one is not.
 

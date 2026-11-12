@@ -337,3 +337,58 @@ def test_learned_skill_text_is_the_persons_data(stub):
     assert len(results) == 4 and "Halvorsen" in results[1], results
     assert egress.SEARCH_BLOCKED in results[2] and egress.SEARCH_BLOCKED in results[3], results
     assert done["completed"] is True, done
+
+
+FALCON_QUERY = "Project Falcon budget 48,000 dollars Dana Whitfield"
+TAINT = [{"kind": "web", "tool": "web_extract", "host": "news.example"}]
+
+
+def _search_after_seed(stub, a: harness.Agent, root: Path, run_id: str, conversation: str, **seed) -> list:
+    """A tainted turn whose model searches for the notes an earlier turn restated; Go's run.start
+    carries ``seed`` (``history``, ``reseed``). Returns the calls Go was asked about."""
+    w, _log = _start(a, root)
+    marker = f"SCRIPT-{run_id}"
+    script = [{"calls": [["web_search", {"query": FALCON_QUERY}]]}, {"text": f"done {marker}"}]
+    try:
+        w.send(harness.run_start(a, stub, run_id=run_id, conversation=conversation, toolsets=TOOLSETS, flags=WEB,
+                                 budgets={}, tainted_sources=TAINT,
+                                 text="SCRIPT " + json.dumps(script) + f"\n{marker}", **seed))
+        done, seen = harness.drive(w, a.account, run_id, answer=answer({}), verdict=("allow", ""))
+    finally:
+        w.close()
+    assert done["completed"] is True, done
+    results = _tool_results(stub, marker)
+    assert egress.SEARCH_BLOCKED in results[-1], results[-1]
+    return [(m["type"], m.get("tool") or m.get("name")) for m in seen if m["type"] in ("gate.ask", "tool.call")]
+
+
+def test_reseeded_history_keeps_earlier_timely_reads_out_of_a_tainted_search(stub):
+    """After a Stop or a failed run Go reseeds the chat (``reseed``: the person's words and the
+    replies only), which archives the turn that read the notes. The reply restating them is still in
+    the model's context, so a tainted search carrying them is blocked before Go is asked."""
+    root = harness.new_root("cweb7")
+    a = harness.Agent(root)
+    reply = "Your notes say: " + NOTES
+    w, _log = _start(a, root)
+    try:
+        script = [{"calls": [["get_doc", {"id": "notes-1"}]]}, {"text": reply}]
+        w.send(harness.run_start(a, stub, run_id="cweb7a", conversation="c-web7", toolsets=TOOLSETS, flags=WEB,
+                                 budgets={}, text="SCRIPT " + json.dumps(script) + "\nWhat do my notes say?"))
+        done, _seen = harness.drive(w, a.account, "cweb7a", answer=answer({}), verdict=("allow", ""))
+        assert done["completed"] is True, done
+    finally:
+        w.close()
+    history = [{"role": "user", "content": "What do my notes say?"}, {"role": "assistant", "content": reply}]
+    asked = _search_after_seed(stub, a, root, "cweb7b", "c-web7", history=history, reseed=True)
+    assert asked == [], asked
+
+
+def test_seeded_history_of_classic_turns_keeps_their_reads_out_of_a_tainted_search(stub):
+    """A chat moved from classic: the first agent run seeds an empty ``state.db`` with replies classic
+    wrote from Timely reads the worker never saw. They count as the person's data."""
+    root = harness.new_root("cweb8")
+    a = harness.Agent(root)
+    history = [{"role": "user", "content": "What do my notes say?"},
+               {"role": "assistant", "content": "Your notes say: " + NOTES}]
+    asked = _search_after_seed(stub, a, root, "cweb8", "c-web8", history=history)
+    assert asked == [], asked

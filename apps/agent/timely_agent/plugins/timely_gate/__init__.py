@@ -243,13 +243,26 @@ def _load_stored(run, rec: egress.Record) -> None:
         if db is None:
             from hermes_state import SessionDB
             db = SessionDB()
-        messages = db.get_messages_as_conversation(run.conversation_id) if run.conversation_id else []
-        egress.load_transcript(part, messages or [], is_timely=_timely_tool, taint_kind=_taint_kind)
+        live, archived = _transcript(db, run.conversation_id) if run.conversation_id else ([], [])
+        # Archived rows first, so the live turns stay the newest documents the record keeps.
+        egress.load_transcript(part, archived, is_timely=_timely_tool, taint_kind=_taint_kind,
+                               seed_prefix=policy.SEED_UID_PREFIX, searches=False)
+        egress.load_transcript(part, live, is_timely=_timely_tool, taint_kind=_taint_kind,
+                               seed_prefix=policy.SEED_UID_PREFIX)
     except Exception as exc:
         logger.warning("reading the transcript for the exfiltration rule failed: %s", exc)
     with rec.lock:
         if rec.stored is None:
             rec.stored = part
+
+
+def _transcript(db, conversation: str) -> tuple[list, list]:
+    """The conversation's live messages, and the ones a reseed or rewind archived (``active = 0``):
+    their Timely reads still count, though the model no longer sees them."""
+    live = db.get_messages_as_conversation(conversation, include_row_ids=True) or []
+    every = db.get_messages_as_conversation(conversation, include_inactive=True, include_row_ids=True) or []
+    kept = {m.get("_row_id") for m in live if isinstance(m, dict)}
+    return live, [m for m in every if isinstance(m, dict) and m.get("_row_id") not in kept]
 
 
 def _taint_kind(tool_name: str) -> str:

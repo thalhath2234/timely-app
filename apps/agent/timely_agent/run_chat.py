@@ -32,10 +32,11 @@ import json
 import logging
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from timely_agent import bridge, config_render
+from timely_agent import bridge, config_render, policy
 from timely_agent.learning import feed as learning_feed
 from timely_agent.learning import passes as learning_passes
 
@@ -352,7 +353,11 @@ def _history(agent, conversation: str, seed: Any, reseed: bool = False) -> tuple
     seed = seed if isinstance(seed, list) else []
     if not (seed or (stored and reseed)) or (stored and not reseed):
         return stored, False
-    rows = [{"role": m["role"], "content": m["content"]} for m in seed
+    # Each seeded row carries a message_uid that names it as a seed (Hermes keeps the uid through
+    # compaction and never sends it to a model): a seeded reply stands for turns whose Timely reads
+    # the worker no longer holds, so the exfiltration rule counts it as the person's data.
+    rows = [{"role": m["role"], "content": m["content"], "message_uid": policy.SEED_UID_PREFIX + uuid.uuid4().hex}
+            for m in seed
             if isinstance(m, dict) and m.get("role") in SEED_ROLES and isinstance(m.get("content"), str)]
     try:
         db.ensure_session(conversation, source="timely", model=getattr(agent, "model", None))

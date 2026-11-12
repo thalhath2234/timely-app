@@ -37,7 +37,10 @@ through the web tools. So, in a tainted session only:
 search hits (``session_search``: earlier chats are the person's), and Timely's parts of each turn's
 message (``run.start.private_context``: the get_context result, attached context, tag and change
 notices; and, in stored turns, the paragraphs that start with one of ``NOTICE_PREFIXES``). The
-person's own words are not: "search for X" stays a search for X.
+person's own words are not: "search for X" stays a search for X. After Go seeds or reseeds the
+history (a Stop, a failed run, a restore, classic turns), the earlier turns' tool results are
+archived or were never in ``state.db``: the seeded replies (and the archived rows' Timely reads)
+stand in for them.
 
 A clean session is not restricted beyond Hermes' SSRF floor. Pure functions and a per-session
 record only; ``timely_gate`` feeds the record from ``post_tool_call`` and the session's
@@ -549,12 +552,20 @@ class Record:
 
 
 def load_transcript(rec: Part, messages: list[dict], *, is_timely: Callable[[str], bool],
-                    taint_kind: Callable[[str], str]) -> None:
+                    taint_kind: Callable[[str], str], seed_prefix: str = "", searches: bool = True) -> None:
     """Fill ``rec`` (a record's ``stored`` part) from a session's stored messages (OpenAI shape, as ``SessionDB`` returns them):
-    each tool message is classified by its ``tool_name``, else by the assistant call it answers."""
+    each tool message is classified by its ``tool_name``, else by the assistant call it answers.
+    An assistant message whose ``message_uid`` starts with ``seed_prefix`` was seeded from Go's
+    history: it restates turns whose Timely reads the transcript no longer holds (a reseed archived
+    them, or classic ran them), so its text is a Timely read. ``searches=False`` (archived rows)
+    keeps a search's rows out of the allowed hosts and pages: the rule only grows stricter from them."""
     names: dict[str, str] = {}
     for msg in messages:
         if not isinstance(msg, dict):
+            continue
+        if (seed_prefix and msg.get("role") == "assistant"
+                and str(msg.get("message_uid") or "").startswith(seed_prefix)):
+            rec.add_timely(msg.get("content"))
             continue
         for call in msg.get("tool_calls") or []:
             if isinstance(call, dict):
@@ -568,6 +579,8 @@ def load_transcript(rec: Part, messages: list[dict], *, is_timely: Callable[[str
         if msg.get("role") != "tool":
             continue
         name = str(msg.get("tool_name") or msg.get("name") or names.get(str(msg.get("tool_call_id") or ""), ""))
+        if name == "web_search" and not searches:
+            continue
         classify(rec, name, msg.get("content"), is_timely=is_timely, taint_kind=taint_kind)
 
 

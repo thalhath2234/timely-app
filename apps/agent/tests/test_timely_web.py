@@ -384,6 +384,29 @@ def test_transcript_classifies_tool_results_by_name():
     assert part.timely_reads == [NOTES] and part.tainted_results == ["file text"]
 
 
+def test_seeded_replies_are_timely_reads_and_archived_searches_allow_nothing():
+    """A reply Go seeded (its message_uid carries the seed prefix) stands for turns whose reads the
+    worker no longer holds; a reply the model wrote in this transcript does not. Archived rows add
+    their Timely reads but never their search rows."""
+    seeded = "Your notes say: " + NOTES
+    messages = [{"role": "user", "content": "notes?"},
+                {"role": "assistant", "content": seeded, "message_uid": "timely-seed-abc"},
+                {"role": "assistant", "content": "Lisbon is sunny", "message_uid": "0f3c"}]
+    part = egress.Part()
+    egress.load_transcript(part, messages, is_timely=lambda n: False, taint_kind=lambda n: "",
+                           seed_prefix="timely-seed-")
+    assert part.timely_reads == [seeded]
+    archived = [{"role": "assistant", "content": None, "tool_calls": [
+                    {"id": "c1", "function": {"name": "web_search", "arguments": "{}"}},
+                    {"id": "c2", "function": {"name": "get_doc", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": "c1", "content": json.dumps({"data": {"web": [{"url": "https://a.example/x"}]}})},
+                {"role": "tool", "tool_call_id": "c2", "content": NOTES}]
+    part = egress.Part()
+    egress.load_transcript(part, archived, is_timely=lambda n: n == "get_doc", taint_kind=lambda n: "web",
+                           searches=False)
+    assert part.timely_reads == [NOTES] and not part.search_hosts and not part.search_urls
+
+
 def test_record_starts_afresh_each_run():
     rec = egress.record("conv-unit")
     rec.begin("r1")
