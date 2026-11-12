@@ -357,6 +357,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"search_allow":          setup.searchAllow,
 		"person_hosts":          setup.personHosts,
 		"person_links":          setup.personLinks,
+		"search_results":        setup.searchResults,
 		// Timely's parts of user_message (the exfiltration rule's private
 		// text): everything but the person's own words.
 		"private_context": private,
@@ -853,12 +854,19 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		r.dirty = r.dirty || changed
 	case "taint":
 		var body struct {
-			Sources []TaintSource `json:"sources"`
+			Sources       []TaintSource `json:"sources"`
+			SearchResults []string      `json:"search_results"`
 		}
-		if m.Decode(&body) == nil && len(body.Sources) > 0 {
+		if m.Decode(&body) != nil {
+			return false
+		}
+		if len(body.Sources) > 0 {
 			r.taint = append(r.taint, body.Sources...)
 			r.dirty = true
 		}
+		// A clean search's rows the worker reports (any web backend): the
+		// chat keeps them for later runs' run.start.search_results.
+		e.keepSearchResults(r, body.SearchResults)
 	case agenthost.TypeToolCall:
 		e.toolCall(r, m)
 	case agenthost.TypeGateAsk:
@@ -936,8 +944,19 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 	// A page or search the timely web backend read is the chat's taint
 	// whatever the worker reports.
 	r.noteTaint(r.tools.web.takeTaint())
+	e.keepSearchResults(r, r.tools.web.takeResults())
 	r.dirty = true // run_reads changed
 	_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": result, "outside": outside, "end_turn": false})
+}
+
+// keepSearchResults keeps a clean search's results on the chat.
+func (e *WorkerEngine) keepSearchResults(r *agentRun, urls []string) {
+	if len(urls) == 0 {
+		return
+	}
+	if err := e.s.keepSearchResults(context.Background(), r.uid, r.cid, urls); err != nil && !fenced(err) {
+		e.opts.Logf("agent engine: keeping run %s search results: %v", r.id, err)
+	}
 }
 
 // runDone is run.done's body (PROTOCOL.md section 5).

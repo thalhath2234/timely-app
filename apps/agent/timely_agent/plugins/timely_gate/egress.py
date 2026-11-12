@@ -5,9 +5,16 @@ Timely result, a file, an MCP result ...), injected text could try to send the p
 through the web tools. So, in a tainted session only:
 
 - ``web_extract`` (and every ``browser_*`` URL, ready for phase 5) to a host that is neither one
-  the person typed in this chat (``run.start.person_hosts``) nor one a ``web_search`` in this
-  conversation returned is blocked: ``PASTE_LINK``. A search returned a URL only when it is one of
-  the result's rows (``data.web[].url``), never a link in a search model's answer text.
+  the person typed in this chat (``run.start.person_hosts``) nor one a *clean search* returned is
+  blocked: ``PASTE_LINK``. A search returned a URL only when it is one of the result's rows
+  (``data.web[].url``), never a link in a search model's answer text. A *clean search* is a
+  ``web_search`` made while the run and the chat were still untainted: this run's (``timely_gate``
+  notes the taint at ``pre_tool_call``) and earlier runs' (``run.start.search_results``, which Go
+  keeps per chat from the rows the worker and its own backend report). A search made after taint
+  may have been asked for by an injected page, which can plant results (``attacker.example/h/0``
+  to ``/h/9``) and have them opened in an order that spells out the person's data, or on a host
+  that carries it (``d4.attacker.example``): its rows reach the model as text only. The stored
+  transcript's search rows never count (it does not say whether the chat was tainted then).
 - a ``web_extract`` or ``browser_*`` URL that a fetching service could read differently from this
   rule (a user name, a backslash, white space, a percent escape in the host, a port other than the
   scheme's, a scheme other than http(s), or a host Hermes' ``normalize_url_for_request`` changes) is
@@ -16,8 +23,7 @@ through the web tools. So, in a tainted session only:
   query or fragment), a link the person typed in this chat or their bots read
   (``run.start.person_links``: the URL's host and path, with any query or fragment, start one of
   them), or a URL a ``web_search`` returned word for word. Any other path or query could carry the
-  person's data, however short or encoded (an injected page can make a search return its own host
-  first): ``PAGE_BLOCKED``. This is Go's ``webRun.mayOpen`` for the ``timely`` backend; here it
+  person's data, however short or encoded: ``PAGE_BLOCKED``. This is Go's ``webRun.mayOpen`` for the ``timely`` backend; here it
   holds for every backend, so a saved search key (Exa, Firecrawl, Parallel), whose page reads Go
   never sees, keeps the same rule.
 - a ``web_search`` whose query carries text (as written, or base64, hex or percent encoded) from a Timely read, from memory (``MEMORY.md``,
@@ -573,7 +579,14 @@ class Part:
                 result = json.loads(text)
             except ValueError:
                 return
-        for url in search_rows(result):
+        self.add_search_urls(search_rows(result))
+
+    def add_search_urls(self, urls: Iterable[str]) -> None:
+        """Keep clean searches' result URLs (``run.start.search_results``, or a live search's rows)."""
+        for url in urls:
+            if not isinstance(url, str) or not url.strip():
+                continue
+            url = url.strip()
             host = url_host(url)
             if host and not unsafe_url(url):
                 self.search_hosts.add(host)
@@ -640,13 +653,14 @@ class Record:
 
 
 def load_transcript(rec: Part, messages: list[dict], *, is_timely: Callable[[str], bool],
-                    taint_kind: Callable[[str], str], seed_prefix: str = "", searches: bool = True) -> None:
+                    taint_kind: Callable[[str], str], seed_prefix: str = "") -> None:
     """Fill ``rec`` (a record's ``stored`` part) from a session's stored messages (OpenAI shape, as ``SessionDB`` returns them):
     each tool message is classified by its ``tool_name``, else by the assistant call it answers.
     An assistant message whose ``message_uid`` starts with ``seed_prefix`` was seeded from Go's
     history: it restates turns whose Timely reads the transcript no longer holds (a reseed archived
-    them, or classic ran them), so its text is a Timely read. ``searches=False`` (archived rows)
-    keeps a search's rows out of the allowed hosts and pages: the rule only grows stricter from them."""
+    them, or classic ran them), so its text is a Timely read. A search's rows never become allowed
+    hosts or pages here: the transcript does not say whether the chat was tainted when it searched
+    (earlier clean searches come from ``run.start.search_results``)."""
     names: dict[str, str] = {}
     for msg in messages:
         if not isinstance(msg, dict):
@@ -667,16 +681,16 @@ def load_transcript(rec: Part, messages: list[dict], *, is_timely: Callable[[str
         if msg.get("role") != "tool":
             continue
         name = str(msg.get("tool_name") or msg.get("name") or names.get(str(msg.get("tool_call_id") or ""), ""))
-        if name == "web_search" and not searches:
-            continue
-        classify(rec, name, msg.get("content"), is_timely=is_timely, taint_kind=taint_kind)
+        classify(rec, name, msg.get("content"), is_timely=is_timely, taint_kind=taint_kind, clean_search=False)
 
 
 def classify(rec: Part, name: str, result: Any, *, is_timely: Callable[[str], bool],
-             taint_kind: Callable[[str], str]) -> None:
+             taint_kind: Callable[[str], str], clean_search: bool = False) -> None:
+    """File one tool result. A ``web_search``'s rows are kept only for a clean search
+    (``clean_search``: the run and chat were untainted when the model asked for it)."""
     if not name:
         return
-    if name == "web_search":
+    if name == "web_search" and clean_search:
         rec.add_search(result)
     if name == SESSION_SEARCH:
         rec.add_timely(result)  # earlier chats are the person's own data

@@ -11,8 +11,8 @@ Hermes discovers the plugins, so ``timely_tools.register`` can register them.
 
 **Sessions outlive runs (phase 3).** Each conversation has a :class:`SessionState` in a registry
 keyed by its session id (``session_state``): the taint list, the latest run's flags and kind,
-``person_hosts``, ``person_links``, ``tainted_conversations``, ``search_exclude``, ``search_allow``,
-``private_context`` and the cached agent. A run's
+``person_hosts``, ``person_links``, ``search_results``, ``tainted_conversations``, ``search_exclude``,
+``search_allow``, ``private_context`` and the cached agent. A run's
 context shares the session's taint list, so Hermes' learning pass, which runs on a daemon thread
 after the run ended under the same session id, still finds the taint and the policy through
 ``session_state(session_id)``. Inside that pass ``current_run.get()`` answers ``None``: the fork
@@ -76,6 +76,9 @@ class SessionState:
     person_hosts: list[str] = field(default_factory=list)
     # The pages the person typed in this chat or their bots read (``run.start.person_links``).
     person_links: list[str] = field(default_factory=list)
+    # The rows of the searches this chat made before it read outside content
+    # (``run.start.search_results``): after taint only these search results may be opened.
+    search_results: list[str] = field(default_factory=list)
     tainted_conversations: list[str] = field(default_factory=list)
     search_exclude: list[str] = field(default_factory=list)
     # Phase 3 fixes: the chats past-chat search may return (anything else is dropped), and Timely's
@@ -131,7 +134,7 @@ def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = No
                  tainted_sources: list | None = None, person_hosts: Any = None,
                  tainted_conversations: Any = None, search_exclude: Any = None, run_id: str = "",
                  search_allow: Any = None, private_context: Any = None,
-                 person_links: Any = None) -> SessionState:
+                 person_links: Any = None, search_results: Any = None) -> SessionState:
     """Create or refresh the state at a run's start: the run's flags and lists replace the
     previous ones, the taint only grows (``tainted_sources`` from ``run.start`` merged in)."""
     with _sessions_lock:
@@ -143,6 +146,7 @@ def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = No
     state.flags = dict(flags or {})
     state.person_hosts = _str_list(person_hosts)
     state.person_links = _str_list(person_links)
+    state.search_results = _str_list(search_results)
     state.tainted_conversations = _str_list(tainted_conversations)
     state.search_exclude = _str_list(search_exclude)
     # No list (an older Go) allows no hit: a session Go does not know (restored, deleted) is dropped.
@@ -216,6 +220,9 @@ class RunContext:
     _batches: dict[str, Batch] = field(default_factory=dict, repr=False)
     _last_batch: Optional[Batch] = field(default=None, repr=False)
     _last_call: dict[str, str] = field(default_factory=dict, repr=False)
+    # Whether each web_search (by tool_call_id) was asked for while the run was untainted
+    # (``timely_gate.pre_tool_call``): only a clean search's rows may be opened after taint.
+    _clean_searches: dict[str, bool] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
     # The conversation's state (phase 3): the run shares its taint list, so the learning pass
     # that outlives the run sees every source the run added.
@@ -244,6 +251,20 @@ class RunContext:
     @property
     def person_links(self) -> list[str]:
         return list(self.session.person_links) if self.session else []
+
+    @property
+    def search_results(self) -> list[str]:
+        return list(self.session.search_results) if self.session else []
+
+    def note_search(self, tool_call_id: str, clean: bool) -> None:
+        """Record, before a ``web_search`` runs, whether the run was untainted when it was asked for."""
+        with self._lock:
+            self._clean_searches[str(tool_call_id or "")] = bool(clean)
+
+    def search_was_clean(self, tool_call_id: str) -> bool:
+        """Whether that ``web_search`` was asked for while the run was untainted (unknown: no)."""
+        with self._lock:
+            return self._clean_searches.pop(str(tool_call_id or ""), False)
 
     @property
     def tainted_conversations(self) -> list[str]:
@@ -387,6 +408,20 @@ current_run = _CurrentRun()
 ask: Optional[Callable[[dict, float], Optional[dict]]] = None
 # Set by the worker: notify(message) -> sent; for messages with no reply (taint).
 notify: Optional[Callable[[dict], bool]] = None
+
+
+def report_search_results(run: RunContext, urls: list[str]) -> None:
+    """Send Go a clean search's result rows (``taint.search_results``): Go keeps them on the chat
+    and hands them back in later runs' ``run.start.search_results``, so a result stays openable
+    after taint in later turns, whichever backend searched (plan 8.1, 12)."""
+    urls = [u for u in dict.fromkeys(urls) if isinstance(u, str) and u]
+    if not urls or run.kind != "chat" or not run.conversation_id:
+        return
+    if run.session is not None:
+        with run.session.lock:
+            run.session.search_results = list(dict.fromkeys(run.session.search_results + urls))
+    if notify is not None:
+        notify({"type": "taint", "run": run.run_id, "sources": [], "search_results": urls})
 
 
 def report_taint(run: RunContext, sources: list[Any]) -> list[Any]:

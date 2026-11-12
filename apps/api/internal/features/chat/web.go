@@ -240,7 +240,12 @@ func searchResults(answer WireMessage, limit int) []webResult {
 
 // webSearch is the timely backend's web_search: the chat provider's own
 // search, within classic's caps (maxSearches a run, maxSearchFailures
-// failures). Its sources become pages this run may open after taint.
+// failures). A clean search's sources (the run and the chat had read no
+// outside text when the model asked for it) become pages the chat may open
+// after taint, in this run and, once kept on the chat (SearchResults), in
+// later ones. A search made after taint may have been asked for by an
+// injected page, which can plant results and have them opened in an order
+// that spells out the person's data (review round 7): its sources stay text.
 func (s *Service) webSearch(ctx context.Context, c *Conversation, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
 	if !canSearch(ctx) {
 		return nil, false, errors.New(needsSearchKey)
@@ -268,8 +273,11 @@ func (s *Service) webSearch(ctx context.Context, c *Conversation, run *toolRun, 
 	// open); Claude Code and Codex cite nothing, so their links stay in the
 	// answer text only.
 	results := searchResults(answer, in.Limit)
-	for _, r := range results {
-		run.web.seen(r.URL)
+	if !tainted {
+		for _, r := range results {
+			run.web.seen(r.URL)
+			run.web.fresh = append(run.web.fresh, r.URL)
+		}
 	}
 	run.web.read = true
 	run.web.taint = append(run.web.taint, TaintSource{Kind: "web", Tool: "web_search"})
@@ -375,9 +383,11 @@ type webRun struct {
 	// not answer-only.
 	on    bool
 	fetch PageFetcher
-	// results are the addresses this run's searches returned, and hosts
-	// their hosts.
+	// results are the addresses the chat's clean searches returned (this
+	// run's, and earlier runs' from Conversation.SearchResults), and hosts
+	// their hosts; fresh are this run's not yet kept on the chat.
 	results, hosts map[string]bool
+	fresh          []string
 	// read is set once a search or page brought outside text into the run;
 	// taint holds the sources not yet handed to the engine.
 	read  bool
@@ -394,8 +404,15 @@ func (w *webRun) seen(link string) {
 	}
 }
 
+// takeResults hands over this run's clean search results not yet kept.
+func (w *webRun) takeResults() []string {
+	out := w.fresh
+	w.fresh = nil
+	return out
+}
+
 // mayOpen is whether a tainted run may read raw: one of their bots reads
-// it, a search of this run returned it word for word, the person typed it
+// it, a clean search of the chat returned it word for word, the person typed it
 // (its site and path, and any query string), or it is the front page of a
 // site the person typed or a search returned. Any other path or query could
 // carry the person's data to the site (plan 8.1, 12).

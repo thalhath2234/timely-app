@@ -30,6 +30,9 @@ type runSetup struct {
 	// own results and a site's front page may be opened, whichever backend
 	// reads them (a saved search key's included).
 	personLinks []string
+	// searchResults are the chat's clean searches' results
+	// (Conversation.SearchResults): after taint they may be opened.
+	searchResults []string
 }
 
 // runSetup decides a run's flags from the account's learning switches and
@@ -58,6 +61,10 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 	tools.web.on = c.WebSearch && !c.Sensitive && !tools.answerOnly
 	tools.web.fetch = e.opts.Fetch
 	tools.taintSeen = len(c.TaintedSources) > 0
+	out.searchResults = append([]string{}, c.SearchResults...)
+	for _, link := range c.SearchResults {
+		tools.web.seen(link)
+	}
 
 	if err := e.s.db.WithContext(ctx).Model(&Conversation{}).Where("user_id = ? AND no_learning", c.UserID).
 		Order("updated_at DESC").Limit(5000).Pluck("id", &out.searchExclude).Error; err != nil {

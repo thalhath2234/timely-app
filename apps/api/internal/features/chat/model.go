@@ -2,6 +2,8 @@ package chat
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -143,6 +145,13 @@ type Conversation struct {
 	// TaintedSources are the outside sources this chat's runs read, only
 	// ever added to; any at all holds every proposal for review.
 	TaintedSources TaintSources `gorm:"serializer:json;type:jsonb" json:"-"`
+	// SearchResults are the result addresses of the web searches this chat
+	// made before it read outside content (a clean search): after taint
+	// only these, a link the person typed and a site's front page may be
+	// opened (plan 8.1, 12). A search made after taint may have been asked
+	// for by an injected page, so its results never join. Only ever added
+	// to, at most maxSearchResultsKept.
+	SearchResults SearchResults `gorm:"serializer:json;type:jsonb;not null;default:'[]'" json:"-"`
 	// NoLearning is "Don't learn from this chat" (plan 9b.2): its agent
 	// runs write no memory or skills, and past-chat search never returns it.
 	NoLearning bool `gorm:"not null;default:false" json:"noLearning"`
@@ -213,6 +222,34 @@ func mergeTaint(row *Conversation, sources []TaintSource) {
 			row.TaintedSources = append(row.TaintedSources, src)
 		}
 	}
+}
+
+// SearchResults is stored as a JSON array, never null.
+type SearchResults []string
+
+func (r SearchResults) MarshalJSON() ([]byte, error) {
+	if r == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal([]string(r))
+}
+
+// maxSearchResultsKept caps a chat's kept clean-search results.
+const maxSearchResultsKept = 200
+
+// mergeSearchResults adds result addresses the chat has not kept yet, in
+// order, up to maxSearchResultsKept; true when any was added.
+func mergeSearchResults(row *Conversation, urls []string) bool {
+	added := false
+	for _, u := range urls {
+		u = strings.TrimSpace(u)
+		if u == "" || len(row.SearchResults) >= maxSearchResultsKept || slices.Contains(row.SearchResults, u) {
+			continue
+		}
+		row.SearchResults = append(row.SearchResults, u)
+		added = true
+	}
+	return added
 }
 
 func (Conversation) TableName() string { return "agent_conversations" }
