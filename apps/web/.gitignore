@@ -1,4 +1,5 @@
 # Desktop packaging stages (electron/stage-*.mjs) and the download cache.
 .electron-api/
 .electron-postgres/
+.electron-agent/
 .cache/

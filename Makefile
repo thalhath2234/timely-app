@@ -165,9 +165,10 @@ dist-desktop: ## Build a "Timely Dev" installer for this OS (AppImage / dmg / ns
 	@pnpm --filter @timely/web electron:dist
 
 .PHONY: stage-desktop
-stage-desktop: ## Cross-compile the API and fetch Postgres 17 for the desktop bundle (TIMELY_TARGETS=... for other OSes)
+stage-desktop: ## Cross-compile the API, fetch Postgres 17 and stage the agent runtime for the desktop bundle (TIMELY_TARGETS=... for other OSes; the agent runtime stages only for this host)
 	@node $(WEB)/electron/stage-api.mjs
 	@node $(WEB)/electron/stage-postgres.mjs
+	@node $(WEB)/electron/stage-agent.mjs
 
 .PHONY: dev-desktop-hosted
 dev-desktop-hosted: stage-desktop ## Run the Electron shell in hosted mode (its own Postgres + API) against a throwaway user-data dir
@@ -213,7 +214,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent test-agent-chat test-agent-learning ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent test-agent-chat test-agent-learning test-stage-agent ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -257,6 +258,7 @@ reset-password: ## Reset a user's password. Usage: make reset-password EMAIL=a@b
 
 clean: ## Remove build outputs (keeps node_modules and the native android/ project)
 	@rm -rf $(API)/tmp $(API)/bin/timely-api $(WEB)/.next $(WEB)/out $(WEB)/tmp $(WEB)/dist-electron $(WEB)/release $(WEB)/.electron-next $(WEB)/.electron-api $(WEB)/.electron-postgres $(MOBILE)/.expo $(MOBILE)/dist
+	@node $(WEB)/electron/stage-agent.mjs --clean
 	@echo "$(GREEN)✓ cleaned$(RESET)"
 
 .PHONY: format-api
@@ -597,7 +599,7 @@ agent-install: ## Build the agent runtime apps/agent/.venv from Hermes' own lock
 
 agent-lint: ## Lint Timely's agent code (apps/agent/timely_agent, tests, skills) with ruff from the agent runtime
 	@test -x "$(AGENT_PY)" || { echo "agent-lint: run make agent-install first"; exit 1; }
-	@cd $(AGENT_DIR) && "$(AGENT_PY)" -I -m ruff check timely_agent tests $(if $(wildcard $(AGENT_DIR)/skills),skills)
+	@cd $(AGENT_DIR) && "$(AGENT_PY)" -I -m ruff check timely_agent tests packaging $(if $(wildcard $(AGENT_DIR)/skills),skills)
 
 agent-test: ## Test Timely's agent worker (protocol, config render, seed tree, plugins, stub-model runs); test homes under ~/.cache/timely-agent-test
 	@test -x "$(AGENT_PY)" || { echo "agent-test: run make agent-install first"; exit 1; }
@@ -639,3 +641,24 @@ hermes-skills-review: ## Record reviewed skill trees in skills-reviewed.json aft
 	@if [ "$(ALL)" = 1 ]; then python3 -I -B scripts/hermes-sync/check_sync.py --review-all; \
 	elif [ -n "$(NAME)" ]; then python3 -I -B scripts/hermes-sync/check_sync.py --review-skills $(NAME); \
 	else echo "hermes-skills-review: set NAME=<skill or folder> or ALL=1"; exit 1; fi
+
+##@ Agent runtime packaging (plan 11.4, 11.5)
+
+.PHONY: stage-agent smoke-agent test-stage-agent clean-agent-stage docker-api docker-agent-smoke
+stage-agent: ## Stage the agent runtime for this host into apps/web/.electron-agent/<os>-<arch> (CPython from Hermes' pm/lock.json, uv.lock + extras, shipped skills, compileall, ship checks, THIRD_PARTY_LICENSES, MANIFEST.json); needs uv
+	@node $(WEB)/electron/stage-agent.mjs
+
+smoke-agent: ## Smoke-test a staged agent runtime: boot.py usage, prepare, then the Go real worker on its stub model (AGENT_ROOT=<agent dir>, default the host stage; READ_ONLY=1 makes it read-only and fails on any write into it)
+	@node $(WEB)/electron/smoke-agent.mjs $(if $(AGENT_ROOT),--root "$(AGENT_ROOT)") $(if $(filter 1,$(READ_ONLY)),--read-only)
+
+test-stage-agent: ## Test the agent staging helpers: lock pins, extras, host check, shipped skills, tree checks, licences, read-only diff, the boot.py shim
+	@node --test scripts/stage-agent.test.mjs
+
+clean-agent-stage: ## Delete staged agent runtimes (apps/web/.electron-agent) and their scratch folders; the interpreter download cache stays
+	@node $(WEB)/electron/stage-agent.mjs --clean
+
+docker-api: ## Build the API Docker image (Debian slim with the agent runtime) as timely-api:local
+	docker build -f $(API)/Dockerfile -t timely-api:local .
+
+docker-agent-smoke: ## Build the API image and smoke-test its agent runtime read-only, as uid 10001, with a throwaway Postgres (removes what it creates)
+	@bash scripts/docker-agent-smoke.sh
