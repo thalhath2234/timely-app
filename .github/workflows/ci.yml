@@ -127,7 +127,8 @@ jobs:
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
       # agent-contract includes contract tests 9 (learning) and 13 (agent-state
-      # backup) and the web tests (timely_web, the exfiltration rule).
+      # backup) and the web tests (timely_web and Hermes' untrusted wrapping,
+      # secret-URL and SSRF floors on the timely and keyed backends, Q-3.9).
       - run: make agent-install agent-lint agent-test agent-contract
       # spawn -> hello -> ready -> run.start (stub model) -> run.done -> shutdown,
       # and the agent-state backup round trip (fails, not skips, without the database)
