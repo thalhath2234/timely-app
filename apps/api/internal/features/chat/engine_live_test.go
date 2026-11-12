@@ -260,8 +260,33 @@ func TestLiveActivityLines(t *testing.T) {
 	}
 }
 
+// Hermes' advisory threat scan reaches Go as a tool.output_risk event (the
+// worker forwards Hermes' tool_progress_callback, and scans Timely's own
+// outside results): Go logs a finding and leaves the activity as it is.
+func TestOutputRiskIsLoggedNotShown(t *testing.T) {
+	var ev workerEvent
+	if err := json.Unmarshal([]byte(`{"kind":"tool.output_risk","payload":{"tool_call_id":"c1","tool":"web_extract","risk":"high","findings":["prompt_injection","exfil_curl"]}}`), &ev); err != nil {
+		t.Fatal(err)
+	}
+	line, ok := outputRisk("run-1", ev)
+	if !ok || !strings.Contains(line, "web_extract result c1") || !strings.Contains(line, "prompt_injection, exfil_curl") || !strings.Contains(line, "run-1") {
+		t.Fatalf("logged %q (%v)", line, ok)
+	}
+	if changed, delta := newLiveRun("r").event(ev, time.Now()); changed || delta != nil {
+		t.Fatal("a scan finding changed the activity lines")
+	}
+	ev.Payload.Risk = "low"
+	if _, ok := outputRisk("run-1", ev); ok {
+		t.Fatal("a low-risk scan was logged")
+	}
+	ev.Kind, ev.Payload.Risk = "status", "high"
+	if _, ok := outputRisk("run-1", ev); ok {
+		t.Fatal("another event was logged as a scan finding")
+	}
+}
+
 // The Timely block keeps the scope line except for the host-allowed
-// account (Q-2.1), carries the write schemas and the skill pointer, and is
+// account (Q-2.1), carries the write schemas, and is
 // byte-identical for the same conversation (the provider's cached prefix).
 func TestTimelyBlock(t *testing.T) {
 	catalog := agent.Catalog{
@@ -277,8 +302,8 @@ func TestTimelyBlock(t *testing.T) {
 	if !strings.Contains(block, "Write tool schemas:\n") || !strings.Contains(block, `"create_task"`) || strings.Contains(block, `"get_task"`) {
 		t.Errorf("write schemas: %s", block[strings.Index(block, "Write tool"):])
 	}
-	if !strings.HasSuffix(block, timelySkill) || strings.Contains(block, webSearchOn) {
-		t.Error("skill pointer last; no web search line in phase 2")
+	if strings.Contains(block, "skill_view timely") || strings.Contains(block, webSearchOn) {
+		t.Error("no pointer to a timely skill that does not ship; no web search line without the web")
 	}
 	again := timelyBlock(&Conversation{Client: "web", Messages: append(c.Messages, message("assistant", "Done"), message("user", "And eggs"))}, run, false)
 	if again != block || blockHash(again) != blockHash(block) {

@@ -7,7 +7,8 @@ Runs the real worker (``boot.py worker``, started as Go starts it) against the s
 ``tool.call`` (``harness.go_answer``) and ``gate.ask`` (``block``, "That isn't available in
 Timely yet", phase 2's verdict) and sends run controls. For each scenario it writes
 ``<dir>/<name>.jsonl``: every worker -> Go line of that run, in order, from ``run.start`` to its
-``run.done`` (heartbeats and logs left out). ``<dir>/manifest.json`` records, per scenario, the
+``run.done`` (heartbeats and logs left out), including the top-level ``learning`` messages the
+phase 3 scenarios produce (not run-scoped: they carry no ``run``). ``<dir>/manifest.json`` records, per scenario, the
 ``run.start`` sent (model credentials removed), what Go answered and when it sent controls, so
 a replay knows which lines wait for an answer.
 
@@ -36,6 +37,10 @@ SKIP = ("heartbeat", "log", "ready")
 PROPOSAL = {"summary": "Add the task Buy milk to Inbox", "direct": False, "reply": "", "remaining": "",
             "language": "en", "steps": [{"tool": "create_task", "summary": "Add Buy milk",
                                          "arguments": {"title": "Buy milk"}}]}
+
+
+LEARN = {"learning_writes": True}
+SKILL = "---\nname: fixture-sorting\ndescription: How the person sorts lists.\n---\n# Sorting\n\n1. Sort by aisle.\n"
 
 
 def _script(*steps) -> str:
@@ -76,11 +81,27 @@ def scenarios() -> list[dict]:
          "text": _script({"calls": [["get_task", {"id": "task-1"}]]}),
          "steer_on_tool_call": "STEER also add eggs",
          "description": "run.steer while a tool.call waits on Go: ack ok, the reply follows the steer."},
-        {"name": "blocked_non_timely_tool", "toolsets": harness.PHASE2_TOOLSETS + ["session_search"],
-         "text": 'CALL session_search {"query": "groceries"}',
-         "description": "A Hermes tool outside the local allow list and the timely toolset (session_search, "
-                        "offered here only to reach the gate): gate.ask, Go's block verdict, the model "
-                        "replies with the block message."},
+        {"name": "blocked_non_timely_tool", "toolsets": harness.PHASE2_TOOLSETS + ["clarify"],
+         "text": 'CALL clarify {"question": "Which list?", "choices": ["Groceries", "Work"]}',
+         "description": "A Hermes tool outside the local allow list and the timely toolset (clarify, "
+                        "offered here only to reach the gate; phase 3 decides session_search in the worker): "
+                        "gate.ask, Go's block verdict, the model replies with the block message."},
+        {"name": "learning_skill_applied", "toolsets": harness.PHASE2_TOOLSETS + ["memory"], "flags": LEARN,
+         "text": _script({"calls": [["skill_manage", {"action": "create", "name": "fixture-sorting",
+                                                       "content": SKILL}]]}, {"text": "Saved how you sort lists."}),
+         "description": "Phase 3, a clean chat with learning on: skill_manage creates a skill; a top-level "
+                        "learning message (status applied, origin chat, ledger_entry_id) comes before run.done."},
+        {"name": "learning_skill_staged", "toolsets": harness.PHASE2_TOOLSETS + ["memory"], "flags": LEARN,
+         "tainted_sources": [{"kind": "web", "tool": "web_extract", "host": "news.example"}],
+         "text": _script({"calls": [["skill_manage", {"action": "create", "name": "fixture-tainted",
+                                                       "content": SKILL.replace("sorting", "tainted")}]]},
+                         {"text": "I saved it for you to confirm."}),
+         "description": "Phase 3, a tainted chat: the same write is staged (learning status staged, pending_id); "
+                        "the model reads 'Saved for the person to confirm in Timely; do not retry.'"},
+        {"name": "learning_memory_added", "toolsets": harness.PHASE2_TOOLSETS + ["memory"], "flags": LEARN,
+         "text": _script({"calls": [["memory", {"target": "user", "operations": [
+             {"action": "add", "content": "Prefers short replies."}]}]]}, {"text": "Noted."}),
+         "description": "Phase 3: a memory add in a clean chat (learning kind user, action added, applied)."},
         {"name": "unoffered_tool", "text": 'CALL terminal {"command": "ls"}',
          "description": "A tool not in the run's toolsets (terminal): Hermes refuses it itself; no gate.ask, "
                         "no tool.call."},
@@ -104,7 +125,8 @@ def record(out: Path, only: set[str] | None = None) -> dict:
             run_id = f"run-{name}"
             start = harness.run_start(agent, stub, run_id=run_id, text=sc["text"], conversation=f"conv-{name}",
                                       toolsets=sc.get("toolsets", harness.PHASE2_TOOLSETS), budgets={},
-                                      permission="supervised", flags={"learning_writes": False})
+                                      permission="supervised", flags=dict(sc.get("flags") or {"learning_writes": False}),
+                                      tainted_sources=list(sc.get("tainted_sources") or []))
             start["id"] = f"start-{name}"
             controls: list[dict] = []
             answers: list[dict] = []

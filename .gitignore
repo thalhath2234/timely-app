@@ -43,6 +43,9 @@ apps/api/build-errors.log
 # ---- scripts ----
 # bytecode of the Hermes sync helpers (they run with python3 -B; this catches any other run)
 scripts/hermes-sync/__pycache__/
+# Python bytecode anywhere (agentqa scripts, tests)
+__pycache__/
+*.pyc
 
 # ---- apps/mobile (Expo / React Native) ----
 apps/mobile/.expo/

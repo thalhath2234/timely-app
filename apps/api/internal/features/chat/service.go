@@ -34,7 +34,10 @@ type Service struct {
 	live       *realtime.Hub
 	botNames   func(ctx context.Context, userID string) ([]BotName, error)
 	engine     AgentEngine
-	wg         sync.WaitGroup
+	// stopLearning tells the worker a chat no longer learns, or with
+	// searchOnly no longer searches past chats (SetStopLearning).
+	stopLearning func(uid, cid string, searchOnly bool)
+	wg           sync.WaitGroup
 }
 
 // SetRehearsal supplies a catalog without live side effects (no realtime
@@ -98,7 +101,7 @@ func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
 }
 func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "revision", "unread", "error", "permission", "engine", "run_engine", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
 	}
@@ -490,12 +493,16 @@ func (s *Service) stop(c *echo.Context) error {
 				}
 			}
 			row.Activity = ChatActivity{}
+			from := len(row.Messages)
 			if text := strings.TrimSpace(draft); text != "" {
 				m := message("assistant", text)
 				m.Cut = true
 				row.Messages = append(row.Messages, m)
 			}
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
+			// The cut reply and the notice belong to the stopped run, so what
+			// it learned shows under them, not under a later reply.
+			markStopped(row, from, runID)
 		}
 		return nil
 	})
@@ -726,6 +733,9 @@ func (s *Service) configure(c *echo.Context) error {
 		// engine ("" follows the account).
 		Permission *string `json:"permission"`
 		Engine     *string `json:"engine"`
+		// NoLearning is "Don't learn from this chat"; it applies from the
+		// chat's next run.
+		NoLearning *bool `json:"noLearning"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid settings")
@@ -769,7 +779,7 @@ func (s *Service) configure(c *echo.Context) error {
 			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
 		}
 	}
-	return s.save(c, func(tx *gorm.DB, row *Conversation) error {
+	err := s.save(c, func(tx *gorm.DB, row *Conversation) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
 		}
@@ -786,6 +796,9 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		if in.Title != nil {
 			row.Title = title
+		}
+		if in.NoLearning != nil {
+			row.NoLearning = *in.NoLearning
 		}
 		if in.WebSearch != nil {
 			row.WebSearch = *in.WebSearch
@@ -804,7 +817,18 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		return nil
 	})
+	if err == nil && in.NoLearning != nil && *in.NoLearning && s.stopLearning != nil {
+		// A run or learning pass of this chat still going writes nothing
+		// more ("Timely won't learn from this chat").
+		uid, cid := user(c), c.Param("id")
+		go s.stopLearning(uid, cid, false)
+	}
+	return err
 }
+
+// SetStopLearning lets "Don't learn from this chat" stop a run or learning
+// pass of the chat that is still going (learning.Service.StopLearning).
+func (s *Service) SetStopLearning(fn func(uid, cid string, searchOnly bool)) { s.stopLearning = fn }
 
 // newChatPermission is a new chat's permission mode: the one asked for,
 // else the account's default for new chats.
@@ -993,6 +1017,15 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	}
 	_, err := jobs.NewQueue(tx).Enqueue(jobs.Enqueue{UserID: c.UserID, Kind: models.JobSendPush, DedupeKey: "push:" + n.ID, RunAt: runAt, Payload: models.JobPayload{"notificationId": n.ID}})
 	return err
+}
+
+// AgentStateRestored marks every chat of the account for a reseed: a
+// restore replaced the agent home, whose state.db now holds the backup's
+// transcripts and not the turns since (chats are not in a backup), so each
+// chat's next agent run sends its own messages with reseed. It is kept in
+// Postgres, so an API restart before that run keeps it.
+func (s *Service) AgentStateRestored(ctx context.Context, uid string) error {
+	return s.db.WithContext(ctx).Model(&Conversation{}).Where("user_id = ?", uid).UpdateColumn("agent_reseed", true).Error
 }
 
 // keepTaint adds outside sources to a chat whatever its status or lease:

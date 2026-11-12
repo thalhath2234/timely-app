@@ -197,6 +197,52 @@ func Signup(ctx context.Context, cfg Config, engine string) (*client, string, st
 	return c, email, unavailable, nil
 }
 
+// RunEngine runs the scenarios on one engine, each in a fresh account of its
+// own: sign-up, workspace, provider connection and engine choice per
+// scenario. A shared account let one scenario's setup show up in the next
+// one's data ("two Groceries sheets"), so both engines asked which one was
+// meant. A sign-up that fails on the first scenario stops the run (the
+// harness or the API is broken); a later one fails only that scenario.
+func RunEngine(ctx context.Context, cfg Config, engine string, picked []Scenario) (EngineRun, error) {
+	run := EngineRun{Engine: engine, API: cfg.API, Provider: cfg.Provider, Model: cfg.Model, Permission: cfg.Permission,
+		Stub: cfg.Stub, Started: time.Now().UTC()}
+	logf := cfg.Logf
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	logf("%s: %d scenarios, one fresh account each", engine, len(picked))
+	for i, s := range picked {
+		c, email, unavailable, err := Signup(ctx, cfg, engine)
+		var r Result
+		switch {
+		case err != nil && i == 0:
+			return run, err
+		case err != nil:
+			r = Result{ID: s.ID, Category: s.Category, Message: s.Message, Engine: engine, HarnessError: err.Error()}
+			Score(s, &r)
+		default:
+			if unavailable != "" && run.Unavailable == "" {
+				run.Unavailable = unavailable
+				logf("%s: the engine is unavailable (%s); its runs will fail with Use classic", engine, unavailable)
+			}
+			r = RunScenario(ctx, cfg, c, engine, s)
+		}
+		r.Account = email
+		run.Accounts++
+		run.Results = append(run.Results, r)
+		mark := "PASS"
+		if !r.Pass {
+			mark = "FAIL"
+		}
+		logf("%s %-14s %s %s (%.1f s, %s)", engine, s.ID, mark, outcome(r), r.Seconds, email)
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	run.Seconds = time.Since(run.Started).Seconds()
+	return run, nil
+}
+
 // hostCLI reports a provider that is the API host's own CLI login.
 func hostCLI(provider string) bool { return provider == "claude" || provider == "codex" }
 

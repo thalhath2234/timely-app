@@ -542,6 +542,130 @@ class Skills(unittest.TestCase):
         self.assertEqual(check_policy.frontmatter_name("no frontmatter", "f"), "f")
 
 
+class Denied(unittest.TestCase):
+    """The Hermes-self deny list (plan 9.2): generated from skill bodies and the tool policy, never
+    seeded, never default on, never offered."""
+
+    def policy(self):
+        p = policy()
+        p["tools"]["kanban_show@core"] = {"toolset": "kanban", "chat": "block", "bot": "block", "phase": "never",
+                                          "note": "n"}
+        return p
+
+    def skill(self, body, frontmatter="", extra=None):
+        d = tempfile.mkdtemp(prefix="skill.")
+        self.addCleanup(__import__("shutil").rmtree, d)
+        with open(os.path.join(d, "SKILL.md"), "w", encoding="utf-8") as fh:
+            fh.write(f"---\nname: s\ndescription: d\n{frontmatter}---\n{body}\n")
+        for name, text in (extra or {}).items():
+            with open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        return d
+
+    def reasons(self, *a, **kw):
+        return check_policy.deny_reasons(self.skill(*a, **kw), self.policy())
+
+    def test_hermes_cli_and_home_paths(self):
+        self.assertEqual(self.reasons("Run `hermes gateway start`, then `hermes cron add x`."),
+                         ["hermes-cli:cron", "hermes-cli:gateway"])
+        self.assertEqual(self.reasons("Keep state in ~/.hermes/watches/x.json"), ["home-path"])
+        self.assertEqual(self.reasons("ok", extra={"ref.md": "cat $HOME/.hermes/auth.json"}), ["home-path"])
+        self.assertEqual(self.reasons("ok", extra={"x.sh": 'source "${HERMES_HOME:-$HOME/.hermes}/.env"'}), [])
+
+    def test_mention_only_commands_are_not_hermes_self(self):
+        body = ("Install the optional one with `hermes skills install official/x/y`. "
+                'PY="$(hermes pm environment documents)" when hermes is on PATH. In a one-shot run (`hermes chat -q`).')
+        self.assertEqual(self.reasons(body), [])
+
+    def test_blocked_tools_by_frontmatter_and_by_name(self):
+        self.assertEqual(self.reasons("x", "metadata:\n  hermes:\n    requires_toolsets: [kanban]\n"),
+                         ["needs-toolset:kanban"])
+        self.assertEqual(self.reasons("x", "metadata:\n  hermes:\n    requires_toolsets:\n      - kanban\n"),
+                         ["needs-toolset:kanban"])
+        self.assertEqual(self.reasons("x", "metadata:\n  hermes:\n    requires_toolsets: [terminal]\n"), [])
+        self.assertEqual(self.reasons("x", "metadata:\n  hermes:\n    requires_tools: [a2a_call]\n"),
+                         ["needs-tool:a2a_call", "uses-tool:a2a_call"])
+        self.assertEqual(self.reasons("x", "metadata:\n  hermes:\n    session_platforms: [teams, cron]\n"),
+                         ["session-platforms"])
+        self.assertEqual(self.reasons("Finish with `kanban_show` and `a2a_call`."), ["uses-tool:a2a_call",
+                                                                                     "uses-tool:kanban_show"])
+        # words that only look like a never-offered messaging tool, and tools Hermes no longer has
+        self.assertEqual(self.reasons("Use matrix_rank, signal_quality and the old send_message tool."), [])
+
+    def test_frontmatter_conditions(self):
+        text = ("---\nname: x\nmetadata:\n  hermes:\n    requires_toolsets: [terminal, 'files']  # c\n"
+                "    requires_tools:\n      - web_search\n      - \"memory\"\n    session_platforms: []\n---\nbody\n")
+        self.assertEqual(check_policy.frontmatter_conditions(text),
+                         {"requires_toolsets": ["terminal", "files"], "requires_tools": ["web_search", "memory"],
+                          "session_platforms": []})
+        self.assertEqual(check_policy.frontmatter_conditions("no frontmatter"), {})
+
+    def test_document_lists_only_skills_with_reasons(self):
+        root = tempfile.mkdtemp(prefix="copy.")
+        self.addCleanup(__import__("shutil").rmtree, root)
+        for rel, body in (("skills/a/self", "hermes config set x y"), ("skills/a/fine", "plain steps"),
+                          ("optional-skills/b/home", "~/.hermes/x")):
+            os.makedirs(os.path.join(root, rel))
+            with open(os.path.join(root, rel, "SKILL.md"), "w", encoding="utf-8") as fh:
+                fh.write(body)
+        trees = {"skills/a/self": TREE1, "skills/a/fine": TREE1, "optional-skills/b/home": TREE1}
+        doc = check_policy.denied_document(trees, root, "v1", self.policy())
+        self.assertEqual(doc["skills"], {"skills/a/self": {"reasons": ["hermes-cli:config"]},
+                                         "optional-skills/b/home": {"reasons": ["home-path"]}})
+        self.assertEqual(doc["mention_only_commands"], ["chat", "pm", "skills"])
+
+    def test_check_fails_when_a_denied_skill_is_on_or_offered(self):
+        denied = {"version": 1, "skills": {"skills/a/self": {"reasons": ["home-path"]},
+                                           "optional-skills/b/home": {"reasons": ["hermes-cli:cron"]}}}
+        reviewed = {"version": 1, "skills": {"skills/a/self": {"tree": TREE1, "default": "off"},
+                                             "optional-skills/b/home": {"tree": TREE1, "offered": False}}}
+        self.assertEqual(check_policy.check_denied(reviewed, denied), [])
+        reviewed["skills"]["skills/a/self"]["default"] = "on"
+        reviewed["skills"]["optional-skills/b/home"]["offered"] = True
+        msgs = check_policy.check_denied(reviewed, denied)
+        self.assertEqual(len(msgs), 2)
+        self.assertIn("optional skill optional-skills/b/home is denied (hermes-cli:cron)", msgs[0])
+        self.assertIn("bundled skill skills/a/self is denied (home-path)", msgs[1])
+        self.assertIn("version must be 1", check_policy.check_denied(reviewed, {"skills": {}})[0])
+
+    def test_committed_deny_list_is_current_and_respected(self):
+        """The committed skills-denied.json matches a fresh generation from the copy and tools.yaml,
+        and skills-reviewed.json keeps every denied skill off and unoffered (what hermes-sync-check
+        enforces)."""
+        trees = check_policy.skill_trees()
+        tag = check_lib.read_json(check_lib.PREFIX + "/HERMES_UPSTREAM.json").get("tag")
+        fresh = check_policy.denied_document(trees, check_lib.path(check_lib.PREFIX), tag,
+                                             check_lib.read_yaml(check_policy.TOOLS_YAML))
+        committed = check_lib.read_json(check_policy.SKILLS_DENIED)
+        self.assertEqual(check_policy.compare_dump(committed, fresh, "skills-denied.json",
+                                                   ["upstream", "mention_only_commands", "skills"]), [])
+        self.assertIn("skills/autonomous-ai-agents/hermes-agent", committed["skills"])
+        self.assertEqual(check_policy.check_denied(check_lib.read_json(check_policy.SKILLS_REVIEWED), committed), [])
+
+
+class ReviewedGate(unittest.TestCase):
+    """Plan 9.3 with the committed files: every bundled and offered optional skill tree is reviewed,
+    a changed or new skill without an entry fails, and a newly recorded bundled skill starts off."""
+
+    def test_committed_reviewed_file_covers_the_copy(self):
+        self.assertEqual(check_policy.check_skills(check_lib.read_json(check_policy.SKILLS_REVIEWED),
+                                                   check_policy.skill_trees()), [])
+
+    def test_changed_or_new_upstream_skill_fails_until_reviewed_and_starts_off(self):
+        reviewed = check_lib.read_json(check_policy.SKILLS_REVIEWED)
+        trees = dict(check_policy.skill_trees())
+        trees["skills/research/arxiv"] = TREE2
+        trees["skills/research/brand-new"] = TREE2
+        msgs = check_policy.check_skills(reviewed, trees)
+        self.assertTrue(any("bundled skill skills/research/arxiv changed upstream" in m for m in msgs), msgs)
+        self.assertTrue(any("new bundled skill skills/research/brand-new" in m for m in msgs), msgs)
+        done = check_policy.review_skills(reviewed, trees, ["brand-new", "arxiv"])
+        self.assertEqual(done, ["skills/research/arxiv", "skills/research/brand-new"])
+        self.assertEqual(reviewed["skills"]["skills/research/brand-new"], {"tree": TREE2, "default": "off"})
+        self.assertEqual(reviewed["skills"]["skills/research/arxiv"]["default"], "on")  # a reviewed choice is kept
+        self.assertEqual(check_policy.check_skills(reviewed, trees), [])
+
+
 class SkillBody(unittest.TestCase):
     def body(self, tokens):
         return {"version": 1, "tool_tokens": tokens, "authority_patterns": ["approv", "don'?t ask"]}

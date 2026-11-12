@@ -1,0 +1,268 @@
+"use client";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  ABOUT_YOU,
+  NOTES,
+  budgetMeter,
+  projectedMemoryUse,
+  type MemoryEdit,
+  type MemoryStore,
+} from "@timely/contract/agentLearning";
+import Button from "@/app/_components/_ui/button";
+import { Fill } from "@/app/_components/_ui/dataMotion";
+import { Textarea } from "@/app/_components/_ui/field";
+import { GroupHint, GroupLabel, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
+import { SkeletonRows } from "@/app/_components/_ui/skeleton";
+import { requestConfirm } from "@/app/_store/confirmStore";
+import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
+import { cn } from "@/app/utils/cn";
+import { useEditMemory, useLearningSettings, useMemory } from "@/app/utils/hooks/learning";
+import { memoryEditIndex } from "../chat/learningView";
+import { EmptyRow, ErrorRow, errorText } from "./learnedShared";
+
+type Target = "user" | "memory";
+
+const COPY: Record<Target, { title: string; add: string; empty: string; id: string }> = {
+  user: {
+    title: ABOUT_YOU,
+    add: "Add to About you",
+    empty: "Nothing yet. Timely adds what it learns about you, such as how you like replies.",
+    id: "learned-about",
+  },
+  memory: {
+    title: NOTES,
+    add: "Add a note",
+    empty: "No notes yet. Timely keeps facts here that help in later chats.",
+    id: "learned-notes",
+  },
+};
+
+/** The edit that takes a change back (the toast's Undo). */
+function inverse(edit: MemoryEdit): MemoryEdit | null {
+  if (edit.action === "add" && edit.content)
+    return { target: edit.target, action: "remove", old: edit.content };
+  if (edit.action === "remove" && edit.old) return { target: edit.target, action: "add", content: edit.old };
+  if (edit.action === "replace" && edit.old && edit.content)
+    return { target: edit.target, action: "replace", content: edit.old, old: edit.content };
+  return null;
+}
+
+/**
+ * About you (USER.md) and Notes (MEMORY.md): what Timely knows, each with
+ * its budget (1,375 and 2,200 characters), add, edit and delete, and Undo on
+ * every change. A chat reads them when it starts, so a change applies from
+ * the next chat.
+ */
+export default function LearnedMemory({ part }: { part: string | null }) {
+  const memory = useMemory();
+  const settings = useLearningSettings();
+  const focus: Target | null = part === "about" ? "user" : part === "notes" ? "memory" : null;
+  return (
+    <div className="flex flex-col gap-5">
+      {(["user", "memory"] as const).map((target) => (
+        <MemoryGroup
+          key={target}
+          target={target}
+          store={memory.data?.[target]}
+          loading={memory.isPending}
+          error={memory.error}
+          onRetry={() => void memory.refetch()}
+          retrying={memory.isFetching}
+          focused={focus === target}
+          hint={
+            target === "user" && settings.data?.useCaseCopied
+              ? "It started with what you use Timely for. Change it here; it is not copied again. Changes apply from your next chat."
+              : "Changes apply from your next chat."
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+function MemoryGroup({
+  target,
+  store,
+  loading,
+  error,
+  onRetry,
+  retrying,
+  focused,
+  hint,
+}: {
+  target: Target;
+  store: MemoryStore | undefined;
+  loading: boolean;
+  error: unknown;
+  onRetry: () => void;
+  retrying: boolean;
+  focused: boolean;
+  hint: string;
+}) {
+  const copy = COPY[target];
+  const edit = useEditMemory();
+  // An entry is edited by its text, not its place: a refetch while the form
+  // is open (another device, a chat) may move or remove entries.
+  const [editing, setEditing] = useState<{ old: string } | "new" | null>(null);
+  const [draft, setDraft] = useState("");
+  const [formError, setFormError] = useState("");
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (focused) ref.current?.scrollIntoView({ block: "start" });
+  }, [focused]);
+  const meter = store ? budgetMeter(store.used, store.limit) : null;
+  const editingOld = editing && editing !== "new" ? editing.old : "";
+  const editingAt = editing && editing !== "new" ? memoryEditIndex(store?.entries, editing.old) : -1;
+  const editingGone = !!editing && editing !== "new" && !!store && editingAt < 0;
+  const tooLong = !!store && !!draft.trim() && projectedMemoryUse(store, editingOld, draft) > store.limit;
+
+  async function apply(change: MemoryEdit, done: string) {
+    setFormError("");
+    try {
+      await edit.mutateAsync(change);
+      setEditing(null);
+      setDraft("");
+      const back = inverse(change);
+      showUndoToast(
+        done,
+        back
+          ? () =>
+              edit.mutate(back, {
+                onError: (err) => useToastStore.getState().show(errorText(err, "Couldn't undo that.")),
+              })
+          : undefined,
+      );
+    } catch (err) {
+      setFormError(errorText(err, "Couldn't save that."));
+    }
+  }
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    const content = draft.trim();
+    if (!content || !store || tooLong) return;
+    if (editing === "new") void apply({ target, action: "add", content }, `Added to ${copy.title}`);
+    else if (editing && editingAt >= 0) {
+      const old = editing.old;
+      if (old === content) {
+        setEditing(null);
+        return;
+      }
+      void apply({ target, action: "replace", content, old }, `${copy.title} updated`);
+    }
+  }
+  function remove(entry: string) {
+    requestConfirm({
+      title: `Delete this from ${copy.title}?`,
+      description: entry.length > 160 ? `${entry.slice(0, 160)}…` : entry,
+      confirmLabel: "Delete",
+      onConfirm: () => apply({ target, action: "remove", old: entry }, `Deleted from ${copy.title}`),
+    });
+  }
+  function open(entry: string | "new") {
+    setFormError("");
+    setEditing(entry === "new" ? "new" : { old: entry });
+    setDraft(entry === "new" ? "" : entry);
+  }
+
+  const form = (
+    <form onSubmit={onSubmit} className="flex flex-col gap-2 px-3.5 py-2.5">
+      <Textarea
+        autoFocus
+        aria-label={editing === "new" ? copy.add : `Edit ${copy.title}`}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        className="min-h-16 text-[13px]"
+        maxLength={2200}
+      />
+      <div className="flex items-center gap-2">
+        <Button type="submit" size="sm" loading={edit.isPending} disabled={!draft.trim() || tooLong}>
+          Save
+        </Button>
+        <Button variant="ghost" size="sm" disabled={edit.isPending} onClick={() => setEditing(null)}>
+          Cancel
+        </Button>
+        {(formError || tooLong) && (
+          <span role="alert" className="text-xs text-destructive">
+            {formError || `${copy.title} is full. Shorten this, or delete or shorten another entry first.`}
+          </span>
+        )}
+      </div>
+    </form>
+  );
+
+  return (
+    <section ref={ref} aria-label={copy.title} id={copy.id} data-testid={copy.id} className="scroll-mt-4">
+      <GroupLabel aside={meter ? <span className="tabular-nums">{meter.text}</span> : undefined}>{copy.title}</GroupLabel>
+      {meter && (
+        <Fill
+          value={meter.ratio}
+          height={4}
+          trackClassName="mb-2"
+          className={cn(meter.tone === "full" ? "bg-destructive" : meter.tone === "near" ? "bg-warning" : "bg-primary")}
+        />
+      )}
+      <ListGroup className={cn(focused && "ring-2 ring-primary/30")}>
+        {loading ? (
+          <div className="px-3.5 py-2.5">
+            <SkeletonRows rows={2} />
+          </div>
+        ) : error ? (
+          <ErrorRow error={error} what={copy.title} onRetry={onRetry} retrying={retrying} />
+        ) : (
+          [
+            ...(store?.entries.length ? [] : [<EmptyRow key="empty">{copy.empty}</EmptyRow>]),
+            ...(store?.entries ?? []).map((entry, index) =>
+              index === editingAt ? (
+                <div key={`e${index}`}>{form}</div>
+              ) : (
+                <div key={`e${index}`} className="flex items-start gap-2 px-3.5 py-2">
+                  <p className="min-w-0 flex-1 whitespace-pre-wrap break-words py-1 text-[13px] leading-[18px]">{entry}</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={edit.isPending}
+                    aria-label={`Edit: ${clip(entry)}`}
+                    onClick={() => open(entry)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={edit.isPending}
+                    aria-label={`Delete: ${clip(entry)}`}
+                    onClick={() => remove(entry)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              ),
+            ),
+            ...(editingGone
+              ? [
+                  <div key="gone" role="alert" className="flex items-center gap-2 px-3.5 py-2.5 text-[13px] text-muted-foreground">
+                    <span className="min-w-0 flex-1">This entry changed while you were editing it. Open it again to edit it.</span>
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>
+                      Close
+                    </Button>
+                  </div>,
+                ]
+              : []),
+            editing === "new" ? (
+              <div key="new">{form}</div>
+            ) : (
+              <ListRow key="add" tone="add" label={copy.add} onClick={() => open("new")} />
+            ),
+          ]
+        )}
+      </ListGroup>
+      <GroupHint>{meter?.tone === "full" ? `${copy.title} is full. Delete or shorten something to make room.` : hint}</GroupHint>
+    </section>
+  );
+}
+
+/** An entry as a button's accessible name names it: its first 60 characters. */
+function clip(entry: string) {
+  const line = entry.replace(/\s+/g, " ").trim();
+  return line.length > 60 ? `${line.slice(0, 59)}…` : line;
+}

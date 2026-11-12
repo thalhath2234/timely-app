@@ -22,6 +22,9 @@ import { ImagePreview } from "./imageAttachments";
 import { ReceiptSummary } from "./receiptReview";
 import { timeOfDay } from "./chatMeta";
 import { AutoAppliedCard, autoCardArchives } from "./agentRun";
+import type { LearningEvent } from "@timely/contract/agentLearning";
+import TurnLearning from "./turnLearning";
+import { learningAnchors, looseLearning, turnLearning } from "./learningView";
 
 function NoticeIcon({ content }: { content: string }) {
   const className = "size-3.5 shrink-0";
@@ -174,9 +177,15 @@ export default function MessageList({
   onSimilar,
   onAsk,
   onUndo,
+  learning,
+  onLeave,
 }: {
   chat: Chat;
   pending?: boolean;
+  /** The chat's learning events: each agent turn's chip and Keep / Discard card. */
+  learning?: LearningEvent[];
+  /** Called before a link leaves the chat (the overlay closes). */
+  onLeave?: () => void;
   onSimilar?: (action: "move" | "stay") => void;
   /** Sends a reply card's text as a message; unset while the chat can't take one. */
   onAsk?: (text: string) => void;
@@ -186,6 +195,19 @@ export default function MessageList({
   let lastDay = "";
   // Plans an auto-applied card already shows, archived when it was undone.
   const shownByCards = autoCardArchives(chat);
+  // Each agent turn's learning shows after the last message that turn
+  // wrote; a turn that learned nothing to show takes no space.
+  const anchors = new Map(
+    [...(learning?.length ? learningAnchors(chat.messages) : [])]
+      .map(
+        ([index, run]) => [index, turnLearning(learning ?? [], run)] as const,
+      )
+      .filter(([, turn]) => turn.chip || turn.card),
+  );
+  // A run with no message to show its learning under (a stopped or failed
+  // run's notice carries it; only a run from before runs were tagged has
+  // none): what it learned goes at the end, as on the phone.
+  const loose = looseLearning(learning, chat.messages);
   const last = chat.messages?.[chat.messages.length - 1];
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
   const newest = chat.messages?.findLast(
@@ -304,9 +326,28 @@ export default function MessageList({
                 </div>
               </div>
             )}
+            {anchors.has(index) && learning && (
+              // Under the reply's text, past the avatar; space-y's gap is too wide here.
+              <div
+                className={cn(
+                  "-mt-3",
+                  !isUser &&
+                    !m.kind &&
+                    !(m.proposal && m.autoApplied) &&
+                    "pl-10",
+                )}
+              >
+                <TurnLearning turn={anchors.get(index)!} onLeave={onLeave} />
+              </div>
+            )}
           </div>
         );
       })}
+      {(loose.chip || loose.card) && (
+        <div className="pl-10" data-testid="loose-learning">
+          <TurnLearning turn={loose} onLeave={onLeave} />
+        </div>
+      )}
     </div>
   );
 }

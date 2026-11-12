@@ -65,6 +65,8 @@ import PermissionsGroups from "@/app/_components/settings/agentPermissions";
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useChatSettings } from "@/app/utils/hooks/chat";
+import LearnedSummaryRow from "@/app/_components/settings/learnedSummaryRow";
+import { WebSearchGroup } from "@/app/_components/settings/webSearchKey";
 
 export const CLI_INSTALL_URLS = {
   claude: "https://docs.anthropic.com/en/docs/claude-code/overview",
@@ -1624,6 +1626,7 @@ function AssistantPanel() {
         <>
           <EngineGroup settings={settings.data} />
           <PermissionsGroups settings={settings.data} />
+          <LearnedSummaryRow agent={settings.data.engine === "agent"} />
         </>
       ) : settings.error ? (
         <LoadError
@@ -1677,6 +1680,9 @@ export default function AgentSettings() {
       {data && (
         <>
           <DefaultProviderGroup data={data} />
+          <WebSearchGroup
+            providerName={data.defaultProvider ? PROVIDER_LABELS[data.defaultProvider] : ""}
+          />
           <OpenRouterCard data={data} />
           <DecisionsCard />
           <MoreApiKeys data={data} />

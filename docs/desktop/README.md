@@ -17,10 +17,24 @@ Tracking issue: #61.
   postgres/data               PGDATA (initdb on first run)
   data/backups/<account>/     encrypted account backups written by the API (TIMELY_BACKUP_DIR)
   data/chat-images/           chat uploads (CHAT_IMAGE_DIR)
+  data/agent/                 the agent's folder: accounts/account-<id>/ is each account's home (memory, learned skills, chat sessions)
   backups/pre-upgrade-*/      folder copy of PGDATA taken before the first run of a new version (last 3 kept)
-  backups/manual-*/           folder copies from "Back up now" (the database pauses for a moment)
+  backups/manual-*/           folder copies from "Back up now" (the API and PostgreSQL pause for a moment, so chats and agent runs stop until they are back)
+  backups/<name>.agent/       beside each folder copy: the agent homes' kept parts (memories, skills, pending, .timely, state.db with the chat sessions, and the skill ledger's blobs)
   logs/                       sidecar logs
 ```
+
+### Restoring a folder backup
+
+There is no restore button yet. A folder backup is two folders that belong together: the
+database copy (`backups/<name>/`) and, from phase 3 on, the agent homes beside it
+(`backups/<name>.agent/`). Restoring only the database leaves today's memory, skills and
+chat sessions next to the backup's learning rows and skill lists. Quit Timely from the
+tray, then put both back as `restoreDataDir` (`electron/supervisor/backup.ts`) does: the
+database copy replaces `postgres/data`, and each account home under `data/agent/accounts/`
+gets the backup's kept parts (a home the backup lacks loses its own). Config, sign-ins and
+the workspace stay; config is rendered again when the account's worker next starts. Then
+start Timely. An older backup without a `.agent` folder leaves the homes as they are.
 
 ## Boot order
 

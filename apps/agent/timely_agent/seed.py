@@ -3,9 +3,11 @@
 **Seed tree** ``<agent>/seed/<hash>/skills/`` is what ``HERMES_BUNDLED_SKILLS`` points at, so
 Hermes' own ``tools.skills_sync.sync_skills()`` seeds every account from it. It holds the
 vendored ``hermes/skills/`` tree minus every skill folder whose git tree id is not recorded in
-``.hermes-sync/policy/skills-reviewed.json`` (section 9.3), with each
-``skills/overrides/<name>/`` replacing the upstream folder of the same name. Without the
-reviewed file no upstream skill is seeded (fail closed).
+``.hermes-sync/policy/skills-reviewed.json`` (section 9.3) and minus every skill listed in
+``.hermes-sync/policy/skills-denied.json`` (Hermes-self skills and skills that need a tool Timely
+never offers, section 9.2: no account can turn one on), with each ``skills/overrides/<name>/``
+replacing the upstream folder of the same name. Without the reviewed file, or with the reviewed
+file but no deny list, no upstream skill is seeded (fail closed).
 
 **Timely skills copy** ``<agent>/timely-skills/<hash>/`` is ``apps/agent/skills/`` without
 ``overrides/``, files ``0444`` and folders ``0555`` (Windows: the read-only attribute). It is
@@ -20,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -90,6 +93,25 @@ def content_hash(paths: Iterable[tuple[str, Path]]) -> str:
 # the worker self-test checks this copy still matches). A reviewed "default: off" entry for one
 # of them therefore keeps it out of the seed tree altogether.
 ESSENTIAL_SKILLS = frozenset({"hermes-agent"})
+# Names kept for Timely's own skills, shipped or planned (plan 9.2: ``timely``), so a learned or
+# restored skill never takes one (review round 6).
+RESERVED_SKILL_NAMES = frozenset({"timely"})
+
+# A learned or restored skill's name as Go stores it and keeps it turned off (learning.validName:
+# one folder name, no ".."). Hermes accepts more (``release..notes``), so names are checked here
+# when a skill is learned (timely_learning) and when one is restored (backup).
+SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def learned_name_problem(name: str) -> str:
+    """Why Timely cannot keep a learned or restored skill of this name, else ""."""
+    if name in ESSENTIAL_SKILLS:
+        return "Hermes never lets a skill of that name be turned off"
+    if name in RESERVED_SKILL_NAMES:
+        return "that name is kept for Timely's own skill"
+    if not SKILL_NAME_RE.match(name or "") or ".." in name:
+        return "not a plain skill name"
+    return ""
 
 
 def load_reviewed(path: os.PathLike | str) -> dict[str, dict] | None:
@@ -111,6 +133,40 @@ def load_reviewed(path: os.PathLike | str) -> dict[str, dict] | None:
         if isinstance(entry.get("tree"), str):
             out[key] = entry
     return out
+
+
+def denied_file_for(reviewed_path: os.PathLike | str) -> Path:
+    """``skills-denied.json`` beside ``skills-reviewed.json`` (both in ``.hermes-sync/policy``)."""
+    return Path(reviewed_path).with_name("skills-denied.json")
+
+
+def load_denied(path: os.PathLike | str) -> frozenset[str] | None:
+    """The ``skills/<cat>/<name>`` (and ``optional-skills/...``) keys of skills-denied.json, or
+    None when the file is absent (``make hermes-tools-dump`` writes it)."""
+    p = Path(path)
+    if not p.is_file():
+        return None
+    data = json.loads(p.read_text(encoding="utf-8"))
+    skills = data.get("skills") if isinstance(data, dict) else None
+    if not isinstance(skills, dict):
+        raise ValueError(f"{p}: `skills` must be an object")
+    return frozenset(str(k) for k in skills)
+
+
+def denied_bundled_names(denied: Iterable[str] | None, upstream: os.PathLike | str) -> list[str]:
+    """What ``skills.disabled`` must list for each denied bundled skill (``skills/<cat>/<name>``
+    keys): its folder name and frontmatter name. A home phase 2 seeded may still hold a pristine
+    copy that Hermes' sync keeps on disk, so leaving it out of the seed tree alone is not enough."""
+    out: set[str] = set()
+    for key in denied or ():
+        parts = str(key).split("/")
+        if len(parts) < 3 or parts[0] != "skills":
+            continue
+        out.add(parts[-1])
+        folder = Path(upstream).joinpath(*parts[1:])
+        if (folder / SKILL_FILE).is_file():
+            out |= skill_names(folder)
+    return sorted(out)
 
 
 def skill_names(skill_dir: Path) -> set[str]:
@@ -226,26 +282,34 @@ def build_timely_skills(layout, src: os.PathLike | str) -> Path:
 
 
 def build_seed_tree(layout, *, upstream: os.PathLike | str, overrides: os.PathLike | str | None,
-                    reviewed: dict[str, dict] | None, upstream_prefix: str = "skills") -> tuple[Path, dict]:
+                    reviewed: dict[str, dict] | None, upstream_prefix: str = "skills",
+                    denied: Iterable[str] | None = frozenset()) -> tuple[Path, dict]:
     """Build (or reuse) the seed tree; returns ``(<seed>/<hash>/skills, report)``.
 
-    ``reviewed`` comes from :func:`load_reviewed`; ``None`` seeds no upstream skill. The report
-    lists seeded, unreviewed (no entry or a changed tree), overridden, essential-off and symlinked
-    skills (a skill folder holding a symlink is never seeded),
-    and ``default_off``: the names of seeded skills whose entry says ``default: off``, which
-    the account config puts in ``skills.disabled``.
+    ``reviewed`` comes from :func:`load_reviewed`; ``None`` seeds no upstream skill. ``denied``
+    comes from :func:`load_denied`: those skills are never seeded, reviewed or not; ``None`` (the
+    deny list is missing) seeds no upstream skill either. The report lists seeded, unreviewed (no
+    entry or a changed tree), denied, overridden, essential-off and symlinked skills (a skill folder
+    holding a symlink is never seeded), and ``default_off``: the names of seeded skills whose entry
+    says ``default: off``, which the account config puts in ``skills.disabled``.
     """
+    if denied is None:
+        reviewed = None
+    denied_keys = frozenset(denied or ())
     upstream = Path(upstream)
     overrides_dir = Path(overrides) if overrides else None
     override_dirs = {p.name: p for p in skill_dirs(overrides_dir)} if overrides_dir and overrides_dir.is_dir() else {}
-    report: dict[str, list[str]] = {"seeded": [], "unreviewed": [], "overridden": [], "override_only": [],
-                                    "essential_off": [], "default_off": [], "symlinked": []}
+    report: dict[str, list[str]] = {"seeded": [], "unreviewed": [], "denied": [], "overridden": [],
+                                    "override_only": [], "essential_off": [], "default_off": [], "symlinked": []}
     keep: list[Path] = []
     labels: list[tuple[str, Path]] = []
     for d in skill_dirs(upstream):
         key = f"{upstream_prefix}/{d.relative_to(upstream).as_posix()}"
         if d.name in override_dirs:
             report["overridden"].append(key)
+            continue
+        if key in denied_keys:  # Hermes-self or needs a never-offered tool (plan 9.2)
+            report["denied"].append(key)
             continue
         if symlinks_in(d):  # never seeded, reviewed or not (symlinks_in)
             report["symlinked"].append(key)

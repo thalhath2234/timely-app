@@ -78,6 +78,19 @@ type WorkerEngineOptions struct {
 	ActivityEvery time.Duration
 	RenewEvery    time.Duration
 	Logf          func(format string, args ...any)
+	// Learning reads the account's learning switches (learning.Service.Prefs,
+	// plan 9b.2); nil, or an error, leaves learning off for the run.
+	Learning func(ctx context.Context, uid string) (LearningPrefs, error)
+	// Fetch reads pages for the timely web backend's web_extract; nil is
+	// NetguardFetcher. FixtureFetcher serves test pages.
+	Fetch PageFetcher
+}
+
+// LearningPrefs are the account's learning switches a run reads.
+type LearningPrefs struct {
+	// Learning is "Learn from my chats" (default on, Q-3.1); SearchHistory
+	// "Search my past chats" (default on, Q-3.5).
+	Learning, SearchHistory bool
 }
 
 // NewWorkerEngine makes the engine for s. Wire its Handle and WorkerExited
@@ -97,6 +110,9 @@ func NewWorkerEngine(s *Service, opts WorkerEngineOptions) *WorkerEngine {
 	}
 	if opts.Unsupported == nil {
 		opts.Unsupported = func(error) bool { return false }
+	}
+	if opts.Fetch == nil {
+		opts.Fetch = NetguardFetcher()
 	}
 	return &WorkerEngine{s: s, opts: opts, runs: map[string]*agentRun{}, chats: map[string]*agentRun{},
 		seeded: map[string]bool{}, unsettled: map[string]bool{}, forgetting: map[string]bool{}, started: map[*agenthost.Worker]int64{}}
@@ -133,7 +149,7 @@ const (
 	stopWait = 30 * time.Second
 )
 
-var slowTools = map[string]bool{"preview_bot": true, "ask_bot": true}
+var slowTools = map[string]bool{"preview_bot": true, "ask_bot": true, "web_search": true, "web_extract": true}
 
 // agentRun is one live run this process follows.
 type agentRun struct {
@@ -278,6 +294,12 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	if language != "" {
 		c.Language = language
 	}
+	setup := e.runSetup(ctx, c, tools)
+	if tools.web.on {
+		// The timely web backend searches with the chat's own provider
+		// (Q-3.8), as classic's web_search does.
+		toolCtx = e.s.withRunCompleter(toolCtx, c)
+	}
 	block := timelyBlock(c, tools, e.opts.HostAllowed(c.UserID))
 	input := e.s.turnInput(ctx, c)
 	r := &agentRun{id: id("run_"), uid: c.UserID, cid: c.ID, instance: e.instance(w), worker: w,
@@ -285,12 +307,15 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	r.live = newLiveRun(r.id)
 	r.queue.signal = make(chan struct{}, 1)
 	// The row names the run before the worker hears of it, so Stop and
-	// Delete always reach it.
+	// Delete always reach it. A restore's reseed is taken here: this run's
+	// run.start carries it.
+	restored := false
 	if err := e.s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
 		if language != "" {
 			row.Language = language
 		}
 		row.AgentRunID, row.AgentInstance = r.id, r.instance
+		restored, row.AgentReseed = row.AgentReseed, false
 		row.Activity = ChatActivity{Run: r.id}
 		row.RunReads = RunReads{Run: r.id}
 		return nil
@@ -300,7 +325,14 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	}
 	r.conv, r.lease = *c, c.Lease
 	tools.load(c, r.id)
+	// The checkpoint read the row under the lock configure takes too: a
+	// "Don't learn from this chat" saved while triage or a cold worker held
+	// Start up reaches this run.start.
+	e.narrowLearning(ctx, c, &setup, tools)
 	if !e.follow(r) {
+		if restored {
+			e.unsettle(c.ID)
+		}
 		cancel()
 		e.clearRun(ctx, c)
 		return unavailable(c, agenthost.ErrClosed.Error())
@@ -313,23 +345,27 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"system_text":     block,
 		"system_hash":     blockHash(block),
 		"model":           model,
-		"toolsets":        chatToolsets,
-		"flags": map[string]any{"sensitive": false, "answer_only": tools.answerOnly, "web": false,
-			"rich_ui": c.RichUI, "from_bot": false, "learning_writes": false},
+		"toolsets":        setup.toolsets,
+		"flags": map[string]any{"sensitive": c.Sensitive, "answer_only": tools.answerOnly, "web": tools.web.on,
+			"rich_ui": c.RichUI, "from_bot": false, "learning_writes": setup.learningWrites, "search_history": setup.searchHistory},
 		// No Timely cap (Q-2.3): Hermes' own turn limit applies.
-		"budgets":         map[string]any{},
-		"permission":      c.Permission,
-		"tainted_sources": c.TaintedSources,
+		"budgets":               map[string]any{},
+		"permission":            c.Permission,
+		"tainted_sources":       c.TaintedSources,
+		"tainted_conversations": setup.taintedConversations,
+		"search_exclude":        setup.searchExclude,
+		"search_allow":          setup.searchAllow,
 	}
 	e.mu.Lock()
 	seeded, unsettled := e.seeded[c.ID], e.unsettled[c.ID]
 	delete(e.unsettled, c.ID)
 	e.mu.Unlock()
-	// state.db may lack the session (a restore, a new machine): the worker
-	// keeps a seed only when it has no messages for it. After classic turns,
-	// or a run whose turn was not saved, the seed replaces what it has.
+	// state.db may lack the session (a new machine): the worker keeps a seed
+	// only when it has no messages for it. After classic turns, a run whose
+	// turn was not saved, or a restore (whose state.db holds the backup's
+	// transcript, not the turns since), the seed replaces what it has.
 	seed := historySeed(c.Messages)
-	if reseed := unsettled || classicSinceAgent(c.Messages); reseed {
+	if reseed := unsettled || restored || classicSinceAgent(c.Messages); reseed {
 		if seed == nil {
 			seed = []map[string]string{}
 		}
@@ -338,9 +374,23 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		fields["history"] = seed
 	}
 	if err := w.Send(agenthost.TypeRunStart, fields); err != nil {
+		if restored {
+			e.unsettle(c.ID) // the next run reseeds instead
+		}
 		r.queue.push(runItem{end: "abandon"})
 		e.clearRun(ctx, c)
 		return unavailable(c, workerReason(err))
+	}
+	// A switch turned off between the checkpoint and the send: its own
+	// learning.stop may have reached the worker before this run.start did,
+	// so stop again now that the worker knows the run.
+	if setup.learningWrites && e.s.stopLearning != nil {
+		switch learning, search := e.learnsNow(ctx, c.UserID, c.ID, nil); {
+		case !learning:
+			go e.s.stopLearning(c.UserID, c.ID, false)
+		case setup.searchHistory && !search:
+			go e.s.stopLearning(c.UserID, c.ID, true)
+		}
 	}
 	return nil
 }
@@ -537,8 +587,10 @@ func (e *WorkerEngine) Steer(ctx context.Context, uid, cid, runID, text string) 
 
 // Forget implements AgentEngine (after Delete): session.delete in the
 // account's worker, once the chat's run is over. The request waits in
-// agent_session_forgets until a worker acknowledges it, so an idle account
-// or an API restart only delays it to the account's next run.
+// agent_session_forgets until it is done. With no worker running (an idle
+// account, or one back on Classic) agent-forget does it on the home at once
+// (review round 8): the desktop folder backup copies the home raw, so the
+// chat must not wait there for the account's next agent run.
 func (e *WorkerEngine) Forget(uid, cid string) {
 	e.mu.Lock()
 	delete(e.seeded, cid)
@@ -554,6 +606,81 @@ func (e *WorkerEngine) Forget(uid, cid string) {
 	}
 	if w, ok := e.sup.Worker(uid); ok {
 		e.sendForgets(w, uid, "")
+		return
+	}
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		e.forgetIdle(ctx, uid)
+	}()
+}
+
+// forgetIdle delivers uid's waiting session deletes: to its worker when one
+// runs, else with agent-forget on the home. A row goes once it is done; a
+// failure leaves it for the next try (the next Forget, run, API start or
+// shutdown).
+func (e *WorkerEngine) forgetIdle(ctx context.Context, uid string) {
+	if e.sup == nil {
+		return
+	}
+	if w, ok := e.sup.Worker(uid); ok {
+		e.sendForgets(w, uid, "")
+		return
+	}
+	var rows []AgentSessionForget
+	if err := e.s.db.WithContext(ctx).Where("user_id = ?", uid).Find(&rows).Error; err != nil {
+		e.opts.Logf("agent engine: session deletes: %v", err)
+		return
+	}
+	e.mu.Lock()
+	var cids []string
+	for _, row := range rows {
+		cid := row.ConversationID
+		if e.chats[cid] == nil && !e.forgetting[cid] {
+			cids = append(cids, cid)
+			e.forgetting[cid] = true
+		}
+	}
+	e.mu.Unlock()
+	if len(cids) == 0 {
+		return
+	}
+	defer func() {
+		e.mu.Lock()
+		for _, cid := range cids {
+			delete(e.forgetting, cid)
+		}
+		e.mu.Unlock()
+	}()
+	if _, err := e.sup.ForgetSessions(ctx, uid, cids); err != nil {
+		e.opts.Logf("agent engine: agent-forget: %v", err)
+		return
+	}
+	if err := e.s.db.WithContext(ctx).Where("user_id = ? AND conversation_id IN ?", uid, cids).Delete(&AgentSessionForget{}).Error; err != nil {
+		e.opts.Logf("agent engine: session delete done: %v", err)
+	}
+}
+
+// DrainForgets delivers every account's waiting session deletes (API start,
+// and Shutdown once the workers stopped), so a desktop "Back up now" or the
+// pre-upgrade copy, which stop the API first, never finds a deleted chat in
+// a home.
+func (e *WorkerEngine) DrainForgets(ctx context.Context) {
+	if e.sup == nil {
+		return
+	}
+	var uids []string
+	if err := e.s.db.WithContext(ctx).Model(&AgentSessionForget{}).Distinct("user_id").Pluck("user_id", &uids).Error; err != nil {
+		e.opts.Logf("agent engine: session deletes: %v", err)
+		return
+	}
+	for _, uid := range uids {
+		if ctx.Err() != nil {
+			return
+		}
+		e.forgetIdle(ctx, uid)
 	}
 }
 
@@ -612,6 +739,10 @@ func (e *WorkerEngine) Shutdown(ctx context.Context) error {
 	select {
 	case <-done:
 	case <-ctx.Done():
+	}
+	if err == nil {
+		// The workers are gone: what still waits goes through agent-forget.
+		e.DrainForgets(ctx)
 	}
 	return err
 }
@@ -770,7 +901,7 @@ func (e *WorkerEngine) publish(r *agentRun, d *liveDelta) {
 	if e.s.live == nil {
 		return
 	}
-	e.s.live.Publish(r.uid, watchKey, realtime.Event{Type: "delta", Kind: "chat", ID: r.cid, Document: d})
+	e.s.live.Publish(r.uid, WatchKey, realtime.Event{Type: "delta", Kind: "chat", ID: r.cid, Document: d})
 }
 
 // step handles one item; true when the run is over.
@@ -789,6 +920,9 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		if m.Decode(&ev) != nil {
 			return false
 		}
+		if line, ok := outputRisk(r.id, ev); ok {
+			e.opts.Logf("%s", line)
+		}
 		changed, delta := r.live.event(ev, time.Now().UTC())
 		if delta != nil {
 			text := r.live.draft.String()
@@ -800,14 +934,17 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		var body struct {
 			Sources []TaintSource `json:"sources"`
 		}
-		if m.Decode(&body) == nil && len(body.Sources) > 0 {
+		if m.Decode(&body) != nil {
+			return false
+		}
+		if len(body.Sources) > 0 {
 			r.taint = append(r.taint, body.Sources...)
 			r.dirty = true
 		}
 	case agenthost.TypeToolCall:
 		e.toolCall(r, m)
 	case agenthost.TypeGateAsk:
-		_ = r.worker.Reply(m, agenthost.TypeGateVerdict, map[string]any{"verdict": "block", "message": gateBlocked})
+		e.gate(r, m)
 	case agenthost.TypeRunDone:
 		e.done(r, m)
 		return true
@@ -819,9 +956,9 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		}
 		_ = m.Decode(&body)
 		if body.Code == "busy" {
-			e.fail(r, engineBusy, ActionRetry)
+			e.refused(r, engineBusy, ActionRetry)
 		} else {
-			e.fail(r, fmt.Sprintf(tr(r.conv.Language, txtAgentUnavailable), strings.TrimRight(body.Message, ".")), ActionUseClassic)
+			e.refused(r, fmt.Sprintf(tr(r.conv.Language, txtAgentUnavailable), strings.TrimRight(body.Message, ".")), ActionUseClassic)
 		}
 		return true
 	}
@@ -843,10 +980,7 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 		_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": map[string]string{"error": "Unreadable tool call"}, "outside": false, "end_turn": false})
 		return
 	}
-	if len(call.Tainted) > 0 {
-		r.taint = append(r.taint, call.Tainted...)
-		r.dirty = true
-	}
+	r.noteTaint(call.Tainted)
 	if call.Batch < 1 {
 		call.Batch = 1
 	}
@@ -881,6 +1015,9 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 	if err != nil {
 		result, outside = raw(map[string]string{"error": toolTimedOut}), false
 	}
+	// A page or search the timely web backend read is the chat's taint
+	// whatever the worker reports.
+	r.noteTaint(r.tools.web.takeTaint())
 	r.dirty = true // run_reads changed
 	_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": result, "outside": outside, "end_turn": false})
 }
@@ -969,6 +1106,7 @@ func (e *WorkerEngine) stopped(r *agentRun) {
 		endRun(row, r.tools)
 		row.Status = "stopped"
 		row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
+		markStopped(row, len(row.Messages)-1, r.id)
 		return nil
 	})
 }
@@ -993,8 +1131,21 @@ func (e *WorkerEngine) unsettle(cid string) {
 	e.mu.Unlock()
 }
 
-// fail ends a run with an error the person can act on.
+// fail ends a run with an error the person can act on. A run the worker
+// ran (not one it refused) leaves a "This reply failed" notice that carries
+// the run, as Stop's notice does: what the run learned before it failed (its
+// chip or Keep / Discard card) stays under it, not under a later reply.
 func (e *WorkerEngine) fail(r *agentRun, text, action string) {
+	e.failWith(r, text, action, true)
+}
+
+// refused ends a run the worker never started (busy, unavailable): it
+// learned nothing, so no notice marks it.
+func (e *WorkerEngine) refused(r *agentRun, text, action string) {
+	e.failWith(r, text, action, false)
+}
+
+func (e *WorkerEngine) failWith(r *agentRun, text, action string, ran bool) {
 	e.unsettle(r.cid)
 	e.keepRunTaint(r)
 	taint := r.taint
@@ -1005,6 +1156,10 @@ func (e *WorkerEngine) fail(r *agentRun, text, action string) {
 		row.Status = "failed"
 		row.Error = msg
 		row.ErrorAction = action
+		if ran {
+			row.Messages = append(row.Messages, notice(tr(row.Language, txtRunFailed)))
+			markStopped(row, len(row.Messages)-1, r.id)
+		}
 		return notify(tx, row, tr(row.Language, txtPushAttention))
 	})
 }

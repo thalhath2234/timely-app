@@ -543,3 +543,275 @@ test("the engine shows beside the model, and a run the new engine couldn't start
   assert.equal(offersUseClassic({ status: "failed", errorAction: "" }), false);
   assert.equal(offersUseClassic({ status: "running", errorAction: "use_classic" }), false);
 });
+
+// What the agent learned (phase 3, plan 9b.4): the chat chip and Keep /
+// Discard card, "Don't learn from this chat", and the phone's Settings screens.
+const learning = await import("../apps/mobile/lib/chat/learning.ts");
+const { chatStreamMessage, followsLearning } = await import("../apps/mobile/lib/chat/agentRun.ts");
+const { existsSync } = await import("node:fs");
+
+const lev = (over = {}) => ({
+  id: "ev1",
+  kind: "skill",
+  action: "created",
+  subject: "bank-csv-import",
+  before: "",
+  after: "---\nname: bank-csv-import\n---\nRead the CSV",
+  origin: "chat",
+  conversationId: "c1",
+  runId: "run1",
+  botId: "",
+  taintedSources: [],
+  status: "applied",
+  ledgerEntryId: "l1",
+  pendingId: "",
+  summary: "How to import a bank CSV",
+  createdAt: "2026-11-11T10:00:00Z",
+  updatedAt: "2026-11-11T10:00:00Z",
+  ...over,
+});
+const reply = (over = {}) => ({ id: "m2", role: "assistant", content: "Done", createdAt: "2026-11-11T09:59:00Z", agentRun: "run1", engine: "agent", ...over });
+
+test("the watch stream's learning frame refetches the open chat only; malformed frames are ignored", () => {
+  const frame = { type: "learning", kind: "chat", id: "c1", document: { eventId: "ev1", status: "applied" } };
+  assert.deepEqual(chatStreamMessage(frame), { type: "learning", id: "c1", eventId: "ev1", status: "applied" });
+  assert.equal(chatStreamMessage({ type: "learning", id: "c1", document: { status: "applied" } }), null);
+  assert.deepEqual(chatStreamMessage({ type: "changed", id: "c1" }), { type: "changed", id: "c1" });
+  assert.equal(chatStreamMessage({ type: "hello", id: "" }), null);
+  assert.equal(chatStreamMessage({ type: "delta", id: "c1", kind: "chat", document: { run: "r", offset: 0, text: "Hi" } }).type, "delta");
+  assert.equal(learning.learningForChat("c1", { id: "c1" }), true);
+  assert.equal(learning.learningForChat("c1", { id: "c2" }), false);
+  // "" is a change outside any chat (Settings, the curator): not this chat's.
+  assert.equal(learning.learningForChat("c1", { id: "" }), false);
+  assert.equal(learning.learningForChat(null, { id: "" }), false);
+});
+
+test("a turn's applied change shows as the chip under its reply, with View and Undo", () => {
+  const turn = learning.turnLearning([lev(), lev({ id: "other", runId: "run2" })], reply());
+  assert.equal(turn.chip.label, "Learned: skill 'bank-csv-import' created");
+  assert.equal(turn.chip.text, "Learned: skill 'bank-csv-import' created · View · Undo");
+  assert.equal(turn.chip.note, null);
+  assert.equal(turn.card, null);
+  assert.deepEqual(learning.undoTargets(turn.chip), ["ev1"]);
+  assert.equal(learning.viewHref(turn.chip), "/(app)/settings/learned/activity?event=ev1");
+  // Two changes in one turn: Undo takes the newest back first, View opens the first.
+  const two = learning.turnLearning([lev(), lev({ id: "ev2", action: "patched", createdAt: "2026-11-11T10:00:09Z" })], reply());
+  assert.deepEqual(learning.undoTargets(two.chip), ["ev2", "ev1"]);
+  assert.equal(learning.viewHref(two.chip), "/(app)/settings/learned/activity?event=ev1");
+  // A user's message, or a reply with no run, carries nothing.
+  assert.equal(learning.turnLearning([lev()], { role: "user", agentRun: "run1" }).chip, null);
+  assert.equal(learning.turnLearning([lev()], reply({ agentRun: undefined })).chip, null);
+  assert.equal(learning.turnLearning(undefined, reply()).chip, null);
+});
+
+test("a memory change says it applies from the next chat; About you opens About you", () => {
+  const turn = learning.turnLearning([lev({ kind: "user", action: "added", subject: "user" }), lev({ id: "ev2", createdAt: "2026-11-11T10:01:00Z" })], reply());
+  assert.equal(turn.chip.label, "Learned: About you added and 1 more");
+  assert.equal(turn.chip.note, "applies from your next chat");
+  assert.deepEqual(learning.undoTargets(turn.chip), ["ev2", "ev1"]); // newest first
+  assert.equal(learning.viewHref(turn.chip), "/(app)/settings/learned/about");
+});
+
+test("once every change is undone the chip says Undone, with nothing to press", () => {
+  const turn = learning.turnLearning([lev({ status: "undone" })], reply());
+  assert.equal(turn.chip.text, "Undone");
+  assert.deepEqual(turn.chip.actions, []);
+  assert.deepEqual(learning.undoTargets(turn.chip), []);
+  assert.equal(learning.viewHref(turn.chip), null);
+});
+
+test("a staged change waits on the Keep / Discard card, not the chip", () => {
+  const staged = lev({ status: "staged", pendingId: "p1", action: "patched", subject: "flipkart-price-read", taintedSources: [{ kind: "web", tool: "web_extract" }] });
+  const turn = learning.turnLearning([staged, lev({ id: "ev3", status: "staged", pendingId: "p2", kind: "memory", action: "added", subject: "memory" })], reply());
+  assert.equal(turn.chip, null);
+  assert.equal(turn.card.title, "Keep what Timely learned?");
+  assert.equal(learning.cardMeta(turn.card), "Skill “flipkart-price-read” updated and 1 more");
+  // Screen readers hear which change each button acts on.
+  assert.equal(learning.cardActionLabel("Keep", turn.card), "Keep: Skill “flipkart-price-read” updated and 1 more");
+  assert.equal(learning.chipActionLabel("Undo", { label: "Learned: About you added" }), "Undo: Learned: About you added");
+  assert.equal(learning.SEARCH_NEEDS_LEARNING, "Turn on Learn from chats to let Timely search your past chats.");
+  assert.equal(turn.card.why, "This chat read something from outside Timely, so it waits for you.");
+  assert.deepEqual(learning.cardTargets(turn.card), ["p1", "p2"]);
+  assert.equal(learning.diffHref(turn.card), "/(app)/settings/learned/waiting?pending=p1");
+  // Kept: it moves to the chip; discarded: it leaves both.
+  assert.equal(learning.turnLearning([{ ...staged, status: "kept" }], reply()).chip.label, "Learned: skill 'flipkart-price-read' updated");
+  const gone = learning.turnLearning([{ ...staged, status: "discarded" }], reply());
+  assert.equal(gone.chip, null);
+  assert.equal(gone.card, null);
+  // A bot's change says so.
+  assert.equal(learning.turnLearning([{ ...staged, origin: "bot", botId: "b1" }], reply()).card.why, "A bot suggested this, so it waits for you.");
+});
+
+test("a run's learning shows once, under its last message; changes of runs with no message show at the end", () => {
+  const messages = [
+    { id: "m1", role: "user", agentRun: undefined },
+    reply({ id: "m2" }),
+    reply({ id: "m3" }),
+    reply({ id: "m4", agentRun: "run9" }),
+  ];
+  assert.deepEqual([...learning.learningAnchors(messages)], ["m3", "m4"]);
+  const loose = learning.looseLearning([lev(), lev({ id: "late", runId: "run-live", createdAt: "2026-11-11T10:05:00Z" })], messages);
+  assert.deepEqual(loose.events.map((ev) => ev.id), ["late"]);
+  assert.equal(loose.chip.label, "Learned: skill 'bank-csv-import' created");
+  assert.equal(learning.looseLearning([lev()], messages).chip, null);
+});
+
+test("a stopped run's learning shows under its Stopped notice, not under a later reply (review round 6)", () => {
+  const messages = [
+    { id: "m1", role: "user" },
+    reply({ id: "m2", agentRun: "run-a" }),
+    { id: "m3", role: "user" },
+    reply({ id: "m4", agentRun: "run-b", cut: true }),
+    { id: "m5", role: "assistant", kind: "notice", content: "Stopped.", agentRun: "run-b" },
+    { id: "m6", role: "user" },
+    reply({ id: "m7", agentRun: "run-c" }),
+  ];
+  assert.deepEqual([...learning.learningAnchors(messages)].sort(), ["m2", "m5", "m7"]);
+  const stopped = lev({ id: "ev-b", runId: "run-b", kind: "user", subject: "user", action: "added", after: "Shops at Ward Street." });
+  assert.equal(learning.looseLearning([stopped], messages).chip, null);
+  assert.ok(learning.turnLearning([stopped], messages[4]).chip);
+  assert.equal(learning.turnLearning([stopped], messages[6]).chip, null);
+});
+
+test("a failed run's learning shows under its failed notice, not under the retried reply (review round 7)", () => {
+  const messages = [
+    { id: "m1", role: "user" },
+    { id: "m2", role: "user" },
+    { id: "m3", role: "assistant", kind: "notice", content: "This reply failed.", agentRun: "run-b" },
+    reply({ id: "m4", agentRun: "run-c" }),
+  ];
+  assert.deepEqual([...learning.learningAnchors(messages)].sort(), ["m3", "m4"]);
+  const failed = lev({ id: "ev-b", runId: "run-b", kind: "user", subject: "user", action: "added", after: "Shops at Ward Street." });
+  assert.equal(learning.looseLearning([failed], messages).chip, null);
+  assert.ok(learning.turnLearning([failed], messages[2]).chip);
+  assert.equal(learning.turnLearning([failed], messages[3]).chip, null);
+});
+
+test("the chat follows its learning on the agent engine; Don't learn is offered only where it matters", () => {
+  const chat = { messages: [reply()], runEngine: "agent", engine: "", sensitive: false, noLearning: false };
+  assert.equal(followsLearning(chat, "classic"), true);
+  assert.equal(followsLearning({ ...chat, messages: [], runEngine: "" }, "agent"), true);
+  assert.equal(followsLearning({ ...chat, messages: [], runEngine: "" }, "classic"), false);
+  assert.equal(followsLearning({ ...chat, sensitive: true }, "agent"), false);
+  assert.equal(learning.offersDontLearn(chat, true, { learning: true }), true);
+  assert.equal(learning.offersDontLearn(chat, true, { learning: false }), false);
+  assert.equal(learning.offersDontLearn(chat, false, { learning: true }), false);
+  assert.equal(learning.offersDontLearn({ ...chat, sensitive: true }, true, { learning: true }), false);
+  assert.equal(learning.offersDontLearn(chat, true, undefined), false);
+  // Already on: the switch stays so it can be turned back off.
+  assert.equal(learning.offersDontLearn({ ...chat, noLearning: true }, false, { learning: false }), true);
+  assert.equal(learning.DONT_LEARN, "Don't learn from this chat");
+});
+
+test("Settings → Agent's row counts learned and edited skills, About you and what waits", () => {
+  const skills = [
+    { source: "learned", archived: false },
+    { source: "edited", archived: false },
+    { source: "learned", archived: true },
+    { source: "bundled", archived: false },
+  ];
+  assert.equal(learning.learnedSkillCount(skills), 2);
+  assert.equal(learning.learnedRowMeta({ learning: true }, skills, 1), "2 skills · About you · 1 waiting");
+  assert.equal(learning.learnedRowMeta({ learning: true }, [skills[0]], 0), "1 skill · About you");
+  // Without the agent the row still says what it opens.
+  assert.equal(learning.learnedRowMeta({ learning: true }, undefined, 0), "About you");
+  // One rule with the web's Settings row (learnedOffSummary in the contract).
+  assert.equal(learning.learnedRowMeta({ learning: false }, skills, 0), "Learning is off");
+  assert.equal(learning.learnedRowMeta({ learning: false }, skills, 2), "Learning is off · 2 waiting");
+});
+
+test("Activity rows say what changed, its status, when and where from; Undo only while in effect", () => {
+  const now = Date.parse("2026-11-11T12:00:00Z");
+  assert.deepEqual(learning.activityRow(lev(), now), { title: "Skill “bank-csv-import” created", meta: "Learned · 2 h ago · in a chat" });
+  assert.deepEqual(learning.activityRow(lev({ kind: "user", action: "replaced", origin: "user", status: "undone", createdAt: "2026-11-11T11:57:00Z" }), now), {
+    title: "About you updated",
+    meta: "Undone · 3 min ago · by you",
+  });
+  // the person's own change in effect is not something Timely "learned"
+  assert.deepEqual(learning.activityRow(lev({ kind: "user", action: "added", origin: "user", status: "applied", createdAt: "2026-11-11T11:54:00Z" }), now), {
+    title: "About you added",
+    meta: "6 min ago · by you",
+  });
+  assert.equal(learning.canUndo({ status: "applied" }), true);
+  assert.equal(learning.canUndo({ status: "kept" }), true);
+  for (const status of ["staged", "blocked", "undone", "discarded"]) assert.equal(learning.canUndo({ status }), false);
+  // the curator's "unused" note on a skill has no history entry: nothing to undo
+  assert.equal(learning.canUndo({ status: "applied", kind: "skill", ledgerEntryId: "" }), false);
+  assert.equal(learning.canUndo({ status: "applied", kind: "skill", ledgerEntryId: "led-1" }), true);
+  assert.equal(learning.canUndo({ status: "applied", kind: "user", ledgerEntryId: "" }), true);
+  assert.equal(learning.nextBefore([lev(), lev({ createdAt: "2026-11-10T00:00:00Z" })], 2), "2026-11-10T00:00:00Z");
+  assert.equal(learning.nextBefore([lev()], 2), null);
+});
+
+test("a card with several staged changes is reviewed item by item, never kept with one tap", () => {
+  const card = (ids) => ({ items: ids.map((pendingId) => ({ pendingId, line: `change ${pendingId}` })) });
+  assert.equal(learning.reviewHref(card(["p1"])), null);
+  assert.equal(learning.reviewHref(card(["p1", "p2"])), learning.WAITING_ROUTE);
+  assert.equal(learning.reviewLabel(card(["p1", "p2", "p3"])), "Review 3 changes");
+  assert.equal(learning.reviewHref(null), null);
+});
+
+test("About you's meter follows the edit, and Save needs a change that fits", () => {
+  const store = { entries: ["I run a bakery"], used: 1370, limit: 1375 };
+  // a new entry also adds the separator between entries ("\n§\n"), as the worker counts it
+  assert.equal(learning.projectedBudget(store, "", "hi").text, "1,375 of 1,375");
+  assert.equal(learning.canSaveEntry(store, "", "hi!"), false);
+  assert.equal(learning.canSaveEntry({ entries: [], used: 0, limit: 3 }, "", "abc"), true);
+  assert.equal(learning.projectedBudget(store, "I run a bakery", "I bake").text, "1,362 of 1,375");
+  assert.equal(learning.projectedBudget(store, "", "0123456789").tone, "full");
+  assert.equal(learning.canSaveEntry(store, "", "hi"), true);
+  assert.equal(learning.canSaveEntry(store, "", "0123456789"), false);
+  assert.equal(learning.canSaveEntry(store, "", "   "), false);
+  assert.equal(learning.canSaveEntry(store, "I run a bakery", "I run a bakery "), false);
+  assert.equal(learning.canSaveEntry(store, "I run a bakery", "I run a cafe"), true);
+});
+
+test("Waiting for you rows read the worker's items with the card's words", () => {
+  const now = Date.parse("2026-11-11T12:00:00Z");
+  const item = { pending_id: "p1", kind: "skill", subject: "flipkart-price-read", action: "patched", diff: "-old\n+new", origin: "chat", conversation_id: "c1", created_at: "2026-11-11T11:00:00Z" };
+  assert.equal(learning.pendingMeta(item, now), "in a chat · 1 h ago");
+  assert.equal(learning.pendingMeta({ ...item, summary: "Reads the deal price" }, now), "Reads the deal price · 1 h ago");
+  const tainted = { ...item, reason: "tainted", tainted_sources: [{ kind: "web", tool: "web_extract" }] };
+  assert.equal(learning.pendingWhy(tainted), "This chat read something from outside Timely, so it waits for you.");
+  assert.equal(learning.pendingWhy({ ...item, origin: "bot" }), "A bot suggested this, so it waits for you.");
+  // a clean chat stages for its own reasons, never "read something from outside"
+  assert.equal(learning.pendingWhy({ ...item, reason: "skill_body" }), "These steps use tools that need your OK, so they wait for you.");
+  assert.equal(learning.pendingWhy({ ...item, reason: "unattended" }), "This changes or removes something Timely already knows, so it waits for you.");
+  assert.equal(learning.pendingWhy(item), "Timely waits for you before saving this.");
+  assert.equal(learning.pendingAsEvent(item).pendingId, "p1");
+});
+
+test("Waiting for you lists Timely's staged events, with the worker's diff when it has one", () => {
+  // Review round 8: a change Go holds staged but the worker lost (a restore without its home)
+  // still waits on the phone, as on the web, with no diff, so it can be discarded.
+  const ev = lev({ id: "lev_9", status: "staged", pendingId: "pnd_gone1", kind: "memory", action: "added",
+    subject: "user", conversationId: "cnv_1", reason: "tainted", createdAt: "2026-11-12T10:00:00Z" });
+  const gone = learning.stagedAsPending(ev, []);
+  assert.equal(gone.pending_id, "pnd_gone1");
+  assert.equal(gone.diff, "");
+  assert.equal(gone.conversation_id, "cnv_1");
+  assert.equal(gone.created_at, "2026-11-12T10:00:00Z");
+  assert.equal(learning.pendingWhy(gone), learning.pendingWhy({ ...gone, reason: "tainted" }));
+  const kept = learning.stagedAsPending(ev, [{ pending_id: "pnd_gone1", diff: "+ Prefers metric" }]);
+  assert.equal(kept.diff, "+ Prefers metric");
+});
+
+test("every What Timely learned route the chip, card and Settings open is a screen", () => {
+  const file = (route) => new URL(`../apps/mobile/app${route.split("?")[0]}${route.endsWith("learned") ? "/index" : ""}.tsx`, import.meta.url);
+  for (const route of [learning.LEARNED_ROUTE, learning.ACTIVITY_ROUTE, learning.ABOUT_YOU_ROUTE, learning.WAITING_ROUTE]) {
+    assert.ok(existsSync(file(route)), `${route} has no screen`);
+  }
+  assert.equal(learning.viewHref(learning.turnLearning([lev()], reply()).chip).split("?")[0], learning.ACTIVITY_ROUTE);
+});
+
+test("on Classic, What Timely learned says learning needs the New engine and About you says when it is read (review round 7)", () => {
+  const classic = learning.engineLearningCopy("classic");
+  assert.equal(classic.notice.title, "Learning needs the New engine");
+  assert.equal(classic.notice.meta, "Your chats use Classic. Choose New in Settings › Agent.");
+  assert.equal(classic.aboutHint, "Timely reads this only in chats on the New engine. Choose it in Settings › Agent.");
+  for (const engine of ["agent", undefined]) {
+    const copy = learning.engineLearningCopy(engine);
+    assert.equal(copy.notice, null);
+    assert.equal(copy.aboutHint, "Timely reads this at the start of every chat. Changes apply from your next chat.");
+  }
+});

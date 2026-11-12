@@ -1,4 +1,4 @@
-"""``boot.py prepare`` and ``boot.py render-account``: the steps Go runs before it spawns workers.
+"""``boot.py prepare``, ``render-account`` and the agent-state helpers: the steps Go runs around workers.
 
 Both read an optional JSON object on stdin and print one JSON object on stdout (exit 0), or
 ``{"ok": false, "error": ...}`` (exit 1). See ``apps/agent/PROTOCOL.md`` "Before spawning".
@@ -16,18 +16,27 @@ Both read an optional JSON object on stdin and print one JSON object on stdout (
   ``runtime/prepared.json``, which sits in the writable agent folder. Output includes
   ``config_sha256`` (send it as ``hello.settings_hash``) and ``env``, the worker environment
   values Go merges into its allowlist.
+- ``agent-export --agent-dir <root> --account <uid> --out <zip>``, ``agent-import --agent-dir <root>
+  --account <uid> --zip <zip>`` and ``agent-reconcile --agent-dir <root>``: an account's agent
+  state in a backup (``timely_agent.backup``; PROTOCOL.md section 10.8). ``prepare`` runs the
+  reconcile too, so a restore that crashed between staging and the swap is finished or dropped.
+- ``agent-forget --agent-dir <root> --account <uid> --sessions <json>``: ``session.delete`` for
+  chats deleted while the account had no worker (Go's waiting ``agent_session_forgets``): the
+  rows, their ``sessions/`` files and the search index's words leave the live home. Output
+  ``{"ok": true, "gone": [ids that were there]}``.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
-from timely_agent import config_render, env_check, paths, seed
+from timely_agent import backup, config_render, env_check, paths, seed
 
 PREPARED = "prepared.json"
 
@@ -77,6 +86,24 @@ def effective_default_off(default_off: list[str], settings: dict[str, Any]) -> l
     return sorted({str(n) for n in default_off} - enabled)
 
 
+@functools.lru_cache(maxsize=8)
+def denied_skill_names(seed_dir: str = "") -> tuple[str, ...]:
+    """The denied bundled skills (Hermes-self, or needing a tool Timely never offers), always off:
+    a home seeded before they were denied keeps its copies. A skill the seed tree holds is not
+    among them (a Timely override replaces the upstream one and is seeded). Nothing when the
+    policy file is absent."""
+    try:
+        denied = seed.load_denied(seed.denied_file_for(paths.skills_reviewed_file()))
+        names = seed.denied_bundled_names(denied, paths.hermes_dir() / "skills")
+        seeded: set[str] = set()
+        if seed_dir and Path(seed_dir).is_dir():
+            for d in seed.skill_dirs(Path(seed_dir)):
+                seeded |= seed.skill_names(d)
+        return tuple(n for n in names if n not in seeded)
+    except (OSError, ValueError):
+        return ()
+
+
 def _write_instance(layout: paths.AgentLayout) -> None:
     data: dict[str, Any] = {}
     if layout.instance_file.is_file():
@@ -110,13 +137,16 @@ def _isolate_for_hermes(layout: paths.AgentLayout) -> Path:
 def prepare(layout: paths.AgentLayout, opts: dict[str, Any]) -> dict[str, Any]:
     layout.ensure()
     _write_instance(layout)
+    restores = backup.reconcile(layout)
     browser = str(opts.get("browser_executable") or "")
     timely_skills = seed.build_timely_skills(layout, opts.get("timely_skills_src") or paths.timely_skills_src())
-    reviewed = seed.load_reviewed(opts.get("skills_reviewed") or paths.skills_reviewed_file())
+    reviewed_file = opts.get("skills_reviewed") or paths.skills_reviewed_file()
+    reviewed = seed.load_reviewed(reviewed_file)
+    denied = seed.load_denied(opts.get("skills_denied") or seed.denied_file_for(reviewed_file))
     src = Path(opts.get("timely_skills_src") or paths.timely_skills_src())
     seed_dir, report = seed.build_seed_tree(
         layout, upstream=opts.get("upstream_skills") or paths.hermes_dir() / "skills",
-        overrides=src / "overrides", reviewed=reviewed)
+        overrides=src / "overrides", reviewed=reviewed, denied=denied)
     managed_path, managed_sha = config_render.render_managed(
         layout, timely_skills_dir=timely_skills, browser_executable=browser)
     canary_home = _isolate_for_hermes(layout)
@@ -135,6 +165,7 @@ def prepare(layout: paths.AgentLayout, opts: dict[str, Any]) -> dict[str, Any]:
         "seed_skills_dir": str(seed_dir),
         "browser_executable": browser,
         "skills_reviewed_found": reviewed is not None,
+        "skills_denied_found": denied is not None,
         "skills_default_off": sorted(set(report["default_off"])),
     }
     config_render.write_atomic(prepared_file(layout), (json.dumps(state, indent=2, sort_keys=True) + "\n").encode(),
@@ -142,6 +173,7 @@ def prepare(layout: paths.AgentLayout, opts: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True, **state,
         "seed": {k: len(v) for k, v in report.items()},
+        "restores": {k: v for k, v in restores.items() if k != "ok"},
         "env": {
             "HERMES_MANAGED_DIR": str(layout.managed_dir),
             "HERMES_RUNTIME_DIR": str(layout.runtime_dir),
@@ -158,7 +190,8 @@ def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, 
     values ``hello`` carries in the worker. Never ``runtime/prepared.json``."""
     state = prepared
     default_off = effective_default_off(state["skills_default_off"], settings)
-    settings = {**settings, "skills_disabled": sorted({*(settings.get("skills_disabled") or []), *default_off})}
+    settings = {**settings, "skills_disabled": sorted({*(settings.get("skills_disabled") or []), *default_off,
+                                                       *denied_skill_names(str(state.get("seed_skills_dir") or ""))})}
     out = config_render.render_account(
         layout, account, settings, timely_skills_dir=state["timely_skills_dir"],
         browser_executable=state.get("browser_executable", ""))
@@ -169,22 +202,61 @@ def render_account(layout: paths.AgentLayout, account: str, settings: dict[str, 
     return {"ok": True, "account_dir": paths.account_dir_name(account), **out, "env": env}
 
 
+STATE_COMMANDS = ("agent-export", "agent-import", "agent-reconcile", "agent-forget")
+COMMANDS = ("prepare", "render-account", *STATE_COMMANDS)
+
+
+def agent_state(command: str, layout: paths.AgentLayout, args: argparse.Namespace) -> dict[str, Any]:
+    """The agent-state helpers. Export and import read Hermes (its backup walker, SQLite snapshot
+    and threat scan), so Hermes is pointed at a throwaway home first, as for prepare's canary."""
+    if command == "agent-reconcile":
+        return backup.reconcile(layout)
+    if not layout.instance_file.is_file():
+        raise backup.BackupError(f"{layout.root} has no instance.json; run prepare first")
+    _isolate_for_hermes(layout)
+    if command == "agent-forget":
+        ids = json.loads(Path(args.sessions).read_text(encoding="utf-8"))
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            raise backup.BackupError("--sessions must name a JSON list of conversation ids")
+        home = layout.account_home(args.account)
+        return {"ok": True, "gone": backup.forget_sessions(home, ids) if home.is_dir() else []}
+    if command == "agent-export":
+        drop: list[str] = []
+        if args.drop_sessions:
+            drop = json.loads(Path(args.drop_sessions).read_text(encoding="utf-8"))
+            if not isinstance(drop, list) or not all(isinstance(i, str) for i in drop):
+                raise backup.BackupError("--drop-sessions must name a JSON list of conversation ids")
+        return backup.export_state(layout, args.account, Path(args.out), drop)
+    return backup.import_state(layout, args.account, Path(args.zip))
+
+
 def main(command: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog=f"boot.py {command}")
     parser.add_argument("--agent-dir", required=True, help="<TIMELY_DATA_DIR>/agent")
-    if command == "render-account":
+    if command in ("render-account", "agent-export", "agent-import", "agent-forget"):
         parser.add_argument("--account", required=True, help="the account (user) id")
+    if command == "agent-forget":
+        parser.add_argument("--sessions", required=True,
+                            help="a JSON file listing deleted chats' conversation ids to delete from the home")
+    if command == "render-account":
         parser.add_argument("--prepared", required=True,
                             help="prepare's answer as JSON (" + ", ".join(PREPARED_KEYS) + ")")
+    if command == "agent-export":
+        parser.add_argument("--out", required=True, help="the zip to write")
+        parser.add_argument("--drop-sessions", default="",
+                            help="a JSON file listing deleted chats' conversation ids to leave out of state.db")
+    if command == "agent-import":
+        parser.add_argument("--zip", required=True, help="the zip agent-export wrote")
     args = parser.parse_args(argv)
     layout = paths.AgentLayout.at(args.agent_dir)
     out, sys.stdout = sys.stdout, sys.stderr  # Hermes imports may print; stdout carries one JSON line
     try:
-        opts = _read_stdin_json()
-        if command == "prepare":
-            result = prepare(layout, opts)
+        if command in STATE_COMMANDS:
+            result = agent_state(command, layout, args)
+        elif command == "prepare":
+            result = prepare(layout, _read_stdin_json())
         else:
-            result = render_account(layout, args.account, opts, parse_prepared(args.prepared))
+            result = render_account(layout, args.account, _read_stdin_json(), parse_prepared(args.prepared))
     except Exception as exc:  # one JSON answer either way; the traceback goes to stderr
         import traceback
         traceback.print_exc(file=sys.stderr)

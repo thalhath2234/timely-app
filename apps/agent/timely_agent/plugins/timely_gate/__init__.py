@@ -14,6 +14,11 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
    sidecar Chromium ignore ``security.allow_private_urls``), so the gate applies Hermes' own
    ``url_safety.is_safe_url`` to every URL literal in the arguments (plan 12; what a literal
    check cannot see, such as URLs built at run time or redirects, is the residual in plan 14).
+1c. ``web_search`` and ``web_extract`` after the session read outside content: no rule of
+   Timely's own (owner decision Q-3.9); they go to Go's ``gate.ask`` like any other call. Hermes'
+   own handling applies on every backend: results wrapped as untrusted data and threat-scanned
+   (the scan reaches Go as ``event tool.output_risk``), a URL carrying a key or token refused, and
+   the SSRF floor. Taint still holds the chat's next proposal for review and stages learning.
 2. A call Go pre-approved for a parked-approval continuation (same tool, same args hash): allow.
 2b. ``propose_changes`` that is not the only call of its assistant message: ``block`` with
    "Call propose_changes alone, after all read tools finish" (plan 3.4 step 8). The batch was
@@ -22,6 +27,9 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
 3. A few read-only bookkeeping tools (``policy.LOCAL_ALLOW``) and the Timely toolset: allow.
 4. Everything else: ask Go (``gate.ask``) and return its verdict; no answer means ``block``. In
    phase 2 Go answers ``block`` ("That isn't available in Timely yet") for every such tool.
+
+``post_tool_call`` reports ``{kind: "web", tool: "web_extract", host}`` as taint for each host a
+``web_extract`` that ran named (any backend), so the chat's taint names the sites it read.
 
 An ``approve`` verdict becomes Hermes' human-approval gate with ``rule_key
 timely:<tool_call_id>`` (the approval payload carries no arguments, so the key carries the id).
@@ -148,5 +156,21 @@ def _end_turn(run) -> dict:
     return {"action": "block", "message": END_TURN}
 
 
+def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | None = None, **_: Any) -> None:
+    """Report each host a ``web_extract`` that ran named as taint (the page's site)."""
+    if tool_name != "web_extract" or status == "blocked":
+        return
+    run = bridge.current_run.get()
+    if run is None:
+        return
+    try:
+        hosts = policy.extract_hosts(args if isinstance(args, dict) else {})
+        if hosts:
+            bridge.report_taint(run, [{"kind": "web", "tool": "web_extract", "host": h} for h in hosts])
+    except Exception as exc:
+        logger.warning("reporting web_extract hosts as taint failed: %s", exc)
+
+
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", pre_tool_call)
+    ctx.register_hook("post_tool_call", post_tool_call)

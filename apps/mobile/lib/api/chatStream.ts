@@ -1,18 +1,9 @@
-import type { ChatDelta } from "@timely/contract/agentChat";
 import { getToken } from "../auth/session";
 import { getApiUrl, tunnelHeaders } from "./client";
 import { readSSE, type StreamEvent } from "./watch";
-import { isChatDelta } from "../chat/agentRun";
+import { chatStreamMessage, type ChatStreamMessage } from "../chat/agentRun";
 
-/**
- * What `GET /chats/watch` says to the open chat: the stream came up or went
- * down (`live`), a chat changed (refetch it), or one chunk of a live agent
- * run's reply (`delta`, Q-2.5).
- */
-export type ChatStreamMessage =
-  | { type: "live"; live: boolean }
-  | { type: "changed"; id: string }
-  | { type: "delta"; event: ChatDelta };
+export type { ChatStreamMessage } from "../chat/agentRun";
 
 const FIRST_WAIT = 1000;
 const MAX_WAIT = 15_000;
@@ -51,11 +42,10 @@ export function watchChats(onMessage: (message: ChatStreamMessage) => void, sign
             if (event.type === "hello") {
               wait = FIRST_WAIT;
               setLive(true);
-            } else if (isChatDelta(event)) {
-              onMessage({ type: "delta", event });
-            } else if (event.type === "changed" && event.id) {
-              onMessage({ type: "changed", id: event.id });
+              return;
             }
+            const message = chatStreamMessage(event);
+            if (message) onMessage(message);
           },
           signal,
         );

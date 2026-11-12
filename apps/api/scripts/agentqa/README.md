@@ -14,14 +14,16 @@ make agent-parity ENGINE=both PROVIDER=openrouter MODEL=<id> \
 ```
 
 - The API is `TIMELY_API` (default `http://localhost:8081`, the worktree API). Never point it at `:8080`.
-- Each engine gets its own disposable account (`agentqa+<engine>-<n>@example.invalid`, so the API needs `ALLOW_REGISTRATION=true`) with a `Home` workspace, the provider connected (with the key, or for `claude` and `codex` with `POST /agent/providers/<id>/connect`, which checks the host's CLI login), the model as default, and Settings → Agent → Engine set to that engine. The key is sent once, to `POST /agent/providers/<id>/key`, and is never printed or written. An error that echoes it is scrubbed.
+- Every scenario runs in a fresh disposable account of its own, on each engine (`agentqa+<engine>-<n>@example.invalid`, so the API needs `ALLOW_REGISTRATION=true`): sign-up, a `Home` workspace, the provider connected (with the key, or for `claude` and `codex` with `POST /agent/providers/<id>/connect`, which checks the host's CLI login with one test call), the model as default, and Settings → Agent → Engine set to that engine. One account per scenario keeps one scenario's setup out of the next one's data: with a shared account, setups piled up ("two Groceries sheets") and both engines rightly asked which one was meant. The key is sent once per account, to `POST /agent/providers/<id>/key`, and is never printed or written. An error that echoes it is scrubbed. A sign-up that fails on the first scenario stops the run; a later one fails only that scenario, as a harness error.
 - Each scenario: its setup requests (REST), a new chat (`POST /chats` with the scenario's time zone and `-permission`, default `supervised`), a wait for the run to end, then, when the scenario says `approve` and a proposal waits, its `between` requests (stale data) and Approve, and a second wait.
 - `ONLY` takes scenario ids or whole categories, comma-separated.
 
 ## Output
 
-- `<OUT>/classic.json` and `<OUT>/agent.json`: per scenario the turn's engine, final status and error, replies, notices, the proposal (summary, steps, held or applied), the plan at the end, what Approve led to (`applied`, `replanned`, `failed`), the tool trace, the time, and pass or fail with the reasons.
+- `<OUT>/classic.json` and `<OUT>/agent.json`: the number of accounts made (`accounts`), and per scenario its account, the turn's engine, final status and error, replies, notices, the proposal (summary, steps, held or applied), the plan at the end, what Approve led to (`applied`, `replanned`, `failed`), the tool trace, the time, and pass or fail with the reasons.
 - `<OUT>/report.md`: totals per engine and category, and one row per scenario side by side, with whether both engines ended the same way.
+
+To run the engines at the same time, run `ENGINE=classic` and `ENGINE=agent` into two `OUT` folders, then merge them: `cd apps/api && go run ./scripts/agentqa -merge <dir1>/classic.json,<dir2>/agent.json -scenarios scripts/agentqa/scenarios.json -out <dir>` writes the side-by-side `report.md`.
 
 Scoring (`report.go` `Score`) checks the outcome (`proposal`, `reply`, `any`), the tools the proposal must hold, words one of which the reply must contain, and what Approve must lead to. A pass is a floor, not a judgment of quality: read the replies in the JSON.
 
@@ -48,4 +50,4 @@ make agent-parity ENGINE=both PROVIDER=ollama MODEL=stub-model \
 
 Without a phrase table the directive is appended to the message, which works on classic only: the agent engine's turn input adds Timely's notices after the person's words.
 
-`ollama_shim.py` is the shim the phase 2 web, phone and parity proofs used; it imports `stub_openai` from the folder named in its second argument.
+`ollama_shim.py` is the shim the phase 2 web, phone and parity proofs used; it imports `stub_openai` from the folder named in its second argument. It leaves Hermes' learning-pass prompt as it is, so a phrase-table directive `SCRIPT [...] REVIEW [...]` also scripts what the pass writes (phase 3: a learned skill, a staged note). With `TIMELY_SHIM_LOG=<file>` it appends each model request's last messages (each cut at 2,000 characters) to that JSONL file, which shows the tool results the model saw, such as a blocked `web_extract`. `shim_test.go` covers both.

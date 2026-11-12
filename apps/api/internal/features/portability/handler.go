@@ -63,7 +63,7 @@ func (h *Handler) ExportFull(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	backup, err := h.service.Export(uid)
+	backup, err := h.service.ExportAccount(c.Request().Context(), uid)
 	if err != nil {
 		return portableError(err)
 	}
@@ -174,11 +174,17 @@ func (h *Handler) CreateBackup(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	row, err := h.service.CreateEncrypted(uid)
+	row, warnings, err := h.service.createEncrypted(c.Request().Context(), uid)
 	if err != nil {
 		return portableError(err)
 	}
-	return c.JSON(http.StatusCreated, row)
+	return c.JSON(http.StatusCreated, createdBackup{BackupFile: row, Warnings: warnings})
+}
+
+// createdBackup is a new backup file and what it left out.
+type createdBackup struct {
+	*models.BackupFile
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (h *Handler) ListBackups(c *echo.Context) error {

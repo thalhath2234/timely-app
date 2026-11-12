@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -50,11 +52,12 @@ func testModel(context.Context, string, string, string) (any, error) {
 	return map[string]any{"provider": "custom", "model": "stub-model", "base_url": "http://127.0.0.1:9/v1", "api_key": "sk-test", "api_mode": "chat_completions"}, nil
 }
 
-// guardedLog logs through the test until it has ended.
+// guardedLog logs through the test until it has ended, and keeps each line.
 type guardedLog struct {
-	mu   sync.Mutex
-	t    *testing.T
-	done bool
+	mu    sync.Mutex
+	t     *testing.T
+	done  bool
+	lines []string
 }
 
 func newGuardedLog(t *testing.T) *guardedLog {
@@ -66,9 +69,17 @@ func newGuardedLog(t *testing.T) *guardedLog {
 func (l *guardedLog) logf(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(format, args...))
 	if !l.done {
 		l.t.Logf(format, args...)
 	}
+}
+
+// logged is the lines logged so far.
+func (l *guardedLog) logged() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.lines)
 }
 
 type engineHarness struct {
@@ -78,6 +89,7 @@ type engineHarness struct {
 	e   *WorkerEngine
 	kit *agenthosttest.Kit
 	hub *realtime.Hub
+	log *guardedLog
 }
 
 // newEngineHarness starts two chat lanes and the agent engine on the fake
@@ -126,7 +138,7 @@ func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context
 		_ = e.Shutdown(stop)
 		hub.Close()
 	})
-	return &engineHarness{t: t, db: db, s: s, e: e, hub: hub}
+	return &engineHarness{t: t, db: db, s: s, e: e, hub: hub, log: logs}
 }
 
 // lines is a JSONL fixture of objects.
@@ -490,6 +502,35 @@ func TestIntegrationAgentEngineOutsideReadHoldsADirectProposal(t *testing.T) {
 	}
 }
 
+// Hermes' threat scan of an untrusted result reaches Go as a
+// tool.output_risk event: the engine logs it and the activity stays as it
+// was, so the person sees no scan line.
+func TestIntegrationAgentEngineLogsTheThreatScan(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Summarize news.example", "supervised", "output-risk", lines(
+		toolStarted("call_w", "web_extract"),
+		obj{"type": "event", "kind": "tool.output_risk", "payload": obj{"tool_call_id": "call_w", "tool": "web_extract", "risk": "high", "findings": []string{"prompt_injection"}}},
+		obj{"type": "event", "kind": "tool.completed", "payload": obj{"tool_call_id": "call_w", "tool": "web_extract", "result": "{}"}},
+		reply("Reading", 0),
+		pause(2500),
+		reply(" done: the page is news.", 0),
+	))
+	mid := h.wait(c.ID, "showed its activity", func(c Conversation) bool { return c.Activity.Draft == "Reading" })
+	if len(mid.Activity.Lines) != 1 || mid.Activity.Lines[0].ID != "call_w" || mid.Activity.Lines[0].Kind != "tool" {
+		t.Errorf("the activity shows more than the web read: %+v", mid.Activity.Lines)
+	}
+	h.wait(c.ID, "replied", statusIs("idle"))
+	found := false
+	for _, line := range h.log.logged() {
+		if strings.Contains(line, "Hermes flagged the web_extract result call_w as high risk (prompt_injection)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the scan finding was not logged: %q", h.log.logged())
+	}
+}
+
 // Taint the worker reports (a `taint` line, a tool.call's tainted_sources or
 // run.done's) holds a direct proposal in Auto on its own: the only Go read
 // in these runs, get_task, is not outside.
@@ -563,6 +604,13 @@ func TestIntegrationAgentEngineStopMidRunAppliesNothing(t *testing.T) {
 	// What it streamed before Stop stays as the reply, ahead of the notice.
 	if n := len(c.Messages); n < 2 || c.Messages[n-2].Content != "Drafting" || c.Messages[n-2].Kind != "" || !c.Messages[n-2].Cut {
 		t.Fatalf("streamed text not kept on Stop: %+v", c.Messages)
+	}
+	// Both belong to the stopped run, so what it learned shows under them,
+	// never under a later reply (review round 6).
+	for _, m := range c.Messages[len(c.Messages)-2:] {
+		if m.AgentRun != stops[0].Run || m.Engine != engineAgent {
+			t.Fatalf("Stop's message %q: agentRun %q engine %q, want run %s", m.Content, m.AgentRun, m.Engine, stops[0].Run)
+		}
 	}
 	// Retry sends the request again: the cut reply did not end the turn.
 	if code, body := h.post("/chats/"+c.ID+"/retry", "{}"); code != 200 {
@@ -719,6 +767,41 @@ func TestIntegrationAgentEngineReseedsAfterClassicTurns(t *testing.T) {
 	}
 }
 
+// After a restore replaced the agent home, a chat the worker already holds
+// sends its own messages with reseed on its next run (state.db has the
+// backup's transcript, not the turns since), once; the mark is kept in
+// Postgres, so a new process still reseeds.
+func TestIntegrationAgentEngineReseedsAfterARestore(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Plan my week", "supervised", "restored", lines(reply("Here is your week", 0)))
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if err := h.s.AgentStateRestored(context.Background(), c.UserID); err != nil {
+		t.Fatal(err)
+	}
+	type start struct {
+		History []map[string]string `json:"history"`
+		Reseed  bool                `json:"reseed"`
+	}
+	for i, want := range []bool{true, false} {
+		if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"And Friday?"}`); code != 200 {
+			t.Fatalf("send: %d %s", code, body)
+		}
+		starts := h.kit.WaitReceived("run.start", i+2, 20*time.Second)
+		var got start
+		if err := starts[i+1].Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Reseed != want || want && (len(got.History) < 2 || got.History[1]["content"] != "Here is your week") {
+			t.Fatalf("run.start %d after the restore: reseed %v history %v", i+1, got.Reseed, got.History)
+		}
+		c = h.wait(c.ID, "replied", statusIs("idle"))
+	}
+	var row Conversation
+	if err := h.db.First(&row, "id = ?", c.ID).Error; err != nil || row.AgentReseed {
+		t.Fatalf("the reseed mark stayed: %v %v", row.AgentReseed, err)
+	}
+}
+
 // A steer no run takes (the run it named is gone) is refused and taken back
 // out of the chat, so sending it again doesn't leave a duplicate.
 func TestIntegrationAgentEngineUndeliveredSteerIsTakenBack(t *testing.T) {
@@ -826,7 +909,13 @@ func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {
 	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"also add eggs"}`); code != 200 {
 		t.Fatalf("steer: %d %s", code, body)
 	}
-	h.wait(c.ID, "failed", statusIs("failed"))
+	c = h.wait(c.ID, "failed", statusIs("failed"))
+	// The failed run leaves a notice that carries it (review round 7): what
+	// it learned shows under the notice, not under the retried reply.
+	failedRun := h.runStart(c.ID).Run
+	if last := lastMessage(c); last.Kind != "notice" || last.Content != tr("", txtRunFailed) || last.AgentRun != failedRun || last.Engine != engineAgent {
+		t.Fatalf("failed run's last message %+v, want the failed notice of %s", last, failedRun)
+	}
 	h.kit.Fixture("ok", lines(reply("Here is your week.", 0)))
 	h.kit.ForConversation(c.ID, "ok")
 	if code, body := h.post("/chats/"+c.ID+"/retry", "{}"); code != 200 {
@@ -844,17 +933,50 @@ func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {
 	if !start.Reseed || start.History == nil || !strings.Contains(start.UserMessage, "also add eggs") {
 		t.Fatalf("retried run.start: reseed %v history %v message %q", start.Reseed, start.History, start.UserMessage)
 	}
+	c = h.wait(c.ID, "answered", statusIs("idle"))
+	runs := map[string]string{}
+	for _, m := range c.Messages {
+		if m.AgentRun != "" {
+			runs[m.Content] = m.AgentRun
+		}
+	}
+	if runs[tr("", txtRunFailed)] != failedRun || runs["Here is your week."] == "" || runs["Here is your week."] == failedRun {
+		t.Fatalf("message runs %v: the failed notice keeps %s, the reply its own run", runs, failedRun)
+	}
 }
 
 // A chat deleted while the account has no worker keeps its session delete
 // in agent_session_forgets until a worker acknowledges it at the next run.
 func TestIntegrationAgentEngineDeleteWaitsForAWorker(t *testing.T) {
 	h := newEngineHarness(t)
+	waitingFor := func(cid string) int64 {
+		var n int64
+		h.db.Model(&AgentSessionForget{}).Where("user_id = ? AND conversation_id = ?", "user-a", cid).Count(&n)
+		return n
+	}
+	settles := func(cid string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for waitingFor(cid) != 0 {
+			if time.Now().After(deadline) {
+				t.Fatalf("the session delete of %s stayed waiting", cid)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	// An account with no agent home (it never used the agent) has nothing
+	// to delete: the row goes at once.
+	h.e.Forget("user-a", "chat_never")
+	settles("chat_never")
+	// With a home and no worker, agent-forget runs on it (review round 8);
+	// the fake runtime has no helpers, so it fails and the delete waits.
+	if err := os.MkdirAll(h.e.sup.Layout().Home("user-a"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	h.e.Forget("user-a", "chat_gone")
-	var waiting int64
-	h.db.Model(&AgentSessionForget{}).Where("user_id = ? AND conversation_id = ?", "user-a", "chat_gone").Count(&waiting)
-	if waiting != 1 {
-		t.Fatalf("%d waiting session deletes", waiting)
+	h.e.wg.Wait()
+	if waitingFor("chat_gone") != 1 {
+		t.Fatal("a failed agent-forget dropped the waiting delete")
 	}
 	c := h.chat("Plan my week", "supervised", "after-delete", lines(reply("Here it is", 0)))
 	h.wait(c.ID, "replied", statusIs("idle"))
@@ -866,17 +988,7 @@ func TestIntegrationAgentEngineDeleteWaitsForAWorker(t *testing.T) {
 	if body.ConversationID != "chat_gone" {
 		t.Fatalf("session.delete for %q", body.ConversationID)
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		h.db.Model(&AgentSessionForget{}).Where("user_id = ?", "user-a").Count(&waiting)
-		if waiting == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the acknowledged session delete stayed waiting")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	settles("chat_gone")
 }
 
 // The host-allowed account's run.start drops the scope line (Q-2.1);
@@ -995,6 +1107,14 @@ func TestIntegrationAgentEngineRecordedFixtures(t *testing.T) {
 		}
 		if c.AgentRunID != "" || c.Activity.Run != "" || c.RunEngine != engineAgent {
 			t.Errorf("%s: live state left: run %q activity %+v engine %q", name, c.AgentRunID, c.Activity, c.RunEngine)
+		}
+		if w.status == "stopped" {
+			// The worker ended the run interrupted with no Stop from the
+			// person (WorkerEngine.stopped): its notice carries the run, so
+			// what it learned stays under it.
+			if last := lastMessage(c); last.AgentRun == "" || last.AgentRun != h.runStart(c.ID).Run || last.Engine != engineAgent {
+				t.Errorf("%s: Stopped notice %+v does not carry run %s", name, last, h.runStart(c.ID).Run)
+			}
 		}
 	}
 	// Go answered the recorded gate.ask with phase 2's block.

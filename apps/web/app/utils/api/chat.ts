@@ -65,6 +65,8 @@ export type ChatMessage = {
   cut?: boolean;
   /** "agent" on a reply or proposal the new engine wrote. */
   engine?: string;
+  /** The agent run that wrote it: its learning events carry the same run id. */
+  agentRun?: string;
   /** When its Undo was asked for, and the notice that records it. */
   undoneAt?: string;
   undoMessageId?: string;
@@ -120,6 +122,9 @@ export type Chat = {
   engine?: ChatEngine;
   /** The engine the current or last run used ("" before the first run). */
   runEngine?: "" | "classic" | "agent";
+  /** "Don't learn from this chat": no skills or memory are written from it,
+   * and past-chat search leaves it out. */
+  noLearning?: boolean;
   /** A live agent run's lines and the reply streamed so far. */
   activity?: ChatActivity;
   /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
@@ -169,6 +174,9 @@ export async function chatRequest<T>(
 }
 export const renameChat = (id: string, title: string) =>
   chatRequest<Chat>(`/${encodeURIComponent(id)}`, "PATCH", { title });
+/** "Don't learn from this chat" (PATCH {noLearning}). */
+export const setChatNoLearning = (id: string, noLearning: boolean) =>
+  chatRequest<Chat>(`/${encodeURIComponent(id)}`, "PATCH", { noLearning });
 export const deleteChat = (id: string) =>
   chatRequest<void>(`/${encodeURIComponent(id)}`, "DELETE");
 

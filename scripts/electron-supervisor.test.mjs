@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, utimesSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, utimesSync, existsSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { apiBinds, buildApiEnv } from "../apps/web/electron/supervisor/api.ts";
-import { copyDataDir, manualBackupName, preUpgradeBackupName, pruneBackups } from "../apps/web/electron/supervisor/backup.ts";
+import {
+  agentAccountsDir,
+  copyDataDir,
+  manualBackupName,
+  preUpgradeBackupName,
+  pruneBackups,
+  restoreDataDir,
+} from "../apps/web/electron/supervisor/backup.ts";
 import {
   DEFAULT_PORTS,
   LOCAL_BUILD_PORTS,
@@ -504,6 +511,139 @@ test("backup: copies a stopped data directory without the pid file and refuses a
     writeFileSync(path.join(pgData, "postmaster.pid"), "123\n");
     assert.throws(() => copyDataDir({ pgData, backupDir, name: "manual-running" }), /still running/);
     assert.throws(() => copyDataDir({ pgData: path.join(dir, "nope"), backupDir, name: "x" }), /No database/);
+  } finally {
+    cleanup();
+  }
+});
+
+// An agent home as the API leaves it: what the agent learned and the chat
+// sessions, plus config, secrets, sign-ins and a workspace a backup leaves out.
+function plantAgentHome(accounts, dir, marker) {
+  const home = path.join(accounts, dir);
+  const files = {
+    "memories/USER.md": `About you ${marker}`,
+    "skills/learned/pantry-steps/SKILL.md": `skill ${marker}`,
+    "pending/memory/c0ffee01.json": `{"id": "c0ffee01", "marker": "${marker}"}`,
+    "sessions/s1.json": `session ${marker}`,
+    ".timely/counters.json": `{"marker": "${marker}"}`,
+    "state.db": `db ${marker}`,
+    "state.db-wal": `wal ${marker}`,
+    ".curator_backups/blobs/abc123": `blob ${marker}`,
+    ".curator_backups/2026-11-11/skills.tar.gz": "a curator snapshot",
+    "config.yaml": "model: x",
+    "SOUL.md": "soul",
+    ".env": "OPENAI_API_KEY=sk-planted",
+    "mcp-tokens/server.json": "{}",
+    "workspace/notes.txt": "notes",
+    "home/.bashrc": "rc",
+  };
+  for (const [rel, content] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(home, rel)), { recursive: true });
+    writeFileSync(path.join(home, rel), content);
+  }
+  return home;
+}
+
+// The skill ledger's blobs come along: Undo and "what changed" of a learned
+// skill read them (Hermes refuses a rollback whose blob is missing).
+// sessions/ (Hermes' request dumps: a failed request's whole body) stays out
+// (review round 8): a deleted chat's dump must not ride into every backup.
+const KEPT = ["memories/USER.md", "skills/learned/pantry-steps/SKILL.md", "pending/memory/c0ffee01.json", ".timely/counters.json", "state.db", "state.db-wal", ".curator_backups/blobs/abc123"];
+const LEFT_OUT = ["config.yaml", "SOUL.md", ".env", "mcp-tokens", "workspace", "home", "sessions", ".curator_backups/2026-11-11"];
+
+function stoppedDatabase(dir, rows) {
+  const pgData = path.join(dir, "postgres", "data");
+  mkdirSync(path.join(pgData, "base", "1"), { recursive: true });
+  writeFileSync(path.join(pgData, "PG_VERSION"), "17");
+  writeFileSync(path.join(pgData, "base", "1", "123"), rows);
+  return pgData;
+}
+
+test("backup: copies the agent homes beside the database folder, only what the agent learned and the sessions", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const pgData = stoppedDatabase(dir, "rows");
+    const accounts = agentAccountsDir(path.join(dir, "data"));
+    assert.equal(accounts, path.join(dir, "data", "agent", "accounts"));
+    const a = "account-" + "a".repeat(24);
+    plantAgentHome(accounts, a, "one");
+    // Staged restores and anything that is not an account home stay out,
+    // and a symlink in a home is never followed.
+    mkdirSync(path.join(accounts, `.restore-${a}-20261111T120000Z-abcdef`, "memories"), { recursive: true });
+    writeFileSync(path.join(dir, "outside.txt"), "outside");
+    symlinkSync(path.join(dir, "outside.txt"), path.join(accounts, a, "memories", "link.md"));
+    const backupDir = path.join(dir, "backups");
+
+    const target = copyDataDir({ pgData, backupDir, name: "manual-agent", agentAccounts: accounts });
+    const agent = `${target}.agent`;
+    assert.deepEqual(readdirSync(agent), [a]);
+    for (const rel of KEPT) assert.equal(existsSync(path.join(agent, a, rel)), true, `${rel} is in the backup`);
+    for (const rel of LEFT_OUT) assert.equal(existsSync(path.join(agent, a, rel)), false, `${rel} is not in the backup`);
+    assert.equal(existsSync(path.join(agent, a, "memories", "link.md")), false, "a symlink is not followed");
+    assert.equal(existsSync(`${agent}.partial`), false);
+    assert.equal(readFileSync(path.join(target, "base", "1", "123"), "utf8"), "rows");
+
+    // Without an agent folder (no agent used yet) only the database is copied.
+    const plain = copyDataDir({ pgData, backupDir, name: "manual-plain", agentAccounts: path.join(dir, "none") });
+    assert.equal(existsSync(`${plain}.agent`), false);
+
+    // Pruning counts a backup once and takes its agent homes with it.
+    for (const name of ["pre-upgrade-a", "pre-upgrade-b"]) {
+      const t = copyDataDir({ pgData, backupDir, name, agentAccounts: accounts });
+      const when = new Date(name.endsWith("a") ? 2026 : 2027, 0, 1);
+      utimesSync(t, when, when);
+      utimesSync(`${t}.agent`, when, when);
+    }
+    assert.deepEqual(pruneBackups(backupDir, "pre-upgrade-", 1), ["pre-upgrade-a"]);
+    assert.equal(existsSync(path.join(backupDir, "pre-upgrade-a.agent")), false);
+    assert.equal(existsSync(path.join(backupDir, "pre-upgrade-b.agent")), true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("backup: restoring a folder backup puts the database and the agent homes back together", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const pgData = stoppedDatabase(dir, "rows at backup");
+    const accounts = agentAccountsDir(path.join(dir, "data"));
+    const a = "account-" + "a".repeat(24);
+    const b = "account-" + "b".repeat(24);
+    plantAgentHome(accounts, a, "at backup");
+    const backupDir = path.join(dir, "backups");
+    copyDataDir({ pgData, backupDir, name: "manual-1", agentAccounts: accounts });
+
+    // After the backup: rows change, the agent learns more, a new account
+    // starts using the agent.
+    writeFileSync(path.join(pgData, "base", "1", "123"), "rows later");
+    writeFileSync(path.join(accounts, a, "memories", "USER.md"), "About you later");
+    mkdirSync(path.join(accounts, a, "skills", "learned", "later-skill"), { recursive: true });
+    writeFileSync(path.join(accounts, a, "skills", "learned", "later-skill", "SKILL.md"), "later");
+    plantAgentHome(accounts, b, "new account");
+
+    writeFileSync(path.join(pgData, "postmaster.pid"), "123\n");
+    assert.throws(() => restoreDataDir({ pgData, backupDir, name: "manual-1", agentAccounts: accounts }), /still running/);
+    rmSync(path.join(pgData, "postmaster.pid"));
+    assert.throws(() => restoreDataDir({ pgData, backupDir, name: "missing", agentAccounts: accounts }), /No database backup/);
+
+    const result = restoreDataDir({ pgData, backupDir, name: "manual-1", agentAccounts: accounts });
+    assert.deepEqual(result, { source: path.join(backupDir, "manual-1"), agentHomes: 2 });
+    assert.equal(readFileSync(path.join(pgData, "base", "1", "123"), "utf8"), "rows at backup");
+    assert.equal(existsSync(`${pgData}.restoring`) || existsSync(`${pgData}.replaced`), false);
+    assert.equal(readFileSync(path.join(accounts, a, "memories", "USER.md"), "utf8"), "About you at backup");
+    assert.equal(existsSync(path.join(accounts, a, "skills", "learned", "later-skill")), false, "learned after the backup is gone");
+    for (const rel of KEPT) assert.equal(existsSync(path.join(accounts, a, rel)), true, `${rel} came back`);
+    // The home keeps what a backup never carries: config, sign-ins, workspace.
+    for (const rel of LEFT_OUT) assert.equal(existsSync(path.join(accounts, a, rel)), true, `${rel} stayed`);
+    // An account the backup has no agent state for loses what it learned since.
+    for (const rel of KEPT) assert.equal(existsSync(path.join(accounts, b, rel)), false, `${rel} of the newer account is gone`);
+    assert.equal(existsSync(path.join(accounts, b, "config.yaml")), true);
+
+    // A backup from before agent homes were copied restores the database only.
+    rmSync(path.join(backupDir, "manual-1.agent"), { recursive: true });
+    writeFileSync(path.join(accounts, a, "memories", "USER.md"), "kept as is");
+    assert.deepEqual(restoreDataDir({ pgData, backupDir, name: "manual-1", agentAccounts: accounts }).agentHomes, null);
+    assert.equal(readFileSync(path.join(accounts, a, "memories", "USER.md"), "utf8"), "kept as is");
   } finally {
     cleanup();
   }

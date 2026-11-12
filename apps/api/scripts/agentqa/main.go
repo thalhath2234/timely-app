@@ -4,12 +4,13 @@
 // section 13, phase 2: the parity run).
 //
 //	make agent-parity ENGINE=both PROVIDER=<id> MODEL=<id> SCENARIOS=<file> OUT=<dir> [ONLY=<ids>]
+//	agentqa -merge <dir1>/classic.json,<dir2>/agent.json -scenarios <file> -out <dir>
 //
 // The API comes from TIMELY_API (default http://localhost:8081, the worktree
 // API; never the main checkout's 8080). The provider key comes only from
 // TIMELY_PARITY_KEY in the caller's environment, never from .env or a flag,
-// and is never printed or written. Each engine gets its own disposable
-// account. With -stub (or the model "stub-model") each scenario's stub
+// and is never printed or written. Every scenario runs in a disposable
+// account of its own, one per engine. With -stub (or the model "stub-model") each scenario's stub
 // directive for apps/agent/tests/stub_openai.py goes into the stub shim's
 // phrase table (-stub-phrases or TIMELY_PARITY_STUB_PHRASES), or is appended
 // to the message when there is none (classic only).
@@ -24,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -41,7 +43,28 @@ func main() {
 	timeout := flag.Duration("timeout", 4*time.Minute, "longest wait for one run to end")
 	phrases := flag.String("stub-phrases", "", "the stub shim's phrase table to write directives into; default $TIMELY_PARITY_STUB_PHRASES")
 	dsn := flag.String("dsn", "", "optional Postgres DSN (with the API's search_path) to read classic's tool trace; default $TIMELY_PARITY_DSN")
+	merge := flag.String("merge", "", "comma-separated <engine>.json files of runs made separately (e.g. both engines at once): write their side-by-side report.md to -out and exit")
 	flag.Parse()
+
+	if *merge != "" {
+		if *scenariosPath == "" || *out == "" {
+			fail("usage: agentqa -merge classic.json,agent.json -scenarios FILE -out DIR [-only IDS]")
+		}
+		all, err := LoadScenarios(*scenariosPath)
+		if err != nil {
+			fail(err.Error())
+		}
+		picked, err := Pick(all, *only)
+		if err != nil {
+			fail(err.Error())
+		}
+		path, err := MergeReports(strings.Split(*merge, ","), picked, *out)
+		if err != nil {
+			fail(err.Error())
+		}
+		fmt.Println(path)
+		return
+	}
 
 	if *provider == "" || *model == "" || *scenariosPath == "" || *out == "" {
 		fail("usage: agentqa -engine classic|agent|both -provider ID -model ID -scenarios FILE -out DIR [-only IDS]")
@@ -94,29 +117,10 @@ func main() {
 	defer stop()
 	var runs []EngineRun
 	for _, e := range engines {
-		run := EngineRun{Engine: e, API: api, Provider: cfg.Provider, Model: cfg.Model, Permission: cfg.Permission, Stub: cfg.Stub, Started: time.Now().UTC()}
-		c, email, unavailable, err := Signup(ctx, cfg, e)
+		run, err := RunEngine(ctx, cfg, e, picked)
 		if err != nil {
 			fail(e + ": " + err.Error())
 		}
-		run.Account, run.Unavailable = email, unavailable
-		log.Printf("%s: account %s, %d scenarios", e, email, len(picked))
-		if unavailable != "" {
-			log.Printf("%s: the engine is unavailable (%s); its runs will fail with Use classic", e, unavailable)
-		}
-		for _, s := range picked {
-			r := RunScenario(ctx, cfg, c, e, s)
-			run.Results = append(run.Results, r)
-			mark := "PASS"
-			if !r.Pass {
-				mark = "FAIL"
-			}
-			log.Printf("%s %-14s %s %s (%.1f s)", e, s.ID, mark, outcome(r), r.Seconds)
-			if ctx.Err() != nil {
-				break
-			}
-		}
-		run.Seconds = time.Since(run.Started).Seconds()
 		path, err := WriteJSON(*out, run)
 		if err != nil {
 			fail(err.Error())

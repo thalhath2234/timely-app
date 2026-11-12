@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isBotPlan } from "@timely/contract/changeReview";
 import {
   ArrowUpRight,
+  BookX,
   ImagePlus,
   PanelLeftOpen,
   Plus,
@@ -51,6 +52,13 @@ import { buttonClass } from "@/app/_components/_ui/button";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "./modelMenu";
 import { LiveReply, RunActivity, planShownByAutoCard } from "./agentRun";
+import {
+  useChatLearning,
+  useLearningSettings,
+} from "@/app/utils/hooks/learning";
+import ChatMenu from "./chatMenu";
+import { NO_LEARNING_NOTE } from "@timely/contract/agentLearning";
+import { learningFollowed, learnsInChat } from "./learningView";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -104,6 +112,8 @@ const invalidated = [
   "habits",
   "goals",
   "goal-progress",
+  // What the agent learned in the run (its chips and Settings lists).
+  "agent-learning",
 ];
 
 export default function Conversation({
@@ -149,6 +159,18 @@ export default function Conversation({
   const permission: PermissionMode =
     chat?.permission ?? permissionChoice ?? defaultMode;
   const liveReply = useReplyDraft(chat);
+  // Each agent turn's chip and Keep / Discard card; only chats the agent wrote in have any.
+  // A run that was stopped or failed may have learned with no reply that
+  // carries its run, so a chat on the New engine always asks.
+  const learning = useChatLearning(
+    chat?.id ?? "",
+    learningFollowed(chat, settings?.engine),
+  );
+  const learns = learnsInChat(chat, settings?.engine);
+  // "Don't learn from this chat" only means something while learning is on
+  // (or to turn it back off), as on the phone.
+  const learningOn = useLearningSettings().data?.learning;
+  const offersDontLearn = learns && (!!learningOn || !!chat?.noLearning);
   const [draft, setDraft] = useState(initialDraft);
   // Bots picked with "@" for this message only; sent as botTags, then cleared.
   const [botTags, setBotTags] = useState<BotTag[]>([]);
@@ -493,6 +515,17 @@ export default function Conversation({
             </div>
             <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
           </div>
+          {chat && offersDontLearn && (
+            <ChatMenu
+              noLearning={!!chat.noLearning}
+              sensitive={!!chat.sensitive}
+              disabled={mutation.isPending}
+              onNoLearning={(next) =>
+                mutation.mutate({ action: "", body: { noLearning: next } })
+              }
+              className={iconButton}
+            />
+          )}
           {onNew && (
             <button
               type="button"
@@ -573,6 +606,29 @@ export default function Conversation({
                 }}
               />
             )}
+            {chat?.noLearning && learns && (
+              <p
+                role="note"
+                data-testid="no-learning-note"
+                className="mx-auto mb-5 flex w-fit max-w-full items-start gap-2 rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:items-center sm:rounded-full sm:py-1"
+              >
+                <BookX
+                  aria-hidden
+                  className="mt-px size-3.5 shrink-0 sm:mt-0"
+                />
+                <span className="min-w-0">{NO_LEARNING_NOTE}</span>
+                <button
+                  type="button"
+                  disabled={mutation.isPending}
+                  onClick={() =>
+                    mutation.mutate({ action: "", body: { noLearning: false } })
+                  }
+                  className="shrink-0 font-medium text-primary hover:underline disabled:opacity-50"
+                >
+                  Let it learn
+                </button>
+              </p>
+            )}
             {chat && (
               <MessageList
                 chat={chat}
@@ -580,6 +636,8 @@ export default function Conversation({
                 onSimilar={chooseSimilar}
                 onAsk={busy || mutation.isPending ? undefined : ask}
                 onUndo={undo}
+                learning={learning.data}
+                onLeave={onClose}
               />
             )}
             <div ref={receiptAnchor} />

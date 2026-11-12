@@ -1,7 +1,7 @@
 """Test-only wrapper around ``timely_agent/boot.py`` for contract tests 5, 6, 18 and 19.
 
     python -I probe_boot.py [--net-log FILE] [--stdout-tool] [--taint-tool] [--system-via MODE]
-                            [--tool-search MODE] worker
+                            [--tool-search MODE] [--slow-bind S] [--slow-ledger ACTION:S] worker
 
 ``--net-log FILE`` records every name lookup and every outgoing IP connection the worker
 process makes (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyname_ex``,
@@ -140,6 +140,34 @@ def _install_tool_search(mode: str) -> None:
     worker.Worker.on_hello = on_hello
 
 
+def _install_slow_bind(seconds: float) -> None:
+    """``--slow-bind S``: a run binds its session state S seconds late (a loaded machine), so a
+    ``learning.stop`` sent right after the run.start reaches the worker first."""
+    import time
+    from timely_agent import bridge
+    original = bridge.bind_session
+
+    def bind_session(*args, **kwargs):
+        time.sleep(seconds)
+        return original(*args, **kwargs)
+    bridge.bind_session = bind_session
+
+
+def _install_slow_ledger(action: str, seconds: float) -> None:
+    """``--slow-ledger ACTION:S``: Hermes appends the ledger entry of a skill ``ACTION`` (patch,
+    create ...) S seconds after the write (a loaded machine), inside the skill's mutation lock as
+    Hermes does."""
+    import time
+    from tools import skill_ledger
+    original = skill_ledger.record_mutation
+
+    def record_mutation(*args, **kwargs):
+        if (args[0] if args else kwargs.get("action")) == action:
+            time.sleep(seconds)
+        return original(*args, **kwargs)
+    skill_ledger.record_mutation = record_mutation
+
+
 def main(argv: list[str]) -> int:
     net_log, patches = None, []
     while argv and argv[0].startswith("--"):
@@ -153,6 +181,12 @@ def main(argv: list[str]) -> int:
         elif flag == "--system-via":
             mode = argv.pop(0)
             patches.append(lambda mode=mode: _install_system_via(mode))
+        elif flag == "--slow-bind":
+            seconds = float(argv.pop(0))
+            patches.append(lambda seconds=seconds: _install_slow_bind(seconds))
+        elif flag == "--slow-ledger":
+            action, _, seconds = argv.pop(0).partition(":")
+            patches.append(lambda action=action, seconds=float(seconds): _install_slow_ledger(action, seconds))
         elif flag == "--tool-search":
             mode = argv.pop(0)
             patches.append(lambda mode=mode: _install_tool_search(mode))

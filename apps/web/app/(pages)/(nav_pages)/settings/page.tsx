@@ -8,6 +8,7 @@ import WorkingHoursSettings from "@/app/_components/settings/workingHoursSetting
 import NotificationSettings from "@/app/_components/settings/notificationSettings";
 import ApiKeysSettings from "@/app/_components/settings/apiKeysSettings";
 import AgentSettings from "@/app/_components/settings/agentSettings";
+import LearnedSettings from "@/app/_components/settings/learnedSettings";
 import DataSettings from "@/app/_components/settings/dataSettings";
 import AppearanceSettings from "@/app/_components/settings/appearanceSettings";
 import ServerSettings from "@/app/_components/settings/serverSettings";
@@ -27,6 +28,7 @@ type SettingsTab =
   | "notifications"
   | "workspaces"
   | "agent"
+  | "learned"
   | "data"
   | "integrations"
   | "server";
@@ -65,6 +67,11 @@ const TABS: TabItem[] = [
     description: "AI provider and default model",
   },
   {
+    id: "learned",
+    label: "What Timely learned",
+    description: "Skills, About you and what waits for you",
+  },
+  {
     id: "data",
     label: "Data & privacy",
     description: "Export, backups, and restore",
@@ -97,13 +104,32 @@ export default function SettingsPage() {
 }
 
 function SettingsContent() {
-  const requested = useSearchParams().get("tab");
+  const params = useSearchParams();
+  const requested = params.get("tab");
   const initialTab = isTab(requested) ? requested : "account";
+  // A chat's "View" opens one skill, or About you or Notes.
+  const skill = params.get("skill");
+  const part = params.get("part");
   // Remount when ?tab= changes so links into an open Settings page switch tabs.
-  return <SettingsTabs key={initialTab} initialTab={initialTab} />;
+  return (
+    <SettingsTabs
+      key={`${initialTab}:${skill ?? ""}:${part ?? ""}`}
+      initialTab={initialTab}
+      skill={skill}
+      part={part}
+    />
+  );
 }
 
-function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
+function SettingsTabs({
+  initialTab,
+  skill,
+  part,
+}: {
+  initialTab: SettingsTab;
+  skill: string | null;
+  part: string | null;
+}) {
   const [requestedTab, setTab] = useState<SettingsTab>(initialTab);
   // The workspace open under Workspaces, shared with its rail.
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -182,6 +208,7 @@ function SettingsTabs({ initialTab }: { initialTab: SettingsTab }) {
                 {tab === "notifications" && <NotificationSettings />}
                 {tab === "workspaces" && <WorkspaceSettings selectedId={workspaceId} onSelect={setWorkspaceId} />}
                 {tab === "agent" && <AgentSettings />}
+                {tab === "learned" && <LearnedSettings skill={skill} part={part} />}
                 {tab === "data" && <DataSettings />}
                 {tab === "integrations" && <ApiKeysSettings />}
                 {tab === "server" && <ServerSettings />}

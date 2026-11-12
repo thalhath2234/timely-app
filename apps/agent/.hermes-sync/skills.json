@@ -68,6 +68,7 @@
         "gateway",
         "kanban",
         "login",
+        "logs",
         "mcp",
         "memory",
         "model",
@@ -227,7 +228,8 @@
       "name": "teams-meeting-pipeline",
       "tree": "977970ca4193a42d7f6a1c4c56d7d8725059bdd8",
       "hermes_cli": [
-        "cron"
+        "cron",
+        "teams-pipeline"
       ],
       "home_paths": false
     },

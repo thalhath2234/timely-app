@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Plus,
   ReceiptText,
+  Undo2,
   WifiOff,
 } from "lucide-react-native";
 import {
@@ -37,6 +38,7 @@ import {
   configureChatAgent,
   deleteChat,
   renameChat,
+  setChatNoLearning,
   steerChat,
   undoChatChange,
   uploadChatImage,
@@ -67,12 +69,21 @@ import ModelSheet, { modelLabel, type ModelChoice } from "./ModelSheet";
 import {
   useAgentChatSettingsQuery,
   useBotsQuery,
+  useChatLearningQuery,
+  useDecidePendingLearning,
+  useLearningSettingsQuery,
   usePatchAgentChatSettings,
+  useUndoLearning,
 } from "../../lib/hooks";
+import { offersDontLearn } from "../../lib/chat/learning";
+import { getLearningEvents } from "../../lib/api/learning";
+import { chipUndoAlso } from "@timely/contract/agentLearning";
+import { ChatMenuSheet } from "./LearningCards";
 import type { PermissionMode } from "@timely/contract/agentChat";
 import {
   agentRunLive,
   composerMode,
+  followsLearning,
   engineLabel,
   isUndoPlan,
   permissionHint,
@@ -86,7 +97,7 @@ import Composer from "./Composer";
 import HistoryPage from "./HistoryPage";
 import ProposalPage from "./ProposalPage";
 import ReceiptReview from "./ReceiptReview";
-import Thread, { FailureCard, RunStatus, StatusCard, Welcome } from "./Thread";
+import Thread, { FailureCard, RunStatus, StatusCard, Welcome, type ThreadLearning } from "./Thread";
 import { isBotPlan, planGroups } from "@timely/contract/changeReview";
 import { isBusy, phaseLabel, sharedTarget } from "./chatMeta";
 import { Action, IconButton } from "./shared";
@@ -109,6 +120,7 @@ export default function Assistant() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [permissionOpen, setPermissionOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   // Engine and permission defaults; an older server answers 404 and the
   // chip and stream stay away.
   const agentSettings = useAgentChatSettingsQuery(assistant.visible);
@@ -116,6 +128,9 @@ export default function Assistant() {
   // The watch stream is up: changes arrive as events, so polling slows down.
   const streamLive = useRef(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // A chip's Undo that also takes back later changes to a skill (the
+  // person's own edits included) asks first, as Activity says.
+  const [undoAsk, setUndoAsk] = useState<{ ids: string[]; text: string } | null>(null);
   const [preview, setPreview] = useState<{
     uri: string;
     candidate?: PendingImage;
@@ -156,13 +171,72 @@ export default function Assistant() {
   });
   const chat = id ? query.data : undefined;
   const busy = isBusy(chat?.status);
+  // What the agent learned in this chat (plan 9b.4): an older server
+  // without /agent/learning answers 404 and no chip or card shows.
+  const learningSettings = useLearningSettingsQuery(
+    assistant.visible && !!agentSettings.data,
+  );
+  const agentChat = followsLearning(chat, agentSettings.data?.engine);
+  const followLearning = !!learningSettings.data && agentChat;
+  const learningEvents = useChatLearningQuery(
+    id,
+    assistant.visible && assistant.foreground && !offline && followLearning,
+    () => !streamLive.current,
+  );
   const stream = useReplyStream({
     chatId: id,
     chat,
     enabled: assistant.visible && assistant.foreground && !offline,
     accountEngine: agentSettings.data?.engine,
     refetch: () => void query.refetch(),
+    followLearning,
+    onLearning: () => void learningEvents.refetch(),
   });
+  // A run that ended or a refetched chat may have learned something.
+  const learningRefetch = learningEvents.refetch;
+  useEffect(() => {
+    if (followLearning) void learningRefetch();
+  }, [followLearning, chat?.status, chat?.revision, learningRefetch]);
+  const undoLearning = useUndoLearning();
+  const decideLearning = useDecidePendingLearning();
+  const undoNow = (ids: string[]) =>
+    undoLearning.mutate(ids, {
+      onError: (reason) => setError(reason.message),
+    });
+  // The later changes are outside this chat: ask the account's recent ones.
+  async function askUndoLearning(ids: string[]) {
+    let text = "";
+    try {
+      text = chipUndoAlso((await getLearningEvents({ limit: 200 })).events, ids);
+    } catch {
+      text = "";
+    }
+    if (text) setUndoAsk({ ids, text });
+    else undoNow(ids);
+  }
+  const learningBusy = new Set<string>([
+    ...(undoLearning.isPending ? (undoLearning.variables ?? []) : []),
+    ...(decideLearning.isPending
+      ? (decideLearning.variables?.pendingIds ?? [])
+      : []),
+  ]);
+  const learning: ThreadLearning | undefined = followLearning || learningEvents.data?.length
+    ? {
+        events: learningEvents.data ?? [],
+        busy: learningBusy,
+        onUndo: offline
+          ? undefined
+          : (ids) => void askUndoLearning(ids),
+        onDecide: offline
+          ? undefined
+          : (pendingIds, choice) =>
+              decideLearning.mutate(
+                { pendingIds, choice },
+                { onError: (reason) => setError(reason.message) },
+              ),
+        onOpen: (href) => assistant.openResult(href),
+      }
+    : undefined;
   streamLive.current = stream.live;
   // Sending while an agent run is live steers it (POST /steer).
   const steering = composerMode(chat) === "steer";
@@ -424,6 +498,22 @@ export default function Assistant() {
       void query.refetch();
     },
   });
+  // "Don't learn from this chat"; the answer is the whole chat.
+  const noLearningMutation = useMutation({
+    scope,
+    mutationFn: (next: boolean) => setChatNoLearning(id ?? "", next),
+    onSuccess: (next) => {
+      queryClient.setQueryData(detailKey, next);
+      setError("");
+    },
+    onError: (reason) => {
+      setError(reason.message);
+      void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+    },
+  });
+  const chatMenu =
+    !offline &&
+    offersDontLearn(chat, agentChat, learningSettings.data);
   const pending =
     mutation.isPending ||
     uploading ||
@@ -959,6 +1049,11 @@ export default function Assistant() {
           phase={chat?.phase}
           back={page !== "chat" || !!preview}
           onBack={close}
+          onTitlePress={
+            page === "chat" && !preview && chatMenu
+              ? () => setMenuOpen(true)
+              : undefined
+          }
           logo={!(permission && (chat?.permission || agentSettings.data))}
           actions={
             page === "chat" && !preview ? (
@@ -1140,6 +1235,7 @@ export default function Assistant() {
                         offline ? undefined : (message) => undoMutation.mutate(message)
                       }
                       undoing={undoMutation.isPending}
+                      learning={learning}
                     />
                   ) : null}
                   {savedReceipt && review?.receipt ? (
@@ -1320,6 +1416,16 @@ export default function Assistant() {
             : undefined
         }
       />
+      {chat ? (
+        <ChatMenuSheet
+          open={menuOpen && chatMenu}
+          onClose={() => setMenuOpen(false)}
+          title={chat.title}
+          noLearning={!!chat.noLearning}
+          saving={noLearningMutation.isPending}
+          onNoLearning={(next) => noLearningMutation.mutate(next)}
+        />
+      ) : null}
       <ModelSheet
         open={modelOpen}
         value={model}
@@ -1339,6 +1445,18 @@ export default function Assistant() {
         message="Its text, context and attachments will be removed."
         confirmLabel="Discard"
         onConfirm={discardDraft}
+      />
+      <ConfirmSheet
+        open={!!undoAsk}
+        onClose={() => setUndoAsk(null)}
+        title="Undo what Timely learned?"
+        message={undoAsk?.text}
+        confirmLabel="Undo"
+        tone="primary"
+        icon={<Undo2 size={16} color={colors.primaryForeground} />}
+        onConfirm={() => {
+          if (undoAsk) undoNow(undoAsk.ids);
+        }}
       />
     </SafeAreaView>
   );

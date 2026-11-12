@@ -70,7 +70,7 @@ export async function listBackups() {
 }
 
 export async function createBackup() {
-  return jsonOrThrow<BackupFile>(await apiFetch("/backups", { method: "POST" }), "Could not create a backup.");
+  return jsonOrThrow<BackupFile & { warnings?: string[] }>(await apiFetch("/backups", { method: "POST" }), "Could not create a backup.");
 }
 
 export async function deleteBackup(id: string) {
@@ -87,5 +87,5 @@ export async function restoreBackup(file: File) {
     },
     body: file,
   });
-  return jsonOrThrow<{ restoredAt: string; counts: Record<string, number> }>(response, "Could not restore the backup.");
+  return jsonOrThrow<{ restoredAt: string; counts: Record<string, number>; warnings?: string[] }>(response, "Could not restore the backup.");
 }

@@ -93,11 +93,27 @@ jobs:
       - run: make test-electron-supervisor
       - run: make test-desktop-instance
       - run: make test-agent-chat
+      - run: make test-agent-learning
 
   # The agent runtime (apps/agent: vendored Hermes + timely_agent) and the Go
   # supervisor that spawns it. Stub model only: no AI provider is called.
   agent:
     runs-on: ubuntu-latest
+    # agent-go-integration's backup round trip runs the goose chain in PostgreSQL.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: timely
+          POSTGRES_PASSWORD: root123
+          POSTGRES_DB: timely_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U timely -d timely_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -110,9 +126,14 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
+      # agent-contract includes contract tests 9 (learning) and 13 (agent-state
+      # backup) and the web tests (timely_web and Hermes' untrusted wrapping,
+      # secret-URL and SSRF floors on the timely and keyed backends, Q-3.9).
       - run: make agent-install agent-lint agent-test agent-contract
-      # spawn -> hello -> ready -> run.start (stub model) -> run.done -> shutdown
-      - run: make agent-go-integration
+      # spawn -> hello -> ready -> run.start (stub model) -> run.done -> shutdown,
+      # and the agent-state backup round trip (fails, not skips, without the database)
+      - run: cp .env.example .env
+      - run: make agent-go-integration AGENT_REQUIRE_DB=1
 
   # Phase 1 proves the Windows spawn path (stdin/stdout pipes, Job Object)
   # before anything ships. The steps mirror `make agent-install` and

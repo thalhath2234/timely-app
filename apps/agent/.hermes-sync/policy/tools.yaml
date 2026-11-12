@@ -32,9 +32,6 @@
 #   session-taint         a hit from a tainted or bot-started conversation taints the session
 #   delegate-cap          at most 3 children with a shared budget; a child's taint taints the parent
 #   web-toggle            blocked when the chat's web toggle is off, in Sensitive and in answer-only runs
-#   taint-egress          tainted session: web_extract to a new host is blocked in phases 3-4 and approved
-#                         from phase 5; web_search carrying text from a Timely read, memory or a tainted
-#                         result follows the same rule
 #   bot-egress            bot egress policy (7.5); Reads hosts go through the polite fetcher
 #   xai-key               offered only when the account has an xAI key
 #   host-path-approve     a local host path argument needs approval
@@ -130,17 +127,17 @@ tools:
     chat: allow
     bot: allow
     phase: 3
-    gates: [web-toggle, taint-egress, bot-egress]
+    gates: [web-toggle, bot-egress]
     schema: "9a579750417a577cd4b92368abe07bf5c00e29d10a6e370f6d9a47c99a404c7d"
-    note: "Hermes wraps results as untrusted (agent/tool_dispatch_helpers.py)"
+    note: "Hermes wraps results as untrusted (agent/tool_dispatch_helpers.py); no Timely rule after taint (Q-3.9)"
   web_extract@core:
     toolset: web
     chat: allow
     bot: allow
     phase: 3
-    gates: [web-toggle, taint-egress, bot-egress]
+    gates: [web-toggle, bot-egress]
     schema: "9d493b6fd8a9356bd1e726386f0318446484f6442f8d18c6e1808957a7eddf9d"
-    note: "Hermes wraps results as untrusted (agent/tool_dispatch_helpers.py)"
+    note: "Hermes wraps results as untrusted and refuses a URL carrying a key or token (tools/web_tools_extract.py); no Timely rule after taint (Q-3.9)"
   x_search@core:
     toolset: x_search
     chat: allow

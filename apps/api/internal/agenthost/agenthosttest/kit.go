@@ -52,8 +52,24 @@
 //	{"fake": "crash", "code": 7}                   exit the worker process at once, mid-run
 //	{"fake": "refuse", "code": "busy", "message": "..."}   first line only: answer the run.start with an error
 //
+// # Learning (phase 3)
+//
+// A fixture line may be any worker message, so a run can report what it
+// learned with {"type": "learning", "event": {...}}. Outside runs, Emit queues
+// lines the fake sends as soon as it is ready (it polls outbox.jsonl), and
+// LearningReply scripts the answer to Go's learning.* and settings.update
+// requests: {"type": "learning.result", "id", "ok": true, "data"}, then any
+// lines to emit after it (the real worker reports a person's own memory edit
+// as a learning event, for example). Replies are per request type, or per
+// account and type (LearningReplyFor, tried first); LearningError answers
+// with an error instead. An unscripted settings.update is answered ok with
+// {"config_sha256": "fake"}; an unscripted learning.* request with the error
+// code "unsupported". An emitted line with an "_account" key is sent with
+// that account instead of the worker's own (a broken worker, for tests of
+// the supervisor's account check).
+//
 // The fake also answers hello with a passing ready (FailSelfTest makes it
-// fail), ping with pong, sends heartbeats, acks run.steer (recorded),
+// fail; WebBackends and SkillsUpstream fill its phase 3 fields), ping with pong, sends heartbeats, acks run.steer (recorded),
 // approval.answer and session.delete (busy while the conversation has a live
 // run), refuses a second live run in one conversation or a fourth in the
 // account (busy) and a live run id (duplicate_run), and on shutdown or stdin
@@ -107,6 +123,28 @@ type script struct {
 	Matches       []match                      `json:"matches,omitempty"`
 	SelfTestFail  string                       `json:"self_test_fail,omitempty"`
 	HeartbeatMS   int                          `json:"heartbeat_ms,omitempty"`
+	// Learning scripts the answers to learning.* and settings.update, by
+	// "<type>" or "<account>|<type>".
+	Learning       map[string]learningReply `json:"learning,omitempty"`
+	WebBackends    []string                 `json:"web_backends,omitempty"`
+	SkillsUpstream int                      `json:"skills_upstream,omitempty"`
+}
+
+// learningReply is one scripted answer to a learning.* or settings.update
+// request.
+type learningReply struct {
+	Data    json.RawMessage   `json:"data,omitempty"`
+	Code    string            `json:"code,omitempty"` // non-empty: answer with this error
+	Message string            `json:"message,omitempty"`
+	Emit    []json.RawMessage `json:"emit,omitempty"`
+}
+
+func (s script) learningFor(account, typ string) (learningReply, bool) {
+	if r, ok := s.Learning[account+"|"+typ]; ok {
+		return r, true
+	}
+	r, ok := s.Learning[typ]
+	return r, ok
 }
 
 type match struct {
@@ -129,7 +167,8 @@ type Kit struct {
 // with an empty reply.
 func New(t testing.TB) *Kit {
 	t.Helper()
-	k := &Kit{t: t, dir: t.TempDir(), script: script{Fixtures: map[string][]json.RawMessage{}, Conversations: map[string]string{}}}
+	k := &Kit{t: t, dir: t.TempDir(), script: script{Fixtures: map[string][]json.RawMessage{}, Conversations: map[string]string{},
+		Learning: map[string]learningReply{}}}
 	t.Cleanup(func() { k.mu.Lock(); k.ended = true; k.mu.Unlock() })
 	k.save()
 	return k
@@ -234,6 +273,88 @@ func (k *Kit) FailSelfTest(detail string) *Kit {
 	k.mu.Unlock()
 	k.save()
 	return k
+}
+
+// LearningReply answers every worker's typ requests (learning.list,
+// learning.memory, settings.update, ...) with learning.result {ok: true,
+// data}, then sends emit (learning messages, say) after it.
+func (k *Kit) LearningReply(typ string, data any, emit ...map[string]any) *Kit {
+	return k.LearningReplyFor("", typ, data, emit...)
+}
+
+// LearningReplyFor is LearningReply for one account's worker only; it wins
+// over a reply for every account.
+func (k *Kit) LearningReplyFor(account, typ string, data any, emit ...map[string]any) *Kit {
+	k.t.Helper()
+	raw, err := json.Marshal(data)
+	if err != nil {
+		k.t.Fatal(err)
+	}
+	return k.setLearning(account, typ, learningReply{Data: raw, Emit: k.lines(emit)})
+}
+
+// LearningError answers typ requests with an error {code, message}, for
+// account's worker ("" for every account).
+func (k *Kit) LearningError(account, typ, code, message string) *Kit {
+	return k.setLearning(account, typ, learningReply{Code: code, Message: message})
+}
+
+func (k *Kit) setLearning(account, typ string, r learningReply) *Kit {
+	key := typ
+	if account != "" {
+		key = account + "|" + typ
+	}
+	k.mu.Lock()
+	k.script.Learning[key] = r
+	k.mu.Unlock()
+	k.save()
+	return k
+}
+
+// WebBackends and SkillsUpstream fill the next workers' ready.web_backends
+// and ready.skills_upstream.
+func (k *Kit) WebBackends(ids []string, skillsUpstream int) *Kit {
+	k.mu.Lock()
+	k.script.WebBackends, k.script.SkillsUpstream = ids, skillsUpstream
+	k.mu.Unlock()
+	k.save()
+	return k
+}
+
+// Emit queues lines for the running fake workers to send, outside any run
+// (each worker sends every queued line once, stamped with its account unless
+// the line has "_account"). Lines queued before a worker is ready are sent
+// once it is.
+func (k *Kit) Emit(lines ...map[string]any) *Kit {
+	k.t.Helper()
+	var buf bytes.Buffer
+	for _, raw := range k.lines(lines) {
+		buf.Write(raw)
+		buf.WriteByte('\n')
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	f, err := os.OpenFile(filepath.Join(k.dir, "outbox.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		k.t.Fatal(err)
+	}
+	_, werr := f.Write(buf.Bytes())
+	if cerr := f.Close(); werr != nil || cerr != nil {
+		k.t.Fatalf("emit: %v %v", werr, cerr)
+	}
+	return k
+}
+
+func (k *Kit) lines(objs []map[string]any) []json.RawMessage {
+	out := make([]json.RawMessage, 0, len(objs))
+	for _, obj := range objs {
+		raw, err := json.Marshal(obj)
+		if err != nil {
+			k.t.Fatal(err)
+		}
+		out = append(out, raw)
+	}
+	return out
 }
 
 // save writes script.json atomically, so the fake never reads half of it.

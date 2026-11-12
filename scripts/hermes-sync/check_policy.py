@@ -19,7 +19,7 @@ import check_lib
 DISPOSITIONS = {"allow", "approve", "block"}
 PHASES = set(range(0, 9)) | {"later", "never"}
 GATES = {
-    "learning", "timely-skills-readonly", "session-taint", "delegate-cap", "web-toggle", "taint-egress",
+    "learning", "timely-skills-readonly", "session-taint", "delegate-cap", "web-toggle",
     "bot-egress", "xai-key", "host-path-approve", "urls-only", "skills-folder-allow", "clarify-card",
     "no-secret-capture", "private-target",
 }
@@ -36,11 +36,24 @@ HERMES_CLI_SUBCOMMANDS = {
     "acp", "auth", "bot", "chat", "config", "cron", "curator", "dashboard", "desktop", "doctor", "gateway",
     "kanban", "login", "logout", "mcp", "memory", "model", "pairing", "plugins", "pm", "profile", "sessions",
     "setup", "skills", "status", "tools", "update", "computer-use", "insights", "claw", "honcho", "webhook",
+    "teams-pipeline", "backup", "import", "uninstall", "logs",
 }
 HOME_PATH_RE = re.compile(r"(?<![-:{])(~|\$HOME|\$\{HOME\})/\.hermes\b")
+# `hermes <command>` uses that do not make a skill Hermes-self (the deny list, plan 9.2): every one
+# was read in the v0.23.0 copy (docs/plans/2026-11-11-phase3-skills-review.md).
+#   skills  `hermes skills install official/...`: a pointer to an optional skill (Timely offers
+#           optional skills in Settings; the worker has no `hermes` on PATH)
+#   pm      `hermes pm environment ...`: the document skills' interpreter step, guarded by
+#           `command -v hermes` with a plain-venv fallback
+#   chat    `hermes chat -q`: describes Hermes' one-shot mode, never asks the agent to run it
+HERMES_CLI_MENTION_ONLY = {"skills", "pm", "chat"}
+# Frontmatter conditions (agent.skill_utils._CONDITION_KEYS) the deny list reads.
+_FRONTMATTER_LIST_RE = re.compile(r"^(\s*)(requires_toolsets|requires_tools|session_platforms)\s*:\s*(.*)$")
+_TOOL_TOKEN_RE = re.compile(r"(?<![\w-])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?![\w-])")
 
 TOOLS_YAML = check_lib.POLICY_DIR + "/tools.yaml"
 SKILLS_REVIEWED = check_lib.POLICY_DIR + "/skills-reviewed.json"
+SKILLS_DENIED = check_lib.POLICY_DIR + "/skills-denied.json"
 SKILL_BODY = check_lib.POLICY_DIR + "/skill-body.yaml"
 TOOLS_JSON = check_lib.SYNC_DIR + "/tools.json"
 SKILLS_JSON = check_lib.SYNC_DIR + "/skills.json"
@@ -266,6 +279,140 @@ def skills_document(trees, hermes_dir, upstream):
         section = "bundled" if rel.startswith("skills/") else "optional"
         doc[section][rel] = {"name": name, "tree": tree, "hermes_cli": cli, "home_paths": home}
     return doc
+
+
+# ---------------------------------------------------------------- skills-denied.json (plan 9.2)
+def frontmatter_conditions(text):
+    """``{requires_toolsets, requires_tools, session_platforms}`` lists from a SKILL.md frontmatter
+    (inline ``[a, b]`` or block ``- a`` lists; stdlib only, so the check reads no YAML library)."""
+    out = {}
+    if not text.startswith("---"):
+        return out
+    end = text.find("\n---", 3)
+    lines = text[3:end].splitlines() if end > 0 else []
+    i = 0
+    while i < len(lines):
+        m = _FRONTMATTER_LIST_RE.match(lines[i])
+        i += 1
+        if not m:
+            continue
+        indent, key, rest = len(m.group(1)), m.group(2), m.group(3).split("#", 1)[0].strip()
+        items = []
+        if rest.startswith("["):
+            items = [x.strip().strip("'\"") for x in rest.strip("[]").split(",")]
+        elif rest:
+            items = [rest.strip("'\"")]
+        else:
+            while i < len(lines) and lines[i].strip().startswith("- ") and len(lines[i]) - len(lines[i].lstrip()) >= indent:
+                items.append(lines[i].strip()[2:].split("#", 1)[0].strip().strip("'\""))
+                i += 1
+        out.setdefault(key, []).extend(x for x in items if x)
+    return out
+
+
+def _skill_texts(folder):
+    for dirpath, dirnames, filenames in os.walk(folder):
+        dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
+        for f in sorted(filenames):
+            try:
+                with open(os.path.join(dirpath, f), encoding="utf-8") as fh:
+                    yield f, fh.read()
+            except (UnicodeDecodeError, OSError):
+                continue
+
+
+def never_tools(policy):
+    """``(tool names, toolsets)`` Timely never offers (``phase: never`` in tools.yaml); a toolset
+    counts only when every one of its tools is ``never``."""
+    names, phases = set(), {}
+    for section in ("tools", "inline"):
+        for key, e in (policy.get(section) or {}).items():
+            name, _ = split_key(key)
+            if not name or not isinstance(e, dict):
+                continue
+            if e.get("phase") == "never":
+                names.add(name)
+            if section == "tools":
+                phases.setdefault(e.get("toolset"), set()).add(e.get("phase"))
+    return names, {ts for ts, ph in phases.items() if ts and ph == {"never"}}
+
+
+def _floor_messaging_or_kanban(name):
+    """Messaging or kanban by the worker's name floor (``timely_agent.policy``)."""
+    if not _WORKER_POLICY:
+        worker_floor_blocks("")
+    mod = _WORKER_POLICY[0]
+    return mod.is_messaging(name) or name.startswith("kanban_")
+
+
+def deny_reasons(folder, policy):
+    """Why a skill folder is Hermes-self or needs a tool Timely never offers (plan 9.2), [] when
+    neither. Read from every text file of the folder:
+
+    - ``hermes-cli:<command>``: it runs ``hermes <command>`` (Hermes operating itself), except the
+      mention-only commands in ``HERMES_CLI_MENTION_ONLY``
+    - ``home-path``: it names a literal ``~/.hermes`` path (the host user's own Hermes home)
+    - ``needs-toolset:<ts>`` / ``needs-tool:<name>``: its frontmatter requires a toolset or tool
+      Timely never offers (every tool ``phase: never``)
+    - ``session-platforms``: its frontmatter scopes it to messaging-platform sessions (decision 6)
+    - ``uses-tool:<name>``: its text names a messaging or kanban tool (the worker's name floor) that
+      Hermes registers and tools.yaml marks ``never``; a word that only looks like one
+      (``matrix_rank``, ``signal_quality``) or a tool Hermes no longer has is not a use
+    """
+    never_names, never_sets = never_tools(policy)
+    cli, home, conds, tools = set(), False, {}, set()
+    for fname, text in _skill_texts(folder):
+        cli.update(m for m in HERMES_CLI_RE.findall(text) if m in HERMES_CLI_SUBCOMMANDS)
+        home = home or bool(HOME_PATH_RE.search(text))
+        if fname == "SKILL.md":
+            conds = frontmatter_conditions(text)
+        tools.update(t for t in _TOOL_TOKEN_RE.findall(text) if t in never_names and _floor_messaging_or_kanban(t))
+    reasons = [f"hermes-cli:{c}" for c in sorted(cli - HERMES_CLI_MENTION_ONLY)]
+    if home:
+        reasons.append("home-path")
+    reasons += [f"needs-toolset:{ts}" for ts in sorted(set(conds.get("requires_toolsets", [])) & never_sets)]
+    reasons += [f"needs-tool:{t}" for t in sorted(set(conds.get("requires_tools", [])) & never_names)]
+    if conds.get("session_platforms"):
+        reasons.append("session-platforms")
+    reasons += [f"uses-tool:{t}" for t in sorted(tools)]
+    return reasons
+
+
+def denied_document(trees, hermes_dir, upstream, policy):
+    """skills-denied.json: every bundled and optional skill with a deny reason (plan 9.2)."""
+    doc = {"version": 1, "upstream": upstream,
+           "about": "Hermes-self skills (they run `hermes <command>` or name a literal ~/.hermes path) and skills "
+                    "that need a tool Timely never offers (messaging, kanban). Bundled ones are left out of every "
+                    "account's seed tree; optional ones are never offered. Regenerate: " + REGEN,
+           "mention_only_commands": sorted(HERMES_CLI_MENTION_ONLY),
+           "skills": {}}
+    for rel in trees:
+        reasons = deny_reasons(os.path.join(hermes_dir, rel), policy)
+        if reasons:
+            doc["skills"][rel] = {"reasons": reasons}
+    return doc
+
+
+def check_denied(reviewed, denied):
+    """A denied bundled skill is ``default: off`` and a denied optional skill is not offered."""
+    msgs = []
+    entries = (reviewed or {}).get("skills") if isinstance(reviewed, dict) else None
+    skills = (denied or {}).get("skills") if isinstance(denied, dict) else None
+    if not isinstance(denied, dict) or denied.get("version") != 1 or not isinstance(skills, dict):
+        return [f"{SKILLS_DENIED}: version must be 1 and `skills` an object (generate it with `{REGEN}`)"]
+    if not isinstance(entries, dict):
+        return msgs
+    for rel, d in sorted(skills.items()):
+        e = entries.get(rel)
+        if not isinstance(e, dict):
+            continue  # check_skills reports a missing entry
+        why = ", ".join((d or {}).get("reasons") or []) or "denied"
+        if rel.startswith("skills/") and e.get("default") != "off":
+            msgs.append(f"bundled skill {rel} is denied ({why}) but {SKILLS_REVIEWED} has default "
+                        f"{e.get('default')!r}: set default \"off\" (it is never seeded)")
+        if not rel.startswith("skills/") and e.get("offered") is not False:
+            msgs.append(f"optional skill {rel} is denied ({why}) but {SKILLS_REVIEWED} offers it: set offered false")
+    return msgs
 
 
 def check_skills(reviewed, trees, runtime_skills=None):

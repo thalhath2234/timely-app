@@ -45,6 +45,8 @@ export type ChatMessage = {
   cut?: boolean;
   /** "agent" on a reply or proposal the new engine wrote. */
   engine?: string;
+  /** The agent run that wrote it: that turn's learning events carry the same runId. */
+  agentRun?: string;
   undoneAt?: string;
   /** The notice the undo added. */
   undoMessageId?: string;
@@ -88,6 +90,8 @@ export type Chat = {
   runEngine?: "" | "classic" | "agent";
   /** A live agent run's activity lines and the reply streamed so far. */
   activity?: ChatActivity;
+  /** "Don't learn from this chat": its runs write nothing to memory or skills and past-chat search skips it. */
+  noLearning?: boolean;
   updatedAt: string;
   createdAt: string;
 };

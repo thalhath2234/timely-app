@@ -36,11 +36,12 @@ BLOCKED_PREFIXES = ("kanban_", "meet_")  # meet_: the opt-in google_meet plugin 
 # Every tools.yaml entry with `phase: never` must be blocked by the names above;
 # scripts/hermes-sync/check_policy.py fails the sync check when one is not.
 
-# Tools that run without a Go round trip in phase 1: read-only agent bookkeeping, and
-# skill_manage, whose policy belongs to timely_learning (it blocks writes to Timely-shipped
-# skills; staging comes with phase 3). Hermes applies every plugin's block, so allowing here
-# never overrides timely_learning.
-LOCAL_ALLOW = frozenset({"todo_list", "skills_list", "skill_view", "skill_manage"})
+# Tools that run without a Go round trip: read-only agent bookkeeping, and the learning tools
+# (skill_manage, memory, session_search), whose policy belongs to timely_learning: it blocks
+# writes to Timely-shipped skills, blocks or stages learning writes (plan 9b.2), and decides past-
+# chat search from the run's flags. Hermes applies every plugin's block, so allowing here never
+# overrides timely_learning.
+LOCAL_ALLOW = frozenset({"todo_list", "skills_list", "skill_view", "skill_manage", "memory", "session_search"})
 
 
 # The Timely tool that records a plan (plan 3.4 step 8): it must be the only call in its assistant
@@ -51,13 +52,14 @@ PROPOSE_ALONE = "Call propose_changes alone, after all read tools finish"
 # Taint sources (plan 9b.2): tools whose result brings outside content to the model. A call that
 # ran (was not blocked) adds ``{kind, tool, host?}`` to the run's taint and is reported to Go
 # (``taint``). Timely's own tools are not listed: Go marks their outside results (``outside: true``
-# in ``tool.result``). Delegation and session search are listed as sources outright until the
-# child-to-parent map and the tainted-conversation list arrive (phases 3-4).
+# in ``tool.result``). Delegation is listed as a source outright until the child-to-parent map
+# arrives (phase 4). Session search is not listed (phase 3): timely_learning taints the session
+# per hit, only when a hit comes from a conversation Go lists in ``tainted_conversations``.
 TAINT_SOURCES: dict[str, str] = {
-    "web_search": "web", "web_extract": "web", "bot_browse": "browser",
+    "web_search": "web", "web_extract": "web", "x_search": "web", "bot_browse": "browser",
     "read_file": "file", "search_files": "file",
-    "terminal": "terminal", "process": "terminal", "execute_code": "code",
-    "vision_analyze": "vision", "session_search": "session", "delegate_task": "subagent",
+    "terminal": "terminal", "process": "terminal", "process_manage": "terminal", "execute_code": "code",
+    "vision_analyze": "vision", "delegate_task": "subagent",
 }
 TAINT_PREFIXES: tuple[tuple[str, str], ...] = (("web_", "web"), ("browser_", "browser"), ("mcp_", "mcp"))
 
@@ -84,6 +86,37 @@ def taint_host(args: Mapping[str, Any] | None) -> str:
         return (urlsplit(url.strip() if "://" in url else "http://" + url.strip()).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def _url_host(url: str) -> str:
+    """A URL's host as a taint source names it: lower case, without a trailing dot or ``www.``."""
+    from urllib.parse import urlsplit
+    url = url.strip()
+    if url.startswith("//"):
+        url = "http:" + url
+    elif "://" not in url:
+        url = "http://" + url
+    try:
+        host = (urlsplit(url).hostname or "").strip().lower().rstrip(".").strip("[]")
+    except ValueError:
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
+def extract_hosts(args: Mapping[str, Any] | None) -> list[str]:
+    """The hosts a ``web_extract`` call names, once each, in order (``urls`` as strings or
+    ``{url|href}`` items, as Hermes reads them)."""
+    urls = (args or {}).get("urls") if isinstance(args, Mapping) else None
+    if isinstance(urls, str):
+        urls = [urls]
+    out: list[str] = []
+    for item in urls if isinstance(urls, (list, tuple)) else []:
+        if isinstance(item, dict):
+            item = item.get("url") or item.get("href")
+        host = _url_host(item) if isinstance(item, str) and item.strip() else ""
+        if host and host not in out:
+            out.append(host)
+    return out
 
 
 def is_messaging(tool: str) -> bool:

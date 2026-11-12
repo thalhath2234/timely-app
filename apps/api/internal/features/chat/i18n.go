@@ -11,6 +11,7 @@ import (
 const (
 	txtDone                 = "done"
 	txtStopped              = "stopped"
+	txtRunFailed            = "runFailed"
 	txtDiscarded            = "discarded"
 	txtDataChanged          = "dataChanged"
 	txtContinuing           = "continuing"
@@ -57,6 +58,7 @@ var texts = map[string]map[string]string{
 	"en": {
 		txtDone:                 "Done — your changes are saved.",
 		txtStopped:              "Stopped. Completed changes are kept.",
+		txtRunFailed:            "This reply failed.",
 		txtDiscarded:            "Proposal discarded. Nothing was changed.",
 		txtDataChanged:          "The data changed before the remaining changes were applied. Preparing a refreshed proposal; completed changes are kept.",
 		txtContinuing:           "This part is saved. Continuing with the rest of your request.",
@@ -101,6 +103,7 @@ var texts = map[string]map[string]string{
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
 		txtStopped:              "停止しました。完了した変更はそのまま残ります。",
+		txtRunFailed:            "この返信は失敗しました。",
 		txtDiscarded:            "提案を破棄しました。何も変更されていません。",
 		txtDataChanged:          "残りの変更を適用する前にデータが変更されました。提案を更新しています。完了した変更はそのまま残ります。",
 		txtContinuing:           "この部分は保存しました。残りの依頼を続けます。",
@@ -145,6 +148,7 @@ var texts = map[string]map[string]string{
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
 		txtStopped:              "已停止。已完成的更改会保留。",
+		txtRunFailed:            "此回复失败。",
 		txtDiscarded:            "已放弃提案。没有做任何更改。",
 		txtDataChanged:          "在应用剩余更改之前数据已发生变化。正在准备更新后的提案；已完成的更改会保留。",
 		txtContinuing:           "这一部分已保存。正在继续处理您请求的其余部分。",
@@ -189,6 +193,7 @@ var texts = map[string]map[string]string{
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
 		txtStopped:              "중지했습니다. 완료된 변경 사항은 유지됩니다.",
+		txtRunFailed:            "이 답장은 실패했습니다.",
 		txtDiscarded:            "제안을 취소했습니다. 아무것도 변경되지 않았습니다.",
 		txtDataChanged:          "남은 변경 사항을 적용하기 전에 데이터가 바뀌었습니다. 새 제안을 준비하고 있으며, 완료된 변경 사항은 유지됩니다.",
 		txtContinuing:           "이 부분은 저장했습니다. 요청의 나머지를 계속 진행합니다.",
@@ -233,6 +238,7 @@ var texts = map[string]map[string]string{
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
 		txtStopped:              "Detenido. Los cambios completados se conservan.",
+		txtRunFailed:            "Esta respuesta falló.",
 		txtDiscarded:            "Propuesta descartada. No se cambió nada.",
 		txtDataChanged:          "Los datos cambiaron antes de aplicar los cambios restantes. Preparando una propuesta actualizada; los cambios completados se conservan.",
 		txtContinuing:           "Esta parte está guardada. Sigo con el resto de tu solicitud.",
@@ -277,6 +283,7 @@ var texts = map[string]map[string]string{
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
 		txtStopped:              "Arrêté. Les modifications terminées sont conservées.",
+		txtRunFailed:            "Cette réponse a échoué.",
 		txtDiscarded:            "Proposition abandonnée. Rien n'a été modifié.",
 		txtDataChanged:          "Les données ont changé avant l'application des modifications restantes. Préparation d'une proposition actualisée ; les modifications terminées sont conservées.",
 		txtContinuing:           "Cette partie est enregistrée. Je continue avec le reste de votre demande.",
@@ -321,6 +328,7 @@ var texts = map[string]map[string]string{
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
 		txtStopped:              "Gestoppt. Abgeschlossene Änderungen bleiben erhalten.",
+		txtRunFailed:            "Diese Antwort ist fehlgeschlagen.",
 		txtDiscarded:            "Vorschlag verworfen. Es wurde nichts geändert.",
 		txtDataChanged:          "Die Daten haben sich geändert, bevor die restlichen Änderungen übernommen wurden. Ein aktualisierter Vorschlag wird vorbereitet; abgeschlossene Änderungen bleiben erhalten.",
 		txtContinuing:           "Dieser Teil ist gespeichert. Ich mache mit dem Rest deiner Anfrage weiter.",
@@ -365,6 +373,7 @@ var texts = map[string]map[string]string{
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
 		txtStopped:              "Parado. As alterações concluídas foram mantidas.",
+		txtRunFailed:            "Esta resposta falhou.",
 		txtDiscarded:            "Proposta descartada. Nada foi alterado.",
 		txtDataChanged:          "Os dados mudaram antes de aplicar as alterações restantes. Preparando uma proposta atualizada; as alterações concluídas foram mantidas.",
 		txtContinuing:           "Esta parte está salva. Continuando com o restante do seu pedido.",
@@ -409,6 +418,7 @@ var texts = map[string]map[string]string{
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
 		txtStopped:              "Interrotto. Le modifiche completate restano salvate.",
+		txtRunFailed:            "Questa risposta non è riuscita.",
 		txtDiscarded:            "Proposta scartata. Non è stato modificato nulla.",
 		txtDataChanged:          "I dati sono cambiati prima di applicare le modifiche rimanenti. Sto preparando una proposta aggiornata; le modifiche completate restano salvate.",
 		txtContinuing:           "Questa parte è salvata. Continuo con il resto della richiesta.",
@@ -453,6 +463,7 @@ var texts = map[string]map[string]string{
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
 		txtStopped:              "Остановлено. Выполненные изменения сохранены.",
+		txtRunFailed:            "Этот ответ не удался.",
 		txtDiscarded:            "Предложение отклонено. Ничего не изменено.",
 		txtDataChanged:          "Данные изменились до применения оставшихся изменений. Готовлю обновлённое предложение; выполненные изменения сохранены.",
 		txtContinuing:           "Эта часть сохранена. Продолжаю с остальной частью запроса.",
@@ -497,6 +508,7 @@ var texts = map[string]map[string]string{
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
 		txtStopped:              "تم الإيقاف. تبقى التغييرات المكتملة محفوظة.",
+		txtRunFailed:            "تعذّر إكمال هذا الرد.",
 		txtDiscarded:            "تم تجاهل الاقتراح. لم يتغير شيء.",
 		txtDataChanged:          "تغيّرت البيانات قبل تطبيق التغييرات المتبقية. يجري إعداد اقتراح محدّث؛ تبقى التغييرات المكتملة محفوظة.",
 		txtContinuing:           "حُفظ هذا الجزء. أتابع بقية طلبك.",
@@ -541,6 +553,7 @@ var texts = map[string]map[string]string{
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
 		txtStopped:              "रोक दिया गया। पूरे हो चुके बदलाव बने रहेंगे।",
+		txtRunFailed:            "यह जवाब पूरा नहीं हो सका।",
 		txtDiscarded:            "प्रस्ताव हटा दिया गया। कुछ भी नहीं बदला।",
 		txtDataChanged:          "बाकी बदलाव लागू होने से पहले डेटा बदल गया। नया प्रस्ताव तैयार किया जा रहा है; पूरे हो चुके बदलाव बने रहेंगे।",
 		txtContinuing:           "यह हिस्सा सहेज दिया गया है। आपके अनुरोध का बाकी हिस्सा जारी है।",

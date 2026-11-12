@@ -188,7 +188,7 @@ func fakeWorker(mode string) int {
 				"type": "ready", "id": id, "hermes_tag": "v0.23.0",
 				"tools": []string{"terminal", "web_search"}, "plugins_loaded": []string{"timely_gate"},
 				"self_test": map[string]any{"ok": true}, "hello": firstHello, "env": os.Environ(), "cwd": wd,
-				"pid": os.Getpid(),
+				"pid": os.Getpid(), "web_backends": []string{"exa", "firecrawl"}, "skills_upstream": 2,
 			}
 			switch mode {
 			case "badselftest":

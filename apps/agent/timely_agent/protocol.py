@@ -20,14 +20,18 @@ MAX_LINE_BYTES = 32 * 1024 * 1024  # a run.start with a history seed or images c
 # Go -> worker
 GO_TYPES = frozenset({
     "hello", "ping", "run.start", "bot.run", "run.stop", "run.steer", "approval.answer",
-    "tool.result", "gate.verdict", "session.delete", "shutdown",
+    "tool.result", "gate.verdict", "session.delete", "shutdown", "settings.update",
 })
 GO_PREFIX_TYPES = ("learning.",)
 # worker -> Go
 WORKER_TYPES = frozenset({
     "ready", "event", "tool.call", "gate.ask", "taint", "run.done", "bot.done", "log",
-    "ack", "error", "heartbeat", "pong",
+    "ack", "error", "heartbeat", "pong", "learning", "learning.result",
 })
+# Phase 3 run.start lists (PROTOCOL.md section 10): conversation ids and hosts, all strings.
+RUN_START_LISTS = ("tainted_conversations", "search_exclude", "search_allow")
+RUN_START_BOOL_FLAGS = ("learning_writes", "search_history", "web", "from_bot", "sensitive", "answer_only",
+                        "rich_ui")
 
 # error.code values (PROTOCOL.md "Errors")
 E_BAD_JSON = "bad_json"
@@ -44,6 +48,7 @@ E_UNKNOWN_RUN = "unknown_run"
 E_DUPLICATE_RUN = "duplicate_run"
 E_UNSUPPORTED = "unsupported"
 E_INTERNAL = "internal"
+E_NOT_FOUND = "not_found"  # learning.* (section 10.3)
 
 
 class ProtocolError(Exception):

@@ -83,13 +83,16 @@ func (r *userRepository) CountUsers() (int64, error) {
 
 // accountCleanup removes the rows an account owns that no foreign key
 // cascades from users: stages hang off projects without one, and jobs,
-// notifications and push devices carry user_id as a plain column. Deleting
-// the users row then cascades to everything else.
+// notifications, push devices and the agent's pending session deletes carry
+// user_id as a plain column (the account's agent home goes with it, so no
+// worker would ever take them). Deleting the users row then cascades to
+// everything else.
 var accountCleanup = []string{
 	`DELETE FROM stages WHERE project_id IN (SELECT p.id FROM projects p JOIN workspaces w ON w.id = p.workspace_id WHERE w.user_id = ?)`,
 	`DELETE FROM jobs WHERE user_id = ?`,
 	`DELETE FROM notifications WHERE user_id = ?`,
 	`DELETE FROM push_devices WHERE user_id = ?`,
+	`DELETE FROM agent_session_forgets WHERE user_id = ?`,
 }
 
 // DeleteUser removes the account and everything it owns in one transaction.

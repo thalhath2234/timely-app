@@ -1,5 +1,5 @@
-# Skill-body rule (plan 9b.2). timely_learning stages a memory or skill write for the person to
-# confirm when its text matches either list. A match never blocks a skill outright; it only means
+# Skill-body rule (plan 9b.2). timely_learning stages a skill write (skill_manage; never an About
+# you or Notes write) for the person to confirm when its text matches either list. A match never blocks a skill outright; it only means
 # the write waits in Timely instead of applying silently.
 #
 # tool_tokens       names of every tool whose chat policy is approve or block in policy/tools.yaml,

@@ -2,7 +2,7 @@
 
 Checks, each ``{"name", "ok", "detail"}``:
 
-- ``plugins``       the four Timely plugins are loaded and enabled, without errors, from Timely's
+- ``plugins``       every Timely plugin (each folder under ``timely_agent/plugins/``) is loaded and enabled, without errors, from Timely's
                     own entry points (``timely_agent/plugins``), and the enabled set is exactly
                     ``EXPECTED_PLUGINS``: a new bundled backend after a sync fails here until
                     it is reviewed and added
@@ -38,7 +38,7 @@ from typing import Any
 from timely_agent import config_render, dotenv_guard, env_check, install_guard, paths, policy
 from timely_agent.plugin_dist import PLUGINS
 
-# The enabled plugin set at the synced Hermes tag: Timely's four plus the bundled backends Hermes
+# The enabled plugin set at the synced Hermes tag: Timely's own (``plugin_dist.PLUGINS``) plus the bundled backends Hermes
 # auto-loads (browser providers, the delegation backend and the web search backends). A sync
 # that adds, renames or drops one fails the self-test (contract test 11) until it is reviewed
 # here and in plan section 2 "Bundled general plugins".

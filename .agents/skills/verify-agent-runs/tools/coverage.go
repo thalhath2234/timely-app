@@ -93,6 +93,7 @@ var covered = []struct{ File, Func string }{
 	{worker, "(*WorkerEngine).done"},
 	{worker, "(*WorkerEngine).stopped"},
 	{worker, "(*WorkerEngine).fail"},
+	{worker, "(*WorkerEngine).failWith"},
 }
 
 // An anchor is code text that must appear in a function (whitespace is
@@ -208,7 +209,7 @@ var anchors = []anchor{
 	{"", worker, "(*WorkerEngine).stopped",
 		`_ = e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error { mergeTaint(row, taint) endRun(row, r.tools) row.Status = "stopped"`,
 		"a run the worker interrupted is recorded through the fenced save"},
-	{"", worker, "(*WorkerEngine).fail",
+	{"", worker, "(*WorkerEngine).failWith",
 		`_ = e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error { mergeTaint(row, taint) endRun(row, r.tools) row.Status = "failed"`,
 		"a failed agent run is recorded through the fenced save"},
 	{"", turn, "(*Service).finishTurn",

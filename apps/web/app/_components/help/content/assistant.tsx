@@ -173,6 +173,12 @@ export const assistant: HelpSection = {
         "pinch",
         "phone assistant",
         "web search",
+        "search key",
+        "learning",
+        "skills",
+        "about you",
+        "notes",
+        "don't learn",
       ],
       lead: (
         <p>
@@ -283,6 +289,44 @@ export const assistant: HelpSection = {
                 and <strong>Discard all</strong> sets aside whatever is not applied yet. A reply in the chat asks for a
                 different version first. With smart suggestions on, changes that need a closer look are listed under{" "}
                 <strong>Worth a check before you apply</strong>.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: "learning",
+          title: "What Timely learns",
+          body: (
+            <>
+              <p>
+                In chats on the <strong>New</strong> engine, Timely saves what helps next time: a <strong>skill</strong>{" "}
+                for a job it worked out with you, a line in <strong>About you</strong>, or a <strong>note</strong>. A
+                small line under the reply says what it learned, such as{" "}
+                <em>Learned: skill &lsquo;bank-csv-import&rsquo; created</em>, with <strong>View</strong> and{" "}
+                <strong>Undo</strong>. About you and Notes apply from your next chat.
+              </p>
+              <ul>
+                <li>
+                  When the chat read something from outside Timely, such as a web page, or a bot suggested the change,
+                  nothing is saved yet: a <strong>Keep what Timely learned?</strong> card shows the change with{" "}
+                  <strong>View diff</strong>, <strong>Keep</strong> and <strong>Discard</strong>.
+                </li>
+                <li>
+                  To keep one chat out of it, open the chat&apos;s <strong>…</strong> menu and choose{" "}
+                  <strong>Don&apos;t learn from this chat</strong>. Private photo chats never teach Timely.
+                </li>
+                <li>
+                  <Path>Settings &gt; What Timely learned</Path> lists the skills with where each came from, their
+                  history and Undo, Edit, Lock, Archive and Delete; About you and Notes with how full each is; what
+                  waits for you; and every change in <strong>Activity</strong>. Turn <strong>Learn from chats</strong>{" "}
+                  or <strong>Search my past chats</strong> off there, and download everything it learned as a zip.
+                </li>
+                <li>Timely never archives a skill on its own; skills you have not used for a while are marked unused.</li>
+                <li>Learning uses the chat&apos;s own provider and model.</li>
+              </ul>
+              <p>
+                Web search in these chats uses your chat provider&apos;s own search. To use a search service instead,
+                add its key under <strong>Web search</strong> in <Path>Settings &gt; Agent</Path>.
               </p>
             </>
           ),

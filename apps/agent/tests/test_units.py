@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -276,6 +277,27 @@ def test_render_account_writes_home_and_stable_hash(tmp_path):
     assert state["host_allowed"] is False and state["config_sha256"] == a["config_sha256"]
     if os.name == "posix":
         assert stat.S_IMODE((home / "config.yaml").stat().st_mode) == 0o600
+
+
+def test_denied_bundled_skills_are_always_off(tmp_path):
+    """A home seeded before a skill was denied keeps its copy (Hermes' sync keeps a dropped
+    built-in on disk): render_account lists every denied bundled skill in skills.disabled."""
+    from timely_agent import cli
+    names = cli.denied_skill_names()
+    assert {"hermes-agent", "claude-code", "codex", "github"} <= set(names), names
+    layout = paths.AgentLayout.at(tmp_path / "agent")
+    out = cli.render_account(layout, "u1", {"skills_disabled": ["mine"]},
+                             {"timely_skills_dir": str(tmp_path), "seed_skills_dir": str(tmp_path),
+                              "browser_executable": "", "skills_default_off": []})
+    text = (Path(out["home"]) / "config.yaml").read_text()
+    disabled = json.loads(text[text.index("{"):])["skills"]["disabled"]
+    assert {"hermes-agent", "github", "mine"} <= set(disabled), disabled
+    # a denied skill Timely overrides is seeded (the override wins) and stays loadable
+    seeded = tmp_path / "seed" / "productivity" / "product-price-monitor"
+    seeded.mkdir(parents=True)
+    (seeded / "SKILL.md").write_text("---\nname: product-price-monitor\ndescription: x\n---\nTimely's.\n")
+    assert "product-price-monitor" in names
+    assert "product-price-monitor" not in cli.denied_skill_names(str(tmp_path / "seed"))
 
 
 # ---------------------------------------------------------------- policy
@@ -573,7 +595,56 @@ def test_learning_writes_off_blocks_skill_manage_and_memory(monkeypatch):
         finally:
             bridge.current_run.reset(token)
     # outside a run: blocked (fail closed)
-    assert timely_learning.pre_tool_call(tool_name="memory", args={})["message"] == timely_learning.LEARNING_OFF
+    assert timely_learning.pre_tool_call(tool_name="memory", args={})["message"] == timely_learning.NO_LEARNING_RUN
+    # the words match the switch, not "not ... yet" (review round 7)
+    assert "learning is off for this chat" in timely_learning.LEARNING_OFF and "yet" not in timely_learning.LEARNING_OFF
+
+
+@pytest.mark.parametrize("name", ["hermes-agent", "release..notes", "notes/../hermes-agent", "Pantry steps", "timely"])
+def test_skill_manage_refuses_names_timely_cannot_keep(monkeypatch, name):
+    """Hermes accepts ``release..notes`` and ``hermes-agent``; Go cannot store the first, and the second is
+    never turned off (a restored one would sit in every chat's skills index), so neither is learned."""
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_learning
+    monkeypatch.setattr(timely_learning, "external_skill", lambda n: False)
+    run = bridge.RunContext(run_id="r", session_key="k", conversation_id="c", flags={"learning_writes": True})
+    token = bridge.current_run.set(run)
+    try:
+        for args in ({"action": "create", "name": name, "content": "x"},
+                     {"action": "create", "name": "", "operations": [{"action": "create", "name": name}]}):
+            verdict = timely_learning.pre_tool_call(tool_name="skill_manage", args=args)
+            assert verdict and verdict["action"] == "block" and "can't keep a skill named" in verdict["message"], args
+    finally:
+        bridge.current_run.reset(token)
+
+
+# Tools chat may call that bring no outside text into the session: Timely's own skills and memory, the
+# to-do list, file writes (their result is what was written), and past-chat search, whose taint the
+# session-taint gate gives per hit.
+NOT_TAINT = frozenset({"skills_list", "skill_view", "skill_manage", "memory", "todo_list", "session_search",
+                       "write_file", "patch"})
+
+
+def test_every_tool_chat_may_call_has_a_taint_classification():
+    """ADR 0028 / plan 9b.5: a tool chat may call (allow or approve) either carries a taint kind or is
+    named in NOT_TAINT, so a new outside-text tool cannot slip in as clean."""
+    scripts = Path(__file__).resolve().parents[3] / "scripts" / "hermes-sync"
+    sys.path.insert(0, str(scripts))
+    try:
+        import check_lib
+    finally:
+        sys.path.remove(str(scripts))
+    tools_yaml = Path(__file__).resolve().parents[1] / ".hermes-sync" / "policy" / "tools.yaml"
+    entries = check_lib.yaml_load(tools_yaml.read_text(encoding="utf-8"), "tools.yaml")
+    entries = entries.get("tools", entries)
+    missing = []
+    for key, entry in entries.items():
+        if not isinstance(entry, dict) or entry.get("chat") == "block":
+            continue
+        name = key.partition("@")[0]
+        if name not in NOT_TAINT and not policy.taint_kind(name, str(entry.get("toolset") or "")):
+            missing.append(key)
+    assert missing == [], f"classify these tools' taint in policy.TAINT_SOURCES or list them in NOT_TAINT: {missing}"
 
 
 def test_taint_sources_policy():

@@ -2,6 +2,7 @@ package agenthosttest
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -239,10 +240,84 @@ func (f *fake) handle(m map[string]any) {
 	case "bot.run":
 		f.fail(id, str(m, "run"), "unsupported", "bot.run is a later phase")
 	default:
-		if strings.HasPrefix(typ, "learning.") {
-			f.fail(id, "", "unsupported", typ+" is a later phase")
+		if strings.HasPrefix(typ, "learning.") || typ == "settings.update" {
+			f.learning(id, typ, account)
 		} else {
 			f.fail(id, "", "unknown_type", "unknown type "+typ)
+		}
+	}
+}
+
+// learning answers a learning.* or settings.update request from the script
+// (Kit.LearningReply), then sends the lines it says to emit.
+func (f *fake) learning(id, typ, account string) {
+	r, ok := f.script().learningFor(account, typ)
+	switch {
+	case !ok && typ == "settings.update":
+		f.send(map[string]any{"type": "learning.result", "id": id, "ok": true, "data": map[string]any{"config_sha256": "fake"}})
+		return
+	case !ok:
+		f.fail(id, "", "unsupported", typ+" is not scripted")
+		return
+	case r.Code != "":
+		f.fail(id, "", r.Code, r.Message)
+		return
+	}
+	reply := map[string]any{"type": "learning.result", "id": id, "ok": true, "data": r.Data}
+	if len(r.Data) == 0 {
+		reply["data"] = nil
+	}
+	f.send(reply)
+	for _, raw := range r.Emit {
+		f.emit(raw)
+	}
+}
+
+// emit sends one line from the script or the outbox; "_account" replaces
+// the worker's account stamp.
+func (f *fake) emit(raw json.RawMessage) {
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil {
+		fmt.Fprintln(os.Stderr, "fake worker: an emit line is not a JSON object")
+		return
+	}
+	other, rogue := m["_account"].(string)
+	if !rogue {
+		f.send(m)
+		return
+	}
+	delete(m, "_account")
+	m["account"] = other
+	f.outMu.Lock()
+	defer f.outMu.Unlock()
+	_ = f.out.Encode(m)
+}
+
+// drainOutbox sends the lines Kit.Emit queues, polling outbox.jsonl until
+// the worker quits.
+func (f *fake) drainOutbox() {
+	path := filepath.Join(filepath.Dir(f.scriptPath), "outbox.jsonl")
+	var offset int64
+	t := time.NewTicker(20 * time.Millisecond)
+	defer t.Stop()
+	for {
+		raw, err := os.ReadFile(path)
+		if err == nil && int64(len(raw)) > offset {
+			chunk := raw[offset:]
+			end := bytes.LastIndexByte(chunk, '\n')
+			if end >= 0 {
+				for _, line := range bytes.Split(chunk[:end], []byte("\n")) {
+					if len(bytes.TrimSpace(line)) > 0 {
+						f.emit(append(json.RawMessage(nil), line...))
+					}
+				}
+				offset += int64(end + 1)
+			}
+		}
+		select {
+		case <-f.quit:
+			return
+		case <-t.C:
 		}
 	}
 }
@@ -277,18 +352,24 @@ func (f *fake) hello(m map[string]any) {
 		selfTest = map[string]any{"ok": false, "failures": []string{"plugins: " + s.SelfTestFail},
 			"checks": []any{map[string]any{"name": "plugins", "ok": false, "detail": s.SelfTestFail}}}
 	}
-	f.send(map[string]any{
+	ready := map[string]any{
 		"type": "ready", "id": id, "protocol": 1, "hermes_tag": "fake",
 		"tools": tools, "plugins_loaded": []string{"timely_gate", "timely_tools", "timely_learning", "timely_bot"},
 		"self_test": selfTest, "config_sha256": m["settings_hash"], "catalog_version": m["catalog_version"],
 		"skills_sync": map[string]any{}, "boot_ms": 0, "pid": os.Getpid(),
-	})
+		"web_backends": s.WebBackends, "skills_upstream": s.SkillsUpstream,
+	}
+	if s.WebBackends == nil {
+		ready["web_backends"] = []string{}
+	}
+	f.send(ready)
 	f.mu.Lock()
 	f.ready = s.SelfTestFail == ""
 	f.mu.Unlock()
 	if s.SelfTestFail != "" {
 		return
 	}
+	go f.drainOutbox()
 	every := time.Duration(s.HeartbeatMS) * time.Millisecond
 	if every <= 0 {
 		every = time.Second
@@ -419,6 +500,16 @@ func (f *fake) approvalAnswer(m map[string]any) {
 	}
 }
 
+// arm makes the run accept one approval.answer, unless one is already
+// queued for the next wait.
+func (f *fake) arm(r *fakeRun) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(r.approvals) == 0 {
+		r.waitingOK = true
+	}
+}
+
 // interruptAll stops every live run (shutdown, stdin closed) and waits for
 // their run.done lines.
 func (f *fake) interruptAll() {
@@ -465,16 +556,6 @@ func (f *fake) replay(r *fakeRun, lines []json.RawMessage) {
 	f.send(map[string]any{"type": "run.done", "id": r.startID, "run": r.id, "final_response": r.text.String(),
 		"completed": true, "interrupted": false, "turn_exit_reason": "text_response", "tokens": zeroTokens(),
 		"estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}})
-}
-
-// arm makes the run accept one approval.answer, unless one is already
-// queued for the next wait.
-func (f *fake) arm(r *fakeRun) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(r.approvals) == 0 {
-		r.waitingOK = true
-	}
 }
 
 // forget drops a run from the live table. It runs before the run's run.done

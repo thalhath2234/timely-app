@@ -837,10 +837,32 @@ func TestRemoveAccountStopsTheWorkerAndDeletesTheHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "state.db"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// A committed restore still staged and a replaced home in the trash hold
+	// the account's data too.
+	dir := AccountDirName("acct-1")
+	staged := filepath.Join(h.sup.Layout().Accounts(), ".restore-"+dir+"-123")
+	replaced := filepath.Join(h.sup.Layout().Trash(), dir+"-9-replaced")
+	other := filepath.Join(h.sup.Layout().Accounts(), ".restore-"+AccountDirName("acct-2")+"-123")
+	for _, d := range []string{staged, replaced, other} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "COMMITTED"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := h.sup.RemoveAccount(ctx, "acct-1"); err != nil {
 		t.Fatal(err)
+	}
+	for _, d := range []string{staged, replaced} {
+		if _, err := os.Stat(d); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s still there: %v", d, err)
+		}
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("another account's staged restore went: %v", err)
 	}
 	if exit := w.Exit(); exit.Reason != "removed" {
 		t.Fatalf("exit %+v", exit)

@@ -25,7 +25,7 @@ export async function listBackups() {
   const payload = await api<{ items: BackupFile[] }>("/backups");
   return payload.items;
 }
-export function createBackup() { return api<BackupFile>("/backups", { method: "POST" }); }
+export function createBackup() { return api<BackupFile & { warnings?: string[] }>("/backups", { method: "POST" }); }
 export function deleteBackup(id: string) { return api<void>(`/backups/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 
 /** The file name the server gave a download (filename* first), kept to
@@ -124,7 +124,7 @@ export async function restoreBackupJSON(contents: string) {
   let backup: unknown;
   try { backup = JSON.parse(contents); }
   catch { throw new Error("This is not a valid JSON backup."); }
-  return api<{ restoredAt: string; counts: Record<string, number> }>("/restore?mode=replace", {
+  return api<{ restoredAt: string; counts: Record<string, number>; warnings?: string[] }>("/restore?mode=replace", {
     method: "POST",
     headers: { "X-Timely-Restore": "replace" },
     body: backup,

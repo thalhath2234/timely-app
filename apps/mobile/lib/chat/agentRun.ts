@@ -17,6 +17,7 @@ import {
   type PermissionMode,
   type ReplyDraft,
 } from "@timely/contract/agentChat";
+import { isLearningWatchEvent, type LearningStatus } from "@timely/contract/agentLearning";
 import type { Chat, ChatMessage, ChatStep } from "./types";
 
 /** A chat's mode, Supervised for rows written before modes existed. */
@@ -96,6 +97,21 @@ export function effectiveEngine(chat: Pick<Chat, "engine" | "sensitive"> | undef
   const own = chat?.engine ?? "";
   if (own === "classic" || own === "agent") return own;
   return accountEngine === "agent" ? "agent" : "classic";
+}
+
+/**
+ * The chat learns on the agent engine (plan 9b.4), so its learning chip and
+ * card follow it: it has an agent turn, or its next run would be on the
+ * agent engine. Sensitive chats never learn.
+ */
+export function followsLearning(
+  chat: Pick<Chat, "messages" | "runEngine" | "engine" | "sensitive"> | undefined,
+  accountEngine: string | undefined,
+): boolean {
+  if (!chat || chat.sensitive) return false;
+  if (chat.runEngine === "agent") return true;
+  if (chat.messages.some((m) => m.agentRun || m.engine === "agent")) return true;
+  return effectiveEngine(chat, accountEngine) === "agent";
 }
 
 /** An agent run is thinking or writing in this chat now (not applying an approved plan). */
@@ -208,6 +224,28 @@ export function isChatDelta(event: { type?: string; id?: string; kind?: string; 
     typeof doc.offset === "number" &&
     typeof doc.text === "string"
   );
+}
+
+/**
+ * What `GET /chats/watch` says to the open chat: the stream came up or went
+ * down (`live`), a chat changed (refetch it), one chunk of a live agent
+ * run's reply (`delta`, Q-2.5), or the agent learned, staged or undid
+ * something (`learning`; id is the chat, "" outside one): refetch the
+ * events or the Settings lists.
+ */
+export type ChatStreamMessage =
+  | { type: "live"; live: boolean }
+  | { type: "changed"; id: string }
+  | { type: "delta"; event: ChatDelta }
+  | { type: "learning"; id: string; eventId: string; status: LearningStatus };
+
+/** One frame of /chats/watch as the phone reads it; null for frames it ignores (hello, keepalives, unknown). */
+export function chatStreamMessage(event: { type?: string; id?: string; kind?: string; document?: unknown }): ChatStreamMessage | null {
+  if (isChatDelta(event)) return { type: "delta", event };
+  if (isLearningWatchEvent(event))
+    return { type: "learning", id: event.id, eventId: event.document.eventId, status: event.document.status };
+  if (event.type === "changed" && event.id) return { type: "changed", id: event.id };
+  return null;
 }
 
 /** The chat's newest proposal summary message. */

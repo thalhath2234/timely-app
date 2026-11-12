@@ -4,9 +4,10 @@ real worker processes and the stub model. No network beyond 127.0.0.1, no live A
 Run with ``make agent-contract``. Phase 1 built tests 1-8, 11, 12, 15, 16 and 19; phase 2 adds
 1b (a Timely tool through ``tool.call``), completes 6 (the ``ephemeral_system_prompt`` decision),
 adds 18 (``propose_changes`` alone, taint on a direct proposal) and 20 (auxiliary calls use the
-run's credentials, plan 5.7). Where a test needs a later phase, the docstring says exactly what is
-deferred. Tests 9, 10, 10b, 13, 14 and 17 belong to later phases (14's literal-address part is a
-unit test in ``tests/test_units.py``).
+run's credentials, plan 5.7). Phase 3 runs 6 and 18 with memory on and adds test 9 and the
+learning-pass half of 16 in ``test_c09_learning.py``. Where a test needs a later phase, the
+docstring says exactly what is deferred. Tests 10, 10b, 13, 14 and 17 belong to later phases (14's
+literal-address part is a unit test in ``tests/test_units.py``).
 """
 
 from __future__ import annotations
@@ -25,14 +26,14 @@ import pytest
 
 import harness
 from stub_openai import StubServer
-from timely_agent import config_render, paths, policy, selftest
+from timely_agent import config_render, paths, plugin_dist, policy, selftest
 
 HERE = Path(__file__).resolve().parent
 PROBE_BOOT = HERE / "probe_boot.py"
 sys.path.insert(0, str(HERE))
 import probe_boot  # noqa: E402
 
-TIMELY_PLUGINS = {"timely_gate", "timely_tools", "timely_learning", "timely_bot"}
+TIMELY_PLUGINS = set(plugin_dist.PLUGINS)  # every folder under timely_agent/plugins
 IS_WINDOWS = sys.platform == "win32"
 
 
@@ -201,7 +202,7 @@ def test_c05_no_dns_beyond_configured_hosts(stub):
     The probe wrapper records every name lookup and outgoing IP connection in the worker process
     from boot to exit (hello, a plain turn, a tool turn). The only configured host is the stub
     model on 127.0.0.1. Not covered: lookups made by child processes (phase 5's host tools and
-    the egress tests 10b cover those)."""
+    the bot egress tests 10b cover those)."""
     root = harness.new_root("c5")
     a = harness.Agent(root)
     assert config_render.get_dotted(config_render.managed_floors(timely_skills_dir=None),
@@ -236,13 +237,21 @@ BLOCK = "TIMELY-BLOCK-6: the Timely block for this conversation (instruction, cl
 BLOCK_CHANGED = "TIMELY-BLOCK-6b: the Timely block after a catalog change."
 
 
-def _c06_turns(stub, mode: str) -> dict:
+def _c06_turns(stub, mode: str, memory: bool = False) -> dict:
     """Turns 1-2 in one worker, turn 3 in a fresh worker (agent rebuilt from state.db), turn 4 in
-    that worker with a changed block. Returns the system text of each turn's request."""
+    that worker with a changed block. Returns the system text of each turn's request.
+
+    ``memory`` (phase 3): learning on (memory toolset, ``flags.learning_writes``), with a USER.md
+    entry before turn 1 and another written after it; Hermes freezes the memory snapshot at
+    session start, so the prompt stays byte-stable."""
     a = harness.Agent(harness.new_root(f"c6-{mode}"))
     assert (a.home / "SOUL.md").read_text() == config_render.SOUL_TEXT
     argv = [harness.python(), "-I", str(PROBE_BOOT), "--system-via", mode, "worker"]
-    systems, conv, w = [], f"c-c6-{mode}", None
+    systems, conv, w = [], f"c-c6-{mode}{'-mem' if memory else ''}", None
+    extra = {"toolsets": ["memory"], "flags": {"learning_writes": True}} if memory else {}
+    if memory:
+        (a.home / "memories").mkdir(exist_ok=True)
+        (a.home / "memories" / "USER.md").write_text("Prefers tea over coffee.")
     try:
         for i, block in enumerate((BLOCK, BLOCK, BLOCK, BLOCK_CHANGED)):
             if i in (0, 2):
@@ -250,10 +259,13 @@ def _c06_turns(stub, mode: str) -> dict:
                     w.close()
                 w, ready = harness.ready_worker(a, argv=argv)
                 assert ready["self_test"]["ok"], ready["self_test"]
-            marker = f"c6 {mode} turn {i + 1}"
-            w.send(harness.run_start(a, stub, run_id=f"c6-{mode}-{i}", conversation=conv, text=marker,
-                                     system_text=block, system_hash=hashlib.sha256(block.encode()).hexdigest()))
+            marker = f"c6 {mode}{' memory' if memory else ''} turn {i + 1}"
+            w.send(harness.run_start(a, stub, run_id=f"c6-{mode}-{i}{'-mem' if memory else ''}", conversation=conv,
+                                     text=marker, system_text=block,
+                                     system_hash=hashlib.sha256(block.encode()).hexdigest(), **extra))
             done, _ = w.until("run.done")
+            if memory and i == 0:
+                (a.home / "memories" / "USER.md").write_text("Prefers tea over coffee.\n§\nLives in Porto.")
             assert done["final_response"] == f"Stub reply: {marker}", done
             reqs = _chat_requests(stub, marker)
             assert len(reqs) == 1, len(reqs)
@@ -262,8 +274,9 @@ def _c06_turns(stub, mode: str) -> dict:
                 # The rebuild really loaded state.db: the fresh worker's request carries turns 1-2.
                 history = [(m.get("role"), m.get("content")) for m in reqs[0]["body"]["messages"][1:]]
                 for n in (1, 2):
-                    assert ("user", f"c6 {mode} turn {n}") in history, history
-                    assert ("assistant", f"Stub reply: c6 {mode} turn {n}") in history, history
+                    prev = f"c6 {mode}{' memory' if memory else ''} turn {n}"
+                    assert ("user", prev) in history, history
+                    assert ("assistant", f"Stub reply: {prev}") in history, history
     finally:
         if w is not None:
             w.close()
@@ -297,6 +310,12 @@ def test_c06_soul_and_timely_block_stable_across_turns_and_rebuild(stub):
         assert t1 == t2, f"{mode}: the system prompt changed between two turns of one agent"
         assert t2 == t3, f"{mode}: the system prompt changed after the agent was rebuilt from state.db"
         assert "You are Hermes Agent" not in t4, mode
+    # Phase 3: with memory on, the USER.md snapshot is in the prompt and frozen for the session,
+    # so a write after turn 1 changes neither turn 2 nor the rebuilt agent's turn 3.
+    mem = _c06_turns(stub, "ephemeral", memory=True)["turns"]
+    assert "Prefers tea over coffee." in mem[0] and "Lives in Porto." not in mem[0], mem[0][-1500:]
+    assert mem[0] == mem[1] == mem[2], "with memory on the system prompt changed across turns or the rebuild"
+    assert mem[3] == mem[0][: -len(BLOCK)] + BLOCK_CHANGED
     eph, sysm = results["ephemeral"]["turns"], results["system_message"]["turns"]
     assert eph[0].endswith(BLOCK), "ephemeral_system_prompt is appended after Hermes' prompt"
     assert BLOCK_CHANGED in eph[3] and BLOCK not in eph[3], "ephemeral: the changed block reaches the next turn"
@@ -355,6 +374,29 @@ SYMBOLS: dict[str, list[str] | None] = {
     # dotenv guard (runtime override R2) and the run-time reload it stops
     "hermes_cli.env_loader:load_hermes_dotenv": [],
     "tools.mcp_tool_config:_load_mcp_config": [],
+    # phase 3 learning (timely_agent/learning): staging, ledger actor, skill states, memory store
+    "tools.write_approval:stage_write": ["summary", "origin"],
+    "tools.write_approval:skill_gist": ["content", "file_path", "old_string", "new_string"],
+    "tools.write_approval:discard_pending": [],
+    "tools.write_approval:SKILLS": None,
+    "tools.write_approval:MEMORY": None,
+    "tools.skill_manager_tool:skill_manage": ["action", "name", "content"],
+    "tools.skill_usage:set_locked": [],
+    "tools.skill_usage:archive_skill": [],
+    "tools.skill_usage:restore_skill": [],
+    "tools.skill_usage:usage_report": [],
+    "tools.skill_usage:list_archived_skill_names": [],
+    "tools.skill_usage:read_skill_name": ["fallback"],
+    "tools.memory_tool:MemoryStore.add": [],
+    "tools.memory_tool:MemoryStore.replace": [],
+    "tools.memory_tool:MemoryStore.remove": [],
+    "tools.threat_patterns:first_threat_message": ["scope"],
+    "tools.skill_provenance:is_background_review": [],
+    "tools.skill_provenance:is_unattended_review": [],
+    "agent.curator:run_curator_review": ["synchronous", "trigger"],
+    "agent.curator:maybe_run_curator": ["idle_for_seconds"],
+    "agent.prompt_builder:clear_skills_system_prompt_cache": ["clear_snapshot"],
+    "run_agent:AIAgent._spawn_background_review": [],
 }
 
 
@@ -1026,9 +1068,8 @@ def test_c16_skill_manage_on_timely_skill_refused(agent, worker, stub):
     """16. ``skill_manage patch`` on the ``timely`` skill is refused and the file is unchanged
     (edit, create, delete and ``write_file`` into the folder too).
 
-    Foreground only. Deferred to phase 3: the background review fork, which only runs once
-    learning is on (``skip_background_review=True`` in phase 1). The refusal is a process-wide
-    ``pre_tool_call`` hook, so the fork reaches it too; phase 3 adds that half of the test."""
+    Foreground here; the learning-pass half is ``test_c16_learning_pass_cannot_patch_the_timely_skill``
+    in ``test_c09_learning.py`` (phase 3)."""
     skill = Path(agent.prepared["timely_skills_dir"]) / "timely" / "SKILL.md"
     before = skill.read_bytes()
     for i, args in enumerate([
@@ -1147,7 +1188,8 @@ def test_c18_propose_changes_in_a_batch_is_blocked_before_any_sibling_runs(tagen
     script = [{"calls": pair}, {"text": f"after {marker}"}]
     run_id = f"c18a-{order}"
     tworker.send(harness.run_start(tagent, stub, run_id=run_id, conversation=f"c-{run_id}",
-                                   toolsets=harness.PHASE2_TOOLSETS, budgets={},
+                                   toolsets=harness.PHASE2_TOOLSETS + ["memory"], budgets={},
+                                   flags={"learning_writes": True},  # phase 3: memory on
                                    text="SCRIPT " + json.dumps(script) + f"\n{marker}"))
     done, seen = harness.drive(tworker, tagent.account, run_id)
     calls = [m for m in seen if m["type"] == "tool.call"]
@@ -1175,7 +1217,8 @@ def test_c18_direct_proposal_after_a_taint_source_carries_tainted_sources(stub):
         script = [{"calls": [[probe_boot.TAINT_TOOL, {"url": "https://shop.example/deal"}]]},
                   {"calls": [["propose_changes", PROPOSAL]]}, {"text": "Added it."}]
         w.send(harness.run_start(a, stub, run_id="c18b", conversation="c-c18b", budgets={},
-                                 toolsets=harness.PHASE2_TOOLSETS + [probe_boot.PROBE_TOOLSET],
+                                 flags={"learning_writes": True},  # phase 3: memory on
+                                 toolsets=harness.PHASE2_TOOLSETS + ["memory", probe_boot.PROBE_TOOLSET],
                                  text="SCRIPT " + json.dumps(script)))
         done, seen = harness.drive(w, a.account, "c18b", verdict=("allow", ""))  # Go allows the probe
     finally:

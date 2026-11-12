@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -121,6 +122,21 @@ func nestedResponse(content string) (cliResponse, bool) {
 	return inner, true
 }
 
+// turnHeader finds a line in message text that would read as one of render's
+// own turn headers: at the start of the text or after any line break a model
+// may honour (\r, NEL, the Unicode line and paragraph separators), after
+// optional blanks, in any case.
+var turnHeader = regexp.MustCompile(`(?i)(^|[\n\r\x{85}\x{2028}\x{2029}])([\t\f\v \x{a0}\x{200b}\x{feff}]*)\[(user|assistant|tool result)\b`)
+
+// escapeTurnHeaders keeps text from forging a turn in the CLI transcript: the
+// roles are structural on API models, but here they are plain text, so a page
+// (or a result too short for Hermes to wrap) could otherwise start a fake
+// [user] turn. The header gets a backslash before its bracket; the text stays
+// readable and nothing else changes.
+func escapeTurnHeaders(text string) string {
+	return turnHeader.ReplaceAllString(text, `${1}${2}\[${3}`)
+}
+
 // render splits the wire transcript into the system prompt and the user-facing
 // transcript. Tool specs go into the system prompt so every turn sees the same
 // catalogue; images are returned separately for provider-specific attachment.
@@ -147,18 +163,18 @@ func render(messages []chat.WireMessage, tools []any, search bool) (system, tran
 				body.WriteString("\n")
 			}
 			if strings.TrimSpace(m.Content) != "" {
-				body.WriteString(m.Content)
+				body.WriteString(escapeTurnHeaders(m.Content))
 				body.WriteString("\n")
 			}
 		case "tool":
 			body.WriteString("[tool result ")
 			body.WriteString(m.ToolCallID)
 			body.WriteString("]\n")
-			body.WriteString(m.Content)
+			body.WriteString(escapeTurnHeaders(m.Content))
 			body.WriteString("\n")
 		default:
 			body.WriteString("[user]\n")
-			body.WriteString(m.Content)
+			body.WriteString(escapeTurnHeaders(m.Content))
 			body.WriteString("\n")
 			images = append(images, m.ImageURLs...)
 		}

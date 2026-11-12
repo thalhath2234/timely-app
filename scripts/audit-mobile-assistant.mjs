@@ -22,7 +22,16 @@ stub(
 );
 stub(
   "lib/hooks",
-  `export const useSheetsQuery=()=>({data:[]}); export const useDocsQuery=()=>({data:[]}); export const useProjectsQuery=()=>({data:[]}); export const useTasksQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}}); export const useDocQuery=()=>({data:undefined}); export const useTaskQuery=()=>({data:undefined}); export const useSaveTask=()=>({mutate(){},mutateAsync:async()=>{},isPending:false}); export const useSetChecklistItem=()=>({mutate(){},isPending:false}); export const useBotIcons=()=>({data:{}}); const bot=(id,name,watch,over={})=>({id,name,description:"",status:"active",pauseReason:null,origin:"app",originClient:"",judgeMode:"rules",intervalMinutes:60,urgent:false,desktop:true,phone:true,snoozedUntil:null,nextCheckAt:new Date(Date.now()+1800000).toISOString(),lastCheckAt:new Date(Date.now()-720000).toISOString(),lastOkAt:null,strikes:0,health:{code:"working",line:""},alertsToday:0,watches:[{id:id+"_w",url:"",read:"",selector:"",source:"",symbol:"",currency:"",rules:[],health:{code:"working",line:""},lastReadingAt:null,summary:"",site:"",title:"",value:null,excerpt:"",latestItem:null,lastChangedAt:null,spark:null,dayChangePct:null,...watch}],createdAt:"2026-11-01T00:00:00Z",updatedAt:"2026-11-02T00:00:00Z",checking:false,runNowAt:null,floorLine:"",strip:"nnnn",latestAlert:null,itemsToday:0,...over}); const bots=[bot("bot_gonews","Go news feed",{kind:"feed",site:"go.dev"}),bot("bot_gorelease","Go release news",{kind:"feed",site:"go.dev"},{status:"paused"}),bot("bot_btc","Bitcoin under $70,000",{kind:"price",source:"coinbase",symbol:"BTC",currency:"USD"})]; export const useBotsQuery=()=>({data:{bots,summary:{checksToday:3,alertsToday:0,nextCheckAt:null}}}); export const useBotDefaultsQuery=()=>({data:{desktop:true,phone:true,urgent:false}}); export const useRateAlert=()=>({mutate(){},isPending:false}); export const learnedLine=(lesson)=>"Learned: "+lesson; export const useAgentChatSettingsQuery=()=>({data:undefined}); export const usePatchAgentChatSettings=()=>({mutate(){},mutateAsync:async()=>{},isPending:false});`,
+  `export const useSheetsQuery=()=>({data:[]}); export const useDocsQuery=()=>({data:[]}); export const useProjectsQuery=()=>({data:[]}); export const useTasksQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}}); export const useDocQuery=()=>({data:undefined}); export const useTaskQuery=()=>({data:undefined}); export const useSaveTask=()=>({mutate(){},mutateAsync:async()=>{},isPending:false}); export const useSetChecklistItem=()=>({mutate(){},isPending:false}); export const useBotIcons=()=>({data:{}}); const bot=(id,name,watch,over={})=>({id,name,description:"",status:"active",pauseReason:null,origin:"app",originClient:"",judgeMode:"rules",intervalMinutes:60,urgent:false,desktop:true,phone:true,snoozedUntil:null,nextCheckAt:new Date(Date.now()+1800000).toISOString(),lastCheckAt:new Date(Date.now()-720000).toISOString(),lastOkAt:null,strikes:0,health:{code:"working",line:""},alertsToday:0,watches:[{id:id+"_w",url:"",read:"",selector:"",source:"",symbol:"",currency:"",rules:[],health:{code:"working",line:""},lastReadingAt:null,summary:"",site:"",title:"",value:null,excerpt:"",latestItem:null,lastChangedAt:null,spark:null,dayChangePct:null,...watch}],createdAt:"2026-11-01T00:00:00Z",updatedAt:"2026-11-02T00:00:00Z",checking:false,runNowAt:null,floorLine:"",strip:"nnnn",latestAlert:null,itemsToday:0,...over}); const bots=[bot("bot_gonews","Go news feed",{kind:"feed",site:"go.dev"}),bot("bot_gorelease","Go release news",{kind:"feed",site:"go.dev"},{status:"paused"}),bot("bot_btc","Bitcoin under $70,000",{kind:"price",source:"coinbase",symbol:"BTC",currency:"USD"})]; export const useBotsQuery=()=>({data:{bots,summary:{checksToday:3,alertsToday:0,nextCheckAt:null}}}); export const useBotDefaultsQuery=()=>({data:{desktop:true,phone:true,urgent:false}}); export const useRateAlert=()=>({mutate(){},isPending:false}); export const learnedLine=(lesson)=>"Learned: "+lesson; export const useAgentChatSettingsQuery=()=>({data:undefined}); export const usePatchAgentChatSettings=()=>({mutate(){},mutateAsync:async()=>{},isPending:false});
+import {useSyncExternalStore} from "react";
+const learnListeners=new Set(); let learnVersion=0;
+const learnBump=()=>{learnVersion++;learnListeners.forEach((f)=>f());};
+const useLearnVersion=()=>useSyncExternalStore((f)=>{learnListeners.add(f);return()=>learnListeners.delete(f);},()=>learnVersion);
+const learnEvents=()=>Object.values(window.auditLearning||{}).flat();
+export const useLearningSettingsQuery=()=>({data:{learning:true,searchHistory:true,useCaseCopied:false}});
+export const useChatLearningQuery=(id)=>{useLearnVersion();return {data:((window.auditLearning||{})[id]||[]).map((e)=>({...e})),refetch:async()=>{}};};
+export const useUndoLearning=()=>({isPending:false,variables:undefined,mutate(ids){for(const id of ids){window.auditActions.push({path:"/agent/learning/events/"+id+"/undo",method:"POST"});const ev=learnEvents().find((e)=>e.id===id);if(ev)ev.status="undone";}learnBump();}});
+export const useDecidePendingLearning=()=>({isPending:false,variables:undefined,mutate({pendingIds,choice}){for(const id of pendingIds){window.auditActions.push({path:"/agent/learning/pending/"+id,method:"POST",body:{choice}});const ev=learnEvents().find((e)=>e.pendingId===id);if(ev)ev.status=choice==="keep"?"kept":"discarded";}learnBump();}});`,
 );
 stub(
   "lib/chat/storage",
@@ -98,15 +107,22 @@ const chats={
   {id:"t3",role:"user",content:"@GPU deals under $400 @Go release news what do you see?",botTags:["bot_gpu","bot_gorelease"],createdAt:iso(4)},
   {id:"t4",role:"assistant",content:"The GPU deals bot is checking now. Go release news is paused; its last reading is from Nov 2.",createdAt:iso(3),botAnswers:[botAnswer("bot_gpu","GPU deals under $400","active","waiting","Checking now; the result shows on the bot",{watches:[{...goFeed,id:"bot_gpu_w",site:"reddit.com",title:"reddit.com · Feed",summary:"40 posts",items:[],excerpt:"RTX 4070 Super, $389 at Newegg"},{...goFeed,id:"bot_gpu_w2",site:"slickdeals.net",title:"slickdeals.net · Feed",summary:"25 posts",items:[],excerpt:""}]}),botAnswer("bot_gorelease","Go release news","paused","paused","Paused, so this is from Nov 2",{nextCheckAt:null,watches:[{...goFeed,id:"bot_gorelease_w",summary:"8 posts"}]})]},
  ]},
+ learned:{id:"learned",title:"Import my bank CSV",status:"idle",phase:"plan",webSearch:false,engine:"",runEngine:"agent",context:[],revision:3,unread:false,error:"",createdAt:iso(12),updatedAt:iso(11),plan:[],messages:[{id:"lr1",role:"user",content:"Import this month's bank CSV into my budget sheet",createdAt:iso(12)},{id:"lr2",role:"assistant",engine:"agent",agentRun:"run_l1",content:"Imported 42 rows into Budget. I noted how your bank lays out its CSV, so next time is quicker.",createdAt:iso(11)}]},
  running:{id:"running",title:"Plan my week",status:"running",phase:"plan",webSearch:false,context:[],revision:1,unread:false,error:"",createdAt:iso(1),updatedAt:iso(1),plan:[],messages:[{id:"r1",role:"user",content:"Help me plan this week.",createdAt:iso(1)}]},
 };
 window.auditChats=chats;
+const learnEvent=(over)=>({id:"",kind:"skill",action:"created",subject:"",before:"",after:"",origin:"chat",conversationId:"learned",runId:"run_l1",botId:"",taintedSources:[],status:"applied",ledgerEntryId:"",pendingId:"",summary:"",createdAt:iso(11),updatedAt:iso(11),...over});
+window.auditLearning={learned:[
+ learnEvent({id:"lev1",subject:"bank-csv-import",after:"Read the CSV's Date, Description and Amount columns",ledgerEntryId:"led1",summary:"How to import your bank's CSV"}),
+ learnEvent({id:"lev2",action:"patched",subject:"flipkart-price-read",status:"staged",pendingId:"lp1",taintedSources:[{kind:"web",tool:"web_extract",host:"flipkart.com"}],summary:"Read the deal price, not the struck-out M.R.P."}),
+]};
 const summary=(c)=>({id:c.id,title:c.title,status:c.status,phase:c.phase,webSearch:c.webSearch,revision:c.revision,unread:c.unread,error:c.error,createdAt:c.createdAt,updatedAt:c.updatedAt});
 export const uploadChatImage=async()=>({id:"photo",expiresAt:"2099-01-01"});
 export const renameChat=(id,title)=>chatRequest("/"+id,"PATCH",{title});
 export const deleteChat=(id)=>chatRequest("/"+id,"DELETE");
 export const configureChatAgent=(id,patch)=>chatRequest("/"+id,"PATCH",patch);
 export const steerChat=(id,text)=>chatRequest("/"+id+"/steer","POST",{text});
+export const setChatNoLearning=(id,noLearning)=>chatRequest("/"+id,"PATCH",{noLearning});
 export const undoChatChange=(id,revision,messageId)=>chatRequest("/"+id+"/undo","POST",{revision,messageId});
 export async function chatRequest(path,method="GET",body){
  window.auditActions.push({path,method,body,overlaps:method!=="GET"&&window.auditWrites>0});
@@ -580,6 +596,45 @@ else {
     assert(sent, "the tagged message was not sent");
     assert.deepEqual(sent.body.botTags, ["bot_gonews"]);
     assert.equal(sent.body.content, "@Go news feed anything new?");
+    // What the agent learned (plan 9b.4): the chip with Undo, the Keep /
+    // Discard card, and "Don't learn from this chat" in the title's menu.
+    await page.goto("http://localhost:4002/?chat=learned");
+    await page.getByText("Learned: skill 'bank-csv-import' created").waitFor();
+    await page.getByText("Keep what Timely learned?").waitFor();
+    await page.screenshot({
+      path: "/tmp/timely-mobile-learned.png",
+      fullPage: true,
+    });
+    await page.getByTestId("learning-undo").click();
+    await page.getByTestId("learning-chip-undone").waitFor();
+    await page.getByTestId("learning-keep").click();
+    await expect(page.getByTestId("learning-card")).toHaveCount(0);
+    await page.getByText("Learned: skill 'flipkart-price-read' updated").waitFor();
+    assert.deepEqual(
+      (await actions())
+        .filter((a) => a.path.startsWith("/agent/learning/"))
+        .map((a) => a.path),
+      ["/agent/learning/events/lev1/undo", "/agent/learning/pending/lp1"],
+    );
+    await page.getByTestId("chat-menu-button").click();
+    await page.getByRole("dialog", { name: "This chat" }).waitFor();
+    await page
+      .getByRole("switch", { name: "Don't learn from this chat" })
+      .click();
+    await page.getByText("Timely won't learn from this chat.").waitFor();
+    assert(
+      (await actions()).some(
+        (a) =>
+          a.method === "PATCH" &&
+          a.path === "/learned" &&
+          a.body.noLearning === true,
+      ),
+      "noLearning not sent",
+    );
+    await page.screenshot({
+      path: "/tmp/timely-mobile-dont-learn.png",
+      fullPage: true,
+    });
     if (errors.length) throw new Error(errors.join("\n"));
     console.log(
       JSON.stringify({
@@ -597,6 +652,8 @@ else {
           "/tmp/timely-mobile-bot-brief.png",
           "/tmp/timely-mobile-tag-answer.png",
           "/tmp/timely-mobile-tag-picker.png",
+          "/tmp/timely-mobile-learned.png",
+          "/tmp/timely-mobile-dont-learn.png",
         ],
       }),
     );

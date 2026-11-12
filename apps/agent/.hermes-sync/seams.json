@@ -395,6 +395,70 @@
       "signature": "def _maybe_wrap_untrusted(name: str, content: Any) -> Any",
       "sha256": "c0bc312b92727d1705c2ac881c968afa98f1b52b87e83e8350ad64835235b1c6"
     },
+    "tool result message (wrap and risk scan)": {
+      "file": "agent/tool_dispatch_helpers.py",
+      "qualname": "make_tool_result_message",
+      "line": 448,
+      "end_line": 480,
+      "signature": "def make_tool_result_message(name: str, content: Any, tool_call_id: str, *, effect_disposition: str | None=None) -> dict",
+      "sha256": "bec3a768d152aef47057ffc69f16824a8971008aaf81c39278044ca7935da648"
+    },
+    "advisory threat scan of untrusted output": {
+      "file": "agent/tool_dispatch_helpers.py",
+      "qualname": "_tool_output_risk_metadata",
+      "line": 544,
+      "end_line": 563,
+      "signature": "def _tool_output_risk_metadata(name: str, content: Any) -> Optional[dict[str, Any]]",
+      "sha256": "4386becbd4ba76bb1359fd88b2ba75d1d635989b66677cbd1fccee308daf9d53"
+    },
+    "threat scan finding: tool.output_risk projection": {
+      "file": "agent/tool_executor.py",
+      "qualname": "_emit_tool_complete_and_risk",
+      "line": 1047,
+      "end_line": 1060,
+      "signature": "def _emit_tool_complete_and_risk(agent, ref: _ToolCallRef, result, risk_metadata, blocked: bool) -> None",
+      "sha256": "243924c5e19b49d18ac3ed41343970b6dc65575e97139c2a16e3d49fbac8c51b"
+    },
+    "tool result limit for the agent's model": {
+      "file": "agent/tool_executor.py",
+      "qualname": "_budget_for_agent",
+      "line": 119,
+      "end_line": 133,
+      "signature": "def _budget_for_agent(agent) -> BudgetConfig",
+      "sha256": "b42152c5be4fbc13e00a60aa058e62251ca2469f43db3bca9b43e3bb95b73e83"
+    },
+    "oversized tool result preview": {
+      "file": "tools/tool_result_storage.py",
+      "qualname": "maybe_persist_tool_result",
+      "line": 395,
+      "end_line": 436,
+      "signature": "def maybe_persist_tool_result(content: str, tool_name: str, tool_use_id: str, env=None, config: BudgetConfig=DEFAULT_BUDGET, threshold: float | None=None) -> str",
+      "sha256": "1ebdaf28747c083ac06592b6a837c4d9488d627d39e7ea1a1be0c762bb0c9cf1"
+    },
+    "secret prefixes (web_extract secret-URL block)": {
+      "file": "agent/redact.py",
+      "qualname": "module:_PREFIX_PATTERNS",
+      "line": 165,
+      "end_line": 239,
+      "signature": "_PREFIX_PATTERNS = [\n    # Some provider-issued ``sk-`` keys carry dot-delimited body segments (Alibaba\n    # ``sk-sp-…``/``sk-ws-…``). Each unit is one body char optionally preceded by\n    # a single dot, so the body ends on its last non-dot char (sentence punctuation\n    # is never consumed) and can never span ``..``: the ``sk-pro...EFGH`` display\n    # mask is left alone by a second redaction pass instead of collapsing to\n    # ``***``. Kept free of nested unbounded repeats so the pattern passes the\n    # same structural gate plugins must.\n    r\"sk-[A-Za-z0-9_-](?:\\.?[A-Za-z0-9_-]){9,}\",\n    # Context7 API keys: a fixed vendor prefix (``ctx7sk-``) plus an opaque body.\n    # The generic ``sk-`` family cannot catch it: the matcher's lookbehind\n    # rejects a prefix preceded by a word char, and here the ``sk-`` sits inside\n    # ``ctx7sk-`` - so a bare Context7 key passed through unmasked (#142576).\n    r\"ctx7sk-[A-Za-z0-9_-]{10,}\",\n    r\"ghp_[A-Za-z0-9]{10,}\",            # GitHub PAT (classic)\n    r\"github_pat_[A-Za-z0-9_]{10,}\",    # GitHub PAT (fine-grained)\n    r\"gho_[A-Za-z0-9]{10,}\",            # GitHub OAuth access token\n    r\"ghu_[A-Za-z0-9]{10,}\",            # GitHub user-to-server token\n    r\"ghs_[A-Za-z0-9]{10,}\",            # GitHub server-to-server token\n    r\"ghr_[A-Za-z0-9]{10,}\",            # GitHub refresh token\n    r\"xapp-\\d+-[A-Za-z0-9-]{10,}\",      # Slack app-Level token\n    r\"xox[baprs]-[A-Za-z0-9-]{10,}\",    # Slack bot/app/user tokens\n    r\"AIza[A-Za-z0-9_-]{30,}\",          # Google API keys\n    r\"pplx-[A-Za-z0-9]{10,}\",           # Perplexity\n    r\"fal_[A-Za-z0-9_-]{10,}\",          # Fal.ai\n    r\"fc-[A-Za-z0-9]{10,}\",             # Firecrawl\n    r\"bb_live_[A-Za-z0-9_-]{10,}\",      # BrowserBase\n    r\"gAAAA[A-Za-z0-9_=-]{20,}\",        # Codex encrypted tokens\n    r\"AKIA[A-Z0-9]{16}\",                # AWS Access Key ID\n    r\"sk_live_[A-Za-z0-9]{10,}\",        # Stripe secret key (live)\n    r\"sk_test_[A-Za-z0-9]{10,}\",        # Stripe secret key (test)\n    r\"rk_live_[A-Za-z0-9]{10,}\",        # Stripe restricted key\n    r\"SG\\.[A-Za-z0-9_-]{10,}\",          # SendGrid API key\n    r\"hf_[A-Za-z0-9]{10,}\",             # HuggingFace token\n    r\"r8_[A-Za-z0-9]{10,}\",             # Replicate API token\n    r\"npm_[A-Za-z0-9]{10,}\",            # npm access token\n    r\"pypi-[A-Za-z0-9_-]{10,}\",         # PyPI API token\n    r\"dop_v1_[A-Za-z0-9]{10,}\",         # DigitalOcean PAT\n    r\"doo_v1_[A-Za-z0-9]{10,}\",         # DigitalOcean OAuth\n    # AgentMail API key: ``am_`` / ``am_org_`` + an opaque alphanumeric body. The body has no ``_``/``-``,\n    # which is what separates it from ``am_example_identifier_123`` (#10983); public docs pin only the\n    # prefix, so the charset stays broad and the length floor does the discriminating.\n    r\"am_(?:org_)?[A-Za-z0-9]{20,}\",\n    r\"sk_[A-Za-z0-9_]{10,}\",            # ElevenLabs TTS key (sk_ underscore, not sk- dash)\n    r\"tvly-[A-Za-z0-9]{10,}\",           # Tavily search API key\n    r\"exa_[A-Za-z0-9]{10,}\",            # Exa search API key\n    r\"gsk_[A-Za-z0-9]{10,}\",            # Groq Cloud API key\n    r\"syt_[A-Za-z0-9]{10,}\",            # Matrix access token\n    r\"retaindb_[A-Za-z0-9]{10,}\",       # RetainDB API key\n    r\"hsk-[A-Za-z0-9]{10,}\",            # Hindsight API key\n    r\"mem0_[A-Za-z0-9]{10,}\",           # Mem0 Platform API key\n    r\"brv_[A-Za-z0-9]{10,}\",            # ByteRover API key\n    r\"xai-[A-Za-z0-9]{30,}\",            # xAI (Grok) API key\n    r\"ntn_[A-Za-z0-9]{10,}\",            # Notion internal integration token\n    r\"fw-[A-Za-z0-9]{30,}\",             # Fireworks AI API key\n    r\"fw_[A-Za-z0-9]{30,}\",             # Fireworks AI API key\n    r\"fpk_[A-Za-z0-9]{30,}\",            # Fireworks AI project key\n    # GitLab token families (each keeps a full literal prefix for the pre-screen).\n    # Ported from openclaw/openclaw#112954; follow-up invited in #4541.\n    r\"glpat-[A-Za-z0-9_\\-]{10,}\",       # GitLab personal access token\n    r\"gloas-[A-Za-z0-9_\\-]{10,}\",       # GitLab OAuth application secret\n    r\"gldt-[A-Za-z0-9_\\-]{10,}\",        # GitLab deploy token\n    r\"glrt-[A-Za-z0-9_.\\-]{10,}\",       # GitLab runner authentication token (routable tokens are dotted)\n    r\"glrtr-[A-Za-z0-9_.\\-]{10,}\",      # GitLab runner registration token (routable)\n    r\"glcbt-[A-Za-z0-9_\\-]{10,}\",       # GitLab CI/CD job token\n    r\"glptt-[A-Za-z0-9_\\-]{10,}\",       # GitLab pipeline trigger token\n    r\"glft-[A-Za-z0-9_\\-]{10,}\",        # GitLab feed token\n    r\"glimt-[A-Za-z0-9_\\-]{10,}\",       # GitLab incoming mail token\n    r\"glagent-[A-Za-z0-9_\\-]{10,}\",     # GitLab agent (KAS) token\n    r\"glsoat-[A-Za-z0-9_\\-]{10,}\",      # GitLab service-account access token\n    r\"glffct-[A-Za-z0-9_\\-]{10,}\",      # GitLab feature-flags client token\n    r\"glwt-[A-Za-z0-9_\\-]{10,}\",        # GitLab workspace token\n    r\"GR1348941[A-Za-z0-9_\\-]{10,}\",    # GitLab legacy runner registration token\n    r\"pk-lf-[A-Za-z0-9\\-]{8,}\",         # Langfuse public key (sk-lf- already covered by sk- pattern)\n]",
+      "sha256": "a3a953b4a2136a0e4f72c8431a1bc4f116f7c669c72d85dabe36c83c93e71d64"
+    },
+    "web_extract secret-URL block": {
+      "file": "tools/web_tools_extract.py",
+      "qualname": "_validate_extract_urls",
+      "line": 90,
+      "end_line": 111,
+      "signature": "def _validate_extract_urls(urls: list[Any])",
+      "sha256": "e89f48138b8ede343d4848d1da3bf9ec0f87205a7fa41914aaf474c38c4741e0"
+    },
+    "web_extract entry (validation before the backend)": {
+      "file": "tools/web_tools.py",
+      "qualname": "web_extract_tool",
+      "line": 392,
+      "end_line": 452,
+      "signature": "async def web_extract_tool(urls: list[Any], format: str | None=None, char_limit: Optional[int]=None) -> str",
+      "sha256": "cc07d270be812107f46622d273fe00157e7f67f5349facbe653ed2009c75b3a4"
+    },
     "url safety: is_safe_url": {
       "file": "tools/url_safety.py",
       "qualname": "is_safe_url",
@@ -602,6 +666,438 @@
       "end_line": 123,
       "signature": "def parse_v4a_patch(patch_content: str) -> tuple[list[PatchOperation], Optional[str]]",
       "sha256": "859489d61f72f6d224dac75a2d96e3e8ded1073c8f0afef37d21dd8cbc547d86"
+    },
+    "write approval: skill_gist": {
+      "file": "tools/write_approval.py",
+      "qualname": "skill_gist",
+      "line": 257,
+      "end_line": 269,
+      "signature": "def skill_gist(action: str, name: str, *, content: str='', file_path: str='', old_string: str='', new_string: str='') -> str",
+      "sha256": "591c1d1cbb656cc5a0a3da702a9b3ac8cde51f6e61e647e6efa0b398558c64f2"
+    },
+    "write approval: skill_pending_diff": {
+      "file": "tools/write_approval.py",
+      "qualname": "skill_pending_diff",
+      "line": 305,
+      "end_line": 344,
+      "signature": "def skill_pending_diff(record: dict[str, Any], staged: Optional[dict[str, dict[str, str]]]=None) -> str",
+      "sha256": "ad05d54948a8a164502d3e783e13cb7ae4808fbe0efdea8f55b86cdf241dd4e2"
+    },
+    "write approval: pending record path": {
+      "file": "tools/write_approval.py",
+      "qualname": "_pending_path",
+      "line": 65,
+      "end_line": 66,
+      "signature": "def _pending_path(subsystem: str, pending_id: str) -> Path",
+      "sha256": "b77d46fec4c21591692e31630a071ccfe35f28afb032c10169576a80ba356784"
+    },
+    "memory: apply a staged write": {
+      "file": "tools/memory_tool.py",
+      "qualname": "apply_memory_pending",
+      "line": 353,
+      "end_line": 370,
+      "signature": "def apply_memory_pending(payload: dict[str, Any], store: MemoryStore) -> dict[str, Any]",
+      "sha256": "88238ba9faf7b73a1cfdbc423e8ab3c72665477e3f5e56ee873fc936dfe3a50a"
+    },
+    "memory: pin the entry a staged patch/remove selects": {
+      "file": "tools/memory_tool.py",
+      "qualname": "_pin_matched_entries",
+      "line": 64,
+      "end_line": 81,
+      "signature": "def _pin_matched_entries(store: MemoryStore, payload: dict[str, Any]) -> Optional[str]",
+      "sha256": "8b3ef91d710211ff39a72ea5a6656c401a06789508e1871b686f58e71f26b3e4"
+    },
+    "memory: on-disk store": {
+      "file": "tools/memory_tool.py",
+      "qualname": "load_on_disk_store",
+      "line": 47,
+      "end_line": 61,
+      "signature": "def load_on_disk_store() -> MemoryStore",
+      "sha256": "4e286e28838f59b921f73b0cca22e066178a8ae33e8177e7a210b4f1ac830491"
+    },
+    "memory: unattended patch/remove staged": {
+      "file": "tools/memory_tool.py",
+      "qualname": "_background_delete_gate",
+      "line": 179,
+      "end_line": 219,
+      "signature": "def _background_delete_gate(store, action, operations, target='memory', content=None, old_text=None) -> Optional[str]",
+      "sha256": "7f9c934ee848683993e21a9389f08dbda0fe58c767d41564cc96819e085f6f6a"
+    },
+    "memory store: add/replace/remove/file format": {
+      "file": "tools/memory_tool_store.py",
+      "qualname": "MemoryStore.*",
+      "line": 177,
+      "end_line": 740,
+      "signature": "class MemoryStore()\ndef target_enabled(self, target: str) -> bool\ndef reset_consolidation_failures(self) -> None\ndef load_from_disk(self)\ndef add(self, target: str, content: str) -> dict[str, Any]\ndef replace(self, target: str, old_text: str, new_content: str, matched_entry: Optional[str]=None) -> dict[str, Any]\ndef patch(self, target: str, old_text: str, new_text: str, matched_entry: Optional[str]=None) -> dict[str, Any]\ndef remove(self, target: str, old_text: str, matched_entry: Optional[str]=None) -> dict[str, Any]\ndef resolve_entry(self, target: str, old_text: str, verb: str) -> dict[str, Any]\ndef apply_batch(self, target: str, operations: list[dict[str, Any]]) -> dict[str, Any]\ndef resolve_batch_entries(self, target: str, operations: list[dict[str, Any]]) -> dict[str, Any]\ndef format_for_system_prompt(self, target: str) -> Optional[str]",
+      "sha256": "e0351cd593eb4a7d09ffa899e78ec0bdc6b84bdec6701037dc4b27277680cb27"
+    },
+    "memory entry delimiter": {
+      "file": "tools/memory_tool_store.py",
+      "qualname": "module:ENTRY_DELIMITER",
+      "line": 26,
+      "end_line": 26,
+      "signature": "ENTRY_DELIMITER = \"\\n§\\n\"",
+      "sha256": "1e1a956389b8da0b034857d0ded8b99a4e948a36b3baa2fb787b7c5778220847"
+    },
+    "skills: apply a staged write": {
+      "file": "tools/skill_manager_tool.py",
+      "qualname": "apply_skill_pending",
+      "line": 716,
+      "end_line": 722,
+      "signature": "def apply_skill_pending(payload: dict[str, Any]) -> str",
+      "sha256": "a5eedd519b98877f5be325ccc65c5ce82fa21c89d5418314c6834bb967b72e45"
+    },
+    "skills: skill_manage (ledger actor, session_id evidence)": {
+      "file": "tools/skill_manager_tool.py",
+      "qualname": "skill_manage",
+      "line": 783,
+      "end_line": 832,
+      "signature": "def skill_manage(action: str, name: str, content: str | None=None, category: str | None=None, file_path: str | None=None, file_content: str | None=None, old_string: str | None=None, new_string: str | None=None, replace_all: bool=False, absorbed_into: str | None=None, task_id: str | None=None, session_id: str | None=None, operations=None) -> str",
+      "sha256": "c9c2b4d54336286f72f58164554d47e7e31b557be8904ee54aed095842ba496d"
+    },
+    "skills: post-write ledger record": {
+      "file": "tools/skill_manager_tool.py",
+      "qualname": "_record_success",
+      "line": 746,
+      "end_line": 780,
+      "signature": "def _record_success(action, name, result, *, file_path, absorbed_into, task_id, session_id, ledger_before) -> None",
+      "sha256": "f90e23c2fb98bc9a87530b69c45188651acbd90378236b703de193fa200e165a"
+    },
+    "skill ledger: append entry (row shape)": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "append_entry",
+      "line": 298,
+      "end_line": 323,
+      "signature": "def append_entry(action: str, skill: str, before: Optional[list[dict[str, str]]]=None, after: Optional[list[dict[str, str]]]=None, actor: Optional[str]=None, evidence: Optional[dict[str, Any]]=None) -> Optional[str]",
+      "sha256": "af7bb9c4b09e316ab7ed99533f1dcf24b267be1fcb651262eb0623f6c0188a64"
+    },
+    "skill ledger: list_entries": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "list_entries",
+      "line": 538,
+      "end_line": 550,
+      "signature": "def list_entries(skill: Optional[str]=None, limit: Optional[int]=None) -> list[dict[str, Any]]",
+      "sha256": "7c81a68ff60859e709a012611cb32453bf4d4e8a86ddc4ec45e0b874fa473bb0"
+    },
+    "skill ledger: rollback_entry": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "rollback_entry",
+      "line": 569,
+      "end_line": 633,
+      "signature": "def rollback_entry(entry_id: str) -> tuple[bool, str]",
+      "sha256": "7ea259a4b74f8dfe3892c81dd8df638f452d624b6b119a4d1c9a594c8bd76b54"
+    },
+    "skills: per-skill mutation lock (Undo waits for a write's ledger entry)": {
+      "file": "tools/skill_manager_tool.py",
+      "qualname": "_skill_mutation_lock",
+      "line": 93,
+      "end_line": 96,
+      "signature": "def _skill_mutation_lock(name: str)",
+      "sha256": "2e95f9d5fef677bda262582f8ae02ff28609028f7e5851baeddd1bcbad5d01c1"
+    },
+    "skill ledger: actor": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "derive_actor",
+      "line": 68,
+      "end_line": 77,
+      "signature": "def derive_actor() -> str",
+      "sha256": "97cb3982d9aa2188d6c21b2e4dc1ec35334b4f0457b41e68834a5923c02b5b13"
+    },
+    "skill ledger: file path": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "ledger_path",
+      "line": 84,
+      "end_line": 85,
+      "signature": "def ledger_path() -> Path",
+      "sha256": "46e13bccf1af56bc0cb4df6ffd28e50df6b2e584a1662cc1b5e62e5d8d45f7e7"
+    },
+    "skill ledger: blobs dir": {
+      "file": "tools/skill_ledger.py",
+      "qualname": "blobs_dir",
+      "line": 88,
+      "end_line": 89,
+      "signature": "def blobs_dir() -> Path",
+      "sha256": "bac078ca365792aca371a1c4f6c2ffd5279add012559a8a4514ad02934a3330b"
+    },
+    "review counters: initial values": {
+      "file": "agent/agent_init.py",
+      "qualname": "_init_memory",
+      "line": 1210,
+      "end_line": 1281,
+      "signature": "def _init_memory(agent, _agent_cfg, skip_memory, platform, memory_manager=None)",
+      "sha256": "c4e303e7fbb30c2c2c71e7cae84773c45cd9f5f458a5049fac9fca5655ce1e6f"
+    },
+    "review counters: skill nudge interval": {
+      "file": "agent/agent_init.py",
+      "qualname": "_apply_agent_section",
+      "line": 1284,
+      "end_line": 1351,
+      "signature": "def _apply_agent_section(agent, _agent_cfg)",
+      "sha256": "f0aab0446dc9629933632ae86138ef4192a205282685a73862463860a1741e47"
+    },
+    "review counters: memory turn tick": {
+      "file": "agent/turn_context.py",
+      "qualname": "_tick_memory_nudge",
+      "line": 765,
+      "end_line": 774,
+      "signature": "def _tick_memory_nudge(agent: Any) -> bool",
+      "sha256": "9248d98c09760952ee0f56f9e4c25ce1a59f6390735c809b48bf412fb3e763d1"
+    },
+    "review counters: first-turn hydration (counters R3)": {
+      "file": "agent/turn_context.py",
+      "qualname": "_hydrate_from_history",
+      "line": 718,
+      "end_line": 762,
+      "signature": "def _hydrate_from_history(agent: Any, conversation_history: Optional[list[Any]]) -> None",
+      "sha256": "ecb057dbbe1ec0c690f18d6882a22aca76b21d3fd2d1cff9fe3be3779122a8f2"
+    },
+    "review counters: hydration then tick, one turn start": {
+      "file": "agent/turn_context.py",
+      "qualname": "build_turn_context",
+      "line": 1093,
+      "end_line": 1297,
+      "signature": "def build_turn_context(agent, user_message: Any, system_message: Optional[str], conversation_history: Optional[list[dict[str, Any]]], task_id: Optional[str], stream_callback, persist_user_message: Optional[Any], persist_user_timestamp: Optional[float]=None, persist_user_platform_id: Optional[str]=None, *, persist_user_display_kind: Optional[str]=None, persist_user_display_metadata: Optional[dict[str, Any]]=None, turn_author: Optional[dict[str, Any]]=None, restore_or_build_system_prompt, install_safe_stdio, sanitize_surrogates, summarize_user_message_for_log, set_session_context, set_current_write_origin, ra, moa_active: bool=False, title_user_message: Optional[str]=None) -> TurnContext",
+      "sha256": "04fc39d6df490ae53abf258798ec4dff418613eba498f17d9f0674a7b6435439"
+    },
+    "review counters: reset only for a call that runs": {
+      "file": "agent/tool_executor.py",
+      "qualname": "_dispatch_authorized_once",
+      "line": 678,
+      "end_line": 750,
+      "signature": "def _dispatch_authorized_once(agent, state: _ManagedToolResult, ref: _ToolCallRef, *, execute, scope_block: str | None, display_index: int | None, begin_execution, authorization_gate: _ConcurrentToolAuthorizationGate | None) -> Any",
+      "sha256": "525842f725302b757a0fd14c2efde1f8168143cb8e33c04398479b64d648c493"
+    },
+    "review trigger at turn end": {
+      "file": "agent/turn_finalizer.py",
+      "qualname": "finalize_turn",
+      "line": 619,
+      "end_line": 901,
+      "signature": "def finalize_turn(agent, *, final_response, api_call_count, interrupted, failed, messages, conversation_history, effective_task_id, turn_id, user_message, original_user_message, _should_review_memory, _turn_exit_reason, _pending_verification_response=None, _pending_verification_response_previewed=False)",
+      "sha256": "fab5dbda1420ca6a77a4ee8baadffa8c3c8ed2d21c8dbff3ab3114424ad2d441"
+    },
+    "learning pass gate (skip_background_review)": {
+      "file": "agent/turn_finalizer.py",
+      "qualname": "_mirror_turn_to_memory",
+      "line": 591,
+      "end_line": 616,
+      "signature": "def _mirror_turn_to_memory(agent, *, original_user_message, final_response, interrupted, messages, review_memory, review_skills, vetoed) -> None",
+      "sha256": "eb8ce330d3502d9bb060658c8451a61bf8dc249c748a22f979f45d0f2b539419"
+    },
+    "learning pass spawn": {
+      "file": "run_agent.py",
+      "qualname": "AIAgent._spawn_background_review_now",
+      "line": 785,
+      "end_line": 823,
+      "signature": "def _spawn_background_review_now(self, messages_snapshot: list[dict], review_memory: bool=False, review_skills: bool=False, focus: Optional[str]=None, task_cfg: Optional[dict[str, Any]]=None, _requeue_attempts: int=0, explicit: bool=False) -> None",
+      "sha256": "4e1cf4a7a5b943699a4d1ad2afecc042bbc09079efa72ba0ef815f2c54d5ef7b"
+    },
+    "learning pass run token": {
+      "file": "agent/background_review.py",
+      "qualname": "prepare_background_review_run",
+      "line": 75,
+      "end_line": 89,
+      "signature": "def prepare_background_review_run(agent: Any) -> Optional[_BackgroundReviewRun]",
+      "sha256": "f8fb2d7aad4c90b6e950a4c6aa0ac4edd1b0dcddae7f539b86d7b6c4de26c6d7"
+    },
+    "learning pass run token done": {
+      "file": "agent/background_review.py",
+      "qualname": "finish_background_review_run",
+      "line": 92,
+      "end_line": 99,
+      "signature": "def finish_background_review_run(agent: Any, run: Optional[_BackgroundReviewRun]) -> None",
+      "sha256": "6c4fd7b9c88bcde94dd60a1504281b2216e54590942d7f684d2c5b43b066f311"
+    },
+    "background_review_callback": {
+      "file": "agent/background_review.py",
+      "qualname": "_publish_review_summary",
+      "line": 1251,
+      "end_line": 1256,
+      "signature": "def _publish_review_summary(agent: Any, actions: list[str]) -> None",
+      "sha256": "a8219501c379d525e291800f0c73830c50350f743eeee6098932aff616bf4760"
+    },
+    "learning pass fork (same session id, run credentials)": {
+      "file": "agent/background_review.py",
+      "qualname": "build_cache_parity_fork",
+      "line": 979,
+      "end_line": 1059,
+      "signature": "def build_cache_parity_fork(agent: Any, task_cfg: Optional[dict[str, Any]]=None, *, max_iterations: int, write_origin: str='background_review') -> tuple[Any, dict[str, Any], bool]",
+      "sha256": "2098eacb92e814fe794656d3b97d0cf723a9d7ed8877ec9f75a3e7e8b759910b"
+    },
+    "learning pass runtime (no auxiliary.background_review)": {
+      "file": "agent/background_review.py",
+      "qualname": "_resolve_review_runtime",
+      "line": 253,
+      "end_line": 291,
+      "signature": "def _resolve_review_runtime(agent: Any, task_cfg: Optional[dict[str, Any]]=None) -> dict[str, Any]",
+      "sha256": "e9f7401883336e05832ad04f0973474beb2a6454a4aa5aef64768a2eb4e95a4c"
+    },
+    "learning pass tool whitelist": {
+      "file": "agent/background_review.py",
+      "qualname": "_review_tool_whitelist",
+      "line": 1114,
+      "end_line": 1154,
+      "signature": "def _review_tool_whitelist(review_agent: Any, task_cfg: Optional[dict[str, Any]], review_memory: bool=False) -> tuple[set, set]",
+      "sha256": "6fd9f7710a58f6f0d3899195313ed6339f701202fd0f82a49d6c5b31eae221c4"
+    },
+    "learning pass origin": {
+      "file": "tools/skill_provenance.py",
+      "qualname": "is_background_review",
+      "line": 25,
+      "end_line": 26,
+      "signature": "def is_background_review() -> bool",
+      "sha256": "22a1506981bbed20fa62376923e2e3dff59ca41d35a2e93c0c6c3e18698d668f"
+    },
+    "learning pass unattended": {
+      "file": "tools/skill_provenance.py",
+      "qualname": "is_unattended_review",
+      "line": 43,
+      "end_line": 44,
+      "signature": "def is_unattended_review() -> bool",
+      "sha256": "b7063588d4a42733e1cdd79f25cd28606188b87a24cd1cc2e8ec4dc7b592e002"
+    },
+    "pre_tool_call modify directive": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "_get_pre_tool_call_directive_details",
+      "line": 1907,
+      "end_line": 1959,
+      "signature": "def _get_pre_tool_call_directive_details(tool_name: str, args: Optional[dict[str, Any]], task_id: str='', session_id: str='', tool_call_id: str='', turn_id: str='', api_request_id: str='', middleware_trace: Optional[list[dict[str, Any]]]=None) -> _PreToolCallDirective",
+      "sha256": "07739ecb916cddb0ef90fe6b507ff10cbfd1f0baa4578bf5a1385dd93dc19345"
+    },
+    "transform_tool_result hook": {
+      "file": "model_tools.py",
+      "qualname": "_apply_transform_tool_result_hook",
+      "line": 862,
+      "end_line": 879,
+      "signature": "def _apply_transform_tool_result_hook(function_name: str, function_args: dict[str, Any], result: Any, duration_ms: int, ids: _CallIds) -> Any",
+      "sha256": "abe49aaf03fa1baddbe024613a5b06506314aed6105890a96ba7447c6e130306"
+    },
+    "session_search inline executor": {
+      "file": "agent/inline_tool_executors.py",
+      "qualname": "_session_search",
+      "line": 123,
+      "end_line": 139,
+      "signature": "def _session_search(agent, args: dict, ctx: InlineToolContext) -> Any",
+      "sha256": "4e6ee05b2b660fd305e36e775ce370943cea29ca0017f3449657c0d59e57a72d"
+    },
+    "session_search exclude_session_ids": {
+      "file": "tools/session_search_tool.py",
+      "qualname": "_normalize_exclude_session_ids",
+      "line": 179,
+      "end_line": 189,
+      "signature": "def _normalize_exclude_session_ids(raw: Any) -> list[str]",
+      "sha256": "dc48e7ea0ecf82f0b166292278fd796d5f66021ca26d04898c020d96ffe5f917"
+    },
+    "session_search discovery (exclusion)": {
+      "file": "tools/session_search_tool.py",
+      "qualname": "_discover",
+      "line": 354,
+      "end_line": 431,
+      "signature": "def _discover(db, query: str, role_filter: Optional[list[str]], limit: int, sort: Optional[str], detail: str, current_session_id: str | None=None, link_profile: str | None=None, after_ts: Optional[int]=None, before_ts: Optional[int]=None, exclude_session_ids: Optional[list[str]]=None) -> str",
+      "sha256": "f0f95828553d27afbcc2157db9f2857b7906f05a75acddec75feb1f93444594f"
+    },
+    "curator: automatic transitions (stale, archive cutoff)": {
+      "file": "agent/curator.py",
+      "qualname": "apply_automatic_transitions",
+      "line": 209,
+      "end_line": 263,
+      "signature": "def apply_automatic_transitions(now: Optional[datetime]=None) -> dict[str, int]",
+      "sha256": "5f612d73310f6c8f7f8da75a7a27ab498b2c901002e4444dc2e5daaa6ddbb234"
+    },
+    "curator: archive_after_days (no-archive setting)": {
+      "file": "agent/curator.py",
+      "qualname": "get_archive_after_days",
+      "line": 142,
+      "end_line": 143,
+      "signature": "def get_archive_after_days() -> int",
+      "sha256": "4f1f0bccc84673a17098390ef3e193f2d24dca29961e7cd3932a370604fa799a"
+    },
+    "curator: day counts floored at 1": {
+      "file": "agent/curator.py",
+      "qualname": "_bounded_count",
+      "line": 122,
+      "end_line": 135,
+      "signature": "def _bounded_count(key: str, default: int) -> int",
+      "sha256": "a1e187f952eb9de83fe7930afadfb04aea1031a51c7186cd6612cd248ccfcc8e"
+    },
+    "curator: consolidation off": {
+      "file": "agent/curator.py",
+      "qualname": "get_consolidate",
+      "line": 146,
+      "end_line": 148,
+      "signature": "def get_consolidate() -> bool",
+      "sha256": "fd79ef91cb50bda41f67bbe4d87916fbc300808b860607d53bc6af844af2ccc6"
+    },
+    "skill usage: lock": {
+      "file": "tools/skill_usage.py",
+      "qualname": "set_locked",
+      "line": 580,
+      "end_line": 585,
+      "signature": "def set_locked(skill_name: str, locked: bool) -> bool",
+      "sha256": "a202b468f27cc1373ea73cab824be899954caf95479b66bb6c2e315c0bdda98d"
+    },
+    "skill usage: archive": {
+      "file": "tools/skill_usage.py",
+      "qualname": "archive_skill",
+      "line": 642,
+      "end_line": 669,
+      "signature": "def archive_skill(skill_name: str) -> tuple[bool, str]",
+      "sha256": "58677dbb00d946d7763a9c35664748ebe4681b8a976533f02e97c2364b5c5b40"
+    },
+    "skill usage: restore": {
+      "file": "tools/skill_usage.py",
+      "qualname": "restore_skill",
+      "line": 672,
+      "end_line": 696,
+      "signature": "def restore_skill(skill_name: str) -> tuple[bool, str]",
+      "sha256": "76ea0b0092d2aacb4d6e7700c483e4da5e6377795bad272bd6258509113fd057"
+    },
+    "skill usage: report": {
+      "file": "tools/skill_usage.py",
+      "qualname": "usage_report",
+      "line": 767,
+      "end_line": 773,
+      "signature": "def usage_report() -> list[dict[str, Any]]",
+      "sha256": "35e9d35c71c521941fa3f5e623a612b29c1030b014ee379235c573ec8c27cead"
+    },
+    "plugin registrar: register_web_search_provider": {
+      "file": "hermes_cli/plugins_registrars.py",
+      "qualname": "module:_SCOPED_PROVIDER_REGISTRARS",
+      "line": 25,
+      "end_line": 91,
+      "signature": "_SCOPED_PROVIDER_REGISTRARS: tuple[tuple[str, str, str, str, str, str, dict[str, Any]], ...] = (\n    (\"register_login_backend\", \"login_backend\", \"agent.vault_backend_registry\",\n     \"agent.vault_backends.base:LoginBackend\", \"login backend\",\n     \"Register a trusted in-process browser-vault LoginBackend; explicit vault.<name>.enabled \"\n     \"is required. Registration is profile-scoped and removed on plugin unload. \"\n     \"Backend instances must read active-profile configuration lazily. Accepted only from bundled \"\n     \"plugins and catalog installs at tier verified or official.\",\n     {\"normalize\": None, \"reject_message\": \"Plugin '%s' login backend rejected: %s\",\n      \"admit\": \"hermes_cli.plugins_cmd_catalog:login_backend_provenance_error\", \"identity\": \"static_name\"}),\n    (\"register_browser_page_backend\", \"browser_page_backend\", \"agent.browser_page_registry\",\n     \"agent.browser_page_backend:BrowserPageBackend\", \"browser page backend\",\n     \"Register an :class:`agent.browser_page_backend.BrowserPageBackend` so ``browser_vault`` inspects and \"\n     \"fills the pages of a browser with no CDP endpoint (Camofox). Profile-scoped, removed on plugin \"\n     \"unload; accepted only from bundled plugins and catalog installs at tier verified or official.\",\n     {\"reject_message\": \"Plugin '%s' browser page backend rejected: %s\",\n      \"admit\": \"hermes_cli.plugins_cmd_catalog:browser_page_backend_provenance_error\"}),\n    (\"register_image_gen_provider\", \"image_gen_provider\", \"agent.image_gen_registry\",\n     \"agent.image_gen_provider:ImageGenProvider\", \"image_gen provider\",\n     \"Register an :class:`agent.image_gen_provider.ImageGenProvider`; \"\n     \"``provider.name`` is matched by ``image_gen.provider``.\", {\"article\": \"an\"}),\n    (\"register_video_gen_provider\", \"video_gen_provider\", \"agent.video_gen_registry\",\n     \"agent.video_gen_provider:VideoGenProvider\", \"video_gen provider\",\n     \"Register an :class:`agent.video_gen_provider.VideoGenProvider`; \"\n     \"``provider.name`` is matched by ``video_gen.provider``.\", {}),\n    (\"register_web_search_provider\", \"web_search_provider\", \"agent.web_search_registry\",\n     \"agent.web_search_provider:WebSearchProvider\", \"web provider\",\n     \"Register an :class:`agent.web_search_provider.WebSearchProvider`; \"\n     \"``provider.name`` is matched by ``web.search_backend`` / ``web.extract_backend`` / ``web.backend``.\",\n     {}),\n    (\"register_browser_provider\", \"browser_provider\", \"agent.browser_registry\",\n     \"agent.browser_provider:BrowserProvider\", \"browser provider\",\n     \"Register an :class:`agent.browser_provider.BrowserProvider`; \"\n     \"``provider.name`` is matched by ``browser.cloud_provider`` (consulted by \"\n     \"``tools.browser_session_cloud.get_cloud_provider``).\", {}),\n    (\"register_terminal_environment_provider\", \"terminal_environment_provider\",\n     \"agent.terminal_env_registry\", \"agent.terminal_env_provider:TerminalEnvironmentProvider\",\n     \"terminal environment provider\",\n     \"Register a :class:`agent.terminal_env_provider.TerminalEnvironmentProvider`; ``provider.name`` \"\n     \"is matched by ``terminal.backend`` when no built-in backend has that name. Built-in names (local, \"\n     \"docker, modal, daytona, vercel_sandbox, ssh) are rejected — plugins never shadow \"\n     \"in-tree backends.\",\n     {\"normalize\": \"lower\", \"reject_message\": \"Plugin '%s' terminal environment provider rejected: %s\"}),\n    (\"register_secret_source\", \"secret_source\", \"agent.secret_sources.registry\",\n     \"agent.secret_sources.base:SecretSource\", \"secret source\",\n     \"Register a :class:`agent.secret_sources.base.SecretSource`, run by ``load_hermes_dotenv()`` \"\n     \"(after ``~/.hermes/.env``, before credentials are read) when ``secrets.<name>`` is enabled. The \"\n     \"orchestrator owns ordering/precedence/provenance; the source only fetches. Since dotenv usually \"\n     \"loads before discovery, the manager re-pulls enabled plugin sources afterwards.\",\n     {\"normalize\": None, \"register\": \"register_source\", \"param\": \"source\"}),\n    (\"register_tts_provider\", \"tts_provider\", \"agent.tts_registry\",\n     \"agent.tts_provider:TTSProvider\", \"TTS provider\",\n     \"Register an :class:`agent.tts_provider.TTSProvider`; ``provider.name`` is matched by \"\n     \"``tts.provider`` unless it is a built-in name (rejected with a warning) or a \"\n     \"``tts.providers.<name>: type: command`` entry shares it (command-providers win).\",\n     {\"normalize\": \"lower\"}),\n    (\"register_transcription_provider\", \"transcription_provider\", \"agent.transcription_registry\",\n     \"agent.transcription_provider:TranscriptionProvider\", \"transcription provider\",\n     \"Register an :class:`agent.transcription_provider.TranscriptionProvider`; ``provider.name`` is \"\n     \"matched by ``stt.provider`` unless it is a built-in name (rejected) or a ``stt.providers.<name>: \"\n     \"type: command`` entry shares it (command-providers win).\", {\"normalize\": \"lower\"}),\n    (\"register_delegation_provider\", \"delegation_provider\", \"agent.delegation_registry\",\n     \"agent.delegation_provider:DelegationProvider\", \"delegation provider\",\n     \"Register an :class:`agent.delegation_provider.DelegationProvider`; ``provider.name`` is matched by \"\n     \"``delegation.backend``. It decides each ``delegate_task`` task's route (model/provider or a Hermes \"\n     \"profile) and may add per-task schema parameters; core keeps the subagent lifecycle.\",\n     {\"normalize\": \"lower\"}),\n)",
+      "sha256": "f3d5727ce4323b26b47d3cdde210b3b1c0946211e06245af65ec3c7081f7f1f5"
+    },
+    "web provider base": {
+      "file": "agent/web_search_provider.py",
+      "qualname": "WebSearchProvider",
+      "line": 64,
+      "end_line": 101,
+      "signature": "class WebSearchProvider(ProviderBase)",
+      "sha256": "c19d9a082dba2cdea58871050a7fdd9e8de24c20a7b2918d4df69fd1808655ea"
+    },
+    "web backend from config": {
+      "file": "agent/web_search_registry.py",
+      "qualname": "_configured_backend",
+      "line": 52,
+      "end_line": 58,
+      "signature": "def _configured_backend(capability: str) -> Optional[str]",
+      "sha256": "71526303856826a5e004aaa59c1e27a48b23432d4f041a5e66d2b0ac43f2ef41"
+    },
+    "backup walker": {
+      "file": "hermes_cli/backup.py",
+      "qualname": "_iter_backup_files",
+      "line": 330,
+      "end_line": 360,
+      "signature": "def _iter_backup_files(hermes_root: Path, out_path: Path, skipped_dirs: Optional[set]=None)",
+      "sha256": "ccdcc087904859014a465d8f43536dc56088a6d33f0dc5887ba2eebc742da837"
+    },
+    "backup_sqlite: WAL-safe copy": {
+      "file": "hermes_cli/backup_sqlite.py",
+      "qualname": "_safe_copy_db",
+      "line": 142,
+      "end_line": 205,
+      "signature": "def _safe_copy_db(src: Path, dst: Path, *, timeout_seconds: float=10.0) -> bool",
+      "sha256": "15b760a33ef432e2de73759ef3f0f14f1156b8845609ba1128738dce2aa743f0"
     },
     "_iters_since_skill reset sites": {
       "file": "",
