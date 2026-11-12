@@ -1,7 +1,9 @@
 // Whole-database backups as folder copies of PGDATA taken while PostgreSQL is
 // stopped. The bundled PostgreSQL (zonky) ships only initdb, pg_ctl and
 // postgres, so pg_dump is not an option; a cold copy of the data directory is
-// a complete, restorable backup (quit Timely, swap postgres/data, start).
+// a complete, restorable backup (quit Timely, put back postgres/data and the
+// agent homes together as restoreDataDir does, start; docs/desktop/README.md,
+// "Restoring a folder backup").
 //
 // The agent's account homes (<data>/agent/accounts, plan 6.5 and 11.4) are
 // copied beside it, into <name>.agent, while the API is stopped too (its

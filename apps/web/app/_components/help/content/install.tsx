@@ -545,8 +545,9 @@ makepkg -si`}</Code>
                 The last three copies are kept.
               </li>
               <li>
-                <strong>Back up now</strong> in <Path>Settings &gt; Server</Path> makes the same copy on demand; the
-                database pauses for a moment.
+                <strong>Back up now</strong> in <Path>Settings &gt; Server</Path> makes the same copy on demand,
+                with what Timely learned. Timely pauses for a moment while it copies, so a chat that is answering
+                stops.
               </li>
               <li>
                 <strong>Encrypted account backups</strong> on a schedule, plus a full JSON export, live in{" "}
