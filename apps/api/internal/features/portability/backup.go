@@ -646,11 +646,14 @@ func (s *Service) putBackAgentRows(userID string, rows map[string][]json.RawMess
 }
 
 // restoreLearningSwitches writes the backup's "Learn from chats" and
-// "Search my past chats" switches, and whether "What you use Timely for"
-// was copied into About you, onto the account's settings row (creating it).
-// They are the person's choices, not the agent home's, so they come back
-// even when the home stays as it is; the skill lists stay the account's,
-// as they must match its home. Nothing to do for a backup without the row.
+// "Search my past chats" switches onto the account's settings row
+// (creating it). They are the person's choices, not the agent home's, so
+// they come back even when the home stays as it is; the skill lists stay
+// the account's, as they must match its home. use_case_copied_at is a fact
+// about the home (its About you already holds the copy), so the account's
+// mark is never cleared: a backup taken before the copy would otherwise
+// have the next worker ready copy it into the kept home again (Q-3.3, review
+// round 6). Nothing to do for a backup without the row.
 func restoreLearningSwitches(tx *gorm.DB, userID string, backup *Backup) error {
 	rows := backup.Rows["agent_learning_settings"]
 	if len(rows) == 0 {
@@ -672,7 +675,7 @@ func restoreLearningSwitches(tx *gorm.DB, userID string, backup *Backup) error {
 	return tx.Exec(`INSERT INTO agent_learning_settings (user_id, learning, search_history, use_case_copied_at)
 		VALUES (?, ?, ?, CAST(? AS timestamptz))
 		ON CONFLICT (user_id) DO UPDATE SET learning = EXCLUDED.learning, search_history = EXCLUDED.search_history,
-			use_case_copied_at = EXCLUDED.use_case_copied_at, updated_at = now()`,
+			use_case_copied_at = COALESCE(agent_learning_settings.use_case_copied_at, EXCLUDED.use_case_copied_at), updated_at = now()`,
 		userID, learningOn, searchOn, copiedAt).Error
 }
 

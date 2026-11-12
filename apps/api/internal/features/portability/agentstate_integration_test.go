@@ -475,6 +475,53 @@ func TestIntegrationRestoreKeepsLearningSwitchesWithoutAgentState(t *testing.T) 
 	}
 }
 
+// Review round 6: when the account keeps its agent home, a backup taken
+// before "What you use Timely for" was copied into About you must not clear
+// use_case_copied_at, or the next worker ready copies it a second time
+// (Q-3.3: copied once). The switches still come from the backup.
+func TestIntegrationRestoreKeepsUseCaseCopiedWithoutAgentState(t *testing.T) {
+	db := migratedDB(t)
+	cases := []struct {
+		name  string
+		agent *fakeAgent
+	}{
+		{"over the cap", &fakeAgent{exportErr: fmt.Errorf("%w: 70 MB", agenthost.ErrStateTooLarge)}},
+		{"stage fails", &fakeAgent{zip: []byte("agent zip"), stageErr: fmt.Errorf("%w: not a zip", agenthost.ErrHelperFailed)}},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uid := fmt.Sprintf("usr_portability_copied_%d", i)
+			agentAccount(t, db, uid)
+			if err := db.Exec(`UPDATE agent_learning_settings SET learning = true, search_history = false, use_case_copied_at = NULL WHERE user_id = ?`, uid).Error; err != nil {
+				t.Fatal(err)
+			}
+			service := NewService(db, nil)
+			service.SetAgentState(tc.agent)
+			backup, err := service.ExportAccount(context.Background(), uid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The worker copies the use case into the kept home after the backup.
+			if err := db.Exec(`UPDATE agent_learning_settings SET use_case_copied_at = now(), search_history = true WHERE user_id = ?`, uid).Error; err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Restore(uid, strictCopy(t, backup)); err != nil {
+				t.Fatal(err)
+			}
+			var row struct {
+				Learning, SearchHistory, Copied bool
+			}
+			if err := db.Raw(`SELECT learning, search_history, use_case_copied_at IS NOT NULL AS copied
+				FROM agent_learning_settings WHERE user_id = ?`, uid).Scan(&row).Error; err != nil {
+				t.Fatal(err)
+			}
+			if !row.Learning || row.SearchHistory || !row.Copied {
+				t.Fatalf("settings after restore: %+v (want the backup's switches, the account's copied mark)", row)
+			}
+		})
+	}
+}
+
 // A schema 3 backup written before skills_enabled and reason existed still
 // restores: the missing NOT NULL columns take their defaults.
 func TestIntegrationRestoreOlderSchema3LearningRows(t *testing.T) {
