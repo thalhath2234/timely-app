@@ -369,6 +369,72 @@ def test_curator_never_archives_a_31_day_unused_learned_skill():
     assert out["control"] == "archived", out  # the setting, not luck, keeps it
 
 
+CURATOR_SCHEDULE_PROBE = """
+import json, sys, threading
+from datetime import datetime, timedelta, UTC
+sys.path[:0] = [sys.argv[1], sys.argv[2]]
+from hermes_constants import get_hermes_home
+from tools import skill_usage
+import agent.curator as hermes_curator
+from timely_agent import worker as worker_mod
+from timely_agent.learning import curator
+home = get_hermes_home()
+old = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+d = home / "skills" / "old-learned"
+d.mkdir(parents=True, exist_ok=True)
+(d / "SKILL.md").write_text("---\\nname: old-learned\\ndescription: d\\n---\\nbody\\n")
+data = skill_usage.load_usage()
+data["old-learned"] = {**skill_usage._empty_record(), "created_by": "agent", "use_count": 3,
+                       "last_used_at": old, "created_at": old, "first_seen_at": old}
+skill_usage.save_usage(data)
+
+# The worker's maintenance thread, two ticks with no wait: the first seeds Hermes' clock,
+# the second (the clock aged past the interval) runs the scheduled pass.
+class Chan:
+    closed = False
+class Host:
+    pass
+host = Host()
+host.chan, host.stopping, host.ready, host.home = Chan(), False, True, home
+host.runs_lock, host.runs = threading.Lock(), {}
+ticks = []
+real_tick = curator.tick
+def tick(h, **kw):
+    out = real_tick(h, **kw)
+    ticks.append([(e["action"], e["subject"], e["origin"]) for e in out])
+    if len(ticks) == 1:
+        state = hermes_curator.load_state()
+        seeded = state.get("last_run_at")
+        state["last_run_at"] = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        hermes_curator.save_state(state)
+        ticks.append(["seeded" if seeded else "not seeded"])
+    else:
+        host.stopping = True
+    return out
+curator.tick = tick
+watchdog = threading.Timer(30, lambda: setattr(host, "stopping", True))  # a tick that never comes
+watchdog.daemon = True
+watchdog.start()
+worker_mod.MAINTENANCE_S = 0
+worker_mod.Worker._maintenance(host)
+state = skill_usage.load_usage()["old-learned"]["state"]
+print(json.dumps({"ticks": ticks, "state": state}))
+"""
+
+
+def test_the_maintenance_tick_runs_the_scheduled_curator():
+    """Plan 9b.2 item 6: the worker's maintenance thread calls the curator; the first scheduled
+    tick only seeds Hermes' clock, and once the interval has passed a tick marks a 31-day-unused
+    learned skill stale and reports it (origin curator). Review round 5: nothing covered the timer."""
+    a = harness.Agent(harness.new_root("lw-curator-tick"), settings={"curator": {"enabled": True, "auto_archive": False}})
+    proc = subprocess.run([harness.python(), "-I", "-c", CURATOR_SCHEDULE_PROBE, str(paths.hermes_dir()),
+                           str(paths.agent_dir())], capture_output=True, text=True, env=a.env(), timeout=180)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert out["ticks"] == [[], ["seeded"], [["stale", "old-learned", "curator"]]], out
+    assert out["state"] == "stale", out
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
