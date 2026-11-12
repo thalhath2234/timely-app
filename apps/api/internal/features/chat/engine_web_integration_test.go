@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"timely-api/internal/agenthost/agenthosttest"
 )
 
 // Phase 3 on the agent engine: learning and web flags in run.start, Go's gate
@@ -156,6 +158,42 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	}
 	if got := lastMessage(c); got.AgentRun != start.Run || got.Engine != engineAgent {
 		t.Fatalf("reply agentRun %q engine %q, want run %q", got.AgentRun, got.Engine, start.Run)
+	}
+}
+
+// "Don't learn from this chat" set after the run was claimed but before
+// run.start (triage on a first message, a cold worker start) reaches that
+// run.start: Start reads the switch under the row lock that names the run.
+func TestIntegrationAgentEngineNoLearningDuringStart(t *testing.T) {
+	kit := agenthosttest.New(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	model := func(ctx context.Context, uid, provider, m string) (any, error) {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+		return testModel(ctx, uid, provider, m)
+	}
+	h := newEngineHarnessWith(t, kit.Config(), model)
+	h.kit = kit
+	h.e.opts.Learning = learningOn
+	c := h.chatWith("My bank PIN is 4512, remember nothing", "supervised", "nl", lines(reply("Ok.", 0)), nil)
+	select {
+	case <-entered:
+	case <-time.After(20 * time.Second):
+		t.Fatal("run never started")
+	}
+	if code, body := serve(t, h.s, "PATCH", "/chats/"+c.ID, `{"noLearning":true}`); code != 200 {
+		t.Fatalf("PATCH noLearning: %d %s", code, body)
+	}
+	close(release)
+	h.wait(c.ID, "replied", statusIs("idle"))
+	s := h.runStart(c.ID)
+	if s.Flags.LearningWrites || s.Flags.SearchHistory || slices.Contains(s.Toolsets, "memory") || slices.Contains(s.Toolsets, "session_search") {
+		t.Fatalf("run.start after Don't learn: learning_writes=%v search_history=%v toolsets=%v",
+			s.Flags.LearningWrites, s.Flags.SearchHistory, s.Toolsets)
 	}
 }
 

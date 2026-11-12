@@ -90,6 +90,46 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 	return out
 }
 
+// learnsNow reports whether the chat and the account still learn, and still
+// search past chats: "Don't learn from this chat", Sensitive and the
+// account's switches may change while Start builds the run (triage, a cold
+// worker). c is the row as Start's checkpoint locked it, or nil to read it
+// again. A switch that cannot be read counts as off.
+func (e *WorkerEngine) learnsNow(ctx context.Context, uid, cid string, c *Conversation) (learning, search bool) {
+	if e.opts.Learning == nil {
+		return false, false
+	}
+	if c == nil {
+		var row Conversation
+		if err := e.s.db.WithContext(ctx).Select("no_learning", "sensitive").Where("user_id = ? AND id = ?", uid, cid).
+			Take(&row).Error; err != nil {
+			e.opts.Logf("agent engine: the chat's learning switch: %v", err)
+			return false, false
+		}
+		c = &row
+	}
+	prefs, err := e.opts.Learning(ctx, uid)
+	if err != nil {
+		e.opts.Logf("agent engine: learning settings: %v", err)
+		return false, false
+	}
+	learning = prefs.Learning && !c.Sensitive && !c.NoLearning
+	return learning, learning && prefs.SearchHistory
+}
+
+// narrowLearning turns a run's learning or past-chat search off when the
+// chat or the account stopped learning since runSetup read them. It only
+// narrows: a switch turned on meanwhile takes effect at the next run.
+func (e *WorkerEngine) narrowLearning(ctx context.Context, c *Conversation, setup *runSetup, tools *toolRun) {
+	if !setup.learningWrites && !setup.searchHistory {
+		return
+	}
+	learning, search := e.learnsNow(ctx, c.UserID, c.ID, c)
+	setup.learningWrites = setup.learningWrites && learning
+	setup.searchHistory = setup.searchHistory && search && setup.learningWrites
+	setup.toolsets = runToolsets(setup.learningWrites, setup.searchHistory, tools.web.on)
+}
+
 // runToolsets are a chat run's Hermes toolsets: phase 2's, plus memory,
 // past-chat search and the web when the run has them.
 func runToolsets(learningWrites, searchHistory, web bool) []string {

@@ -143,6 +143,10 @@ class Run:
     # a stop or steer for this run must not reach it, or it would act on the conversation's next
     # turn: Hermes reads a leftover interrupt as "stopped before this turn started".
     finished: bool = False
+    # ``learning.stop`` for this run's conversation (or every one) arrived after its run.start:
+    # the run's flags came from Go before the person's switch, so its writes stay off whenever
+    # the run binds its session state (``run_turn``).
+    learning_stopped: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def attach(self, agent: Any) -> None:
@@ -470,6 +474,8 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         person_hosts=msg.get("person_hosts"), tainted_conversations=msg.get("tainted_conversations"),
         search_exclude=msg.get("search_exclude"), run_id=run.run_id, search_allow=msg.get("search_allow"),
         private_context=msg.get("private_context"), person_links=msg.get("person_links"))
+    if run.learning_stopped:  # after the bind: a stop that lands meanwhile reaches the state itself
+        bridge.stop_learning(conversation)
     ctx = bridge.RunContext(
         run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,

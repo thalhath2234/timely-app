@@ -558,6 +558,34 @@ def test_c09_learning_stop_blocks_a_running_pass(lagent, lworker, stub, scope):
     assert [e for e in events if e.get("subject") == name] == [], events
 
 
+@pytest.mark.parametrize("scope", ["chat", "account"])
+def test_c09_learning_stop_right_after_run_start_reaches_the_run(stub, scope):
+    """Go sends ``learning.stop`` right after a run.start whose flags it built before the person
+    chose "Don't learn from this chat" (or turned learning off). The stop reaches the worker before
+    the run binds its session state (``--slow-bind``): the run's skill write is still blocked."""
+    a = harness.Agent(harness.new_root(f"c09sb-{scope}"), prepare_opts={"timely_skills_src": str(FIXTURE_SKILLS)})
+    probe = HERE / "probe_boot.py"
+    w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(probe), "--slow-bind", "2", "worker"],
+                                    hello={"timely_tools": harness.timely_tools()})
+    assert ready["self_test"]["ok"], ready["self_test"]
+    conv, name, tag = f"c-c09sb-{scope}", f"c09sb-{scope}", f"tag-c09sb-{scope}"
+    try:
+        w.send(harness.run_start(a, stub, run_id=f"c09sb-{scope}", conversation=conv, budgets={}, toolsets=TOOLSETS,
+                                 flags=dict(LEARN), text=text([{"calls": [create(name)]}, {"text": "Done."}], tag)))
+        fields = {"conversation_id": conv} if scope == "chat" else {}
+        w.send({"type": "learning.stop", "id": f"go-stop-{scope}", "account": a.account, **fields})
+        done, seen = harness.drive(w, a.account, f"c09sb-{scope}", timeout=120)
+        events = [m["event"] for m in seen if m.get("type") == "learning"] + settle(w, a)
+    finally:
+        w.close()
+    stopped = [m for m in seen if m.get("id") == f"go-stop-{scope}"]
+    assert stopped and stopped[0]["type"] == "learning.result" and stopped[0]["ok"], stopped
+    assert done["completed"], done
+    assert not skill_dir(a, name).exists()
+    assert [e for e in events if e.get("subject") == name] == [], events
+    assert any("Blocked" in r for r in tool_results(stub, tag)), tool_results(stub, tag)
+
+
 def test_c09_no_learning_pass_when_learning_is_off(lagent, lworker, stub):
     """Plan 9b.2: a run with learning_writes false (Sensitive, "Don't learn from this chat", learning
     off) skips Hermes' learning pass (skip_background_review), so the conversation is not replayed

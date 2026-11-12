@@ -325,6 +325,10 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	}
 	r.conv, r.lease = *c, c.Lease
 	tools.load(c, r.id)
+	// The checkpoint read the row under the lock configure takes too: a
+	// "Don't learn from this chat" saved while triage or a cold worker held
+	// Start up reaches this run.start.
+	e.narrowLearning(ctx, c, &setup, tools)
 	if !e.follow(r) {
 		if restored {
 			e.unsettle(c.ID)
@@ -381,6 +385,14 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		r.queue.push(runItem{end: "abandon"})
 		e.clearRun(ctx, c)
 		return unavailable(c, workerReason(err))
+	}
+	// A switch turned off between the checkpoint and the send: its own
+	// learning.stop may have reached the worker before this run.start did,
+	// so stop again now that the worker knows the run.
+	if setup.learningWrites && e.s.stopLearning != nil {
+		if learning, _ := e.learnsNow(ctx, c.UserID, c.ID, nil); !learning {
+			go e.s.stopLearning(c.UserID, c.ID)
+		}
 	}
 	return nil
 }

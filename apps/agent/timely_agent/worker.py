@@ -348,6 +348,15 @@ class Worker:
             curator.tick(self.home)
 
     # ------------------------------------------------------------ learning (PROTOCOL.md section 10)
+    def _stop_learning_runs(self, conversation: str) -> None:
+        """Mark the live runs of ``conversation`` (every one without it) as no longer learning, in
+        the read loop: a run.start Go sent before the stop is already registered here, even when
+        its thread has not bound the session state yet (that bind would set Go's older flags)."""
+        with self.runs_lock:
+            for run in self.runs.values():
+                if not conversation or run.msg.get("conversation_id") == conversation:
+                    run.learning_stopped = True
+
     def on_learning(self, msg: dict[str, Any]) -> None:
         """``learning.*`` and ``settings.update``: answered on a thread of their own (an export or
         a skill sync takes a moment) with ``learning.result {id, ok, data}`` or ``error``."""
@@ -359,6 +368,8 @@ class Worker:
         problem = api.problem(msg)
         if problem:
             raise P.ProtocolError(P.E_BAD_MESSAGE, problem, mid)
+        if msg["type"] == "learning.stop":
+            self._stop_learning_runs(str(msg.get("conversation_id") or ""))
         host = api.Host(home=self.home, account=str(self.chan.account), render=self._render_settings,
                         after_settings=self._drop_idle_agents)
 
