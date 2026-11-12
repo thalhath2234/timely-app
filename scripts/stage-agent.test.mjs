@@ -24,6 +24,9 @@ import path from "node:path";
 import test from "node:test";
 import {
   MAX_PATH_CHARS,
+  PIP_INSTALL_FLAGS,
+  STAGE_FORMAT,
+  TRIM,
   assertHostTarget,
   checkTree,
   collectLicenses,
@@ -143,6 +146,18 @@ test("the marker hash changes with each input it covers", () => {
   assert.notEqual(markerHash({ ...base, uvLock: Buffer.from("lock2") }), h);
   assert.notEqual(markerHash({ ...base, extras: ["mcp", "exa"] }), h);
   assert.notEqual(markerHash({ ...base, target: "win32-x64" }), h);
+});
+
+test("a change to the trim rules or the install flags restages instead of reusing the marker", () => {
+  const base = { pythonEntry: { version: "1", url: "u", sha256: "s" }, uvLock: Buffer.from("lock"), extras: ["mcp"], target: "linux-x64" };
+  const h = markerHash(base);
+  assert.equal(markerHash({ ...base, trim: TRIM.map(String), install: PIP_INSTALL_FLAGS }), h);
+  // The libpython rule (5afaf5eb) added without a format bump reused stages that still held libpython.
+  const withoutLibpython = TRIM.filter((rx) => !rx.test("lib/libpython3.14.so")).map(String);
+  assert.equal(withoutLibpython.length, TRIM.length - 1);
+  assert.notEqual(markerHash({ ...base, trim: withoutLibpython }), h);
+  assert.notEqual(markerHash({ ...base, install: PIP_INSTALL_FLAGS.filter((f) => f !== "--no-build") }), h);
+  assert.ok(STAGE_FORMAT >= 2, "the libpython trim needs a format past 1");
 });
 
 // ------------------------------------------------------------ interpreter trim

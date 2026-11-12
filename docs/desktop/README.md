@@ -457,8 +457,8 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   shebangs).
 - **Cache.** The interpreter archive is cached in `apps/web/.cache/agent/` and checked against the
   lock's sha256 before use; a mismatch deletes it and fails. uv's own cache holds the wheels.
-- **Marker.** `.staged-<hash>` (sha256 of the lock's python entry, `uv.lock`, the extras and the
-  target) skips the download, trim and install on a re-run. The source copy, the seed check,
+- **Marker.** `.staged-<hash>` (sha256 of `STAGE_FORMAT`, the lock's python entry, `uv.lock`, the
+  extras, the target, the trim rules and the `uv pip install` flags) skips the download, trim and install on a re-run. The source copy, the seed check,
   compileall and the checks always run, so a re-stage after a source change takes about 10-15 s.
   `make clean-agent-stage` deletes every stage and keeps the download cache.
 - **Trims.** `include/`, `share/`, `idlelib`, `tkinter`, `turtledemo`, `ensurepip`, Tcl/Tk, the

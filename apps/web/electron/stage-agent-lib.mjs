@@ -11,10 +11,15 @@ import path from "node:path";
 export const MAX_PATH_CHARS = 150;
 
 /**
- * Bumped when the trim list or the install command changes, so a stage made
- * by an older script is not reused through its marker.
+ * Bumped when what steps 2-4 produce changes in a way the marker does not
+ * already cover (the trim rules and the install flags are hashed themselves),
+ * so a stage made by an older script is not reused through its marker.
+ * 2: the libpython trim (5afaf5eb) and the trim rules and install flags in the hash.
  */
-export const STAGE_FORMAT = 1;
+export const STAGE_FORMAT = 2;
+
+/** `uv pip install` flags for app/site-packages (stage-agent.mjs adds --python, --target and -r). */
+export const PIP_INSTALL_FLAGS = ["--no-deps", "--require-hashes", "--no-build", "--link-mode", "copy"];
 
 /** Skill folders and files Hermes' own seed code skips (timely_agent/seed.py IGNORED_NAMES). */
 export const IGNORED_NAMES = new Set(["__pycache__", ".DS_Store", ".git"]);
@@ -89,10 +94,13 @@ export function assertHostTarget(key, hostKey) {
   );
 }
 
-/** sha256 naming the `.staged-<hash>` marker: everything steps 2-4 depend on. */
-export function markerHash({ pythonEntry, uvLock, extras, target }) {
+/**
+ * sha256 naming the `.staged-<hash>` marker: everything steps 2-4 depend on,
+ * including the trim rules and the install flags, so changing either restages.
+ */
+export function markerHash({ pythonEntry, uvLock, extras, target, trim = TRIM.map(String), install = PIP_INSTALL_FLAGS }) {
   const h = createHash("sha256");
-  h.update(JSON.stringify({ format: STAGE_FORMAT, python: pythonEntry, extras, target }));
+  h.update(JSON.stringify({ format: STAGE_FORMAT, python: pythonEntry, extras, target, trim, install }));
   h.update("\0");
   h.update(uvLock);
   return h.digest("hex").slice(0, 16);
@@ -130,7 +138,7 @@ export function treeSize(dir) {
 
 // Paths relative to python/ that a headless worker never loads. Matched case
 // insensitively (Windows' Lib/ and DLLs/), never descended once matched.
-const TRIM = [
+export const TRIM = [
   /^include$/i, // C headers
   /^share$/i, // man pages, terminfo
   /^libs$/i, // Windows import libraries
