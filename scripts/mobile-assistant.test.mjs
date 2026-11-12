@@ -626,6 +626,10 @@ test("a staged change waits on the Keep / Discard card, not the chip", () => {
   assert.equal(turn.chip, null);
   assert.equal(turn.card.title, "Keep what Timely learned?");
   assert.equal(learning.cardMeta(turn.card), "Skill “flipkart-price-read” updated and 1 more");
+  // Screen readers hear which change each button acts on.
+  assert.equal(learning.cardActionLabel("Keep", turn.card), "Keep: Skill “flipkart-price-read” updated and 1 more");
+  assert.equal(learning.chipActionLabel("Undo", { label: "Learned: About you added" }), "Undo: Learned: About you added");
+  assert.equal(learning.SEARCH_NEEDS_LEARNING, "Turn on Learn from chats to let Timely search your past chats.");
   assert.equal(turn.card.why, "This chat read something from outside Timely, so it waits for you.");
   assert.deepEqual(learning.cardTargets(turn.card), ["p1", "p2"]);
   assert.equal(learning.diffHref(turn.card), "/(app)/settings/learned/waiting?pending=p1");
@@ -680,8 +684,9 @@ test("Settings → Agent's row counts learned and edited skills, About you and w
   assert.equal(learning.learnedRowMeta({ learning: true }, [skills[0]], 0), "1 skill · About you");
   // Without the agent the row still says what it opens.
   assert.equal(learning.learnedRowMeta({ learning: true }, undefined, 0), "About you");
-  assert.equal(learning.learnedRowMeta({ learning: false }, skills, 0), "Off");
-  assert.equal(learning.learnedRowMeta({ learning: false }, skills, 2), "2 skills · About you · 2 waiting");
+  // One rule with the web's Settings row (learnedOffSummary in the contract).
+  assert.equal(learning.learnedRowMeta({ learning: false }, skills, 0), "Learning is off");
+  assert.equal(learning.learnedRowMeta({ learning: false }, skills, 2), "Learning is off · 2 waiting");
 });
 
 test("Activity rows say what changed, its status, when and where from; Undo only while in effect", () => {

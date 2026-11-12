@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { ChevronRight, Lightbulb } from "lucide-react";
-import { LEARNED_TITLE, learnedSkillCount, learnedSummary } from "@timely/contract/agentLearning";
+import { LEARNED_TITLE, learnedOffSummary, learnedSkillCount, learnedSummary } from "@timely/contract/agentLearning";
 import { useLearnedSkills, useLearningSettings, useStagedLearning } from "@/app/utils/hooks/learning";
 
 /**
@@ -17,7 +17,7 @@ export default function LearnedSummaryRow({ agent }: { agent: boolean }) {
   const own = skills.data ? learnedSkillCount(skills.data) : undefined;
   const summary =
     settings.data && !settings.data.learning
-      ? "Learning is off"
+      ? learnedOffSummary(waiting)
       : own !== undefined
         ? learnedSummary(own, waiting)
         : waiting > 0

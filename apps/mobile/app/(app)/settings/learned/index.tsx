@@ -30,6 +30,7 @@ import {
 import {
   ABOUT_YOU_ROUTE,
   ACTIVITY_ROUTE,
+  SEARCH_NEEDS_LEARNING,
   SKILLS_ON_COMPUTER,
   WAITING_ROUTE,
 } from "../../../../lib/chat/learning";
@@ -94,7 +95,7 @@ export default function LearnedSettings() {
             {patch.error ? (
               <Text style={styles.error}>{patch.error.message || "Could not save."}</Text>
             ) : !data.learning ? (
-              <GroupHint>Turn on Learning to let Timely search your past chats.</GroupHint>
+              <GroupHint>{SEARCH_NEEDS_LEARNING}</GroupHint>
             ) : null}
 
             <GroupLabel>What it knows</GroupLabel>

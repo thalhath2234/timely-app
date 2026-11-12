@@ -261,6 +261,11 @@ export function learnedSummary(skills: number, waiting: number): string {
   return parts.join(" · ");
 }
 
+/** The Settings → Agent row of an account that does not learn: what waits still counts (both apps). */
+export function learnedOffSummary(waiting: number): string {
+  return waiting > 0 ? `Learning is off · ${count(waiting)} waiting` : "Learning is off";
+}
+
 const SKILL_VERBS: Record<string, string> = {
   created: "created",
   patched: "updated",

@@ -2,7 +2,7 @@ import { Text, View } from "react-native";
 import { Lightbulb, LightbulbOff, Undo2 } from "lucide-react-native";
 import type { LearningChip as Chip, PendingCard } from "@timely/contract/agentLearning";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
-import { cardMeta, DONT_LEARN, DONT_LEARN_META, NOT_LEARNING_LINE, reviewLabel } from "../../lib/chat/learning";
+import { cardActionLabel, cardMeta, chipActionLabel, DONT_LEARN, DONT_LEARN_META, NOT_LEARNING_LINE, reviewLabel } from "../../lib/chat/learning";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import BottomSheet from "../ui/BottomSheet";
 import { Button } from "../ui/primitives";
@@ -10,12 +10,25 @@ import { LogoSpinner } from "../ui/TimelyLogo";
 import { GroupHint, ListGroup, SwitchRow } from "../settings/SettingsList";
 
 /** A small text button inside the chip: "View", "Undo". */
-function ChipAction({ label, onPress, disabled, testID }: { label: string; onPress?: () => void; disabled?: boolean; testID?: string }) {
+function ChipAction({
+  label,
+  accessibilityLabel,
+  onPress,
+  disabled,
+  testID,
+}: {
+  label: string;
+  accessibilityLabel?: string;
+  onPress?: () => void;
+  disabled?: boolean;
+  testID?: string;
+}) {
   const off = disabled || !onPress;
   return (
     <AnimatedPressable
       testID={testID}
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: off }}
       disabled={off}
       hitSlop={8}
@@ -57,11 +70,18 @@ export function LearningChip({
       </View>
       {undone ? null : (
         <View style={styles.chipActions}>
-          {onView ? <ChipAction testID="learning-view" label="View" onPress={onView} /> : null}
+          {onView ? (
+            <ChipAction testID="learning-view" label="View" accessibilityLabel={chipActionLabel("View", chip)} onPress={onView} />
+          ) : null}
           {undoing ? (
             <LogoSpinner size={14} color={colors.foreground} />
           ) : (
-            <ChipAction testID="learning-undo" label="Undo" onPress={onUndo} />
+            <ChipAction
+              testID="learning-undo"
+              label="Undo"
+              accessibilityLabel={chipActionLabel("Undo", chip)}
+              onPress={onUndo}
+            />
           )}
         </View>
       )}
@@ -113,15 +133,31 @@ export function KeepCard({
       {onReview ? (
         <View style={styles.cardActions}>
           <View style={{ flex: 1 }} />
-          <Button testID="learning-review" label={reviewLabel(card)} size="sm" onPress={onReview} />
+          <Button
+            testID="learning-review"
+            label={reviewLabel(card)}
+            accessibilityLabel={cardActionLabel(reviewLabel(card), card)}
+            size="sm"
+            onPress={onReview}
+          />
         </View>
       ) : (
         <View style={styles.cardActions}>
-          {onDiff ? <Button testID="learning-diff" label={card.viewDiff} variant="ghost" size="sm" onPress={onDiff} /> : null}
+          {onDiff ? (
+            <Button
+              testID="learning-diff"
+              label={card.viewDiff}
+              accessibilityLabel={cardActionLabel(card.viewDiff, card)}
+              variant="ghost"
+              size="sm"
+              onPress={onDiff}
+            />
+          ) : null}
           <View style={{ flex: 1 }} />
           <Button
             testID="learning-discard"
             label={card.discard}
+            accessibilityLabel={cardActionLabel(card.discard, card)}
             variant="outline"
             size="sm"
             disabled={deciding || !onDecide}
@@ -130,6 +166,7 @@ export function KeepCard({
           <Button
             testID="learning-keep"
             label={card.keep}
+            accessibilityLabel={cardActionLabel(card.keep, card)}
             size="sm"
             loading={deciding}
             disabled={!onDecide}

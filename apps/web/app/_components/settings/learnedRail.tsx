@@ -52,7 +52,7 @@ export default function LearnedRail() {
                   onChange={(learning) => patch.mutate({ learning })}
                 />
               </ListRow>,
-              <ListRow key="search" label="Search my past chats" meta="So Timely can look back at earlier chats">
+              <ListRow key="search" label="Search my past chats" meta="Look back at earlier chats">
                 <ListSwitch
                   label="Search my past chats"
                   // Past-chat search runs only while learning is on (as the phone shows it).
@@ -74,7 +74,7 @@ export default function LearnedRail() {
       </div>
       <div>
         <ListGroup>
-          <ListRow label={DOWNLOAD_LEARNED} meta="Your learned skills, About you and Notes, as a zip">
+          <ListRow label={DOWNLOAD_LEARNED} meta="Skills, About you and Notes as a zip">
             <Button
               variant="ghost"
               size="sm"

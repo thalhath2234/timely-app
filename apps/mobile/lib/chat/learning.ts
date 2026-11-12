@@ -13,6 +13,8 @@ import {
   cardLine,
   eventsForRun,
   learnedSummary,
+  learnedOffSummary,
+  LEARN_SWITCH,
   learningChip,
   pendingCard,
   projectedMemoryUse,
@@ -136,16 +138,29 @@ export function cardMeta(card: PendingCard): string {
   return more > 0 ? `${first} and ${more} more` : first;
 }
 
+/** A card button's spoken name: "Keep: Skill “x” updated", so each card's buttons say which change they act on. */
+export function cardActionLabel(label: string, card: PendingCard): string {
+  return `${label}: ${cardMeta(card)}`;
+}
+
+/** A chip button's spoken name: "Undo: Learned: About you added". */
+export function chipActionLabel(label: string, chip: Pick<LearningChip, "label">): string {
+  return `${label}: ${chip.label}`;
+}
+
+/** Settings → What Timely learned, under "Search my past chats" while learning is off. */
+export const SEARCH_NEEDS_LEARNING = `Turn on ${LEARN_SWITCH} to let Timely search your past chats.`;
+
 /** Skills the agent learned or the person's copies of bundled ones, not archived: the "14 skills" of the Settings row (one rule with the web). */
 export { learnedSkillCount };
 
-/** "14 skills · About you · 1 waiting", "Off" for an account that does not learn and has nothing waiting. */
+/** "14 skills · About you · 1 waiting"; "Learning is off" (with what waits) for an account that does not learn, as on the web. */
 export function learnedRowMeta(
   settings: Pick<LearningSettings, "learning"> | undefined,
   skills: Pick<LearnedSkill, "source" | "archived">[] | undefined,
   waiting: number,
 ): string {
-  if (settings && !settings.learning && waiting === 0) return "Off";
+  if (settings && !settings.learning) return learnedOffSummary(waiting);
   // Skills come from the agent; without it (not started, or no runtime) the row still opens.
   if (!skills) return [ABOUT_YOU, ...(waiting > 0 ? [`${waiting} waiting`] : [])].join(" · ");
   return learnedSummary(learnedSkillCount(skills), waiting);

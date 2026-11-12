@@ -21,6 +21,7 @@ import {
   learnedSkillCount,
   pendingItemWhy,
   activityStatus,
+  learnedOffSummary,
 } from "../packages/contract/src/agentLearning.ts";
 
 let seq = 0;
@@ -369,5 +370,12 @@ describe("Undo warns in the order changes reached the skill (appliedAt)", () => 
     assert.deepEqual(laterSkillChanges(events, patch).map((e) => e.id), [edit.id]);
     assert.equal(undoAlsoText(patch, laterSkillChanges(events, patch)), "Undo also takes back 1 later change to aisles, including your edit.");
     assert.match(chipUndoAlso(events, [patch.id]), /your edit/);
+  });
+});
+
+describe("Settings → Agent row with learning off", () => {
+  test("says learning is off, and still counts what waits", () => {
+    assert.equal(learnedOffSummary(0), "Learning is off");
+    assert.equal(learnedOffSummary(2), "Learning is off · 2 waiting");
   });
 });
