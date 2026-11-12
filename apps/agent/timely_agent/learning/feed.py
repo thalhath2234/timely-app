@@ -97,6 +97,15 @@ def session_context(session_id: str) -> Optional[Context]:
                    tainted_sources=state.taint_snapshot())
 
 
+def _review_context(session_id: str, ctx: Context) -> Context:
+    from timely_agent import bridge
+    state = bridge.session_state(session_id)
+    if state is None or not state.review_run_id:
+        return ctx
+    return Context(origin=ctx.origin, conversation_id=ctx.conversation_id, run_id=state.review_run_id,
+                   bot_id=ctx.bot_id, tainted_sources=ctx.tainted_sources)
+
+
 def ledger_event(home: Path, entry: dict[str, Any], ctx: Context,
                  resolve: Callable[[str], Optional[Context]] = session_context) -> Optional[dict[str, Any]]:
     action = str(entry.get("action") or "")
@@ -111,6 +120,10 @@ def ledger_event(home: Path, entry: dict[str, Any], ctx: Context,
             ctx = resolve(session) or ctx
         except Exception:
             logger.exception("finding the conversation of a ledger entry failed")
+    if actor == "curator" and ctx.origin == "chat":
+        # A learning pass's write that a later run's diff reached first: the chip goes with the
+        # run whose pass wrote it, while that pass runs (review round 7).
+        ctx = _review_context(session or ctx.conversation_id, ctx)
     origin = "user" if actor == "user" else ("review" if actor == "curator" and ctx.origin == "chat"
                                               else ctx.origin)
     verb = LEDGER_ACTIONS.get(action, "patched")

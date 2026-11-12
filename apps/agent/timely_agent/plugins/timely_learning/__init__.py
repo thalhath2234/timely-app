@@ -224,6 +224,13 @@ class _View:
         self.taint = (state.taint_snapshot() if state is not None else run.taint_snapshot())
         self.conversation_id = (run.conversation_id if run is not None else state.session_id)
         self.run_id = run.run_id if run is not None else (state.run_id if state is not None else "")
+        if fork:
+            # The pass's writes belong to the run that spawned it, not to a later run of the chat
+            # that started while it ran (review round 7).
+            from timely_agent import bridge
+            spawner = bridge.spawning_run()
+            if spawner is not None and spawner.run_id:
+                self.run_id = spawner.run_id
         self.agent = (run.agent if run is not None else None) or (state.agent if state is not None else None)
         self.search_exclude = set(state.search_exclude) if state is not None else set()
         self.search_allow = set(state.search_allow or []) if state is not None else set()
@@ -431,6 +438,8 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
         _end_memory_write(str(_.get("session_id") or ""), str(_.get("tool_call_id") or ""), status)
     if status == "blocked":
         return
+    if tool_name == "skill_manage":
+        _report_pass_skill(str(_.get("session_id") or ""))
     from timely_agent import bridge, policy
     if tool_name == SEARCH_TOOL:
         _search_taint(_.get("result"), str(_.get("session_id") or ""))
@@ -446,6 +455,35 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
     if host:
         source["host"] = host
     bridge.report_taint(run, [source])
+
+
+def _report_pass_skill(session_id: str) -> None:
+    """A learning pass's ``skill_manage`` reports its own ledger entries at once, with the chip of
+    the run that spawned the pass: a later run of the chat that started meanwhile must not find
+    them in its own diff and show them under its reply (review round 7)."""
+    from timely_agent import bridge
+    from timely_agent.learning import feed as feed_mod
+    if not bridge.in_review_fork():
+        return
+    feed = feed_mod.current()
+    view = _view(session_id)
+    if feed is None or view is None or not view.conversation_id:
+        return
+    ctx = feed_mod.Context(origin=view.origin, conversation_id=view.conversation_id, run_id=view.run_id,
+                           tainted_sources=list(view.taint))
+
+    def own(entry: dict) -> bool:
+        evidence = entry.get("evidence") if isinstance(entry.get("evidence"), dict) else {}
+        return entry.get("actor") == "curator" and str(evidence.get("session_id") or "") == view.conversation_id
+
+    try:
+        with feed.lock:
+            for entry in feed.claim_ledger(keep=own):
+                ev = feed_mod.ledger_event(feed.home, entry, ctx)
+                if ev is not None:
+                    feed.emit(ev)
+    except Exception:
+        logger.exception("reporting a learning pass's skill change failed")
 
 
 def _hit_ids(value) -> list[list[str]]:

@@ -577,3 +577,41 @@ def test_about_you_and_notes_reach_the_prompt_whatever_learning_says(stub):
     finally:
         w.close()
     assert seen == {0: (True, True), 1: (True, True), 2: (True, True)}, seen
+
+
+def test_a_learning_pass_outlives_the_next_turn_and_keeps_its_run(stub):
+    """Review round 7: the person replies while the last turn's learning pass still works. Hermes
+    would cancel the pass at the next turn's start (its counter already used up, nothing learned);
+    the worker gives the next turn a fresh agent instead, so the pass finishes, and its skill and
+    memory changes carry the run that spawned it (p1), not the reply that started meanwhile (p2)."""
+    a = harness.Agent(harness.new_root("lw-pass-next"))
+    conv, tag = "c-pass-next", "tag-pass-next"
+    w, _ready = harness.ready_worker(a)
+    review = [{"sleep": 4, "calls": [["skill_manage", {"action": "create", "name": "next-skill",
+                                                       "content": BODY.format(n="next-skill")}]]},
+              {"calls": [["memory", {"action": "add", "target": "memory", "content": "Prefers short lists."}]]},
+              {"text": "saved"}]
+    seen: list[dict] = []
+    try:
+        w.send(harness.run_start(a, stub, run_id="pn1", conversation=conv, text=script(todo(11, tag), tag, review),
+                                 budgets={}, toolsets=TOOLSETS, flags=dict(LEARN)))
+        _done, first = harness.drive(w, a.account, "pn1", timeout=120)
+        seen += first
+        time.sleep(0.5)
+        w.send(harness.run_start(a, stub, run_id="pn2", conversation=conv, text="thanks", budgets={},
+                                 toolsets=TOOLSETS, flags=dict(LEARN)))
+        done, second = harness.drive(w, a.account, "pn2", timeout=120)
+        seen += second
+        assert done["completed"] is True, done
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            events = [m["event"] for m in seen if m.get("type") == "learning"]
+            if {e["kind"] for e in events} >= {"skill", "memory"}:
+                break
+            seen.append(w.recv(60, skip=("heartbeat", "log")))
+    finally:
+        w.close()
+    assert (a.home / "skills" / "next-skill" / "SKILL.md").is_file()
+    events = [m["event"] for m in seen if m.get("type") == "learning"]
+    learned = sorted((e["kind"], e["action"], e["origin"], e["run_id"]) for e in events)
+    assert learned == [("memory", "added", "review", "pn1"), ("skill", "created", "review", "pn1")], events

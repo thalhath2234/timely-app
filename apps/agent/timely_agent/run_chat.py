@@ -417,17 +417,29 @@ def _report_run(ctx: bridge.RunContext) -> None:
         logger.exception("run %s: reporting learning changes failed", ctx.run_id)
 
 
-def _report_pass(conversation: str) -> None:
-    """What a learning pass changed (origin ``review``; ``bot`` for a bot's conversation)."""
+def _report_pass(conversation: str, run_id: str) -> None:
+    """What a learning pass changed (origin ``review``; ``bot`` for a bot's conversation), under
+    ``run_id``: the run that spawned the pass, not a later run of the chat that started while it
+    ran (review round 7)."""
     feed = learning_feed.current()
     if feed is None:
         return
     state = bridge.session_state(conversation)
     from_bot = state is not None and (state.from_bot or state.kind != "chat")
     feed.diff(learning_feed.Context(
-        origin="bot" if from_bot else "review", conversation_id=conversation,
-        run_id=state.run_id if state is not None else "",
+        origin="bot" if from_bot else "review", conversation_id=conversation, run_id=run_id,
         tainted_sources=state.taint_snapshot() if state is not None else []))
+
+
+def _pass_over(conversation: str, run_id: str) -> None:
+    """The learning pass of ``run_id`` ended: report what it changed, then stop naming later
+    writes after it."""
+    try:
+        _report_pass(conversation, run_id)
+    finally:
+        state = bridge.session_state(conversation)
+        if state is not None and state.review_run_id == run_id:
+            state.review_run_id = ""
 
 
 def _log_pass_usage(conversation: str, spent: dict[str, Any]) -> None:
@@ -450,7 +462,10 @@ def _review_callback(conversation: str) -> Callable[[str], None]:
     fork's writes are done; the feed re-diffs then (the watcher re-diffs again when the pass ends)."""
     def callback(_summary: Any = None, *_: Any, **__: Any) -> None:
         try:
-            _report_pass(conversation)
+            spawner = bridge.spawning_run()  # Hermes calls it on the pass's own thread
+            state = bridge.session_state(conversation)
+            run_id = (spawner.run_id if spawner is not None else "") or (state.review_run_id if state else "")
+            _report_pass(conversation, run_id)
         except Exception:
             logger.exception("learning pass report for %s failed", conversation)
     return callback
@@ -503,6 +518,12 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         scope_token = install_profile_terminal_scope(get_hermes_home())
         signature = config_signature(msg)
         agent = cache.get(conversation, signature)
+        if agent is not None and learning_passes.pending_review(agent) is not None:
+            # The last turn's learning pass still runs on this agent, and Hermes cancels it at the
+            # start of the agent's next turn (its counters already used up): leave it running on
+            # its own and take a fresh agent with the same counters (review round 7).
+            cache.drop(conversation)
+            agent = None
         if agent is None:
             ref = EmitRef()
             agent = build_agent(msg, ref)
@@ -531,8 +552,12 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         result = agent.run_conversation(str(msg.get("user_message") or ""), **kwargs) or {}
         # Hermes may have started the learning pass on a daemon thread: busy until it ends, then
         # report what it learned.
-        learning_passes.watch(agent, lambda: _report_pass(conversation),
-                              on_usage=lambda spent: _log_pass_usage(conversation, spent))
+        if learning_passes.pending_review(agent) is not None:
+            state.review_run_id = run.run_id
+        if not learning_passes.watch(agent, lambda rid=run.run_id: _pass_over(conversation, rid),
+                                     on_usage=lambda spent: _log_pass_usage(conversation, spent)):
+            if state.review_run_id == run.run_id:
+                state.review_run_id = ""
         after = _session_tokens(agent)
         cost_after = result.get("estimated_cost_usd", getattr(agent, "session_estimated_cost_usd", None))
         done.update(

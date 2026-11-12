@@ -86,6 +86,9 @@ class SessionState:
     search_allow: Optional[list[str]] = None
     private_context: list[str] = field(default_factory=list)
     run_id: str = ""
+    # The run whose learning pass is still running (``run_chat``): the pass's writes carry that
+    # run's chip, though a later run of the chat may have started meanwhile.
+    review_run_id: str = ""
     agent: Any = None
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
@@ -403,6 +406,12 @@ class _CurrentRun:
 
 
 current_run = _CurrentRun()
+
+
+def spawning_run() -> Optional[RunContext]:
+    """Inside the learning pass: the run that spawned it (the context the fork's thread copied),
+    for naming the pass's writes after it. Nothing in it may act for that run any more."""
+    return current_run._var.get()
 
 # Set by the worker: ask(message, timeout) -> reply dict or None.
 ask: Optional[Callable[[dict, float], Optional[dict]]] = None
