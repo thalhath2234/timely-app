@@ -18,14 +18,18 @@ import (
 )
 
 // Gateway is the loopback model endpoint for agent-engine runs whose
-// provider is a host CLI, Claude Code or Codex (plan 5.7). Hermes speaks
+// provider is a host CLI, Claude Code or Codex (plan 5.7), and for every
+// Sensitive run whatever its provider (phase 4 decision 11). Hermes speaks
 // OpenAI chat completions to it, and it answers through the same Completer
-// the classic engine uses, so the person's own CLI login does the work.
+// the classic engine uses, so the person's own CLI login does the work and a
+// Sensitive run gets classic's Sensitive handling (zero data retention on
+// OpenRouter, no web search).
 //
 // It runs on its own http.Server bound to 127.0.0.1 on a port the OS picks,
 // apart from the main router, which listens on every API_BIND address
-// (Tailscale included). A caller needs the secret AgentModel hands the
-// worker in run.start, which names one account, provider and model.
+// (Tailscale included). A caller needs the secret AgentModelFor hands the
+// worker in run.start, which names one account, provider, model and whether
+// the run is Sensitive.
 type Gateway struct {
 	ln   net.Listener
 	srv  *http.Server
@@ -38,7 +42,12 @@ type Gateway struct {
 	issued map[gatewayGrant]string // who -> secret, so a worker's cached agent keeps one key
 }
 
-type gatewayGrant struct{ uid, provider, model string }
+// gatewayGrant is who a secret serves. A Sensitive and an ordinary run on the
+// same model get different secrets, so the gateway knows which it answers.
+type gatewayGrant struct {
+	uid, provider, model string
+	sensitive            bool
+}
 
 // gatewayContextLength is the window /v1/models reports, so Hermes sizes
 // its context compression for the CLI's models.
@@ -48,8 +57,8 @@ const gatewayContextLength = 200000
 // tens of KB, a long session a few MB.
 const gatewayBodyLimit = 32 << 20
 
-// StartAgentGateway starts the loopback gateway; AgentModel then serves
-// Claude Code and Codex chats on the agent engine.
+// StartAgentGateway starts the loopback gateway; AgentModelFor then serves
+// Claude Code and Codex chats, and Sensitive runs, on the agent engine.
 func (s *Service) StartAgentGateway() (*Gateway, error) {
 	g, err := newGateway(s.Completer)
 	if err != nil {
@@ -59,7 +68,9 @@ func (s *Service) StartAgentGateway() (*Gateway, error) {
 	return g, nil
 }
 
-func newGateway(completer func(ctx context.Context, uid, provider, model string) (chat.Completer, error)) (*Gateway, error) {
+// newGateway starts a gateway answering with completer. wrap, for tests,
+// wraps its handler (to watch the requests a real worker sends).
+func newGateway(completer func(ctx context.Context, uid, provider, model string) (chat.Completer, error), wrap ...func(http.Handler) http.Handler) (*Gateway, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("agent model gateway: %w", err)
@@ -69,7 +80,11 @@ func newGateway(completer func(ctx context.Context, uid, provider, model string)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/chat/completions", g.completions)
 	mux.HandleFunc("GET /v1/models", g.models)
-	g.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	var handler http.Handler = mux
+	for _, w := range wrap {
+		handler = w(handler)
+	}
+	g.srv = &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = g.srv.Serve(ln) }()
 	return g, nil
 }
@@ -80,10 +95,10 @@ func (g *Gateway) Close(ctx context.Context) error { return g.srv.Shutdown(ctx) 
 // BaseURL is the OpenAI base the worker calls ("http://127.0.0.1:<port>/v1").
 func (g *Gateway) BaseURL() string { return g.base }
 
-// grant is the secret for one account, provider and model, made once per
-// process.
-func (g *Gateway) grant(uid, provider, model string) string {
-	who := gatewayGrant{uid, provider, model}
+// grant is the secret for one account, provider, model and Sensitive flag,
+// made once per process.
+func (g *Gateway) grant(uid, provider, model string, sensitive bool) string {
+	who := gatewayGrant{uid, provider, model, sensitive}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if secret, ok := g.issued[who]; ok {
@@ -197,6 +212,9 @@ func (g *Gateway) completions(w http.ResponseWriter, r *http.Request) {
 	messages := make([]chat.WireMessage, len(in.Messages))
 	for i, m := range in.Messages {
 		messages[i] = m.wire()
+		// A Sensitive grant marks every message, as classic marks a
+		// Sensitive chat's: OpenRouter then asks for zero data retention.
+		messages[i].Sensitive = who.sensitive
 	}
 	tools := make([]any, 0, len(in.Tools))
 	for _, t := range in.Tools {
@@ -210,6 +228,8 @@ func (g *Gateway) completions(w http.ResponseWriter, r *http.Request) {
 		gatewayError(w, http.StatusBadRequest, "provider_unavailable", err.Error())
 		return
 	}
+	// No web search through the gateway: Hermes has its own web tools, and a
+	// Sensitive run must never search.
 	reply, err := completer.Complete(r.Context(), messages, tools, false)
 	if err != nil {
 		if errors.Is(r.Context().Err(), context.Canceled) {
