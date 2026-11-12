@@ -67,7 +67,7 @@ import {
   trimPlan,
   trackedOnly,
 } from "../apps/web/electron/stage-agent-lib.mjs";
-import { lockTree } from "../apps/web/electron/smoke-agent.mjs";
+import { lockTree, windowsLockCommand } from "../apps/web/electron/smoke-agent.mjs";
 import { TARGETS } from "../apps/web/electron/targets.mjs";
 
 const repo = path.join(import.meta.dirname, "..");
@@ -751,6 +751,35 @@ test("smoke-agent's lockTree makes the tree read-only and restores every mode", 
   for (const [rel, mode] of before) assert.equal(statSync(path.join(root, rel)).mode & 0o7777, mode, rel);
   assert.equal(statSync(path.join(root, "app/skills")).mode & 0o777, 0o555);
   writeFileSync(path.join(root, "app", "new.txt"), "x");
+});
+
+test("smoke-agent's Windows lock denies Write, Delete and DeleteSubdirectoriesAndFiles through .NET, never through icacls", () => {
+  // icacls adds SYNCHRONIZE to every deny ACE (and its W already holds it). Inherited by
+  // every entry, a SYNCHRONIZE deny on Everyone refuses python.exe's image load and every
+  // open(), so the read-only smoke failed before step 1 and release.yml built no Windows installer.
+  const source = readFileSync(path.join(repo, "apps/web/electron/smoke-agent.mjs"), "utf8");
+  assert.doesNotMatch(source, /["'`]icacls(\.exe)?["'`]/);
+  const root = "C:\\a b\\agent";
+  for (const action of ["lock", "unlock"]) {
+    const { cmd, args, env } = windowsLockCommand(root, action);
+    assert.equal(cmd, "powershell.exe");
+    assert.equal(env.TIMELY_SMOKE_ROOT, root);
+    assert.equal(env.TIMELY_SMOKE_ACTION, action);
+    const i = args.indexOf("-EncodedCommand");
+    assert.ok(i >= 0, args.join(" "));
+    const script = Buffer.from(args[i + 1], "base64").toString("utf16le");
+    assert.ok(!script.includes(root), "the root goes through the environment, not the script");
+    assert.match(script, /FileSystemRights\]'Write, Delete, DeleteSubdirectoriesAndFiles'/);
+    assert.match(script, /AccessControlType\]::Deny\)/);
+    assert.match(script, /'S-1-1-0'/);
+    assert.match(script, /InheritanceFlags\]'ContainerInherit, ObjectInherit'/);
+    // Only the rule's own rights name, and the after-check that throws on SYNCHRONIZE.
+    const rights = [...script.matchAll(/FileSystemRights\]'([^']*)'/g)].map((m) => m[1]);
+    assert.deepEqual(rights, ["Write, Delete, DeleteSubdirectoriesAndFiles"]);
+    assert.doesNotMatch(script, /FullControl|Modify|ReadAndExecute|GenericWrite/);
+    assert.match(script, /FileSystemRights\]::Synchronize\) -ne 0\) \{ throw/);
+  }
+  assert.throws(() => windowsLockCommand(root, "deny"), /action/);
 });
 
 // ------------------------------------------------------------ the boot.py shim

@@ -9,7 +9,8 @@
 //      ready with the self-test, a run on the Go stub model, run.done, shutdown.
 //
 // With --read-only the root is made read-only first (POSIX: chmod a-w on every
-// entry; Windows: a deny-write ACE for Everyone), every step runs against
+// entry; Windows: an inherited deny ACE for Everyone on write, delete and
+// delete-child, without SYNCHRONIZE: see windowsLockCommand), every step runs against
 // it, and any file or folder created, removed or changed inside the root fails
 // the smoke. Permissions are restored in every case.
 //
@@ -28,7 +29,6 @@ import { getTarget, hostTargetKey } from "./targets.mjs";
 const webRoot = path.join(import.meta.dirname, "..");
 const apiRoot = path.join(webRoot, "..", "api");
 const scratchRoot = scratchRootFor(path.join(webRoot, "..", ".."));
-const EVERYONE = "*S-1-1-0";
 
 function parseArgs(argv) {
   const opts = { root: "", readOnly: false };
@@ -54,14 +54,60 @@ function cleanEnv(home) {
   return env;
 }
 
+// The deny ACE is written through .NET, not icacls: icacls adds SYNCHRONIZE to every
+// deny ACE it writes (and its W already holds it), and a SYNCHRONIZE deny on Everyone,
+// inherited by every entry, refuses each open and image load, python.exe's included.
+// FileSystemAccessRule drops SYNCHRONIZE from a Deny rule; the script checks it did.
+const WINDOWS_LOCK_SCRIPT = String.raw`$ErrorActionPreference = 'Stop'
+$everyone = New-Object System.Security.Principal.SecurityIdentifier 'S-1-1-0'
+$rights = [System.Security.AccessControl.FileSystemRights]'Write, Delete, DeleteSubdirectoriesAndFiles'
+$inherit = [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+$rule = New-Object System.Security.AccessControl.FileSystemAccessRule($everyone, $rights, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Deny)
+$dir = Get-Item -LiteralPath $env:TIMELY_SMOKE_ROOT
+$acl = $dir.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Access)
+if ($env:TIMELY_SMOKE_ACTION -eq 'lock') { $acl.AddAccessRule($rule) } else { [void]$acl.RemoveAccessRule($rule) }
+$dir.SetAccessControl($acl)
+$denied = $dir.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Access).GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]) | Where-Object { $_.AccessControlType -eq 'Deny' -and $_.IdentityReference -eq $everyone }
+if ($env:TIMELY_SMOKE_ACTION -eq 'lock') {
+  if (-not $denied) { throw 'the deny ACE for Everyone is missing after Set' }
+  foreach ($r in $denied) { if (($r.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::Synchronize) -ne 0) { throw "the deny ACE for Everyone holds SYNCHRONIZE: $($r.FileSystemRights)" } }
+} elseif ($denied) { throw 'a deny ACE for Everyone is still there after Remove' }`;
+
+/**
+ * The Windows lock or unlock of `root`: Windows PowerShell adds (or removes)
+ * one Deny rule for Everyone (S-1-1-0) on Write, Delete and
+ * DeleteSubdirectoriesAndFiles, inherited by every folder and file. Reads,
+ * listing and running python.exe stay allowed. The root goes through the
+ * environment, never into the script text, and the script goes as
+ * -EncodedCommand (UTF-16LE base64), so no command-line quoting touches it.
+ */
+export function windowsLockCommand(root, action) {
+  if (action !== "lock" && action !== "unlock") throw new Error(`windowsLockCommand: action ${action}`);
+  return {
+    cmd: "powershell.exe",
+    args: ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(WINDOWS_LOCK_SCRIPT, "utf16le").toString("base64")],
+    env: { ...process.env, TIMELY_SMOKE_ROOT: root, TIMELY_SMOKE_ACTION: action },
+  };
+}
+
+function runWindowsLock(root, action) {
+  const { cmd, args, env } = windowsLockCommand(root, action);
+  const r = spawnSync(cmd, args, { encoding: "utf8", env });
+  if (r.error) return `${cmd} could not start: ${r.error.message}`;
+  return r.status === 0 ? "" : `${action} failed (exit ${r.status}): ${r.stdout}${r.stderr}`;
+}
+
 /** Make every entry under root read-only; returns a function that restores it. */
 export function lockTree(root) {
   if (process.platform === "win32") {
-    const r = spawnSync("icacls", [root, "/deny", `${EVERYONE}:(OI)(CI)(W,D,DC)`], { encoding: "utf8" });
-    if (r.status !== 0) throw new Error(`icacls /deny failed (exit ${r.status}): ${r.stdout}${r.stderr}`);
+    const failed = runWindowsLock(root, "lock");
+    if (failed) {
+      runWindowsLock(root, "unlock");
+      throw new Error(`smoke-agent: ${failed}`);
+    }
     return () => {
-      const u = spawnSync("icacls", [root, "/remove:d", EVERYONE], { encoding: "utf8" });
-      if (u.status !== 0) console.error(`smoke-agent: icacls /remove:d failed: ${u.stdout}${u.stderr}`);
+      const undo = runWindowsLock(root, "unlock");
+      if (undo) console.error(`smoke-agent: ${undo}`);
     };
   }
   const modes = new Map([[root, lstatSync(root).mode & 0o7777]]);
