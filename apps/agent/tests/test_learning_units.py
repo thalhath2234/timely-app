@@ -126,7 +126,7 @@ def test_feed_reports_each_change_once(tmp_path):
     sha = _blob(home, "---\nname: s\n---\nbody")
     _ledger(home, {"id": "e1", "action": "create", "skill": "s", "actor": "agent", "before": [],
                    "after": [{"path": str(home / "skills/s/SKILL.md"), "sha256": sha}],
-                   "evidence": {"session_id": "c-other"}},
+                   "evidence": {"session_id": "c-other"}, "ts": "2026-11-12T02:25:36.513444+00:00"},
             {"id": "e2", "action": "pre-rollback", "skill": "s", "actor": "user", "before": [], "after": []})
     files.memory_path(home, "user").write_text("Name is Ana Maria" + files.ENTRY_DELIMITER + "Likes tea")
     files.memory_path(home, "memory").write_text("Weeks start on Monday")
@@ -136,10 +136,12 @@ def test_feed_reports_each_change_once(tmp_path):
     assert set(by) == {("skill", "created"), ("user", "replaced"), ("user", "added"), ("memory", "added")}, by
     skill = by[("skill", "created")]
     assert skill["ledger_entry_id"] == "e1" and skill["conversation_id"] == "c-other" and skill["after"].endswith("body")
+    assert skill["applied_at"] == "2026-11-12T02:25:36.513444+00:00"  # the ledger's time, not the report's
+    assert by[("memory", "added")]["applied_at"] == ""
     assert by[("user", "replaced")]["before"] == "Name is Ana" and by[("user", "replaced")]["after"] == "Name is Ana Maria"
     for e in events:
         assert set(e) == {"id", "kind", "action", "subject", "before", "after", "origin", "conversation_id", "run_id",
-                          "bot_id", "tainted_sources", "status", "ledger_entry_id", "pending_id", "summary", "reason"}
+                          "bot_id", "tainted_sources", "status", "ledger_entry_id", "pending_id", "summary", "reason", "applied_at"}
         assert e["status"] == "applied" and e["run_id"] == "r1"
         assert e["summary"] == ""  # the apps name an applied change themselves; no Hermes-style restatement
     assert f.diff(ctx) == []  # never twice

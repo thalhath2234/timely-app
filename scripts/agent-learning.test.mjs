@@ -348,3 +348,26 @@ describe("Settings rows", () => {
     assert.equal(activityStatus({ status: "applied", origin: "review" }), statusWord("applied"));
   });
 });
+
+describe("Undo warns in the order changes reached the skill (appliedAt)", () => {
+  test("a change kept after a newer applied one is later than it", () => {
+    const kept = ev({ subject: "aisles", status: "kept", ledgerEntryId: "led-S", createdAt: "2026-11-11T10:00:00Z", appliedAt: "2026-11-11T10:02:00Z" });
+    const applied = ev({ subject: "aisles", status: "applied", ledgerEntryId: "led-P", createdAt: "2026-11-11T10:01:00Z", appliedAt: "2026-11-11T10:01:00Z" });
+    const events = [kept, applied];
+    assert.deepEqual(laterSkillChanges(events, applied).map((e) => e.id), [kept.id]);
+    assert.deepEqual(laterSkillChanges(events, kept), []);
+    assert.equal(undoAlsoText(applied, laterSkillChanges(events, applied)), "Undo also takes back 1 later change to aisles.");
+    assert.notEqual(chipUndoAlso(events, [applied.id]), "");
+  });
+
+  test("a turn's patch reported after the person's edit still sorts before it", () => {
+    // Go records the edit first (its own reply) and the patch at the run's end;
+    // appliedAt is each change's ledger time.
+    const edit = ev({ subject: "aisles", action: "edited", origin: "user", ledgerEntryId: "led-E", createdAt: "2026-11-11T10:05:00Z", appliedAt: "2026-11-11T10:04:30Z" });
+    const patch = ev({ subject: "aisles", action: "patched", origin: "chat", ledgerEntryId: "led-P", createdAt: "2026-11-11T10:05:10Z", appliedAt: "2026-11-11T10:04:00Z" });
+    const events = [edit, patch];
+    assert.deepEqual(laterSkillChanges(events, patch).map((e) => e.id), [edit.id]);
+    assert.equal(undoAlsoText(patch, laterSkillChanges(events, patch)), "Undo also takes back 1 later change to aisles, including your edit.");
+    assert.match(chipUndoAlso(events, [patch.id]), /your edit/);
+  });
+});

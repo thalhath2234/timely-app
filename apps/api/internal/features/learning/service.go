@@ -139,8 +139,8 @@ func (s *Service) record(ctx context.Context, account string, m agenthost.Messag
 	ev.ID = "lev_" + uuid.NewString()
 	ev.UserID = account
 	if ev.Status == StatusApplied {
-		now := time.Now()
-		ev.AppliedAt = &now
+		at := appliedAt(body.Event.AppliedAt, time.Now())
+		ev.AppliedAt = &at
 	}
 	res := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "worker_event_id"}},
@@ -240,6 +240,18 @@ func eventFromWire(in wireEvent) (Event, error) {
 		Summary:        cut(in.Summary, 2000),
 		Reason:         stagingReason(in.Reason),
 	}, nil
+}
+
+// appliedAt is when an applied change reached the home: the time the worker
+// read from its ledger, so a change reported at a run's end sorts before
+// the person's edit made meanwhile (Undo follows the ledger's order). A time
+// that cannot be read, or one after now, is now.
+func appliedAt(worker string, now time.Time) time.Time {
+	at, err := time.Parse(time.RFC3339Nano, worker)
+	if err != nil || at.After(now) {
+		return now
+	}
+	return at
 }
 
 // stagingReason keeps a reason the worker names (PROTOCOL.md section 10),

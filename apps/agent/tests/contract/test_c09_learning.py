@@ -326,6 +326,49 @@ def test_c09_undo_during_a_learning_pass_reports_and_names_the_later_change(lage
     assert not [e for e in later if e["subject"] == name], later  # reported once, before the reply
 
 
+def test_c09_edit_during_a_turn_sorts_after_the_turns_patch(lagent, lworker, stub):
+    """A chat turn patches a skill and, while the turn still runs, the person edits the same skill
+    in Settings. The edit is reported first (its own reply), the turn's patch at the run's end; each
+    event's ``applied_at`` is its ledger time, so Go and the apps order the patch before the edit,
+    as the Undo that takes the edit back too does (review round 5)."""
+    w, a = lworker, lagent
+    conv, tag, name = "c-c09e", "tag-c09e", "c09e-skill"
+    turn(w, a, stub, "c09e-1", conv, text([{"calls": [create(name)]}], tag))
+    settle(w, a)
+    patch = ["skill_manage", {"action": "patch", "name": name, "old_string": "2. Sort it.",
+                              "new_string": "2. Sort it by aisle."}]
+    w.send(harness.run_start(a, stub, run_id="c09e-2", conversation=conv, budgets={}, toolsets=TOOLSETS,
+                             flags=dict(LEARN), text=text([{"calls": [patch]}, {"sleep": 3, "text": "Patched."}],
+                                                          tag + "-2")))
+    edit_id, events, edit_reply = "go-edit-c09e", [], []
+    body = SKILL_BODY.format(name=name).replace("1. Read the list.", "1. Read the list twice.").replace(
+        "2. Sort it.", "2. Sort it by aisle.")
+
+    def on_message(msg):
+        if msg.get("type") == "event" and msg.get("kind") == "tool.completed" and not edit_reply \
+                and (msg.get("payload") or {}).get("tool") == "skill_manage":
+            edit_reply.append(None)
+            w.send({"type": "learning.edit", "id": edit_id, "account": a.account, "name": name, "content": body})
+        if msg.get("type") == "learning":
+            events.append(msg["event"])
+        if msg.get("id") == edit_id:
+            edit_reply[:] = [msg]
+
+    harness.drive(w, a.account, "c09e-2", on_message=on_message, timeout=120)
+    while edit_reply == [None]:
+        on_message(w.recv(30))
+    events += settle(w, a)
+    assert edit_reply[0]["type"] == "learning.result" and edit_reply[0]["ok"], edit_reply
+    edits = (edit_reply[0]["data"].get("events") or []) + [e for e in events if e["origin"] == "user"]
+    patched = [e for e in events if e["subject"] == name and e["action"] == "patched" and e["origin"] != "user"]
+    assert len(patched) == 1 and edits, (events, edit_reply)
+    edit = next(e for e in edits if e["subject"] == name)
+    assert patched[0]["applied_at"] and edit["applied_at"] and patched[0]["applied_at"] < edit["applied_at"], \
+        (patched[0]["applied_at"], edit["applied_at"])
+    res = request(w, a, "learning.rollback", ledger_entry_id=patched[0]["ledger_entry_id"])
+    assert res["ok"] and res["data"]["superseded"] == [edit["ledger_entry_id"]], res
+
+
 def test_c09_memory_counter_of_zero_survives_a_restart(stub):
     """A memory write at turn 7 resets the memory counter to 0 and counters.json keeps it. After a
     worker restart, Hermes' first-turn hydration would make a stored 0 ``7 % 10`` and fire the

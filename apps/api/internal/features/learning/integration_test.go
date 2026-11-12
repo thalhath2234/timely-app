@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -987,6 +988,41 @@ func TestIntegrationUndoOrdersByWhenAChangeWasApplied(t *testing.T) {
 	}
 	if ev, _ := r.svc.find(context.Background(), a, applied.ID); ev.Status != StatusApplied {
 		t.Fatalf("the change applied before the kept one is %q", ev.Status)
+	}
+}
+
+// applied_at is when a change reached the account home, as the worker's
+// ledger says: a turn's patch reported at the run's end, after the person's
+// edit made meanwhile, still sorts before that edit, so Undo of the patch
+// takes the edit back too and the apps warn about it (review round 5).
+func TestIntegrationAppliedAtIsWhenTheChangeReachedTheHome(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	patchedAt := time.Now().Add(-10 * time.Second).UTC().Truncate(time.Microsecond)
+	edit := r.seed(a, map[string]any{"id": "e-1", "kind": "skill", "action": "edited", "subject": "aisles", "status": "applied",
+		"origin": "user", "ledger_entry_id": "led-E", "applied_at": ""})
+	patch := r.seed(a, map[string]any{"id": "p-1", "kind": "skill", "action": "patched", "subject": "aisles", "status": "applied",
+		"ledger_entry_id": "led-P", "applied_at": patchedAt.Format(time.RFC3339Nano)})
+	if patch.AppliedAt == nil || !patch.AppliedAt.Equal(patchedAt) || edit.AppliedAt == nil || !edit.AppliedAt.After(*patch.AppliedAt) {
+		t.Fatalf("applied_at: patch %v (want %v), edit %v", patch.AppliedAt, patchedAt, edit.AppliedAt)
+	}
+	// A time from the future or one that cannot be read is the time Go recorded it.
+	for i, at := range []string{time.Now().Add(time.Hour).Format(time.RFC3339Nano), "yesterday"} {
+		before := time.Now()
+		ev := r.seed(a, map[string]any{"id": fmt.Sprintf("f-%d", i), "kind": "skill", "action": "patched", "subject": "other",
+			"status": "applied", "ledger_entry_id": fmt.Sprintf("led-F%d", i), "applied_at": at})
+		if ev.AppliedAt == nil || ev.AppliedAt.Before(before.Add(-time.Second)) || ev.AppliedAt.After(time.Now()) {
+			t.Fatalf("applied_at %q recorded as %v", at, ev.AppliedAt)
+		}
+	}
+	// An older worker's reply names nothing: Undo of the patch follows
+	// applied_at and takes the person's later edit back too.
+	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true})
+	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+patch.ID+"/undo", nil); code != http.StatusOK {
+		t.Fatalf("undo: %d %v", code, body)
+	}
+	if ev, _ := r.svc.find(context.Background(), a, edit.ID); ev.Status != StatusUndone {
+		t.Fatalf("the edit made after the patch is %q", ev.Status)
 	}
 }
 

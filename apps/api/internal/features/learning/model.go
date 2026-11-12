@@ -120,4 +120,7 @@ type wireEvent struct {
 	PendingID      string          `json:"pending_id"`
 	Summary        string          `json:"summary"`
 	Reason         string          `json:"reason"`
+	// AppliedAt is when the change reached the home (a skill change's
+	// ledger time, RFC 3339); "" when the worker does not know.
+	AppliedAt string `json:"applied_at"`
 }

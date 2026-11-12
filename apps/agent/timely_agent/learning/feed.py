@@ -64,7 +64,7 @@ class Context:
 def make_event(*, kind: str, action: str, subject: str, status: str, origin: str = "chat",
                before: Any = "", after: Any = "", conversation_id: str = "", run_id: str = "", bot_id: str = "",
                tainted_sources: Optional[list] = None, ledger_entry_id: str = "", pending_id: str = "",
-               summary: str = "", reason: str = "") -> dict[str, Any]:
+               summary: str = "", reason: str = "", applied_at: str = "") -> dict[str, Any]:
     """A ``LearningEventW`` (PROTOCOL.md section 10) with every field present."""
     assert kind in KINDS and action in ACTIONS and status in STATUSES and origin in ORIGINS \
         and reason in REASONS, (kind, action, status, origin, reason)
@@ -73,7 +73,7 @@ def make_event(*, kind: str, action: str, subject: str, status: str, origin: str
             "conversation_id": str(conversation_id or ""), "run_id": str(run_id or ""), "bot_id": str(bot_id or ""),
             "tainted_sources": list(tainted_sources or []), "status": status,
             "ledger_entry_id": str(ledger_entry_id or ""), "pending_id": str(pending_id or ""),
-            "summary": str(summary or "")[:500], "reason": reason}
+            "summary": str(summary or "")[:500], "reason": reason, "applied_at": str(applied_at or "")}
 
 
 def _skill_text(home: Path, items: list[dict], skill: str) -> str:
@@ -119,7 +119,8 @@ def ledger_event(home: Path, entry: dict[str, Any], ctx: Context,
         before=_skill_text(home, entry.get("before") or [], skill),
         after=_skill_text(home, entry.get("after") or [], skill),
         conversation_id=str(evidence.get("session_id") or ctx.conversation_id), run_id=ctx.run_id,
-        bot_id=ctx.bot_id, tainted_sources=ctx.tainted_sources, ledger_entry_id=str(entry.get("id")))
+        bot_id=ctx.bot_id, tainted_sources=ctx.tainted_sources, ledger_entry_id=str(entry.get("id")),
+        applied_at=str(entry.get("ts") or ""))  # when it reached the skill: Undo follows the ledger's order
 
 
 def memory_events(target: str, old: list[str], new: list[str], ctx: Context,
