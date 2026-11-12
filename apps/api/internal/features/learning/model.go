@@ -50,9 +50,14 @@ type Event struct {
 	Summary        string          `gorm:"not null;default:''" json:"summary"`
 	// Reason is why a staged change waits: tainted, bot, unattended or
 	// skill_body ("" otherwise, and on rows from before it was kept).
-	Reason    string    `gorm:"not null;default:''" json:"reason"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Reason string `gorm:"not null;default:''" json:"reason"`
+	// AppliedAt is when the change reached the account home: when an
+	// applied change was recorded, when the person kept a staged one (nil
+	// while it waits, and for a blocked or discarded one). Later changes
+	// to a skill are ordered by it, not by CreatedAt.
+	AppliedAt *time.Time `gorm:"column:applied_at" json:"appliedAt"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 func (Event) TableName() string { return "agent_learning_events" }

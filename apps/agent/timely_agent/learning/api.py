@@ -414,9 +414,33 @@ def _mark_restored(home: Path, name: str) -> None:
         files.write_json(path, data)
 
 
+def _superseded(home: Path, entry_id: str, skill: str, own: set[str]) -> list[str]:
+    """The ids of the changes to ``skill`` the ledger holds after ``entry_id`` and before this
+    rollback's own entries (``own``: the ids written since it started): the rollback writes the
+    skill back past them. The ledger's order is the order the changes reached the home, which a
+    kept staged change's event time is not."""
+    entries = files.read_ledger(home)
+    ids = [str(e.get("id")) for e in entries]
+    if entry_id not in ids:
+        return []
+    out = []
+    for e in entries[ids.index(entry_id) + 1:]:
+        if str(e.get("id")) in own:
+            break
+        if str(e.get("skill") or "") == skill and str(e.get("action") or "") not in feed_mod.SKIPPED_LEDGER_ACTIONS:
+            out.append(str(e.get("id")))
+    return out
+
+
 def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     """Undo a skill change. An entry a backup restore brought back recreates its skill turned off and
-    "restored, review" (``restored_skills`` in the answer; Go keeps it off, Q-3.4)."""
+    "restored, review" (``restored_skills`` in the answer; Go keeps it off, Q-3.4).
+
+    ``superseded`` lists the later changes to the same skill the rollback took back too (ledger
+    order), for Go to mark undone. Every change no diff reported yet (a learning pass that is
+    still running, a run whose diff has not come) is reported first, so its event exists, and
+    Go, told its ledger id, never shows it as applied with an Undo that would bring the skill
+    back."""
     from tools.skill_ledger import rollback_entry
     entry_id = str(msg["ledger_entry_id"])
     entry = next((e for e in files.read_ledger(host.home) if str(e.get("id")) == entry_id), {})
@@ -428,20 +452,29 @@ def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
                     for i in entry.get("before") or [])
     restored = entry_id in _restored_entries(host.home) and bool(skill_name) and recreates
     feed = _feed()
+    superseded: list[str] = []
     with (feed.lock if feed is not None else _nolock()):
-        seen = feed.ledger_ids() if feed is not None else set()
+        if feed is not None:
+            feed.report_ledger(feed_mod.Context(origin="review"))
+        seen = feed.ledger_ids() if feed is not None else {str(e.get("id")) for e in files.read_ledger(host.home)}
         with _actor("user"):
             ok, message = rollback_entry(entry_id)
         if ok:
             _prune_empty_skill_dirs(host.home, skill_name)
             if restored:
                 _mark_restored(host.home, skill_name)
+            own = {str(e.get("id")) for e in files.read_ledger(host.home)
+                   if str(e.get("id")) not in seen and e.get("actor") == "user"
+                   and str(e.get("action") or "") in feed_mod.SKIPPED_LEDGER_ACTIONS}
+            superseded = _superseded(host.home, entry_id, skill_name, own)
         if feed is not None:
             feed.claim_ledger(since=seen, actors=("user",))  # Go marks the event undone itself
+            feed.report_ledger(feed_mod.Context(origin="review"))  # a pass's write that landed meanwhile
     _clear_skill_caches()
     if not ok:
         raise Failed({"ok": False, "message": plain.person_facing(message)})
-    return {"ok": True, "message": message, "restored_skills": [skill_name] if restored else []}
+    return {"ok": True, "message": message, "restored_skills": [skill_name] if restored else [],
+            "superseded": superseded}
 
 
 @contextmanager

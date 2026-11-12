@@ -62,6 +62,9 @@ export type LearningEvent = {
   summary: string;
   /** Why a staged change waits; "" on other events and on older rows. */
   reason?: LearningReason | string;
+  /** When the change reached the skill or note (RFC 3339): when an applied change
+   * was recorded, when the person kept a staged one; null while it waits. */
+  appliedAt?: string | null;
   /** RFC 3339 times. */
   createdAt: string;
   updatedAt: string;
@@ -462,14 +465,22 @@ export function canUndoLearning(ev: Pick<LearningEvent, "status"> & Partial<Pick
  */
 export function laterSkillChanges(events: LearningEvent[], ev: LearningEvent): LearningEvent[] {
   if (ev.kind !== "skill" || !ev.subject) return [];
+  const at = appliedTime(ev);
   return events.filter(
     (other) =>
       other.id !== ev.id &&
       other.kind === "skill" &&
       other.subject === ev.subject &&
-      other.createdAt > ev.createdAt &&
+      appliedTime(other) > at &&
       canUndoLearning(other),
   );
+}
+
+/** When a change reached the skill: a kept change counts from when it was kept, not
+ * from when it was first saved for the person, so a change applied while it waited is
+ * earlier than it. Older rows have only createdAt. */
+function appliedTime(ev: LearningEvent): number {
+  return Date.parse(ev.appliedAt || ev.createdAt);
 }
 
 /** The warning before such an Undo: "Undo also takes back 2 later changes to aisles, including your edit." */

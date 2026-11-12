@@ -263,6 +263,52 @@ def test_c09_rollback_restores(lagent, lworker, stub):
     assert name not in [s["name"] for s in history["data"]["skills"]]
 
 
+def _request_collect(w, a, mtype, **fields) -> tuple[dict, list[dict]]:
+    """Like :func:`request`, with the learning events that arrived before the reply."""
+    mid = f"go-{mtype}-{time.monotonic_ns()}"
+    w.send({"type": mtype, "id": mid, "account": a.account, **fields})
+    events = []
+    while True:
+        msg = w.recv(60)
+        if msg.get("type") == "learning":
+            events.append(msg["event"])
+        if msg.get("id") == mid and msg.get("type") in ("learning.result", "error"):
+            return msg, events
+
+
+def test_c09_undo_during_a_learning_pass_reports_and_names_the_later_change(lagent, lworker, stub):
+    """The person clicks Undo on a skill the chat created while the learning pass that followed is
+    still patching it (the pass starts as the reply ends). The rollback takes the patch back too:
+    the patch's event goes out before the reply, and the reply names its ledger entry in
+    ``superseded``, so Go marks it undone instead of showing an applied change whose Undo would
+    bring the skill back (review round 4)."""
+    conv, tag = "c-c09u", "tag-c09u"
+    name = "c09u-undo-skill"
+    _, ev1, _ = turn(lworker, lagent, stub, "c09u-1", conv, text([{"calls": [create(name)]}], tag))
+    created = [e for e in ev1 if e["subject"] == name]
+    assert [(e["action"], e["status"]) for e in created] == [("created", "applied")], ev1
+    settle(lworker, lagent)
+    turn(lworker, lagent, stub, "c09u-2", conv, text(todo(6, tag), tag + "-2"))
+    settle(lworker, lagent)
+    patch = ["skill_manage", {"action": "patch", "name": name, "old_string": "2. Sort it.",
+                              "new_string": "2. Sort it by aisle."}]
+    review = [{"calls": [["skill_view", {"name": name}]]}, {"calls": [patch]}, {"sleep": 6, "text": "Patched."}]
+    turn(lworker, lagent, stub, "c09u-3", conv, text(todo(6, tag), tag + "-3", review))
+    path = skill_dir(lagent, name) / "SKILL.md"
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and "by aisle" not in (path.read_text() if path.exists() else ""):
+        time.sleep(0.05)
+    assert "by aisle" in path.read_text(), "the learning pass did not patch the skill"
+    res, during = _request_collect(lworker, lagent, "learning.rollback", ledger_entry_id=created[0]["ledger_entry_id"])
+    assert res["type"] == "learning.result" and res["ok"], res
+    assert not path.exists()
+    patched = [e for e in during if e["subject"] == name and e["action"] == "patched"]
+    assert [(e["status"], e["origin"]) for e in patched] == [("applied", "review")], during
+    assert res["data"]["superseded"] == [patched[0]["ledger_entry_id"]], res["data"]
+    later = settle(lworker, lagent)
+    assert not [e for e in later if e["subject"] == name], later  # reported once, before the reply
+
+
 def test_c09_staged_patch_carries_the_skill_before_and_plain_words(lagent, lworker, stub):
     """A staged patch shows what the skill says now (``before``) and a plain one-line summary,
     not Hermes' own wording."""

@@ -225,6 +225,21 @@ class Feed:
                 self._save()
             return new
 
+    def report_ledger(self, ctx: Context) -> list[dict[str, Any]]:
+        """Report every skill change the ledger holds that no diff reported yet (a learning pass's
+        or a run's write that its own diff has not reached), each attributed to its conversation
+        as :meth:`diff` does. An Undo calls it first, so a change it takes back has its event
+        before Go marks the later changes undone."""
+        events: list[dict[str, Any]] = []
+        with self.lock:
+            for entry in self.claim_ledger():
+                ev = ledger_event(self.home, entry, ctx)
+                if ev is not None:
+                    events.append(ev)
+            for ev in events:
+                self.emit(ev)
+        return events
+
     def claim_memory_change(self, target: str, removed: list[str], added: list[str]) -> None:
         """Move the memory baseline by one request's own change only: a chat's write that is on
         disk but not reported yet stays for the next diff (re-reading the file would swallow it)."""

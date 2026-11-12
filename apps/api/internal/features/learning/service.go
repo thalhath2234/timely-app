@@ -57,9 +57,12 @@ type Service struct {
 	timeout time.Duration
 	logf    func(format string, args ...any)
 
-	mu       sync.Mutex
-	publish  func(uid string, ev realtime.Event)
-	settings func(ctx context.Context, uid string) (json.RawMessage, error)
+	mu      sync.Mutex
+	publish func(uid string, ev realtime.Event)
+	// superseded are the ledger entries (account NUL id) recent Undos took
+	// back, so their events that arrive later are recorded undone.
+	superseded map[string]time.Time
+	settings   func(ctx context.Context, uid string) (json.RawMessage, error)
 }
 
 // NewService returns the learning service. sup may be nil (no agent engine
@@ -135,6 +138,10 @@ func (s *Service) record(ctx context.Context, account string, m agenthost.Messag
 	}
 	ev.ID = "lev_" + uuid.NewString()
 	ev.UserID = account
+	if ev.Status == StatusApplied {
+		now := time.Now()
+		ev.AppliedAt = &now
+	}
 	res := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "worker_event_id"}},
 		DoNothing: true,
@@ -145,8 +152,53 @@ func (s *Service) record(ctx context.Context, account string, m agenthost.Messag
 	if res.RowsAffected == 0 {
 		return nil, nil // seen before
 	}
+	// An Undo already took this change back (its rollback named the ledger
+	// entry, and the event was still on its way): it arrives undone, with
+	// no Undo that would bring the skill back.
+	if ev.Kind == KindSkill && ev.Status == StatusApplied && s.wasSuperseded(account, ev.LedgerEntryID) {
+		if ok, err := s.claim(ctx, account, ev.ID, []string{StatusApplied}, StatusUndone); err == nil && ok {
+			ev.Status = StatusUndone
+		}
+	}
 	s.publishEvent(account, ev)
 	return &ev, nil
+}
+
+// supersededTTL is how long an Undo's superseded ledger entries are kept
+// for events still on their way from the worker (the dispatch queue hands
+// them over in seconds; a learning pass reports before its reply).
+const supersededTTL = time.Hour
+
+// markSuperseded notes ledger entries an Undo of uid's took back, before
+// their events are marked undone: record checks after its insert, so an
+// event either is in the table when undo marks it or sees the note.
+func (s *Service) markSuperseded(uid string, ids []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	if s.superseded == nil {
+		s.superseded = map[string]time.Time{}
+	}
+	for key, at := range s.superseded {
+		if now.Sub(at) > supersededTTL {
+			delete(s.superseded, key)
+		}
+	}
+	for _, id := range ids {
+		if id != "" {
+			s.superseded[uid+"\x00"+id] = now
+		}
+	}
+}
+
+func (s *Service) wasSuperseded(uid, ledgerID string) bool {
+	if ledgerID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at, ok := s.superseded[uid+"\x00"+ledgerID]
+	return ok && time.Since(at) <= supersededTTL
 }
 
 // eventFromWire checks a worker event and caps its texts.

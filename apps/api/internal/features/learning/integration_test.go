@@ -933,6 +933,96 @@ func TestIntegrationChipUndoOfCreateThenPatch(t *testing.T) {
 	}
 }
 
+// A change the person kept after a later applied change reached the skill
+// after it: undoing the applied change takes the kept one back too (the
+// rollback writes the skill back past both), and its Undo goes, whether the
+// worker names the ledger entries or an older one answers without them
+// (review round 4).
+func TestIntegrationUndoOrdersByWhenAChangeWasApplied(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply map[string]any
+	}{
+		{"the worker names the later entries", map[string]any{"ok": true, "superseded": []string{"led-S"}}},
+		{"an older worker's reply", map[string]any{"ok": true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t)
+			a := addUser(t, r.db)
+			staged := r.seed(a, map[string]any{"id": "p-s", "kind": "skill", "action": "patched", "subject": "aisles", "status": "staged", "pending_id": "pend-s", "reason": "tainted"})
+			time.Sleep(5 * time.Millisecond)
+			applied := r.seed(a, map[string]any{"id": "p-p", "kind": "skill", "action": "patched", "subject": "aisles", "status": "applied", "ledger_entry_id": "led-P"})
+			time.Sleep(5 * time.Millisecond)
+			r.kit.LearningReply("learning.pending", map[string]any{"pending_id": "pend-s",
+				"events": []any{map[string]any{"id": "w-k", "kind": "skill", "action": "patched", "subject": "aisles", "status": "applied", "ledger_entry_id": "led-S", "pending_id": "pend-s"}}})
+			if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/pending/pend-s", map[string]any{"choice": "keep"}); code != http.StatusOK ||
+				body["event"].(map[string]any)["appliedAt"] == nil {
+				t.Fatalf("keep: %d %v", code, body)
+			}
+			r.kit.LearningReply("learning.rollback", tc.reply)
+			if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+applied.ID+"/undo", nil); code != http.StatusOK {
+				t.Fatalf("undo: %d %v", code, body)
+			}
+			if kept, _ := r.svc.find(context.Background(), a, staged.ID); kept.Status != StatusUndone {
+				t.Fatalf("the kept change (applied after the undone one) is %q", kept.Status)
+			}
+		})
+	}
+	// Undoing the kept change leaves an earlier applied one alone, though
+	// its row is older: the kept change reached the skill last.
+	r := newRig(t)
+	a := addUser(t, r.db)
+	staged := r.seed(a, map[string]any{"id": "q-s", "kind": "skill", "action": "patched", "subject": "aisles", "status": "staged", "pending_id": "pend-q"})
+	time.Sleep(5 * time.Millisecond)
+	applied := r.seed(a, map[string]any{"id": "q-p", "kind": "skill", "action": "patched", "subject": "aisles", "status": "applied", "ledger_entry_id": "led-Q"})
+	time.Sleep(5 * time.Millisecond)
+	r.kit.LearningReply("learning.pending", map[string]any{"pending_id": "pend-q",
+		"events": []any{map[string]any{"id": "w-q", "kind": "skill", "action": "patched", "subject": "aisles", "status": "applied", "ledger_entry_id": "led-QS", "pending_id": "pend-q"}}})
+	if code, _, _ := r.call(a, http.MethodPost, "/agent/learning/pending/pend-q", map[string]any{"choice": "keep"}); code != http.StatusOK {
+		t.Fatalf("keep: %d", code)
+	}
+	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true})
+	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+staged.ID+"/undo", nil); code != http.StatusOK {
+		t.Fatalf("undo of the kept change: %d %v", code, body)
+	}
+	if ev, _ := r.svc.find(context.Background(), a, applied.ID); ev.Status != StatusApplied {
+		t.Fatalf("the change applied before the kept one is %q", ev.Status)
+	}
+}
+
+// An Undo while a learning pass is still changing the same skill: the
+// worker reports the pass's change before its reply and names its ledger
+// entry in superseded. The change is marked undone whether its event is
+// recorded before the reply is handled or after (it waits in the worker's
+// dispatch queue), so it never shows an Undo that would bring the skill
+// back (review round 4).
+func TestIntegrationUndoMarksTheChangesTheWorkerNames(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	created := r.seed(a, map[string]any{"id": "u-c", "kind": "skill", "action": "created", "subject": "pantry", "status": "applied", "ledger_entry_id": "led-c"})
+	before := r.seed(a, map[string]any{"id": "u-1", "kind": "skill", "action": "patched", "subject": "pantry", "origin": "review", "status": "applied", "ledger_entry_id": "led-1"})
+	other := r.seed(a, map[string]any{"id": "u-o", "kind": "skill", "action": "patched", "subject": "meals", "status": "applied", "ledger_entry_id": "led-o"})
+	r.kit.LearningReply("learning.rollback", map[string]any{"ok": true, "superseded": []string{"led-1", "led-2"}})
+	if code, body, _ := r.call(a, http.MethodPost, "/agent/learning/events/"+created.ID+"/undo", nil); code != http.StatusOK {
+		t.Fatalf("undo: %d %v", code, body)
+	}
+	late := r.seed(a, map[string]any{"id": "u-2", "kind": "skill", "action": "patched", "subject": "pantry", "origin": "review", "status": "applied", "ledger_entry_id": "led-2"})
+	after := r.seed(a, map[string]any{"id": "u-3", "kind": "skill", "action": "patched", "subject": "pantry", "status": "applied", "ledger_entry_id": "led-3"})
+	for id, want := range map[string]string{created.ID: StatusUndone, before.ID: StatusUndone, late.ID: StatusUndone, other.ID: StatusApplied, after.ID: StatusApplied} {
+		if ev, _ := r.svc.find(context.Background(), a, id); ev.Status != want {
+			t.Fatalf("%s is %s, want %s", id, ev.Status, want)
+		}
+	}
+	if late.Status != StatusUndone {
+		t.Fatalf("the late event was published as %s", late.Status)
+	}
+	// Another account's event with the same ledger id is its own.
+	b := addUser(t, r.db)
+	if ev := r.seed(b, map[string]any{"id": "u-2", "kind": "skill", "action": "patched", "subject": "pantry", "status": "applied", "ledger_entry_id": "led-2"}); ev.Status != StatusApplied {
+		t.Fatalf("another account's event is %s", ev.Status)
+	}
+}
+
 // Turning learning off (or on) reaches a running worker at once: its
 // config renders curator.enabled from the switch, and the curator would
 // otherwise keep marking learned skills stale until the worker restarts.

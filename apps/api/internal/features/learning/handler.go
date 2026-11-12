@@ -263,7 +263,7 @@ func (s *Service) undo(c *echo.Context) error {
 	ev.Status = StatusUndone
 	s.publishEvent(uid, ev)
 	if ev.Kind == KindSkill {
-		s.supersede(ctx, uid, ev)
+		s.supersede(ctx, uid, ev, data)
 		s.keepRestoredOff(ctx, uid, data)
 	} else {
 		s.supersedeMemory(ctx, uid, ev.Kind, ev.After, ev.ID)
@@ -291,14 +291,36 @@ func (s *Service) keepRestoredOff(ctx context.Context, uid string, data json.Raw
 }
 
 // supersede marks the later changes to the same skill undone too: the
-// rollback writes the skill back to what it was before ev, so an edit made
-// after it (the person's or Timely's) is gone with it.
-func (s *Service) supersede(ctx context.Context, uid string, ev Event) {
+// rollback writes the skill back to what it was before ev, so a change that
+// reached the skill after it (the person's or Timely's) is gone with it.
+// The worker's reply names them (superseded: ledger ids in ledger order,
+// the order changes reached the home); those whose events are still on
+// their way are noted so they arrive undone. A reply without the list (an
+// older worker) falls back to when each change was applied.
+func (s *Service) supersede(ctx context.Context, uid string, ev Event, data json.RawMessage) {
+	var reply struct {
+		Superseded *[]string `json:"superseded"`
+	}
+	_ = json.Unmarshal(data, &reply)
+	q := s.db.WithContext(ctx).Where("user_id = ? AND kind = ? AND status IN ? AND id <> ?",
+		uid, KindSkill, []string{StatusApplied, StatusKept}, ev.ID)
+	if reply.Superseded != nil {
+		ids := *reply.Superseded
+		if len(ids) == 0 {
+			return
+		}
+		s.markSuperseded(uid, ids)
+		q = q.Where("ledger_entry_id IN ?", ids)
+	} else {
+		at := ev.CreatedAt
+		if ev.AppliedAt != nil {
+			at = *ev.AppliedAt
+		}
+		q = q.Where("subject = ? AND COALESCE(applied_at, created_at) > ?", ev.Subject, at)
+	}
 	var later []Event
-	if err := s.db.WithContext(ctx).
-		Where("user_id = ? AND kind = ? AND subject = ? AND status IN ? AND created_at > ? AND id <> ?",
-			uid, KindSkill, ev.Subject, []string{StatusApplied, StatusKept}, ev.CreatedAt, ev.ID).
-		Find(&later).Error; err != nil {
+	if err := q.Find(&later).Error; err != nil {
+		s.logf("learning: superseding later skill changes: %v", err)
 		return
 	}
 	for _, l := range later {
@@ -740,12 +762,16 @@ func (s *Service) keptAsApplied(ctx context.Context, uid string, ev *Event, data
 	if last.Before != "" || last.After != "" {
 		ev.Before, ev.After = last.Before, last.After
 	}
+	// Kept now: the change reaches the home after every change recorded
+	// while it waited, so it is later than they are for Undo.
+	now := time.Now()
+	ev.AppliedAt = &now
 	if err := s.db.WithContext(ctx).Model(&Event{}).Where("id = ? AND user_id = ?", ev.ID, uid).
-		Updates(map[string]any{"ledger_entry_id": ev.LedgerEntryID, "before": ev.Before, "after": ev.After, "updated_at": time.Now()}).Error; err != nil {
+		Updates(map[string]any{"ledger_entry_id": ev.LedgerEntryID, "before": ev.Before, "after": ev.After, "applied_at": now, "updated_at": now}).Error; err != nil {
 		s.logf("learning: a kept change's history entry: %v", err)
 	}
 	for _, extra := range applied[:len(applied)-1] {
-		extra.ID, extra.UserID, extra.Status, extra.PendingID = "lev_"+uuid.NewString(), uid, StatusKept, ev.PendingID
+		extra.ID, extra.UserID, extra.Status, extra.PendingID, extra.AppliedAt = "lev_"+uuid.NewString(), uid, StatusKept, ev.PendingID, &now
 		if extra.ConversationID == "" {
 			extra.ConversationID = ev.ConversationID
 		}
