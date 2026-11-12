@@ -180,8 +180,9 @@ recommended answer to Q-5.2.
     run has read outside content. In chat, that rule stands: after the
     conversation has read the person's Timely data or another service's
     results, an MCP call the model picks becomes a card with every argument
-    shown, which the gate enforces from what the run has read (the plan's chat
-    exfiltration rule, section 12, must cover MCP calls too). MCP tokens move
+    shown, which the gate enforces from what the run has read (phase 5; the
+    owner's Q-3.9 removed the plan's chat exfiltration rule for web reads only,
+    not this MCP rule). MCP tokens move
     from the Secure Store's `TIMELY_VAULT_KEY` to `agent_secrets`, sealed like
     provider keys, and sit as plaintext files in the agent home while a worker
     runs, where an approved host command can read them; they are never backed

@@ -119,12 +119,24 @@ deleting the account deletes the agent home.
   Compare, Keep mine and Use new shows when the shipped skill changes.
 - **Q-3.8** Web search without a search key uses the chat provider's own search
   through Timely's web backend; a search key saved in Settings overrides it.
-  Searches and pages are taint. In a tainted chat the agent may not open a
-  site the person did not name or a clean search (one made before the chat
-  read outside content) did not return, opens an allowed page only as it was
-  given (review round 8: another spelling could carry data), nor search with
-  the person's own data; until host approvals exist (phase 5) such a call is
-  blocked with "Paste the link yourself if you want me to open it."
+  Searches and pages are taint.
+- **Q-3.9** (2026-11-12, replaces the chat exfiltration rule this ADR first
+  recorded under Q-3.8) Web reads are handled the way Hermes handles them:
+  Timely puts no rule of its own on where `web_search` or `web_extract` may go
+  after a chat read outside content. Eight review rounds kept finding new ways
+  around the pattern-matching rule (spellings, encodings, planted search
+  results, the provider's own search), so the owner chose Hermes' handling,
+  kept fully on and tested on every web path Timely uses (its own backend
+  through Go, the keyed backends, CLI providers through the gateway): results
+  wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
+  token refused, the private-address (SSRF) floor and website blocklist, and
+  the strict threat scan on memory and skill writes. Timely's results that
+  quote outside text (Bot answers and findings, notifications, past-chat hits
+  from a tainted chat) reach the model marked the same way. What does not
+  change: taint still holds every later proposal for review and stages
+  learning, and Bot fetches keep their own guard. The residual risk, that an
+  injected page has the model put the person's data in a link or a query,
+  is accepted.
 
 ## Considered Options
 
