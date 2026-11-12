@@ -921,7 +921,7 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 			return false
 		}
 		if line, ok := outputRisk(r.id, ev); ok {
-			log.Printf("%s", line)
+			e.opts.Logf("%s", line)
 		}
 		changed, delta := r.live.event(ev, time.Now().UTC())
 		if delta != nil {

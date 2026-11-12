@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -51,11 +52,12 @@ func testModel(context.Context, string, string, string) (any, error) {
 	return map[string]any{"provider": "custom", "model": "stub-model", "base_url": "http://127.0.0.1:9/v1", "api_key": "sk-test", "api_mode": "chat_completions"}, nil
 }
 
-// guardedLog logs through the test until it has ended.
+// guardedLog logs through the test until it has ended, and keeps each line.
 type guardedLog struct {
-	mu   sync.Mutex
-	t    *testing.T
-	done bool
+	mu    sync.Mutex
+	t     *testing.T
+	done  bool
+	lines []string
 }
 
 func newGuardedLog(t *testing.T) *guardedLog {
@@ -67,9 +69,17 @@ func newGuardedLog(t *testing.T) *guardedLog {
 func (l *guardedLog) logf(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(format, args...))
 	if !l.done {
 		l.t.Logf(format, args...)
 	}
+}
+
+// logged is the lines logged so far.
+func (l *guardedLog) logged() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.lines)
 }
 
 type engineHarness struct {
@@ -79,6 +89,7 @@ type engineHarness struct {
 	e   *WorkerEngine
 	kit *agenthosttest.Kit
 	hub *realtime.Hub
+	log *guardedLog
 }
 
 // newEngineHarness starts two chat lanes and the agent engine on the fake
@@ -127,7 +138,7 @@ func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context
 		_ = e.Shutdown(stop)
 		hub.Close()
 	})
-	return &engineHarness{t: t, db: db, s: s, e: e, hub: hub}
+	return &engineHarness{t: t, db: db, s: s, e: e, hub: hub, log: logs}
 }
 
 // lines is a JSONL fixture of objects.
@@ -488,6 +499,35 @@ func TestIntegrationAgentEngineOutsideReadHoldsADirectProposal(t *testing.T) {
 	h.wait(c.ID, "applied", statusIs("idle"))
 	if items(h.db) != 1 {
 		t.Fatalf("%d items after Approve", items(h.db))
+	}
+}
+
+// Hermes' threat scan of an untrusted result reaches Go as a
+// tool.output_risk event: the engine logs it and the activity stays as it
+// was, so the person sees no scan line.
+func TestIntegrationAgentEngineLogsTheThreatScan(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Summarize news.example", "supervised", "output-risk", lines(
+		toolStarted("call_w", "web_extract"),
+		obj{"type": "event", "kind": "tool.output_risk", "payload": obj{"tool_call_id": "call_w", "tool": "web_extract", "risk": "high", "findings": []string{"prompt_injection"}}},
+		obj{"type": "event", "kind": "tool.completed", "payload": obj{"tool_call_id": "call_w", "tool": "web_extract", "result": "{}"}},
+		reply("Reading", 0),
+		pause(2500),
+		reply(" done: the page is news.", 0),
+	))
+	mid := h.wait(c.ID, "showed its activity", func(c Conversation) bool { return c.Activity.Draft == "Reading" })
+	if len(mid.Activity.Lines) != 1 || mid.Activity.Lines[0].ID != "call_w" || mid.Activity.Lines[0].Kind != "tool" {
+		t.Errorf("the activity shows more than the web read: %+v", mid.Activity.Lines)
+	}
+	h.wait(c.ID, "replied", statusIs("idle"))
+	found := false
+	for _, line := range h.log.logged() {
+		if strings.Contains(line, "Hermes flagged the web_extract result call_w as high risk (prompt_injection)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the scan finding was not logged: %q", h.log.logged())
 	}
 }
 
