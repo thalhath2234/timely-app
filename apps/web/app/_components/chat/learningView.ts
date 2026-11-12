@@ -203,7 +203,10 @@ export function skillOrigin(
   given?: { origin?: string; conversation_id?: string },
 ): SkillOrigin | null {
   if (given?.origin) {
-    return { label: ORIGIN_WORDS[given.origin] ?? "Learned", conversationId: given.conversation_id ?? "" };
+    return {
+      label: ORIGIN_WORDS[given.origin] ?? "Learned",
+      conversationId: given.conversation_id ?? "",
+    };
   }
   const mine = events
     .filter((ev) => ev.kind === "skill" && ev.subject === name)

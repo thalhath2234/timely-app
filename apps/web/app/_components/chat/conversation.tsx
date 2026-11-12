@@ -612,7 +612,10 @@ export default function Conversation({
                 data-testid="no-learning-note"
                 className="mx-auto mb-5 flex w-fit max-w-full items-start gap-2 rounded-xl border border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:items-center sm:rounded-full sm:py-1"
               >
-                <BookX aria-hidden className="mt-px size-3.5 shrink-0 sm:mt-0" />
+                <BookX
+                  aria-hidden
+                  className="mt-px size-3.5 shrink-0 sm:mt-0"
+                />
                 <span className="min-w-0">{NO_LEARNING_NOTE}</span>
                 <button
                   type="button"
