@@ -132,11 +132,17 @@ deleting the account deletes the agent home.
   a stand-in for the vendor's SDK): results
   wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
   token refused, the private-address (SSRF) floor (Hermes' website blocklist
-  is opt-in and Timely sets none, so nothing verifies it; owner to confirm),
+  is opt-in and Timely sets none, so nothing verifies it; owner to confirm;
+  also owner to confirm: the after-taint path rule for `preview_bot`, a bot's
+  page fetch before approval, was not restored, though Q-3.9 lifts the rule
+  only for the web tools),
   and the strict threat scan on memory and
   skill writes. Timely's results that
   quote outside text (Bot answers, findings and last readings, notifications, past-chat hits
-  from a tainted chat) reach the model marked the same way. What does not
+  from a tainted chat) reach the model marked the same way, on Classic too,
+  where Go wraps its `web_search` answers and outside reads in Hermes' block
+  (Classic has no threat scan), and a search query carrying a key or token
+  is refused on both engines. What does not
   change: taint still holds every later proposal for review and stages
   learning, and Bot fetches keep their own guard. The residual risk, that an
   injected page has the model put the person's data in a link or a query,
