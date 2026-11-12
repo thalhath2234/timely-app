@@ -84,6 +84,13 @@ TIMELY_SEAMS = [
     ("untrusted result wrapper", "agent/tool_dispatch_helpers.py", "_maybe_wrap_untrusted"),
     ("tool result message (wrap and risk scan)", "agent/tool_dispatch_helpers.py", "make_tool_result_message"),
     ("advisory threat scan of untrusted output", "agent/tool_dispatch_helpers.py", "_tool_output_risk_metadata"),
+    # The scan's finding leaves only through tool_progress_callback (run_chat forwards it to Go)
+    ("threat scan finding: tool.output_risk projection", "agent/tool_executor.py", "_emit_tool_complete_and_risk"),
+    # untrusted.mark cuts a Timely block to the result limit so the oversized-result preview keeps it whole
+    ("tool result limit for the agent's model", "agent/tool_executor.py", "_budget_for_agent"),
+    ("oversized tool result preview", "tools/tool_result_storage.py", "maybe_persist_tool_result"),
+    # Go copies these prefixes for preview_bot (chat/secret_url.go; a Go test compares the list)
+    ("secret prefixes (web_extract secret-URL block)", "agent/redact.py", "module:_PREFIX_PATTERNS"),
     ("web_extract secret-URL block", "tools/web_tools_extract.py", "_validate_extract_urls"),
     ("web_extract entry (validation before the backend)", "tools/web_tools.py", "web_extract_tool"),
     ("url safety: is_safe_url", "tools/url_safety.py", "is_safe_url"),
@@ -135,8 +142,6 @@ TIMELY_SEAMS = [
     ("skill ledger: rollback_entry", "tools/skill_ledger.py", "rollback_entry"),
     ("skills: per-skill mutation lock (Undo waits for a write's ledger entry)", "tools/skill_manager_tool.py",
      "_skill_mutation_lock"),
-    ("messages: a stored message_uid is kept (seeded rows marked for the exfiltration rule)",
-     "agent/message_metadata.py", "stamp_message_uid"),
     ("skill ledger: actor", "tools/skill_ledger.py", "derive_actor"),
     ("skill ledger: file path", "tools/skill_ledger.py", "ledger_path"),
     ("skill ledger: blobs dir", "tools/skill_ledger.py", "blobs_dir"),
