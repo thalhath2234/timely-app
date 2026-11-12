@@ -52,10 +52,13 @@ import { buttonClass } from "@/app/_components/_ui/button";
 import { useAgentProviders } from "@/app/utils/hooks/agentProviders";
 import { readyProviders } from "./modelMenu";
 import { LiveReply, RunActivity, planShownByAutoCard } from "./agentRun";
-import { useChatLearning, useLearningSettings } from "@/app/utils/hooks/learning";
+import {
+  useChatLearning,
+  useLearningSettings,
+} from "@/app/utils/hooks/learning";
 import ChatMenu from "./chatMenu";
 import { NO_LEARNING_NOTE } from "@timely/contract/agentLearning";
-import { learnsInChat } from "./learningView";
+import { learningFollowed, learnsInChat } from "./learningView";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -157,9 +160,11 @@ export default function Conversation({
     chat?.permission ?? permissionChoice ?? defaultMode;
   const liveReply = useReplyDraft(chat);
   // Each agent turn's chip and Keep / Discard card; only chats the agent wrote in have any.
+  // A run that was stopped or failed may have learned with no reply that
+  // carries its run, so a chat on the New engine always asks.
   const learning = useChatLearning(
     chat?.id ?? "",
-    Boolean(chat?.messages?.some((m) => m.agentRun)),
+    learningFollowed(chat, settings?.engine),
   );
   const learns = learnsInChat(chat, settings?.engine);
   // "Don't learn from this chat" only means something while learning is on

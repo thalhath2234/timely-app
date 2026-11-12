@@ -13,6 +13,8 @@ import {
   learnedHref,
   learningAnchors,
   learnsInChat,
+  looseLearning,
+  learningFollowed,
   skillOrigin,
   turnLearning,
   webSearchLine,
@@ -382,6 +384,28 @@ describe("what a chat shows of what the agent learned", () => {
     const none = turnLearning(events, "run_3");
     assert.equal(none.chip, null);
     assert.equal(none.card, null);
+  });
+
+  test("a stopped or failed run's changes show at the end of the chat", () => {
+    // stop() leaves a cut reply and a Stopped notice with no agentRun; the run still learned.
+    const messages = [{ id: "u1" }, { id: "a1", agentRun: "run_1" }, { id: "u2" }, { id: "cut", cut: true }, { id: "n1", kind: "notice" }];
+    const events = [
+      lev({}),
+      lev({ runId: "run_stopped", kind: "user", subject: "user", action: "added", after: "Likes tea" }),
+      lev({ runId: "run_stopped", status: "staged", pendingId: "pend_9", subject: "tea-order", action: "created" }),
+    ];
+    const loose = looseLearning(events, messages);
+    assert.equal(loose.chip.label, "Learned: About you added");
+    assert.equal(loose.card.items[0].pendingId, "pend_9");
+    assert.deepEqual(looseLearning(events.slice(0, 1), messages), { chip: null, card: null });
+    assert.deepEqual(looseLearning(undefined, messages), { chip: null, card: null });
+  });
+
+  test("a chat on the New engine follows its learning before any reply carries a run", () => {
+    assert.equal(learningFollowed({ engine: "agent", messages: [{ id: "u1" }] }, "classic"), true);
+    assert.equal(learningFollowed({ engine: "classic", messages: [{ id: "a1", agentRun: "run_1" }] }, "classic"), true);
+    assert.equal(learningFollowed({ engine: "classic", messages: [{ id: "a1" }] }, "agent"), false);
+    assert.equal(learningFollowed(undefined, "agent"), false);
   });
 
   test("once every change is undone, the chip says Undone with no buttons", () => {

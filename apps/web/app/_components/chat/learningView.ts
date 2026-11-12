@@ -41,6 +41,41 @@ export function turnLearning(
   return { chip: learningChip(turn), card: pendingCard(turn) };
 }
 
+/**
+ * Changes of this chat whose run wrote no message here (a run that was
+ * stopped or failed leaves a cut reply and a notice without its run, or no
+ * reply at all): shown at the end of the chat, as on the phone
+ * (looseLearning in apps/mobile/lib/chat/learning.ts).
+ */
+export function looseLearning(
+  events: LearningEvent[] | undefined,
+  messages: readonly { agentRun?: string }[] | undefined,
+): { chip: LearningChip | null; card: PendingCard | null } {
+  const runs = new Set((messages ?? []).map((m) => m.agentRun).filter(Boolean));
+  const loose = (events ?? [])
+    .filter((ev) => !ev.runId || !runs.has(ev.runId))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return { chip: learningChip(loose), card: pendingCard(loose) };
+}
+
+/** Whether a chat asks for its learning events: it runs on the New engine, or a reply came from it. */
+export function learningFollowed(
+  chat:
+    | {
+        engine?: string;
+        runEngine?: string;
+        messages?: readonly { agentRun?: string }[];
+      }
+    | undefined,
+  accountEngine: string | undefined,
+): boolean {
+  if (!chat) return false;
+  return (
+    learnsInChat(chat, accountEngine) ||
+    !!chat.messages?.some((m) => m.agentRun)
+  );
+}
+
 /** Where View opens a change: the skill, About you or Notes in Settings. */
 export function learnedHref(view: {
   kind: LearningKind;

@@ -24,7 +24,7 @@ import { timeOfDay } from "./chatMeta";
 import { AutoAppliedCard, autoCardArchives } from "./agentRun";
 import type { LearningEvent } from "@timely/contract/agentLearning";
 import TurnLearning from "./turnLearning";
-import { learningAnchors, turnLearning } from "./learningView";
+import { learningAnchors, looseLearning, turnLearning } from "./learningView";
 
 function NoticeIcon({ content }: { content: string }) {
   const className = "size-3.5 shrink-0";
@@ -198,13 +198,15 @@ export default function MessageList({
   // Each agent turn's learning shows after the last message that turn
   // wrote; a turn that learned nothing to show takes no space.
   const anchors = new Map(
-    [...(learning?.length ? learningAnchors(chat.messages) : [])].filter(
-      ([, run]) => {
-        const turn = turnLearning(learning ?? [], run);
-        return turn.chip || turn.card;
-      },
-    ),
+    [...(learning?.length ? learningAnchors(chat.messages) : [])]
+      .map(
+        ([index, run]) => [index, turnLearning(learning ?? [], run)] as const,
+      )
+      .filter(([, turn]) => turn.chip || turn.card),
   );
+  // A run that was stopped or failed wrote no reply to show its learning
+  // under: what it learned goes at the end, as on the phone.
+  const loose = looseLearning(learning, chat.messages);
   const last = chat.messages?.[chat.messages.length - 1];
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
   const newest = chat.messages?.findLast(
@@ -334,16 +336,17 @@ export default function MessageList({
                     "pl-10",
                 )}
               >
-                <TurnLearning
-                  events={learning}
-                  runId={anchors.get(index) ?? ""}
-                  onLeave={onLeave}
-                />
+                <TurnLearning turn={anchors.get(index)!} onLeave={onLeave} />
               </div>
             )}
           </div>
         );
       })}
+      {(loose.chip || loose.card) && (
+        <div className="pl-10" data-testid="loose-learning">
+          <TurnLearning turn={loose} onLeave={onLeave} />
+        </div>
+      )}
     </div>
   );
 }

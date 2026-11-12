@@ -5,7 +5,6 @@ import { ChevronRight, Lightbulb, Undo2 } from "lucide-react";
 import {
   chipUndoAlso,
   type LearningChip,
-  type LearningEvent,
   type PendingCard,
 } from "@timely/contract/agentLearning";
 import Button from "@/app/_components/_ui/button";
@@ -20,7 +19,7 @@ import {
   useUndoLearning,
 } from "@/app/utils/hooks/learning";
 import DiffView from "./diffView";
-import { learnedHref, turnLearning } from "./learningView";
+import { learnedHref } from "./learningView";
 
 /**
  * What one agent turn learned (plan 9b.4, Q-3.1), after its reply: the
@@ -29,16 +28,15 @@ import { learnedHref, turnLearning } from "./learningView";
  * outside content or a bot wrote it, the "Keep what Timely learned?" card.
  */
 export default function TurnLearning({
-  events,
-  runId,
+  turn,
   onLeave,
 }: {
-  events: LearningEvent[];
-  runId: string;
+  /** The turn's chip and card (turnLearning, or looseLearning for a run that wrote no reply). */
+  turn: { chip: LearningChip | null; card: PendingCard | null };
   /** Called before View leaves the chat (the overlay closes). */
   onLeave?: () => void;
 }) {
-  const { chip, card } = turnLearning(events, runId);
+  const { chip, card } = turn;
   if (!chip && !card) return null;
   return (
     <div className="flex flex-col gap-2.5" data-testid="turn-learning">
@@ -105,49 +103,58 @@ function Chip({ chip, onLeave }: { chip: LearningChip; onLeave?: () => void }) {
           undone && "pr-2.5",
         )}
       >
-        {undone ? (
-          <Undo2
-            aria-hidden
-            className="size-3.5 shrink-0 text-muted-foreground"
-          />
-        ) : (
-          <Lightbulb aria-hidden className="size-3.5 shrink-0 text-primary" />
-        )}
-        <span
-          className={cn(
-            "min-w-0 py-0.5 font-medium",
-            undone ? "text-muted-foreground" : "text-foreground",
+        {/* The icon stays with the label; the note and the actions wrap
+            as one group, so a narrow chat keeps one compact chip. */}
+        <span className="inline-flex min-w-0 items-start gap-1">
+          {undone ? (
+            <Undo2
+              aria-hidden
+              className="mt-[3px] size-3.5 shrink-0 text-muted-foreground"
+            />
+          ) : (
+            <Lightbulb
+              aria-hidden
+              className="mt-[3px] size-3.5 shrink-0 text-primary"
+            />
           )}
-        >
-          {chip.label}
-        </span>
-        {chip.note && (
-          <span className="text-muted-foreground">· {chip.note}</span>
-        )}
-        {chip.view && (
-          <Link
-            href={learnedHref(chip.view)}
-            onClick={onLeave}
-            className={textButton}
-          >
-            View
-          </Link>
-        )}
-        {chip.actions.includes("Undo") && (
-          <button
-            type="button"
-            disabled={undo.isPending || checking}
-            onClick={() => void askUndo()}
-            aria-label={`Undo: ${chip.label}`}
-            className={textButton}
-          >
-            {undo.isPending || checking ? (
-              <LogoSpinner size={12} tone="mono" label="Undoing" />
-            ) : (
-              "Undo"
+          <span
+            className={cn(
+              "min-w-0 py-0.5 font-medium",
+              undone ? "text-muted-foreground" : "text-foreground",
             )}
-          </button>
-        )}
+          >
+            {chip.label}
+          </span>
+        </span>
+        <span className="inline-flex flex-wrap items-center gap-x-1">
+          {chip.note && (
+            <span className="text-muted-foreground">· {chip.note}</span>
+          )}
+          {chip.view && (
+            <Link
+              href={learnedHref(chip.view)}
+              onClick={onLeave}
+              className={textButton}
+            >
+              View
+            </Link>
+          )}
+          {chip.actions.includes("Undo") && (
+            <button
+              type="button"
+              disabled={undo.isPending || checking}
+              onClick={() => void askUndo()}
+              aria-label={`Undo: ${chip.label}`}
+              className={textButton}
+            >
+              {undo.isPending || checking ? (
+                <LogoSpinner size={12} tone="mono" label="Undoing" />
+              ) : (
+                "Undo"
+              )}
+            </button>
+          )}
+        </span>
       </div>
       {error && (
         <p role="alert" className="pl-1 text-xs text-destructive">
