@@ -148,11 +148,12 @@ func TestTaintedSearchEchoIsNotAResult(t *testing.T) {
 }
 
 // person_hosts are the sites the person typed (any spelling of a link or a
-// bare name) and the sites their bots read, each once.
+// bare name) and the sites their bots read, each once; a site typed with
+// "www." is listed with it too (after taint its front page opens as typed).
 func TestFetchGuardHosts(t *testing.T) {
 	g := &fetchGuard{typed: strings.ToLower("Look at https://www.Shop.example.org/p?x=1, news.example.com and NEWS.example.com.\nnot a host: v1.2"), known: map[string]bool{"https://feeds.example.net/rss": true}}
 	got := g.hosts()
-	want := []string{"feeds.example.net", "news.example.com", "shop.example.org"}
+	want := []string{"feeds.example.net", "news.example.com", "shop.example.org", "www.shop.example.org"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("hosts %v, want %v", got, want)
 	}
@@ -182,6 +183,7 @@ func TestWebRunMayOpen(t *testing.T) {
 		"https://typed.example.com":                      true,
 		"https://typed.example.com/?q=mine":              true,
 		"https://typed.example.com/docs/intro":           true,
+		"https://typed.example.com/docs":                 true,
 		"https://typed.example.com/page":                 false,
 		"https://typed.example.com/log/ivf-consult-okon": false,
 		"https://typed.example.com/?q=secret":            false,
@@ -195,6 +197,90 @@ func TestWebRunMayOpen(t *testing.T) {
 		if got := w.mayOpen(g, link); got != want {
 			t.Errorf("mayOpen(%s) = %v, want %v", link, got, want)
 		}
+	}
+}
+
+// Review round 8 (BLOCK): after taint an allowed address opens only as it
+// was given. Another spelling (the letter case of the host or path, a
+// trailing dot, an empty "?", http, "www.", a port) reaches the server as
+// written, so a run of front-page reads could spell out the person's data
+// a bit per letter. A prefix of a typed link that is not a folder, and a
+// query made of the person's own words, do not open either (MINOR).
+func TestWebRunMayOpenOnlyTheGivenSpelling(t *testing.T) {
+	g := &fetchGuard{
+		words: "please read https://shop.example/Getting-Started-Guide and http://old.example/a?id=7. my pin is 4051",
+		known: map[string]bool{"https://Bot.example.org/Feed": true},
+	}
+	g.typed = strings.ToLower(g.words)
+	var w webRun
+	w.seen("https://ramen.attacker.example/best-ramen")
+	w.seen("https://www.found.example/x")
+	for link, want := range map[string]bool{
+		"https://ramen.attacker.example/best-ramen":   true,
+		"https://ramen.attacker.example/":             true,
+		"https://ramen.attacker.example":              true,
+		"https://RaMeN.attacker.example/":             false,
+		"https://ramen.attacker.example./":            false,
+		"https://ramen.attacker.example/?":            false,
+		"https://ramen.attacker.example/#":            false,
+		"http://ramen.attacker.example/":              false,
+		"https://www.ramen.attacker.example/":         false,
+		"https://ramen.attacker.example:443/":         false,
+		"https://ramen.attacker.example/Best-Ramen":   false,
+		"HTTPS://ramen.attacker.example/":             false,
+		"https://www.found.example/":                  true,
+		"https://found.example/":                      true,
+		"https://shop.example/Getting-Started-Guide":  true,
+		"https://shop.example/getting-started-guide":  false,
+		"https://shop.example/GeTTing-STARTED-guide":  false,
+		"https://Shop.Example/Getting-Started-Guide":  false,
+		"https://shop.example/Getting-Started":        false,
+		"https://shop.example/?4051":                  false,
+		"http://shop.example/Getting-Started-Guide":   false,
+		"http://old.example/a?id=7":                   true,
+		"http://old.example/a":                        true,
+		"https://old.example/a?id=7":                  false,
+		"http://old.example/a?id=7&d=4051":            false,
+		"https://Bot.example.org/Feed":                true,
+		"https://bot.example.org/feed":                false,
+	} {
+		if got := w.mayOpen(g, link); got != want {
+			t.Errorf("mayOpen(%s) = %v, want %v", link, got, want)
+		}
+	}
+}
+
+// After taint a page the run already read is not fetched again: how often
+// it is opened would reach its server.
+func TestWebExtractAfterTaintReadsAPageOnce(t *testing.T) {
+	var fetched []string
+	run := &toolRun{reads: map[string]string{}, web: webRun{on: true, fetch: func(_ context.Context, link string) (Page, error) {
+		fetched = append(fetched, link)
+		return Page{URL: link, Title: "Ramen", Content: "best ramen"}, nil
+	}}}
+	run.web.seen("https://ramen.attacker.example/best-ramen")
+	s := &Service{}
+	c := &Conversation{}
+	args := json.RawMessage(`{"urls":["https://ramen.attacker.example/best-ramen"]}`)
+	if _, _, err := s.webExtract(context.Background(), c, run, args); err != nil {
+		t.Fatal(err)
+	}
+	if !run.tainted() {
+		t.Fatal("reading a page left the run clean")
+	}
+	for range 3 {
+		got, _, err := s.webExtract(context.Background(), c, run, args)
+		if err != nil || !strings.Contains(fmt.Sprint(got), "best ramen") {
+			t.Fatalf("%v %v", got, err)
+		}
+	}
+	for _, front := range []string{"https://ramen.attacker.example", "https://ramen.attacker.example/"} {
+		if _, _, err := s.webExtract(context.Background(), c, run, json.RawMessage(`{"urls":["`+front+`"]}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []string{"https://ramen.attacker.example/best-ramen", "https://ramen.attacker.example"}; !slices.Equal(fetched, want) {
+		t.Fatalf("fetched %q, want %q", fetched, want)
 	}
 }
 

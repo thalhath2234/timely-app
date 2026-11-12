@@ -18,7 +18,8 @@ const fetchRefusal = "Timely only reads an address before approval when the pers
 // query strings they typed, and the addresses their bots already read.
 type fetchGuard struct {
 	typed string          // the person's own messages, lower case
-	known map[string]bool // addresses the person's bots read
+	words string          // the same messages as written (the case of a typed link's path)
+	known map[string]bool // addresses the person's bots read, as written
 	// run, when set, is the run the read is for: once outside text reached
 	// it, only the pages its web rule opens (webRun.mayOpen) are read.
 	run *toolRun
@@ -41,13 +42,14 @@ func (s *Service) fetchGuard(ctx context.Context, c *Conversation) *fetchGuard {
 			typed = append(typed, m.Content)
 		}
 	}
-	g.typed = strings.ToLower(strings.Join(typed, "\n"))
+	g.words = strings.Join(typed, "\n")
+	g.typed = strings.ToLower(g.words)
 	if s.db != nil {
 		var urls []string
 		// No table yet (a test schema without Bots) only means no bots.
 		if s.db.WithContext(ctx).Raw(`SELECT url FROM bot_watches WHERE user_id = ? AND url <> ''`, c.UserID).Scan(&urls).Error == nil {
 			for _, u := range urls {
-				g.known[strings.ToLower(u)] = true
+				g.known[u] = true
 			}
 		}
 	}
@@ -74,7 +76,7 @@ func (g *fetchGuard) allows(watches json.RawMessage) bool {
 
 func (g *fetchGuard) allowsURL(raw string) bool {
 	raw = strings.TrimSpace(raw)
-	if g.known[strings.ToLower(raw)] {
+	if g.knows(raw) {
 		return true
 	}
 	u, err := url.Parse(raw)
@@ -91,6 +93,26 @@ func (g *fetchGuard) allowsURL(raw string) bool {
 		return false
 	}
 	return g.run == nil || !g.run.tainted() || g.run.web.mayOpen(g, raw)
+}
+
+// knows is whether one of the person's bots reads raw, in any letter case
+// (before taint, the case of an address carries nothing of theirs).
+func (g *fetchGuard) knows(raw string) bool {
+	for link := range g.known {
+		if strings.EqualFold(link, raw) {
+			return true
+		}
+	}
+	return false
+}
+
+// written is the person's words as written; a guard built without them (a
+// test) has only the lower-case copy.
+func (g *fetchGuard) written() string {
+	if g.words != "" {
+		return g.words
+	}
+	return g.typed
 }
 
 // typedHost is whether host appears in the person's words as a whole name:

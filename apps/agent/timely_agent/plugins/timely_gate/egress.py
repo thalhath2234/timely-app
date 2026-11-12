@@ -19,11 +19,14 @@ through the web tools. So, in a tainted session only:
   rule (a user name, a backslash, white space, a percent escape in the host, a port other than the
   scheme's, a scheme other than http(s), or a host Hermes' ``normalize_url_for_request`` changes) is
   blocked: ``PAGE_BLOCKED``.
-- on an allowed host, a ``web_extract`` URL opens only when it is the site's front page (no path,
-  query or fragment), a link the person typed in this chat or their bots read
-  (``run.start.person_links``: the URL's host and path, with any query or fragment, start one of
-  them), or a URL a ``web_search`` returned word for word. Any other path or query could carry the
-  person's data, however short or encoded: ``PAGE_BLOCKED``. This is Go's ``webRun.mayOpen`` for the ``timely`` backend; here it
+- on an allowed host, a ``web_extract`` URL opens only when it is the site's front page
+  (``https://<host>/``, the host in lower case and spelled as the person or a search gave it), a
+  link the person typed in this chat as typed or cut before a ``/``, ``?`` or ``#``, a bot's
+  address word for word (``run.start.person_links``), or a URL a clean ``web_search`` returned
+  word for word (``opens_exactly``). Any other path or query could carry the person's data,
+  however short or encoded, and so could another spelling of an allowed address (review round 8):
+  the letter case of the host or path, a trailing dot, an empty ``?``, ``http``, ``www.`` or a
+  port reach the server as written, a bit per letter: ``PAGE_BLOCKED``. This is Go's ``webRun.mayOpen`` for the ``timely`` backend; here it
   holds for every backend, so a saved search key (Exa, Firecrawl, Parallel), whose page reads Go
   never sees, keeps the same rule.
 - a ``web_search`` whose query carries text (as written, or base64, hex or percent encoded) from a Timely read, from memory (``MEMORY.md``,
@@ -97,7 +100,8 @@ PASTE_LINK = "Paste the link yourself if you want me to open it."
 EXTRACT_BLOCKED = ("Blocked: this chat has read outside content, and {host} is not a site the person named "
                    "or one a web search in this chat returned. " + PASTE_LINK)
 PAGE_BLOCKED = ("Blocked: this chat has read outside content, so Timely opens only a link the person gave, "
-                "one a web search in this chat returned, or a site's front page. " + PASTE_LINK)
+                "one a web search in this chat returned, or a site's front page (https://site/), each written "
+                "exactly as given. " + PASTE_LINK)
 SEARCH_BLOCKED = ("Blocked: this search would send text from the person's Timely data or memory to the web, "
                   "and this chat has read outside content. Search for it yourself. " + PASTE_LINK)
 SEARCH_HOST_BLOCKED = ("Blocked: this search names {host}, which is not a site the person named or one a web "
@@ -232,6 +236,76 @@ def person_page(url: str, links: Iterable[str]) -> bool:
                       or (("?" in key or "#" in key) and other.startswith(key))):
             return True
     return False
+
+
+_EXACT = re.compile(r"^(https?)://([^/?#]*)(.*)$", re.DOTALL)
+
+
+def exact_parts(url: str) -> Optional[tuple[str, str, str]]:
+    """``(scheme, host, rest)`` of an address written the one way a tainted chat opens it: ``http``
+    or ``https`` in lower case, a lower-case host without a trailing dot, port or user name, and
+    the rest (path, query, fragment) as written with no empty ``?`` or ``#``. None for any other
+    spelling: the letter case of a host, a trailing dot, an empty ``?`` or a port reach the server
+    as written, so each spelling of one allowed address could carry a bit of the person's data."""
+    m = _EXACT.match(url or "")
+    if not m:
+        return None
+    scheme, host, rest = m.groups()
+    if (not host or host != host.lower() or host.endswith(".") or any(c in host for c in ":@%\\[] \t")
+            or rest.endswith(("?", "#")) or "?#" in rest):
+        return None
+    return scheme, host, rest
+
+
+def _link_parts(link: str) -> Optional[tuple[str, str, str]]:
+    """A ``run.start.person_links`` entry as ``(scheme, host, rest)``: a typed link is written
+    without a scheme (https) or with ``http://`` when the person wrote it; a bot's address in
+    full. The host compares in lower case, the rest as written."""
+    link = (link or "").strip()
+    scheme = "https"
+    m = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*)://", link)
+    if m:
+        scheme, link = m.group(1).lower(), link[m.end():]
+    cut = re.search(r"[/?#]", link)
+    host, rest = (link[:cut.start()], link[cut.start():]) if cut else (link, "")
+    host = host.lower().rstrip(".")
+    return (scheme, host, rest) if host else None
+
+
+def opens_exactly(url: str, *, hosts: set[str], spellings: set[str], search_urls: set[str],
+                  links: Iterable[str]) -> bool:
+    """Whether a tainted chat opens ``url`` as written (review round 8): a clean search's row or a
+    bot's address word for word; the front page of an allowed site as ``https://<host>/`` (or
+    without the ``/``), its host spelled as the person or a search gave it; or a link the person
+    typed, as typed, or cut just before a ``/``, ``?`` or ``#`` (a folder, or the page without its
+    query)."""
+    links = [str(link) for link in links if isinstance(link, str)]
+    if url in search_urls or url in links:
+        return True
+    parts = exact_parts(url)
+    if not parts:
+        return False
+    scheme, host, rest = parts
+    if norm_host(host) not in hosts:
+        return False
+    if rest in ("", "/"):
+        return scheme == "https" and (host == norm_host(host) or host in spellings)
+    for link in links:
+        other = _link_parts(link)
+        if (other and other[0] == scheme and other[1] == host and other[2].startswith(rest)
+                and (len(rest) == len(other[2]) or other[2][len(rest)] in "/?#")):
+            return True
+    return False
+
+
+def spellings_of(urls: Iterable[str]) -> set[str]:
+    """The hosts of these addresses as they spell them (lower case, any ``www.`` kept)."""
+    out = set()
+    for url in urls:
+        parts = _link_parts(url) if isinstance(url, str) else None
+        if parts:
+            out.add(parts[1])
+    return out
 
 
 def search_rows(result: Any) -> list[str]:
@@ -764,12 +838,14 @@ def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], 
     else:
         return None
     seen_urls = rec.search_urls
+    spellings = ({h.strip().lower().rstrip(".") for h in person_hosts if isinstance(h, str)}
+                 | spellings_of(seen_urls) | spellings_of(links))
     for url in urls:
         if unsafe_url(url) or not same_page(url):
             return PAGE_BLOCKED
         host = url_host(url)
         if not host or host not in allowed:
             return EXTRACT_BLOCKED.format(host=host or "that address")
-        if url not in seen_urls and not front_page(url) and not person_page(url, links):
+        if not opens_exactly(url, hosts=allowed, spellings=spellings, search_urls=seen_urls, links=links):
             return PAGE_BLOCKED
     return None

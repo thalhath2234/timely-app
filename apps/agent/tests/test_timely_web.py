@@ -207,7 +207,7 @@ def test_clean_session_is_not_restricted():
 def test_extract_after_taint_needs_a_person_or_search_result_host():
     blocked = _check("web_extract", {"urls": ["https://attacker.example/?q=hello"]})
     assert blocked and egress.PASTE_LINK in blocked and "attacker.example" in blocked
-    assert _check("web_extract", {"urls": ["https://www.Shop.Example./deal"]}, person_hosts=["shop.example"],
+    assert _check("web_extract", {"urls": ["https://shop.example/deal"]}, person_hosts=["shop.example"],
                   person_links=["shop.example/deal"]) is None
     rec = _rec(search_hosts={"news.example"}, timely=[NOTES], urls={"https://news.example/a"})
     assert _check("web_extract", {"urls": [{"url": "https://news.example/a"}]}, rec=rec) is None
@@ -248,11 +248,12 @@ def test_extract_after_taint_front_page_typed_link_and_search_result_open():
     rec = _rec(search_hosts={"found.example"}, urls={"https://found.example/a?id=7"})
     links = ["typed.example/docs/intro", "typed.example/?q=mine", "https://bot.example/feed"]
     hosts = ["typed.example", "bot.example"]
-    for url in ("https://typed.example", "https://typed.example/", "https://www.typed.example/docs/intro",
+    for url in ("https://typed.example", "https://typed.example/", "https://typed.example/docs/intro",
                 "https://typed.example/docs", "https://typed.example/?q=mine", "https://bot.example/feed",
                 "https://found.example/a?id=7", "https://found.example/"):
         assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts, person_links=links) is None, url
     for url in ("https://typed.example/docs/intro/extra", "https://typed.example/docs-x", "https://typed.example/?q=other",
+                "https://www.typed.example/docs/intro", "https://typed.example/docs/",
                 "https://found.example/a?id=8", "https://found.example/b", "https://bot.example/feed/x"):
         assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts,
                       person_links=links) == egress.PAGE_BLOCKED, url
@@ -327,11 +328,44 @@ def test_extract_urls_a_fetcher_could_read_differently_are_blocked(url):
                             memory=(), browser_urls=lambda a: [a["url"]], person_links=links), url
 
 
-def test_extract_default_ports_and_spaced_scheme_still_open():
-    hosts, links = ["blog.example.com"], ["blog.example.com/post"]
-    for url in ("https://blog.example.com:443/", "http://blog.example.com:80/post", "https:// blog.example.com/post",
-                "//blog.example.com/", "blog.example.com/post"):
-        assert _check("web_extract", {"urls": [url]}, person_hosts=hosts, person_links=links) is None, url
+def test_extract_after_taint_opens_an_allowed_address_only_as_given():
+    """Review round 8 (BLOCK): a clean search returned an attacker's page and the page injected.
+    Every other spelling of an allowed address (the host's letter case, a trailing dot, an empty
+    ``?``, ``http``, ``www.``, a port, the letter case of a typed link's path, or no scheme)
+    reaches the server as written, so a run of front-page reads could spell out the person's data
+    a bit per letter: each is refused before Go is asked."""
+    rec = _rec(timely=["Bank card PIN 4051"])
+    rec.live.add_search_urls(["https://ramen.attacker.example/best-ramen"])
+    hosts, links = ["shop.example"], ["shop.example/getting-started-guide"]
+    for url in ("https://ramen.attacker.example/best-ramen", "https://ramen.attacker.example/",
+                "https://ramen.attacker.example", "https://shop.example/getting-started-guide",
+                "https://shop.example/"):
+        assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts, person_links=links) is None, url
+    for url in ("https://RaMeN.attacker.example/", "https://rAMEN.ATtAckER.example/", "https://ramen.attacker.example./",
+                "https://ramen.attacker.example/?", "https://ramen.attacker.example/#", "http://ramen.attacker.example/",
+                "https://www.ramen.attacker.example/", "http://www.ramen.attacker.example/",
+                "https://ramen.attacker.example:443/", "HTTPS://ramen.attacker.example/",
+                "https://ramen.attacker.example/Best-Ramen", "//ramen.attacker.example/", "ramen.attacker.example/",
+                "https:// ramen.attacker.example/", "https://shop.example/GeTTing-STARTED-guide",
+                "https://Shop.Example/getting-started-guide", "https://shop.example/getting-started",
+                "http://shop.example/getting-started-guide", "https://shop.example/getting-started-guide/"):
+        assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts,
+                      person_links=links) == egress.PAGE_BLOCKED, url
+
+
+def test_extract_after_taint_keeps_the_spelling_the_site_was_given_in():
+    """A site given with ``www.`` (typed, or a search's row) opens with it; a typed ``http://``
+    link opens over http; a bot's address opens word for word, letter case and all."""
+    rec = _rec(timely=[NOTES])
+    rec.live.add_search_urls(["https://www.found.example/x"])
+    hosts = ["typed.example", "www.typed.example", "old.example", "bot.example"]
+    links = ["http://old.example/a?id=7", "https://Bot.example/Feed"]
+    for url in ("https://www.found.example/", "https://found.example/", "https://www.typed.example/",
+                "http://old.example/a?id=7", "http://old.example/a", "https://Bot.example/Feed"):
+        assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts, person_links=links) is None, url
+    for url in ("https://old.example/a?id=7", "http://old.example/a?id=7&d=4051", "https://bot.example/feed"):
+        assert _check("web_extract", {"urls": [url]}, rec=rec, person_hosts=hosts,
+                      person_links=links) == egress.PAGE_BLOCKED, url
 
 
 def test_browser_urls_follow_the_host_rule():

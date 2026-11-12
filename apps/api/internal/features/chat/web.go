@@ -356,6 +356,12 @@ func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun,
 			// first): outside text could ask for a page whose address
 			// carries the person's data.
 			page.Error = pasteLink
+		case run.tainted() && run.web.pages[pageAddress(raw)].URL != "":
+			// A page this run already read: read again, how often it is
+			// opened could spell out the person's data to its server.
+			earlier := run.web.pages[pageAddress(raw)]
+			page.FinalURL, page.Title, page.Content = earlier.FinalURL, earlier.Title, earlier.Content
+			outside = true
 		default:
 			got, err := fetcher(ctx, u.String())
 			if err != nil {
@@ -369,12 +375,25 @@ func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun,
 				page.FinalURL = got.URL
 			}
 			page.Title, page.Content = got.Title, utils.StorableText(got.Content, budget)
+			if run.web.pages == nil {
+				run.web.pages = map[string]webPage{}
+			}
+			run.web.pages[pageAddress(raw)] = page
 			run.web.read, outside = true, true
 			run.web.taint = append(run.web.taint, TaintSource{Kind: "web", Tool: "web_extract", Host: hostOf(raw)})
 		}
 		pages = append(pages, page)
 	}
 	return map[string]any{"pages": pages}, outside, nil
+}
+
+// pageAddress is the key a read page is kept under: the address as asked
+// for, a front page with or without its "/" alike (both send "GET /").
+func pageAddress(raw string) string {
+	if scheme, host, rest, ok := exactURL(raw); ok && rest == "" {
+		return scheme + "://" + host + "/"
+	}
+	return raw
 }
 
 // webRun is what an agent run did with the timely web backend.
@@ -385,9 +404,14 @@ type webRun struct {
 	fetch PageFetcher
 	// results are the addresses the chat's clean searches returned (this
 	// run's, and earlier runs' from Conversation.SearchResults), and hosts
-	// their hosts; fresh are this run's not yet kept on the chat.
-	results, hosts map[string]bool
-	fresh          []string
+	// their hosts (spelled: as the results write them, with any "www.");
+	// fresh are this run's not yet kept on the chat.
+	results, hosts, spelled map[string]bool
+	fresh                   []string
+	// pages are the pages this run read, by address: once tainted, a page
+	// read again comes from here, so how often a page is opened reaches no
+	// server.
+	pages map[string]webPage
 	// read is set once a search or page brought outside text into the run;
 	// taint holds the sources not yet handed to the engine.
 	read  bool
@@ -396,11 +420,14 @@ type webRun struct {
 
 func (w *webRun) seen(link string) {
 	if w.results == nil {
-		w.results, w.hosts = map[string]bool{}, map[string]bool{}
+		w.results, w.hosts, w.spelled = map[string]bool{}, map[string]bool{}, map[string]bool{}
 	}
 	w.results[link] = true
 	if host := hostOf(link); host != "" {
 		w.hosts[host] = true
+		if u, err := url.Parse(strings.TrimSpace(link)); err == nil {
+			w.spelled[strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")] = true
+		}
 	}
 }
 
@@ -411,14 +438,102 @@ func (w *webRun) takeResults() []string {
 	return out
 }
 
-// mayOpen is whether a tainted run may read raw: one of their bots reads
-// it, a clean search of the chat returned it word for word, the person typed it
-// (its site and path, and any query string), or it is the front page of a
-// site the person typed or a search returned. Any other path or query could
-// carry the person's data to the site (plan 8.1, 12).
+// mayOpen is whether a tainted run may read raw, compared exactly as written
+// (review round 8): a bot's address or a clean search's result word for
+// word, the front page of a site the person typed or a search returned
+// (https://host/ in lower case, without "www." unless that is how the site
+// was given), or a link the person typed as they typed it (its scheme, host
+// and path, any query and fragment), or that link cut at a "/", "?" or "#".
+// Any other path or query could carry the person's data to the site (plan
+// 8.1, 12), and so could another spelling of an allowed address: the
+// letter case of a host or path, a trailing dot, an empty "?", http for
+// https, "www." or a port each reach the server as written and could spell
+// out a bit of the person's data per letter.
 func (w *webRun) mayOpen(guard *fetchGuard, raw string) bool {
 	raw = strings.TrimSpace(raw)
-	if w.results[raw] || guard.known[strings.ToLower(raw)] {
+	if w.results[raw] || guard.known[raw] {
+		return true
+	}
+	scheme, host, rest, ok := exactURL(raw)
+	if !ok {
+		return false
+	}
+	bare := strings.TrimPrefix(host, "www.")
+	if !guard.typedHost(bare) && !w.hosts[bare] {
+		return false
+	}
+	if rest == "" || rest == "/" {
+		return scheme == "https" && (host == bare || w.spelled[host] || guard.typedHost(host))
+	}
+	for _, link := range guard.typedLinks() {
+		if link.opens(scheme, host, rest) {
+			return true
+		}
+	}
+	return false
+}
+
+// exactURL splits raw into its scheme, host and the rest (path, query and
+// fragment as written) when it is written the one way a tainted run opens
+// an address: "http" or "https" in lower case, a lower-case host without a
+// trailing dot, port or user name, and no empty query or fragment.
+func exactURL(raw string) (scheme, host, rest string, ok bool) {
+	for _, s := range []string{"https", "http"} {
+		if strings.HasPrefix(raw, s+"://") {
+			scheme, raw = s, raw[len(s)+3:]
+			break
+		}
+	}
+	if scheme == "" {
+		return "", "", "", false
+	}
+	i := strings.IndexAny(raw, "/?#")
+	if i < 0 {
+		i = len(raw)
+	}
+	host, rest = raw[:i], raw[i:]
+	if host == "" || host != strings.ToLower(host) || strings.HasSuffix(host, ".") ||
+		strings.ContainsAny(host, ":@%\\[] \t") || strings.HasSuffix(rest, "?") ||
+		strings.HasSuffix(rest, "#") || strings.Contains(rest, "?#") {
+		return "", "", "", false
+	}
+	return scheme, host, rest, true
+}
+
+// typedLink is a link the person typed: http only when they wrote it, the
+// host in lower case, the rest as written.
+type typedLink struct{ scheme, host, rest string }
+
+// opens is whether an address (exactURL's parts) is this link, or this link
+// cut just before a "/", "?" or "#" (a folder or the page without its query).
+func (l typedLink) opens(scheme, host, rest string) bool {
+	if scheme != l.scheme || host != l.host || !strings.HasPrefix(l.rest, rest) {
+		return false
+	}
+	return len(rest) == len(l.rest) || strings.ContainsRune("/?#", rune(l.rest[len(rest)]))
+}
+
+// typedLinks are the links the person typed with a path, query or fragment.
+func (g *fetchGuard) typedLinks() []typedLink {
+	out := []typedLink{}
+	for _, m := range linkWord.FindAllStringSubmatch(g.written(), -1) {
+		scheme := "https"
+		if strings.EqualFold(m[1], "http") {
+			scheme = "http"
+		}
+		rest := strings.TrimRight(m[3], ".,;:!?")
+		out = append(out, typedLink{scheme, strings.TrimSuffix(strings.ToLower(m[2]), "."), rest})
+	}
+	return out
+}
+
+// mayName is whether a tainted run's search may name raw as a page: the
+// page rule as it stood before round 8, read loosely (any letter case, http
+// or https, "www."), since a tainted search opens no page (WithSearchOnly)
+// and the worker checks the query too.
+func (w *webRun) mayName(guard *fetchGuard, raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if w.results[raw] || guard.knows(raw) {
 		return true
 	}
 	u, err := url.Parse(raw)
@@ -516,7 +631,7 @@ func (w *webRun) pageBlocked(guard *fetchGuard, page string) string {
 	}
 	// mayOpen ignores a fragment (a fetch never sends it); a model reading
 	// the query does not, so a fragment must be typed as written.
-	if u.Fragment == "" && w.mayOpen(guard, raw) || u.Fragment != "" && strings.Contains(guard.typed, key) {
+	if u.Fragment == "" && w.mayName(guard, raw) || u.Fragment != "" && strings.Contains(guard.typed, key) {
 		return ""
 	}
 	return host
@@ -689,24 +804,32 @@ var hostWord = regexp.MustCompile(`(?i)(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,
 
 // linkWord finds the links a person's words name with a path, query or
 // fragment (a front page needs none: the rule allows it on any allowed site).
-var linkWord = regexp.MustCompile(`(?i)(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?::\d+)?([/?#][^\s"'<>()\[\]{}]*)`)
+var linkWord = regexp.MustCompile(`(?i)(?:(https?)://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?::\d+)?([/?#][^\s"'<>()\[\]{}]*)`)
 
 // links is the guard's list of pages as the worker's exfiltration rule
 // reads them (run.start person_links): the links the person typed in this
-// chat, lower case and without a scheme, and the addresses their bots read.
-// After taint the worker opens a page with a path or query only when the
-// person typed it, a search returned it, or it is a site's front page; this
-// is mayOpen's rule, applied the same way to every web backend.
+// chat, the host in lower case and the rest as typed, without a scheme
+// ("http://" kept when they wrote it), and the addresses their bots read as
+// written. After taint the worker opens a page with a path or query only
+// when it is one of these as written, a search returned it, or it is a
+// site's front page; this is mayOpen's rule, applied the same way to every
+// web backend.
 func (g *fetchGuard) links() []string {
 	out := []string{}
 	add := func(link string) {
-		link = strings.TrimRight(link, ".,;:!?")
 		if link != "" && !slices.Contains(out, link) {
 			out = append(out, link)
 		}
 	}
-	for _, m := range linkWord.FindAllStringSubmatch(g.typed, -1) {
-		add(strings.ToLower(m[1]) + m[2])
+	for _, l := range g.typedLinks() {
+		if l.rest == "" {
+			continue
+		}
+		if l.scheme == "http" {
+			add("http://" + l.host + l.rest)
+		} else {
+			add(l.host + l.rest)
+		}
 	}
 	for link := range g.known {
 		add(link)
@@ -728,6 +851,11 @@ func (g *fetchGuard) hosts() []string {
 	}
 	for _, m := range hostWord.FindAllStringSubmatch(g.typed, -1) {
 		add(m[1])
+		// The spelling with "www." too: after taint a front page opens only
+		// as the person or a search wrote its site.
+		if host := strings.TrimSuffix(strings.ToLower(m[1]), "."); strings.HasPrefix(host, "www.") && !slices.Contains(out, host) {
+			out = append(out, host)
+		}
 	}
 	for link := range g.known {
 		add(hostOf(link))
