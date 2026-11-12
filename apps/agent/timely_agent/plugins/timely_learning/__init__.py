@@ -33,7 +33,7 @@ is never a hit. ``pre_tool_call`` adds the account's "Don't learn from this chat
 an unlisted or excluded chat by id and refuses another profile's store; ``transform_tool_result``
 drops every hit from an unlisted or excluded chat (Hermes keeps at most 20 excluded ids), and
 wraps the result as untrusted data (``timely_agent.untrusted``, as Hermes wraps a web result) when a
-hit left comes from a chat with outside text (Q-3.9).
+hit left comes from a chat with outside text, this chat's own compacted rows included (Q-3.9).
 ``post_tool_call`` taints the searching session with ``{kind: "session", tool: "session_search",
 session: <id>}`` for each hit the model reads from a conversation Go lists in
 ``tainted_conversations`` or that this worker's own state for it holds taint (a chat running at
@@ -549,11 +549,14 @@ def _search_taint(result, session_id: str) -> None:
 
 
 def _tainted_hits(data, view) -> list[str]:
-    """The chats with outside text that the hits of a (filtered) search result come from."""
+    """The chats with outside text that the hits of a (filtered) search result come from. This
+    chat's own rows count when it read outside content: Hermes returns them once compaction moved
+    them out of context (and reads this chat by id), so they may quote the page it read."""
+    own_tainted = bool(view.taint) or view.conversation_id in view.tainted_conversations
     hits: list[str] = []
     for ids in _hit_ids(data):
-        ids = [i for i in ids if i != view.conversation_id]
-        hits += [i for i in ids if i in view.tainted_conversations or _live_taint(i)]
+        hits += [i for i in ids if (own_tainted if i == view.conversation_id
+                                    else i in view.tainted_conversations or _live_taint(i))]
     return list(dict.fromkeys(hits))
 
 
