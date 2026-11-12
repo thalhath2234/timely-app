@@ -607,3 +607,19 @@ test("every stage of the API image is pinned by digest", () => {
   assert.ok(froms.length >= 3);
   for (const line of froms) assert.match(line, /@sha256:[0-9a-f]{64}(\s|$)/, line);
 });
+
+test("the docker CI job runs on a PR that changes anything the image copies or its smoke test reads", () => {
+  const ci = readFileSync(path.join(repo, ".github/workflows/ci.yml"), "utf8");
+  const job = ci.slice(ci.indexOf("\n  docker:"));
+  const list = /git diff --quiet "origin\/\$BASE_REF\.\.\.HEAD" -- ((?:[^;]|\\\n)+?); then/.exec(job)?.[1];
+  assert.ok(list, "the docker job's path filter");
+  const paths = list.split(/\s+/).filter((p) => p && p !== "\\");
+  const covered = (p) => paths.some((f) => p === f || p.startsWith(`${f}/`));
+  const docker = readFileSync(path.join(repo, "apps/api/Dockerfile"), "utf8");
+  const sources = docker
+    .split("\n")
+    .filter((line) => /^COPY\s/.test(line) && !/--from=/.test(line))
+    .flatMap((line) => line.trim().split(/\s+/).slice(1, -1));
+  assert.ok(sources.includes("Makefile") && sources.includes("apps/api"));
+  for (const src of [...sources, "apps/api/Dockerfile", "scripts/docker-agent-smoke.sh"]) assert.ok(covered(src), `${src} is not in the docker job's filter`);
+});

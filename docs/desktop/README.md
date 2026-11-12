@@ -575,8 +575,10 @@ ESLint, `tsc` for web and mobile, and the Node test scripts behind `make test` (
   staging is checked without a tag): `node apps/web/electron/stage-agent.mjs`, then
   `node apps/web/electron/smoke-agent.mjs --read-only`, and the staged size per folder in the job
   summary. No `pnpm install`.
-- `docker` (pushes to `dev`, and PRs that touch `apps/api/Dockerfile`, `.dockerignore`, `apps/agent`,
-  the stage scripts or `scripts/docker-agent-smoke.sh`): `make docker-agent-smoke` (linux/amd64).
+- `docker` (pushes to `dev`, and PRs that touch `apps/api` (the Dockerfile, the Go builder's
+  sources, the API's agent start-up the smoke checks), `.dockerignore`, the `Makefile`, `apps/agent`,
+  the stage scripts, `docker-compose.yml` or `scripts/docker-agent-smoke.sh`):
+  `make docker-agent-smoke` (linux/amd64).
 
 Both use `astral-sh/setup-uv` (pinned SHA, cache keyed on `apps/agent/hermes/uv.lock`) where they
 stage, and `agent-stage` caches `apps/web/.cache/agent` under
