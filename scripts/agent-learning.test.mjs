@@ -23,6 +23,7 @@ import {
   activityStatus,
   learnedOffSummary,
   originWords,
+  categoryWords,
 } from "../packages/contract/src/agentLearning.ts";
 
 let seq = 0;
@@ -348,6 +349,9 @@ describe("Settings rows", () => {
     assert.equal(activityStatus({ status: "applied", origin: "user" }), "");
     assert.equal(activityStatus({ status: "undone", origin: "user" }), statusWord("undone"));
     assert.equal(activityStatus({ status: "applied", origin: "review" }), statusWord("applied"));
+    assert.equal(categoryWords("software-development"), "Software development");
+    assert.equal(categoryWords("apple/notes_app"), "Apple · Notes app");
+    assert.equal(categoryWords(undefined), "");
     // one wording for both apps' Activity (review round 6)
     assert.deepEqual(
       ["chat", "review", "bot", "user", "curator", "sync", "restore", "other"].map(originWords),

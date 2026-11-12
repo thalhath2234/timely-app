@@ -255,6 +255,29 @@ def _is_timely(path: Optional[Path]) -> bool:
     return bool(is_external_skill_path(path))
 
 
+DESCRIPTION_CAP = 200  # characters of a skill's description in a list row
+
+
+def _description(path: Optional[Path]) -> str:
+    """The skill's frontmatter ``description``, on one line and clipped (Settings shows it under the
+    name, so a person can tell what a built-in skill does before turning it off)."""
+    if path is None:
+        return ""
+    md = path / "SKILL.md" if path.is_dir() else path
+    try:
+        with open(md, encoding="utf-8", errors="replace") as fh:
+            text = fh.read(65536)
+        from agent.skill_utils import parse_frontmatter
+        meta, _ = parse_frontmatter(text)
+    except Exception:
+        return ""
+    desc = meta.get("description") if isinstance(meta, dict) else None
+    if not isinstance(desc, str):
+        return ""
+    desc = " ".join(desc.split())
+    return desc if len(desc) <= DESCRIPTION_CAP else desc[:DESCRIPTION_CAP - 1].rstrip() + "…"
+
+
 def list_skills(home: Path) -> list[dict[str, Any]]:
     from agent.skill_utils import get_external_skills_dirs
     from tools import skill_usage as su
@@ -277,7 +300,8 @@ def list_skills(home: Path) -> list[dict[str, Any]]:
                 category = ""
         state = rec.get("state")
         archived = archived or state == "archived"
-        return {"name": name, "category": category, "source": source, "enabled": name not in disabled,
+        return {"name": name, "category": category, "description": _description(path), "source": source,
+                "enabled": name not in disabled,
                 "locked": bool(rec.get("locked")), "archived": archived,
                 "archivable": not archived and source == "learned" and _archivable(name, path),
                 "stale": state == "stale", "restored": name in restored,

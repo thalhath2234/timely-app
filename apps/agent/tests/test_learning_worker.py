@@ -113,6 +113,11 @@ def test_skill_requests(la, lw, stub):
     assert row["created_by_event"] == created[0]["ledger_entry_id"]
     assert skills["timely"]["source"] == "timely"
     assert any(s["source"] == "bundled" for s in skills.values())
+    # every row says what the skill does (its frontmatter description; review round 6)
+    assert row["description"] == f"Steps for {name}.", row
+    bundled = [s for s in skills.values() if s["source"] == "bundled"]
+    assert all(isinstance(s["description"], str) for s in bundled)
+    assert sum(1 for s in bundled if s["description"]) >= len(bundled) // 2, bundled[:3]
     # one skill, its history and a diff
     got = ask(lw, la, "learning.skill", name=name)["data"]
     assert "Sort it." in got["content"] and [h["action"] for h in got["history"]] == ["create"]

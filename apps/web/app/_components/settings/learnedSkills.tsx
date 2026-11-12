@@ -5,6 +5,7 @@ import { ChevronRight } from "lucide-react";
 import {
   NEVER_ARCHIVES,
   canUndoLearning,
+  categoryWords,
   RESTORED_REVIEW,
   UPDATED_UPSTREAM,
   type LearnedSkill,
@@ -156,7 +157,10 @@ function SkillRow({
     if (focused) ref.current?.scrollIntoView({ block: "center" });
   }, [focused]);
   const origin = OWN.has(skill.source) ? skillOrigin(events, skill.name) : null;
-  const meta = [origin?.label ?? sourceWord(skill), skill.category].filter(Boolean).join(" · ");
+  // What the skill does (its description) says more than where it sits; the category only without one.
+  const meta = [origin?.label ?? sourceWord(skill), skill.description || categoryWords(skill.category)]
+    .filter(Boolean)
+    .join(" · ");
   const setEnabled = (next: boolean) =>
     state.mutate(
       { name: skill.name, state: next ? "enable" : "disable" },

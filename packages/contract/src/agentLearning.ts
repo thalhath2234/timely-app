@@ -106,6 +106,8 @@ export type LearnedSkillSource =
 export type LearnedSkill = {
   name: string;
   category?: string;
+  /** The skill's frontmatter description, one line (review round 6). */
+  description?: string;
   source: LearnedSkillSource;
   enabled: boolean;
   locked: boolean;
@@ -533,6 +535,18 @@ export function pendingItemWhy(ev: LearningEvent): string {
   if (ev.reason === "skill_body") return "These steps use tools that need your OK.";
   if (ev.reason === "unattended") return "This changes or removes something Timely already knows.";
   return "Timely waits for you before saving this.";
+}
+
+/** A skill category as words: "software-development/ml" -> "Software development · Ml". */
+export function categoryWords(category: string | undefined): string {
+  return (category ?? "")
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      const words = part.replace(/[-_]+/g, " ").trim();
+      return words.charAt(0).toUpperCase() + words.slice(1);
+    })
+    .join(" · ");
 }
 
 /** Where an Activity change came from, as both apps' Activity lists say it (one wording, review round 6). */
