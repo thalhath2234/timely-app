@@ -324,10 +324,10 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 	}()
 	// What the agent learned is replaced only by a backup that carries it
 	// (schema 3 rows and an agent state that staged) and never by an
-	// outside app. Otherwise the account keeps its learning switches, skill
-	// lists and feed as they are, as its agent home stays as it is: the
-	// backup's lists would turn back on skills an earlier restore or the
-	// person turned off.
+	// outside app. Otherwise the account keeps its skill lists and feed as
+	// they are, as its agent home stays as it is: the backup's lists would
+	// turn back on skills an earlier restore or the person turned off. The
+	// learning switches still come from the backup (restoreLearningSwitches).
 	withAgent := !fromMCP && carriesAgentRows(backup) && staged != nil
 	counts := map[string]int{}
 	// The account's own agent rows, put back if the staged agent home
@@ -391,6 +391,13 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 				return fmt.Errorf("restore relationship %s.%s: %w", ref.table, ref.column, err)
 			}
 		}
+		// The person's learning switches are theirs, not the agent home's:
+		// a backup without the agent zip still brings them back.
+		if !fromMCP && !withAgent {
+			if err := restoreLearningSwitches(tx, userID, backup); err != nil {
+				return err
+			}
+		}
 		// Restored skills stay off, shown as "restored, review", until the
 		// person turns them on (Q-3.4). After the rows: the backup's own
 		// settings row is the one marked.
@@ -418,7 +425,7 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 			// the person or an earlier restore turned off, and its staged
 			// items would point at pending files this home lacks.
 			if withAgent {
-				if err := s.putBackAgentRows(userID, agentBefore); err != nil {
+				if err := s.putBackAgentRows(userID, agentBefore, backup); err != nil {
 					log.Printf("restore %s: put back the learning rows: %v", safeAccountDirectory(userID), err)
 				}
 			}
@@ -454,6 +461,9 @@ var restoreDefaults = map[string]map[string]any{
 	"bot_alerts": {"feedback_reason": "", "feedback_note": "", "ai_state": "", "ai_why": "", "urgency": "normal",
 		"things": []any{}, "also_seen_by": []any{}, "via": []any{}},
 	"bot_findings": {"thing_key": "", "chain_id": "", "depth": 0},
+	"agent_learning_settings": {"learning": true, "search_history": true,
+		"skills_disabled": []any{}, "skills_restored": []any{}, "skills_enabled": []any{}},
+	"agent_learning_events": {"reason": ""},
 }
 
 type parentRef struct {
@@ -614,7 +624,7 @@ func agentRows(tx *gorm.DB, userID string) (map[string][]json.RawMessage, error)
 
 // putBackAgentRows replaces the account's agent rows with rows (what
 // agentRows read before a restore whose agent home was not swapped in).
-func (s *Service) putBackAgentRows(userID string, rows map[string][]json.RawMessage) error {
+func (s *Service) putBackAgentRows(userID string, rows map[string][]json.RawMessage, backup *Backup) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		for _, query := range []string{`DELETE FROM agent_learning_events WHERE user_id = ?`, `DELETE FROM agent_learning_settings WHERE user_id = ?`} {
 			if err := tx.Exec(query, userID).Error; err != nil {
@@ -631,8 +641,39 @@ func (s *Service) putBackAgentRows(userID string, rows map[string][]json.RawMess
 				}
 			}
 		}
-		return nil
+		return restoreLearningSwitches(tx, userID, backup)
 	})
+}
+
+// restoreLearningSwitches writes the backup's "Learn from chats" and
+// "Search my past chats" switches, and whether "What you use Timely for"
+// was copied into About you, onto the account's settings row (creating it).
+// They are the person's choices, not the agent home's, so they come back
+// even when the home stays as it is; the skill lists stay the account's,
+// as they must match its home. Nothing to do for a backup without the row.
+func restoreLearningSwitches(tx *gorm.DB, userID string, backup *Backup) error {
+	rows := backup.Rows["agent_learning_settings"]
+	if len(rows) == 0 {
+		return nil
+	}
+	var row struct {
+		Learning        *bool   `json:"learning"`
+		SearchHistory   *bool   `json:"search_history"`
+		UseCaseCopiedAt *string `json:"use_case_copied_at"`
+	}
+	if err := json.Unmarshal(rows[0], &row); err != nil {
+		return fmt.Errorf("restore learning switches: %w", err)
+	}
+	learningOn, searchOn := row.Learning == nil || *row.Learning, row.SearchHistory == nil || *row.SearchHistory
+	var copiedAt any
+	if row.UseCaseCopiedAt != nil && *row.UseCaseCopiedAt != "" {
+		copiedAt = *row.UseCaseCopiedAt
+	}
+	return tx.Exec(`INSERT INTO agent_learning_settings (user_id, learning, search_history, use_case_copied_at)
+		VALUES (?, ?, ?, CAST(? AS timestamptz))
+		ON CONFLICT (user_id) DO UPDATE SET learning = EXCLUDED.learning, search_history = EXCLUDED.search_history,
+			use_case_copied_at = EXCLUDED.use_case_copied_at, updated_at = now()`,
+		userID, learningOn, searchOn, copiedAt).Error
 }
 
 // clearAccountData deletes the rows a restore replaces; withAgent also

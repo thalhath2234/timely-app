@@ -416,3 +416,96 @@ func TestIntegrationSchema2BackupStillRestores(t *testing.T) {
 		t.Fatal("learning events changed")
 	}
 }
+
+// A backup without the agent zip (no agent home yet, over the cap, or a
+// stage that failed) still carries the person's "Learn from chats" and
+// "Search my past chats" switches: a restore into a fresh account keeps
+// them off, while the account's own skill lists and feed stay as they are.
+func TestIntegrationRestoreKeepsLearningSwitchesWithoutAgentState(t *testing.T) {
+	db := migratedDB(t)
+	cases := []struct {
+		name  string
+		agent *fakeAgent
+	}{
+		{"no agent home", &fakeAgent{exportErr: agenthost.ErrNoAgentState}},
+		{"over the cap", &fakeAgent{exportErr: fmt.Errorf("%w: 70 MB", agenthost.ErrStateTooLarge)}},
+		{"stage fails", &fakeAgent{zip: []byte("agent zip"), stageErr: fmt.Errorf("%w: not a zip", agenthost.ErrHelperFailed)}},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			uid := fmt.Sprintf("usr_portability_switches_%d", i)
+			agentAccount(t, db, uid)
+			if err := db.Exec(`UPDATE agent_learning_settings SET search_history = false, use_case_copied_at = now() WHERE user_id = ?`, uid).Error; err != nil {
+				t.Fatal(err)
+			}
+			service := NewService(db, nil)
+			service.SetAgentState(tc.agent)
+			backup, err := service.ExportAccount(context.Background(), uid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(backup.Rows["agent_learning_settings"]) != 1 {
+				t.Fatalf("backup settings rows: %d", len(backup.Rows["agent_learning_settings"]))
+			}
+			// A fresh account: no settings row, no feed.
+			for _, q := range []string{`DELETE FROM agent_learning_settings WHERE user_id = ?`, `DELETE FROM agent_learning_events WHERE user_id = ?`} {
+				if err := db.Exec(q, uid).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := service.Restore(uid, strictCopy(t, backup)); err != nil {
+				t.Fatal(err)
+			}
+			var row struct {
+				Learning, SearchHistory bool
+				Copied                  bool
+				SkillsDisabled          string
+			}
+			if err := db.Raw(`SELECT learning, search_history, use_case_copied_at IS NOT NULL AS copied, skills_disabled::text AS skills_disabled
+				FROM agent_learning_settings WHERE user_id = ?`, uid).Scan(&row).Error; err != nil {
+				t.Fatal(err)
+			}
+			if row.Learning || row.SearchHistory || !row.Copied || row.SkillsDisabled != "[]" {
+				t.Fatalf("settings after restore: %+v", row)
+			}
+			if countRows(t, db, "agent_learning_events", uid) != 0 {
+				t.Fatal("the backup's feed came back without its agent home")
+			}
+		})
+	}
+}
+
+// A schema 3 backup written before skills_enabled and reason existed still
+// restores: the missing NOT NULL columns take their defaults.
+func TestIntegrationRestoreOlderSchema3LearningRows(t *testing.T) {
+	db := migratedDB(t)
+	const uid = "usr_portability_agent_older"
+	agentAccount(t, db, uid)
+	agent := &fakeAgent{zip: []byte("agent zip")}
+	service := NewService(db, nil)
+	service.SetAgentState(agent)
+	backup, err := service.ExportAccount(context.Background(), uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drop := func(table string, columns ...string) {
+		for i, raw := range backup.Rows[table] {
+			var row map[string]any
+			if err := json.Unmarshal(raw, &row); err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range columns {
+				delete(row, c)
+			}
+			backup.Rows[table][i], _ = json.Marshal(row)
+		}
+	}
+	drop("agent_learning_settings", "skills_enabled", "skills_restored", "skills_disabled", "search_history")
+	drop("agent_learning_events", "reason")
+	if _, err := service.Restore(uid, strictCopy(t, backup)); err != nil {
+		t.Fatal(err)
+	}
+	if got := learningSettings(t, db, uid); got.Learning || got.SkillsDisabled != "[]" {
+		t.Fatalf("settings after restore: %+v", got)
+	}
+}
