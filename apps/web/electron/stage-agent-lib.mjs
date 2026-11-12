@@ -33,8 +33,9 @@ export const MAX_PATH_CHARS = 150;
  * already cover (the trim rules and the install flags are hashed themselves),
  * so a stage made by an older script is not reused through its marker.
  * 2: the libpython trim (5afaf5eb) and the trim rules and install flags in the hash.
+ * 3: the Linux interpreter's debug info is stripped (stripPlan).
  */
-export const STAGE_FORMAT = 2;
+export const STAGE_FORMAT = 3;
 
 /** `uv pip install` flags for app/site-packages (stage-agent.mjs adds --python, --target and -r). */
 export const PIP_INSTALL_FLAGS = ["--no-deps", "--require-hashes", "--no-build", "--link-mode", "copy"];
@@ -366,6 +367,35 @@ export function sourceHash(repoRoot, tracked) {
     h.update("\0");
   }
   return h.digest("hex").slice(0, 16);
+}
+
+/**
+ * Tools that strip debug info from python-build-standalone's Linux interpreter,
+ * tried in order (elfutils, then LLVM). GNU strip and objcopy are never used: on
+ * this binary they leave `.dynstr` outside its segment, and the stripped
+ * interpreter dies at its first symbol lookup ("undefined symbol: , version").
+ */
+export const STRIP_TOOLS = ["eu-strip", "llvm-strip"];
+
+/** The first of STRIP_TOOLS that `available(tool)` finds, or null. */
+export function stripTool(available) {
+  return STRIP_TOOLS.find((tool) => available(tool)) ?? null;
+}
+
+/**
+ * Interpreter binaries (relative to python/) whose debug info staging strips:
+ * on Linux, bin/python3.N itself (about 75 MB of DWARF; python, python3 are
+ * symlinks to it). Other targets ship theirs as is (Windows' symbols are the
+ * .pdb files TRIM drops).
+ */
+export function stripPlan(pythonDir, targetKey) {
+  if (!targetKey.startsWith("linux-")) return [];
+  const bin = path.join(pythonDir, "bin");
+  if (!existsSync(bin)) return [];
+  return readdirSync(bin)
+    .filter((name) => /^python3\.\d+$/.test(name) && lstatSync(path.join(bin, name)).isFile())
+    .sort()
+    .map((name) => `bin/${name}`);
 }
 
 /** Relative paths under python/ that trimInterpreter removes (top-most only). */
@@ -1220,6 +1250,21 @@ export function staticLicenses(found, staticDir, { components = {} } = {}) {
  * libraries shipped in binary form with their sources and the full licence
  * texts they need (`gnuTexts`: {id: text}).
  */
+/**
+ * The written offer that goes with the GPL and LGPL binaries (GPLv2 section 3(b),
+ * GPLv3 section 6(b), LGPLv3 section 4), since the runtime ships links to their
+ * source rather than the source itself.
+ */
+export const SOURCE_OFFER = [
+  "Written offer for source code. For at least three years after you received this copy of Timely,",
+  "and for as long as Timely offers spare parts or support for it, any third party may ask for a",
+  "complete machine-readable copy of the corresponding source code of every GPL and LGPL library",
+  "listed in this section, together with the scripts used to build it as shipped. It is provided on",
+  "a medium customarily used for software interchange, or as a download, for no more than the cost of",
+  "physically performing the distribution. To ask, open an issue titled \"Source request\" at",
+  "https://github.com/thalhath2234/timely-app/issues and name the Timely version you received.",
+].join("\n");
+
 export function thirdPartyLicenses({ cpython, incorporated = "", interpreter = [], hermes, notice, dists, statics = [], copyleft = [], gnuTexts = {} }) {
   const rule = "=".repeat(78);
   const parts = [
@@ -1308,6 +1353,7 @@ export function thirdPartyLicenses({ cpython, incorporated = "", interpreter = [
       for (const lib of entry.libraries) parts.push(`  - ${lib.name}: ${lib.license}; ${lib.files}`, `    complete source: ${lib.source}`);
       parts.push("");
     }
+    parts.push(SOURCE_OFFER, "");
     for (const id of ids) parts.push(rule, `Full text: ${id}`, rule, gnuTexts[id].trim(), "");
   }
   return `${parts.join("\n")}\n`;

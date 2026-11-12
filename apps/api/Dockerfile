@@ -27,6 +27,10 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/timely-
 FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS agent
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /usr/local/bin/uv
+# eu-strip (elfutils) strips the interpreter's debug info; GNU strip breaks it (stage-agent-lib.mjs STRIP_TOOLS).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends elfutils \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 COPY Makefile ./

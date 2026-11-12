@@ -25,13 +25,16 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -81,6 +84,8 @@ import {
   treeSize,
   trackedOnly,
   trimPlan,
+  stripPlan,
+  stripTool,
 } from "./stage-agent-lib.mjs";
 import { hostTargetKey, resolveTargets } from "./targets.mjs";
 
@@ -179,6 +184,34 @@ function trimInterpreter(target, pythonDir) {
   if (tests.length === 0) log(target, "the interpreter has no stdlib test package (0 MB to drop)");
   log(target, `trimmed ${drop.length} interpreter entries (${mb(bytes)}): ${drop.join(", ")}`);
   cpythonLicense(pythonDir); // throws when the trim took the licence
+}
+
+/**
+ * Strips the debug info from the Linux interpreter (stripPlan). Every Linux
+ * stage strips, so a missing tool fails the stage instead of shipping a 75 MB
+ * larger runtime from one machine than another; checkInterpreter runs the
+ * stripped interpreter afterwards.
+ */
+function stripInterpreter(target, pythonDir) {
+  const files = stripPlan(pythonDir, target.key);
+  if (files.length === 0) return;
+  const tool = stripTool((name) => run(name, ["--version"]).status === 0);
+  if (!tool) {
+    throw new Error(
+      "staging a Linux runtime strips the interpreter's debug info and needs eu-strip (elfutils) or llvm-strip on PATH; " +
+        "install one (Debian/Ubuntu: apt-get install elfutils). GNU strip breaks this interpreter and is not used.",
+    );
+  }
+  for (const rel of files) {
+    const full = path.join(pythonDir, rel);
+    const before = statSync(full).size;
+    const tmpOut = `${full}.stripped`;
+    const r = run(tool, ["--strip-debug", "-o", tmpOut, full]);
+    if (r.status !== 0) throw new Error(`${tool} --strip-debug python/${rel} failed (exit ${r.status}).\n${r.stderr}`);
+    chmodSync(tmpOut, statSync(full).mode);
+    renameSync(tmpOut, full);
+    log(target, `stripped debug info from python/${rel} with ${tool}: ${mb(before)} to ${mb(statSync(full).size)}`);
+  }
 }
 
 function installSitePackages(target, python, site, extras) {
@@ -425,6 +458,7 @@ export async function stageAgent(targets = resolveTargets()) {
       extract(archive, out);
       log(target, `Python ${artifact.version} from ${path.basename(archive)} (sha256 verified)`);
       trimInterpreter(target, path.join(out, "python"));
+      stripInterpreter(target, path.join(out, "python"));
       mkdirSync(site, { recursive: true });
       installSitePackages(target, python, site, extras);
       for (const name of readdirSync(out)) if (name.startsWith(".staged-")) rmSync(path.join(out, name));

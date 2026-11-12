@@ -28,6 +28,9 @@ import {
   PIP_INSTALL_FLAGS,
   SITE_TRIM,
   STAGE_FORMAT,
+  STRIP_TOOLS,
+  stripPlan,
+  stripTool,
   TRIM,
   assertHostTarget,
   assertHostTargets,
@@ -732,7 +735,7 @@ test("a distribution shipping GPL or LGPL binaries needs a reviewed entry with i
   assert.equal(review.listed.length, 1);
   const gnuTexts = { "GPL-2.0": "GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991\n", "LGPL-3.0": "GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n" };
   const text = thirdPartyLicenses({ cpython: "PSF", hermes: "MIT", notice: "N", dists, copyleft: review.listed, gnuTexts });
-  for (const needle of ["Version 2, June 1991", "Version 3, 29 June 2007", "x265 4.3: GPL-2.0-or-later", "complete source: https://github.com/Multicorewareinc/x265/tree/4.3"]) {
+  for (const needle of ["Version 2, June 1991", "Version 3, 29 June 2007", "x265 4.3: GPL-2.0-or-later", "complete source: https://github.com/Multicorewareinc/x265/tree/4.3", "Written offer for source code", "at least three years", "https://github.com/thalhath2234/timely-app/issues"]) {
     assert.ok(text.includes(needle), needle);
   }
   assert.throws(() => thirdPartyLicenses({ cpython: "", hermes: "", notice: "", dists, copyleft: review.listed, gnuTexts: {} }), /no licence text for GPL-2\.0, LGPL-3\.0/);
@@ -1486,4 +1489,20 @@ test("sourceHash covers the path and bytes of every tracked file under apps/agen
   rmSync(path.join(root, "apps/agent/a.py"));
   assert.notEqual(sourceHash(root, tracked), first);
   assert.equal(sourceHash(root, null), null);
+});
+
+test("only the Linux interpreter binary is stripped, never with GNU strip", (t) => {
+  const py = tmp(t);
+  write(py, "bin/python3.14", "elf");
+  write(py, "bin/python3.14-config", "sh");
+  if (posix) symlinkSync("python3.14", path.join(py, "bin/python3"));
+  assert.deepEqual(stripPlan(py, "linux-x64"), ["bin/python3.14"]);
+  assert.deepEqual(stripPlan(py, "linux-arm64"), ["bin/python3.14"]);
+  assert.deepEqual(stripPlan(py, "win32-x64"), []);
+  assert.deepEqual(stripPlan(py, "darwin-arm64"), []);
+  assert.ok(!STRIP_TOOLS.includes("strip") && !STRIP_TOOLS.includes("objcopy"));
+  assert.equal(stripTool((tool) => tool === "llvm-strip"), "llvm-strip");
+  assert.equal(stripTool(() => true), "eu-strip");
+  assert.equal(stripTool((tool) => tool === "strip"), null);
+  assert.ok(STAGE_FORMAT >= 3, "stripping needs a format past 2, so older stages are not reused");
 });

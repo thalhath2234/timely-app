@@ -105,9 +105,10 @@ jobs:
           path: apps/web/.cache/agent
           key: agent-python-${{ runner.os }}-${{ hashFiles('apps/agent/hermes/pm/lock.json') }}
       - run: pnpm install --frozen-lockfile
-      # fpm writes the pacman package's .MTREE with bsdtar.
+      # fpm writes the pacman package's .MTREE with bsdtar; eu-strip strips the
+      # agent interpreter's debug info (GNU strip breaks it).
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools elfutils
       # Native wheels tie the runtime to its OS, so each target stages on its
       # own runner. Staging and the read-only smoke run before electron-builder,
       # so a broken runtime fails here and nothing is published; pack.mjs then

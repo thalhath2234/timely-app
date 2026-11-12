@@ -225,6 +225,9 @@ jobs:
         with:
           path: apps/web/.cache/agent
           key: agent-python-${{ runner.os }}-${{ hashFiles('apps/agent/hermes/pm/lock.json') }}
+      # eu-strip strips the Linux interpreter's debug info (GNU strip breaks it).
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y elfutils
       - name: Stage the agent runtime (host target)
         run: node apps/web/electron/stage-agent.mjs 2>&1 | tee stage-agent.log
       - name: Smoke-test it read-only (boot.py, prepare, the Go worker on a stub model)
