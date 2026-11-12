@@ -14,7 +14,7 @@ Timely's host package around the vendored Hermes copy in `../hermes` (plan `docs
 | `seed.py` | Seed tree of reviewed bundled skills plus overrides, and the read-only Timely skills copy (plan 9.1). Stdlib git tree ids. |
 | `install_guard.py` | Runtime override R1: no package installs in a worker (`../.hermes-sync/patches.md`). |
 | `plugin_dist.py` | Serves the Timely plugins to Hermes' `hermes_agent.plugins` entry-point group: every folder under `plugins/` whose `__init__.py` defines `register`. |
-| `plugins/` | `timely_gate` (tool policy, propose-alone, end of turn), `timely_tools` (Timely tools over `tool.call`), `timely_learning` (read-only Timely skills, the learning policy: block, stage or apply; past-chat search; taint), `timely_bot` (phase 6 stub). |
+| `plugins/` | `timely_gate` (tool policy, propose-alone, end of turn), `timely_tools` (Timely tools over `tool.call`; a result Go marks `outside` reaches the model as untrusted data, as Hermes marks web results: `untrusted.py`, Q-3.9), `timely_learning` (read-only Timely skills, the learning policy: block, stage or apply; past-chat search, whose hits from a tainted chat are untrusted data too; taint), `timely_bot` (phase 6 stub). |
 | `learning/` | Phase 3 adapters around Hermes' learning (plan 9b): `rules` (the policy decision), `staging`, `feed` (`learning` messages), `counters`, `passes` (`busy.learning`), `curator`, `api` (Go's `learning.*` requests), `files` (home layout readers). |
 | `selftest.py` | The checks in `ready.self_test`. |
 | `run_chat.py` | One chat turn on `AIAgent.run_conversation`: the Timely block as `ephemeral_system_prompt`, Hermes' own turn limit, coalesced `delta` events, end of turn after a proposal, history seeds into `state.db`, a per-conversation agent cache. |

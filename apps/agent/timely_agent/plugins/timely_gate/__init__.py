@@ -14,15 +14,11 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
    sidecar Chromium ignore ``security.allow_private_urls``), so the gate applies Hermes' own
    ``url_safety.is_safe_url`` to every URL literal in the arguments (plan 12; what a literal
    check cannot see, such as URLs built at run time or redirects, is the residual in plan 14).
-1c. The exfiltration rule (phase 3, ``egress``; plan 8.1 web row, 12): in a tainted session,
-   ``web_extract`` and ``browser_*`` URLs to a host the person did not type and no clean search
-   returned (one made before the chat read outside content: this run's, or ``run.start.search_results``),
-   and on an allowed host any page other than its front page, a link the
-   person typed (``run.start.person_links``) or a result a clean search returned word for word (the same
-   rule for every web backend: a saved search key only changes who reads the page), and a
-   ``web_search`` query carrying text from a Timely read, memory or a tainted result: ``block``
-   with "Paste the link yourself if you want me to open it", before Go is asked. No approval path
-   until phase 5. A clean session is not restricted beyond the SSRF floor.
+   Timely adds no rule of its own on where ``web_search`` or ``web_extract`` may go once the
+   session read outside content (owner decision Q-3.9): Hermes' own handling applies on every
+   backend (results wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
+   token refused, the SSRF floor and website blocklist). Taint still holds the chat's next
+   proposal for review and stages learning.
 2. A call Go pre-approved for a parked-approval continuation (same tool, same args hash): allow.
 2b. ``propose_changes`` that is not the only call of its assistant message: ``block`` with
    "Call propose_changes alone, after all read tools finish" (plan 3.4 step 8). The batch was
@@ -32,13 +28,8 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
 4. Everything else: ask Go (``gate.ask``) and return its verdict; no answer means ``block``. In
    phase 2 Go answers ``block`` ("That isn't available in Timely yet") for every such tool.
 
-``post_tool_call`` feeds the rule: the hosts and URLs a clean ``web_search`` returned (``pre_tool_call``
-notes whether the run was tainted when the search was asked for; a clean search's rows also go to Go
-as ``taint.search_results``, which Go keeps for later runs), Timely read results,
-past-chat search hits and tainted results, kept per conversation (``egress.Record``; earlier turns,
-with Timely's paragraphs of each stored user message, come from the session's ``state.db``
-transcript); this turn's Timely paragraphs come from ``run.start.private_context``. It reports ``{kind: "web", tool: "web_extract", host}`` for each host a
-``web_extract`` that ran named.
+``post_tool_call`` reports ``{kind: "web", tool: "web_extract", host}`` as taint for each host a
+``web_extract`` that ran named (any backend), so the chat's taint names the sites it read.
 
 An ``approve`` verdict becomes Hermes' human-approval gate with ``rule_key
 timely:<tool_call_id>`` (the approval payload carries no arguments, so the key carries the id).
@@ -50,7 +41,6 @@ import logging
 from typing import Any
 
 from timely_agent import bridge, policy
-from timely_agent.plugins.timely_gate import egress
 
 logger = logging.getLogger("timely_agent.plugins.timely_gate")
 
@@ -130,14 +120,6 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
             return {"action": "block", "message": UNKNOWN_BATCH}
         if batch.size != 1:
             return {"action": "block", "message": policy.PROPOSE_ALONE}
-    if run is not None and tool_name == "web_search":
-        # Before the search runs: its rows may be opened after taint only if no outside text had
-        # reached the run when the model asked for it (an injected page can ask for a search).
-        run.note_search(tool_call_id, not run.taint_snapshot())
-    if run is not None and (tool_name in egress.WEB_TOOLS or tool_name.startswith(BROWSER_PREFIX)):
-        blocked = _egress(run, tool_name, args)
-        if blocked:
-            return {"action": "block", "message": blocked}
     pre = run.pre_approved if run else None
     if pre and pre.get("tool") == tool_name and pre.get("args_hash") == policy.args_hash(args):
         run.pre_approved = None  # exactly one matching call
@@ -174,161 +156,19 @@ def _end_turn(run) -> dict:
     return {"action": "block", "message": END_TURN}
 
 
-# ---------------------------------------------------------------- exfiltration rule (egress)
-
-def _memory_docs() -> list[str]:
-    """MEMORY.md and USER.md (each entry, and each file whole), and what Timely learned in skills."""
-    from timely_agent.learning import files
-    home = files.home_dir()
-    docs: list[str] = []
-    for target in ("memory", "user"):
-        entries = files.read_memory(home, target)
-        docs += entries + (["\n".join(entries)] if len(entries) > 1 else [])
-    return docs + _skill_docs(home)
-
-
-SKILL_FILE_CAP = 200_000  # bytes of one skill file read for the rule
-_pristine_cache: dict[str, tuple[tuple, bool]] = {}
-
-
-def _skill_docs(home) -> list[str]:
-    """The text of every skill in the account home that is not a pristine shipped copy: learned
-    skills and the person's edited copies are written from their chats, so they hold names,
-    clients and amounts just like memory. Archived skills (``.archive``) and Hermes' own folders
-    (``.hub`` and the like) are left out; the Timely skills live outside the home."""
-    from timely_agent.learning.api import _manifest
-    root = home / "skills"
-    manifest = _manifest(home)
-    docs: list[str] = []
-    for skill_md in sorted(root.rglob("SKILL.md")) if root.is_dir() else []:
-        folder = skill_md.parent
-        rel = folder.relative_to(root).parts
-        if any(part.startswith(".") for part in rel):
-            continue
-        if folder.name in manifest and _pristine(folder, manifest[folder.name]):
-            continue
-        for path in sorted(p for p in folder.rglob("*") if p.is_file()):
-            try:
-                if path.stat().st_size > SKILL_FILE_CAP:
-                    continue
-                docs.append(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError):
-                continue  # binary or unreadable: nothing a query could copy word for word
-    return docs
-
-
-def _pristine(folder, digest: str) -> bool:
-    """Whether a shipped skill's folder is still the shipped copy (cached by file sizes and times)."""
-    from tools.skills_sync import dir_hash
-    try:
-        sig = tuple(sorted((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in folder.rglob("*") if p.is_file()))
-    except OSError:
-        return False
-    cached = _pristine_cache.get(str(folder))
-    if cached is not None and cached[0] == sig:
-        return cached[1]
-    same = dir_hash(folder) == digest
-    _pristine_cache[str(folder)] = (sig, same)
-    return same
-
-
-def _record(run) -> egress.Record:
-    rec = egress.record(run.conversation_id or run.session_key)
-    rec.begin(run.run_id)
-    return rec
-
-
-def _load_stored(run, rec: egress.Record) -> None:
-    """The conversation's earlier turns from ``state.db``, once per run (fail closed: an unreadable
-    transcript adds nothing, so fewer hosts are allowed)."""
-    with rec.lock:
-        if rec.stored is not None:
-            return
-    part = egress.Part()
-    try:
-        db = getattr(run.agent, "_session_db", None)
-        if db is None:
-            from hermes_state import SessionDB
-            db = SessionDB()
-        live, archived = _transcript(db, run.conversation_id) if run.conversation_id else ([], [])
-        # Archived rows first, so the live turns stay the newest documents the record keeps.
-        egress.load_transcript(part, archived, is_timely=_timely_tool, taint_kind=_taint_kind,
-                               seed_prefix=policy.SEED_UID_PREFIX)
-        egress.load_transcript(part, live, is_timely=_timely_tool, taint_kind=_taint_kind,
-                               seed_prefix=policy.SEED_UID_PREFIX)
-        part.add_search_urls(run.search_results)  # earlier runs' clean searches, as Go keeps them
-    except Exception as exc:
-        logger.warning("reading the transcript for the exfiltration rule failed: %s", exc)
-    with rec.lock:
-        if rec.stored is None:
-            rec.stored = part
-
-
-def _transcript(db, conversation: str) -> tuple[list, list]:
-    """The conversation's live messages, and the ones a reseed or rewind archived (``active = 0``):
-    their Timely reads still count, though the model no longer sees them."""
-    live = db.get_messages_as_conversation(conversation, include_row_ids=True) or []
-    every = db.get_messages_as_conversation(conversation, include_inactive=True, include_row_ids=True) or []
-    kept = {m.get("_row_id") for m in live if isinstance(m, dict)}
-    return live, [m for m in every if isinstance(m, dict) and m.get("_row_id") not in kept]
-
-
-def _taint_kind(tool_name: str) -> str:
-    try:
-        from tools.registry import registry
-        toolset = str(getattr(registry.get_entry(tool_name), "toolset", "") or "")
-    except Exception:
-        toolset = ""
-    return policy.taint_kind(tool_name, toolset)
-
-
-def _egress(run, tool_name: str, args: dict) -> str | None:
-    try:
-        tainted = bool(run.taint_snapshot())
-        if not tainted:
-            return None
-        rec = _record(run)
-        _load_stored(run, rec)
-        return egress.check(tool_name, args, tainted=True, person_hosts=run.person_hosts,
-                            person_links=run.person_links, rec=rec,
-                            memory=_memory_docs(), private=run.private_context,
-                            browser_urls=lambda a: list(dict.fromkeys(_url_literals(a))))
-    except Exception as exc:  # fail closed
-        logger.warning("exfiltration check failed for %s: %s", tool_name, exc)
-        return egress.CHECK_FAILED.format(tool=tool_name, error=type(exc).__name__)
-
-
-def post_tool_call(tool_name: str = "", args: dict | None = None, result: Any = None, status: str | None = None,
-                   **_: Any) -> None:
-    """Feed the exfiltration rule from a call that ran, and report a web_extract's hosts as taint."""
+def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | None = None, **_: Any) -> None:
+    """Report each host a ``web_extract`` that ran named as taint (the page's site)."""
+    if tool_name != "web_extract" or status == "blocked":
+        return
     run = bridge.current_run.get()
     if run is None:
         return
-    if status == "blocked":
-        if tool_name == "web_search":
-            run.search_was_clean(str(_.get("tool_call_id") or ""))  # drop the note
-        return
-    args = args if isinstance(args, dict) else {}
     try:
-        timely = _timely_tool(tool_name)
-        kind = "" if timely else _taint_kind(tool_name)
-        if tool_name == "web_extract":
-            hosts = list(dict.fromkeys(h for h in map(egress.url_host, egress.extract_urls(args)) if h))
-            if hosts:
-                bridge.report_taint(run, [{"kind": "web", "tool": "web_extract", "host": h} for h in hosts])
-        if not (timely or kind or tool_name in ("web_search", egress.SESSION_SEARCH)):
-            return
-        clean = tool_name == "web_search" and run.search_was_clean(str(_.get("tool_call_id") or ""))
-        rec = _record(run)
-        with rec.lock:
-            egress.classify(rec.live, tool_name, result, is_timely=lambda _n: timely, taint_kind=lambda _n: kind,
-                            clean_search=clean)
-        if clean:
-            part = egress.Part()
-            part.add_search(result)
-            bridge.report_search_results(run, sorted(part.search_urls))
+        hosts = policy.extract_hosts(args if isinstance(args, dict) else {})
+        if hosts:
+            bridge.report_taint(run, [{"kind": "web", "tool": "web_extract", "host": h} for h in hosts])
     except Exception as exc:
-        logger.warning("recording %s for the exfiltration rule failed: %s", tool_name, exc)
+        logger.warning("reporting web_extract hosts as taint failed: %s", exc)
 
 
 def register(ctx) -> None:

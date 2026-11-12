@@ -23,6 +23,14 @@ Go's answer, ``tool.result {result, outside, end_turn}``: ``outside: true`` adds
 ``{kind: "timely", tool}`` source to the run's taint and sends ``taint``; ``end_turn: true``
 (after a recorded ``propose_changes``, Q-2.4) lets the model write one closing sentence, and
 ``timely_gate`` ends the turn on any further tool call.
+
+**Outside text is untrusted data** (owner decision Q-3.9). An ``outside: true`` result (``ask_bot``,
+``preview_bot``, ``list_bot_findings``, ``list_notifications``: they quote pages, feeds and other
+people's words) reaches the model wrapped as Hermes wraps a web result
+(``<untrusted_tool_result source="<tool>">``, ``timely_agent.untrusted.wrap``): the handler notes the
+call, and ``transform_tool_result``, which Hermes runs after ``post_tool_call`` and before the result
+enters the conversation, wraps it. Hermes passes the raw result on when a hook fails, so the hook
+wraps on any doubt.
 """
 
 from __future__ import annotations
@@ -98,6 +106,7 @@ def make_handler(name: str):
         if not reply or reply.get("type") != "tool.result":
             return _error(NO_ANSWER)
         if reply.get("outside") is True:
+            run.note_outside(call_id, name)
             bridge.report_taint(run, [{"kind": "timely", "tool": name}])
         if reply.get("end_turn") is True:
             run.end_turn = True
@@ -109,12 +118,27 @@ def make_handler(name: str):
     return handler
 
 
+def transform_tool_result(tool_name: str = "", result: Any = None, tool_call_id: str = "", **_: Any):
+    """Wrap a Timely tool result Go marked ``outside`` as untrusted data; None leaves it as it is."""
+    run = bridge.current_run.get()
+    if run is None or not isinstance(result, str):
+        return None
+    try:
+        if not run.take_outside(str(tool_call_id or ""), tool_name):
+            return None
+    except Exception:
+        logger.exception("checking whether %s quoted outside text failed", tool_name)
+    from timely_agent import untrusted
+    return untrusted.wrap(tool_name, result)
+
+
 registered: list[str] = []  # what register() added, for the self-test
 
 
 def register(ctx) -> None:
     registered.clear()
     ctx.register_hook("post_api_request", post_api_request)
+    ctx.register_hook("transform_tool_result", transform_tool_result)
     for spec in bridge.timely_tools():
         name = spec["name"]
         schema = {"name": name, "description": spec.get("description") or "",

@@ -31,7 +31,9 @@ brought back without its chat, a deleted chat whose ``session.delete`` is still 
 is never a hit. ``pre_tool_call`` adds the account's "Don't learn from this chat" conversations
 (``run.start.search_exclude``) to ``exclude_session_ids`` (a ``modify`` directive), refuses to read
 an unlisted or excluded chat by id and refuses another profile's store; ``transform_tool_result``
-drops every hit from an unlisted or excluded chat (Hermes keeps at most 20 excluded ids).
+drops every hit from an unlisted or excluded chat (Hermes keeps at most 20 excluded ids), and
+wraps the result as untrusted data (``timely_agent.untrusted``, as Hermes wraps a web result) when a
+hit left comes from a chat with outside text (Q-3.9).
 ``post_tool_call`` taints the searching session with ``{kind: "session", tool: "session_search",
 session: <id>}`` for each hit the model reads from a conversation Go lists in
 ``tainted_conversations`` or that this worker's own state for it holds taint (a chat running at
@@ -546,8 +548,19 @@ def _search_taint(result, session_id: str) -> None:
         view.state.add_taint(sources)
 
 
+def _tainted_hits(data, view) -> list[str]:
+    """The chats with outside text that the hits of a (filtered) search result come from."""
+    hits: list[str] = []
+    for ids in _hit_ids(data):
+        ids = [i for i in ids if i != view.conversation_id]
+        hits += [i for i in ids if i in view.tainted_conversations or _live_taint(i)]
+    return list(dict.fromkeys(hits))
+
+
 def transform_tool_result(tool_name: str = "", result: Any = None, session_id: str = "", **_: Any):
-    """Drop every hit from a chat Go does not list as searchable (``search_allow``) or excludes."""
+    """Drop every hit from a chat Go does not list as searchable (``search_allow``) or excludes,
+    and wrap the result as untrusted data (as Hermes wraps a web result) when a hit left comes
+    from a chat that read outside content: its text may quote a page (owner decision Q-3.9)."""
     if tool_name != SEARCH_TOOL:
         return None
     refused = json.dumps({"success": False, "error": "Timely could not check which chats this search may return."})
@@ -559,11 +572,17 @@ def transform_tool_result(tool_name: str = "", result: Any = None, session_id: s
         if data is None:
             return None
         cleaned = _drop_unsearchable(data, view)
-        if cleaned == data:
-            return None
-        if isinstance(cleaned, dict) and isinstance(cleaned.get("results"), list) and "count" in cleaned:
+        changed = cleaned != data
+        if changed and isinstance(cleaned, dict) and isinstance(cleaned.get("results"), list) and "count" in cleaned:
             cleaned["count"] = len(cleaned["results"])
-        return json.dumps(cleaned, ensure_ascii=False)
+        tainted = bool(_tainted_hits(cleaned, view))
+        if not changed and not tainted:
+            return None
+        out = result if not changed and isinstance(result, str) else json.dumps(cleaned, ensure_ascii=False)
+        if tainted:
+            from timely_agent import untrusted
+            return untrusted.wrap(SEARCH_TOOL, out)
+        return out
     except Exception:
         logger.exception("filtering a past-chat search result failed")
         return refused

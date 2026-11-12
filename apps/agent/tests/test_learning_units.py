@@ -309,10 +309,10 @@ def test_run_start_phase3_fields_are_validated():
     from timely_agent.worker import run_start_problem
     ok = {"toolsets": ["timely", "memory", "session_search", "web"], "flags": {"learning_writes": True,
           "search_history": True, "web": False, "from_bot": False}, "tainted_conversations": ["a"],
-          "search_exclude": [], "person_hosts": ["shop.example"]}
+          "search_exclude": [], "search_allow": ["a"]}
     assert run_start_problem(ok) is None
     for bad in ({"flags": {"search_history": "yes"}}, {"flags": {"from_bot": 1}}, {"search_exclude": "a"},
-                {"person_hosts": [1]}, {"tainted_conversations": {"a": 1}}):
+                {"search_allow": [1]}, {"tainted_conversations": {"a": 1}}):
         assert run_start_problem({**ok, **bad}), bad
 
 
@@ -392,8 +392,18 @@ def test_search_hook_adds_excluded_chats_and_refuses_them(learning_plugin):
             {"session_id": "priv-2", "snippet": "secret"}, {"session_id": "dirty"}, {"session_id": "ok"},
             {"session_id": "restored", "snippet": "page text from a restored chat"},
             {"session_id": "ok-child", "parent_session_id": "ok"}]})
-        cleaned = json.loads(tl.transform_tool_result(tool_name="session_search", result=result, session_id="conv-q"))
+        out = tl.transform_tool_result(tool_name="session_search", result=result, session_id="conv-q")
+        # a hit from a chat with outside text ("dirty") makes the result untrusted data (Q-3.9)
+        assert out.startswith('<untrusted_tool_result source="session_search">'), out
+        cleaned = json.loads(out[out.index("\n{") + 1:out.rindex("}") + 1])
         assert [r["session_id"] for r in cleaned["results"]] == ["dirty", "ok", "ok-child"] and cleaned["count"] == 3
+        # clean hits only: nothing dropped, nothing to wrap, the result passes as it is
+        clean = json.dumps({"success": True, "count": 1, "results": [{"session_id": "ok", "snippet": "groceries"}]})
+        assert tl.transform_tool_result(tool_name="session_search", result=clean, session_id="conv-q") is None
+        dropped = tl.transform_tool_result(tool_name="session_search", session_id="conv-q", result=json.dumps(
+            {"success": True, "count": 2, "results": [{"session_id": "ok", "snippet": "groceries"},
+                                                     {"session_id": "priv-1", "snippet": "secret"}]}))
+        assert json.loads(dropped)["results"] == [{"session_id": "ok", "snippet": "groceries"}]
         sent = []
         old = bridge.notify
         bridge.notify = sent.append

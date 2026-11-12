@@ -77,9 +77,16 @@ TIMELY_SEAMS = [
     ("registry: ToolEntry fields", "tools/registry.py", "ToolEntry"),
     ("Tool Search bridge names", "tools/tool_search_catalog.py", "module:BRIDGE_TOOL_NAMES"),
     ("message_agent schema", "tools/bot_mode_dm.py", "message_agent_tool_schema"),
-    # Taint and egress (8.1 web rules, 9b.2)
+    # Taint, and Hermes' own handling of web results that Timely relies on (8.1, 9b.2, Q-3.9):
+    # every web, browser and MCP result is wrapped as untrusted and threat-scanned where the tool
+    # message is built; web_extract refuses a URL carrying a key or token before any backend runs
     ("untrusted tool names", "agent/tool_dispatch_helpers.py", "module:_UNTRUSTED_TOOL_NAMES"),
     ("untrusted result wrapper", "agent/tool_dispatch_helpers.py", "_maybe_wrap_untrusted"),
+    ("tool result message (wrap and risk scan)", "agent/tool_dispatch_helpers.py", "make_tool_result_message"),
+    ("advisory threat scan of untrusted output", "agent/tool_dispatch_helpers.py", "_tool_output_risk_metadata"),
+    ("web_extract secret-URL block", "tools/web_tools_extract.py", "_validate_extract_urls"),
+    ("web_extract entry (validation before the backend)", "tools/web_tools.py", "web_extract_tool"),
+    ("transform_tool_result hook", "model_tools.py", "_apply_transform_tool_result_hook"),
     ("url safety: is_safe_url", "tools/url_safety.py", "is_safe_url"),
     ("threat scan: first_threat_message", "tools/threat_patterns.py", "first_threat_message"),
     ("threat scan: scan_for_threats", "tools/threat_patterns.py", "scan_for_threats"),

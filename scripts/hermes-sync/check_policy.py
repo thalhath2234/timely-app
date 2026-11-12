@@ -19,7 +19,7 @@ import check_lib
 DISPOSITIONS = {"allow", "approve", "block"}
 PHASES = set(range(0, 9)) | {"later", "never"}
 GATES = {
-    "learning", "timely-skills-readonly", "session-taint", "delegate-cap", "web-toggle", "taint-egress",
+    "learning", "timely-skills-readonly", "session-taint", "delegate-cap", "web-toggle",
     "bot-egress", "xai-key", "host-path-approve", "urls-only", "skills-folder-allow", "clarify-card",
     "no-secret-capture", "private-target",
 }
