@@ -1,5 +1,5 @@
-"""Web contract tests (phase 3, worker-web): the ``timely`` backend and a keyed backend on a real
-worker and the stub model (plan 8.1 web row, 12, 13 "Verification"; owner decision Q-3.9).
+"""Web contract tests (phase 3, worker-web): the ``timely`` backend and each keyed backend (Exa,
+Firecrawl, Parallel; a stand-in for the vendor's SDK class) on a real worker and the stub model (plan 8.1 web row, 12, 13 "Verification"; owner decision Q-3.9).
 
 Timely puts no rule of its own on where a chat that read outside content may search or read.
 These tests prove that Hermes' own handling holds on every web path Timely uses: each web result
@@ -26,6 +26,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import harness
+import pytest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -65,32 +66,91 @@ import probe_boot
 sys.exit(probe_boot.main(sys.argv[1:]))
 """
 
-# A keyed backend's SDK stand-in (Exa): answers from the test, logs every call, opens no socket.
-FAKE_EXA = """
-import json as _json, exa_py
-_EXA_LOG = {log!r}
+# A keyed backend's SDK stand-in: answers from the test, logs every call as ``{op: search, query}``
+# or ``{op: extract, urls}``, opens no socket. One per backend Timely offers (web_backends.BACKENDS);
+# each replaces the class Hermes' plugin builds its client from.
+FAKE_COMMON = """
+import json as _json
+_LOG = {log!r}
+_PAGE = {page!r}
 class _R:
     def __init__(self, **kw):
         self.__dict__.update(kw)
 def _note(entry):
-    with open(_EXA_LOG, "a", encoding="utf-8") as f:
+    with open(_LOG, "a", encoding="utf-8") as f:
         f.write(_json.dumps(entry) + "\\n")
+"""
+FAKE_SDK = {
+    # hermes/plugins/web/exa/provider.py: exa_py.Exa(...).search / .get_contents
+    "exa": """
+import exa_py
 class _FakeExa:
     def __init__(self, api_key=None):
-        self.headers = {{}}
+        self.headers = {}
     def search(self, query, num_results=5, contents=None):
-        _note({{"op": "search", "query": query}})
-        return _R(results=[_R(url="https://result.example/r", title="Result", highlights=[{page!r}])])
+        _note({"op": "search", "query": query})
+        return _R(results=[_R(url="https://result.example/r", title="Result", highlights=[_PAGE])])
     def get_contents(self, urls, text=True):
-        _note({{"op": "get_contents", "urls": list(urls)}})
-        return _R(results=[_R(url=u, title="Page", text={page!r}) for u in urls], statuses=[])
+        _note({"op": "extract", "urls": list(urls)})
+        return _R(results=[_R(url=u, title="Page", text=_PAGE) for u in urls], statuses=[])
 exa_py.Exa = _FakeExa
-"""
+""",
+    # hermes/plugins/web/firecrawl/provider.py: firecrawl.Firecrawl(...).search / .scrape (one URL each)
+    "firecrawl": """
+import firecrawl
+class _FakeFirecrawl:
+    def __init__(self, api_key=None, api_url=None):
+        pass
+    def search(self, query, limit=5):
+        _note({"op": "search", "query": query})
+        return {"web": [{"url": "https://result.example/r", "title": "Result", "description": _PAGE}]}
+    def scrape(self, url, formats=None, timeout=None):
+        _note({"op": "extract", "urls": [url]})
+        return {"markdown": _PAGE, "metadata": {"title": "Page", "url": url, "statusCode": 200}}
+firecrawl.Firecrawl = _FakeFirecrawl
+""",
+    # hermes/plugins/web/parallel/provider.py: parallel.Parallel(...).beta.search,
+    # parallel.AsyncParallel(...).beta.extract
+    "parallel": """
+import parallel
+class _Beta:
+    def search(self, search_queries=None, objective=None, mode=None, max_results=None):
+        _note({"op": "search", "query": objective})
+        return _R(results=[_R(url="https://result.example/r", title="Result", excerpts=[_PAGE])])
+class _AsyncBeta:
+    async def extract(self, urls, full_content=True):
+        _note({"op": "extract", "urls": list(urls)})
+        return _R(results=[_R(url=u, title="Page", full_content=_PAGE, excerpts=[]) for u in urls], errors=[])
+class _FakeParallel:
+    def __init__(self, api_key=None):
+        self.beta = _Beta()
+class _FakeAsyncParallel:
+    def __init__(self, api_key=None):
+        self.beta = _AsyncBeta()
+parallel.Parallel = _FakeParallel
+parallel.AsyncParallel = _FakeAsyncParallel
+""",
+}
+KEY_ENV = {"exa": "EXA_API_KEY", "firecrawl": "FIRECRAWL_API_KEY", "parallel": "PARALLEL_API_KEY"}
+KEYED = list(FAKE_SDK)
 
 
-def _start(a: harness.Agent, root: Path, *, fake_exa: str = "", **env: str):
+def _keyed(backend: str) -> dict:
+    """What Go renders for a saved key: the backend for both capabilities, the key under its env name."""
+    return {"settings": {"web": {"search_backend": backend, "extract_backend": backend}},
+            "env": {KEY_ENV[backend]: "placeholder-never-sent"}}
+
+
+def _vendor_log(root: Path) -> list[dict]:
+    log = root / "vendor.jsonl"
+    if not log.exists():
+        return []
+    return [json.loads(ln) for ln in log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def _start(a: harness.Agent, root: Path, *, backend: str = "", page: str = "", **env: str):
     wrapper = root / "web_boot.py"
-    extra = FAKE_EXA.format(log=str(root / "exa.jsonl"), page=fake_exa) if fake_exa else ""
+    extra = (FAKE_COMMON.format(log=str(root / "vendor.jsonl"), page=page) + FAKE_SDK[backend]) if backend else ""
     wrapper.write_text(WRAPPER.format(contract=str(HERE), ip=FAKE_IP, extra=extra), encoding="utf-8")
     log = root / "net.jsonl"
     w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(wrapper), "--net-log", str(log), "worker"],
@@ -206,29 +266,32 @@ def test_web_injected_page_reaches_the_model_as_untrusted_data(stub):
     assert not connects, connects
 
 
-def test_keyed_backend_results_are_untrusted_and_secret_urls_refused(stub):
-    """With a saved search key (here Exa) Go sees only ``gate.ask``; Hermes' own plugin calls the
-    vendor (a stand-in SDK here). The same handling holds: the search and the page reach the model
-    as untrusted data, a URL carrying a key is refused before the vendor is asked, and the page's
-    host joins the taint."""
-    root = harness.new_root("cweb5")
-    a = harness.Agent(root, settings={"web": {"search_backend": "exa", "extract_backend": "exa"}})
-    w, log = _start(a, root, fake_exa=INJECTED, EXA_API_KEY="placeholder-never-sent")
-    marker = "SCRIPT-cweb5"
+@pytest.mark.parametrize("backend", KEYED)
+def test_keyed_backend_results_are_untrusted_and_secret_urls_refused(stub, backend):
+    """With a saved search key (Exa, Firecrawl or Parallel) Go sees only ``gate.ask``; Hermes' own
+    plugin calls the vendor (a stand-in SDK here). The same handling holds on each: the search and
+    the page reach the model as untrusted data, Hermes' advisory scan flags the injected text, a URL
+    carrying a key is refused before the vendor is asked, and the page's host joins the taint."""
+    case = f"cweb5{backend}"
+    root = harness.new_root(case)
+    keyed = _keyed(backend)
+    a = harness.Agent(root, settings=keyed["settings"])
+    w, log = _start(a, root, backend=backend, page=INJECTED, **keyed["env"])
+    marker = f"SCRIPT-{case}"
     script = [{"calls": [["web_search", {"query": "ramen near me"}]]},
               {"calls": [["web_extract", {"urls": [NEWS]}]]},
               {"calls": [["web_extract", {"urls": [SECRET_URL]}]]},
               {"text": f"done {marker}"}]
     try:
-        w.send(harness.run_start(a, stub, run_id="cweb5", conversation="c-web5", toolsets=TOOLSETS, flags=WEB,
+        w.send(harness.run_start(a, stub, run_id=case, conversation=f"c-{case}", toolsets=TOOLSETS, flags=WEB,
                                  budgets={}, text="SCRIPT " + json.dumps(script) + f"\n{marker}"))
-        done, seen = harness.drive(w, a.account, "cweb5", answer=answer({}), verdict=("allow", ""))
+        done, seen = harness.drive(w, a.account, case, answer=answer({}), verdict=("allow", ""))
     finally:
         w.close()
     assert not [m for m in seen if m["type"] == "tool.call"], seen  # the vendor, not Go, answers
     assert [m["tool"] for m in seen if m["type"] == "gate.ask"] == ["web_search", "web_extract", "web_extract"]
-    vendor = [json.loads(ln) for ln in (root / "exa.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert vendor == [{"op": "search", "query": "ramen near me"}, {"op": "get_contents", "urls": [NEWS]}], vendor
+    vendor = _vendor_log(root)
+    assert vendor == [{"op": "search", "query": "ramen near me"}, {"op": "extract", "urls": [NEWS]}], vendor
     results = _tool_results(stub, marker)
     assert len(results) == 3, results
     assert _wrapped(results[0], "web_search", "IGNORE PREVIOUS INSTRUCTIONS"), results[0]
@@ -271,10 +334,11 @@ PRIVATE = ["http://169.254.169.254/latest/meta-data", "http://127.0.0.1:8080/", 
 PRIVATE_BLOCKED = "Blocked: URL targets a private or internal network address"
 
 
-def _private_extract(stub, case: str, *, settings: dict | None = None, **env: str) -> tuple[list[dict], str, Path]:
+def _private_extract(stub, case: str, *, backend: str = "") -> tuple[list[dict], str, Path]:
     root = harness.new_root(case)
-    a = harness.Agent(root, settings=settings) if settings else harness.Agent(root)
-    w, log = _start(a, root, fake_exa="A page." if settings else "", **env)
+    keyed = _keyed(backend) if backend else {"settings": None, "env": {}}
+    a = harness.Agent(root, settings=keyed["settings"]) if backend else harness.Agent(root)
+    w, log = _start(a, root, backend=backend, page="A page.", **keyed["env"])
     marker = f"SCRIPT-{case}"
     script = [{"calls": [["web_extract", {"urls": PRIVATE}]]}, {"text": f"done {marker}"}]
     try:
@@ -298,11 +362,10 @@ def test_private_and_metadata_addresses_never_reach_the_timely_backend(stub):
     assert result.count(PRIVATE_BLOCKED) == len(PRIVATE), result
 
 
-def test_private_and_metadata_addresses_never_reach_a_keyed_backend(stub):
-    """The same floor in front of a keyed backend (Exa, a stand-in SDK): the vendor is never asked."""
-    seen, result, root = _private_extract(stub, "cweb7", settings={"web": {"search_backend": "exa",
-                                                                          "extract_backend": "exa"}},
-                                          EXA_API_KEY="placeholder-never-sent")
+@pytest.mark.parametrize("backend", KEYED)
+def test_private_and_metadata_addresses_never_reach_a_keyed_backend(stub, backend):
+    """The same floor in front of each keyed backend (a stand-in SDK): the vendor is never asked."""
+    seen, result, root = _private_extract(stub, f"cweb7{backend}", backend=backend)
     assert not [m for m in seen if m["type"] == "tool.call"], seen
-    assert not (root / "exa.jsonl").exists() or not (root / "exa.jsonl").read_text(encoding="utf-8").strip()
+    assert _vendor_log(root) == [], _vendor_log(root)
     assert result.count(PRIVATE_BLOCKED) == len(PRIVATE), result

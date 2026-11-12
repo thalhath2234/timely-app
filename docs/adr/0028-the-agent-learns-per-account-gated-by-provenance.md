@@ -127,9 +127,9 @@ deleting the account deletes the agent home.
   around the pattern-matching rule (spellings, encodings, planted search
   results, the provider's own search), so the owner chose Hermes' handling,
   kept fully on on every web path Timely uses (its own backend through Go,
-  the keyed backends, CLI providers through the gateway; tested on its own
-  backend and Exa, while Firecrawl and Parallel pass the same checks, which
-  Hermes runs before any backend is chosen): results
+  the keyed backends, CLI providers through the gateway; contract tests run
+  its own backend and each keyed backend, Exa, Firecrawl and Parallel, through
+  a stand-in for the vendor's SDK): results
   wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
   token refused, the private-address (SSRF) floor (Hermes' website blocklist
   is opt-in and Timely sets none, so nothing verifies it; owner to confirm),
