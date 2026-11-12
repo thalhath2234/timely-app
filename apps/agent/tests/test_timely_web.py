@@ -337,6 +337,17 @@ def test_search_carrying_timely_memory_or_tainted_text_is_blocked():
     assert egress.SEARCH_BLOCKED.endswith(egress.PASTE_LINK)
 
 
+def test_a_number_with_its_separators_dropped_or_changed_is_still_the_persons():
+    """Review round 5: '555-0142' in USER.md; a query with 5550142, 555.0142 or 555 0142 carries it."""
+    for query in ("Dana Whitfield 5550142", "reverse lookup 555.0142", "who has 555 0142", "+1 (555) 555-0142"):
+        assert _check("web_search", {"query": query}) == egress.SEARCH_BLOCKED, query
+    assert egress.match("call 5550142", "phone 555-0142") == "rare"
+    assert egress.match("call 555-0142", "phone 555 0142") == "rare"
+    # dates, times and short groups are not numbers of the person's
+    assert egress.match("events on 20261111", "due 2026-11-11") is None
+    assert "123456" not in egress.rare_tokens("1 2 3 4 5 6") and "20261111" not in egress.rare_tokens("2026-11-11")
+
+
 def test_search_without_private_text_passes_after_taint():
     assert _check("web_search", {"query": "weather in Lisbon tomorrow"}) is None
     assert _check("web_search", {"query": "Falcon"}) is None  # one shared word is not a leak

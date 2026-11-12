@@ -57,7 +57,7 @@ Text matching (`egress.carries`), per document (one tool result, one memory entr
 | Run | 4 consecutive query tokens appear consecutively in the document, at least 2 of them distinctive. |
 | Whole query | the normalised query (lowercase, single spaces; at least 16 characters and 2 distinctive tokens) is a substring of the normalised document. |
 | Overlap | at least 3 of the query's distinctive tokens occur in the document, and they are at least half of them. |
-| Rare token | a token over `[\w@.+-]` of 6 or more characters containing a digit or `@` (phone and account numbers, emails), not a date or time, occurs in both. |
+| Rare token | a token over `[\w@.+-]` of 6 or more characters containing a digit or `@` (phone and account numbers, emails), not a date or time, occurs in both. A number written in digit groups (`555-0142`, `555 0142`) also counts as its digits alone (`5550142`). |
 
 Each document is cut at 50,000 characters and the 64 newest of each kind are kept per conversation; at most 256 conversations are remembered per worker (the transcript is re-read each run). A check that fails for any reason blocks the call.
 

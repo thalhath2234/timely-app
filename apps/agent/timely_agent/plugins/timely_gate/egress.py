@@ -58,7 +58,8 @@ record only; ``timely_gate`` feeds the record from ``post_tool_call`` and the se
    document, and they are at least ``OVERLAP_RATIO`` (half) of the query's distinctive tokens.
 5. *Rare token*: a token of the ``[\\w@.+-]`` alphabet with at least ``RARE_MIN`` (6) characters
    that contains a digit or ``@`` (phone and account numbers, emails), and is not a date or time,
-   occurs in both.
+   occurs in both. A number written in digit groups also counts as its digits alone, so
+   ``5550142`` carries ``555-0142``.
 
 **Hosts**: lowercase, without a trailing dot or a leading ``www.``, matched exactly (a
 subdomain of an allowed host is a different host).
@@ -115,6 +116,8 @@ without would your yours yourself yourselves http https www com org net html
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 _RARE = re.compile(r"[\w@][\w@.+\-]*[\w]", re.UNICODE)
+# Digit groups of two or more, joined by one separator each (a phone or account number as written).
+_DIGIT_GROUPS = re.compile(r"(?<![\w.])\+?\(?\d{2,}\)?(?:[-. ]\(?\d{2,}\)?)+(?![\w])|(?<![\w.])\d{6,}(?![\w])")
 _DATE_TIME = re.compile(r"^(\d{4}-\d{1,2}-\d{1,2}(t[\d:.]+z?)?|\d{1,2}[:.]\d{2}([:.]\d{2})?|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})$")
 _URL = re.compile(r"https?://[^\s\"'<>\\)\]}]+", re.IGNORECASE)
 # A site a query names so that a provider's search could open it: a link (``https://host``,
@@ -385,10 +388,20 @@ def distinctive(token: str) -> bool:
 
 
 def rare_tokens(text: str) -> set[str]:
+    """Rare tokens, and each number written in groups (``555-0142``, ``555.0142``, ``555 0142``,
+    ``(555) 555-0142``) also as its digits alone, so dropping or changing the separators does not
+    hide it. A date or time is not one."""
+    text = (text or "").lower()
     out = set()
-    for tok in _RARE.findall((text or "").lower()):
+    for tok in _RARE.findall(text):
         if len(tok) >= RARE_MIN and (any(c.isdigit() for c in tok) or "@" in tok) and not _DATE_TIME.match(tok):
             out.add(tok)
+    for run in _DIGIT_GROUPS.findall(text):
+        if _DATE_TIME.match(run.strip("()+ ")):
+            continue
+        digits = re.sub(r"\D", "", run)
+        if len(digits) >= RARE_MIN:
+            out.add(digits)
     return out
 
 
