@@ -89,7 +89,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 
 ## Coverage record
 
-Sync commit: `2d54c61f95c7ed1b0be8039df8267138aac38b20` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
+Sync commit: `345ff1e80c13a21df14e5e856243f21040142467` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
 
 - `apps/api/internal/features/chat/runner.go`: `(*Service).work` (claim, engine dispatch, failure checkpoint), `runClassic`, `keepLease`, `apply`, `retrySerializable`, `serializationFailure`
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`
@@ -99,6 +99,8 @@ Sync commit: `2d54c61f95c7ed1b0be8039df8267138aac38b20` (the model was last conf
 - `apps/api/internal/features/chat/toolcall.go`: `(*Service).toolCall` (reads only), `finishTurn`, `endRun`, `renewLease`
 - `apps/api/internal/features/chat/permission_mode.go`: `proposalStatus`, `holdReason`
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
+
+Resynced 2026-11-12 (phase 3 review round 7): `fail` now delegates to `failWith` (the anchor moved there: the same fenced save, plus a "This reply failed." notice tagged with the run so its learning shows under it; a refused run.start leaves none), and `Start` (run.start carries `search_results`, the chat's clean searches' results) changed; neither changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
 Resynced 2026-11-12 (phase 3 review round 6): `stop` and `stopped` (the cut reply and the Stopped notice carry the stopped run's id, so its learning shows under them), `configure` and `Start` (the stop-learning hook takes a search-only flag; after sending run.start, Start also sends the search-only stop when "Search my past chats" turned off meanwhile) changed; none of them changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
