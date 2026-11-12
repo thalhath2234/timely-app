@@ -132,9 +132,20 @@ func (s *Service) worker(ctx context.Context, uid string) (*agenthost.Worker, er
 		return nil, echo.NewHTTPError(http.StatusGatewayTimeout, "The agent took too long to start. Try again.")
 	case errors.Is(err, agenthost.ErrSuspended):
 		return nil, unavailable("Timely is restoring this account's agent. Try again in a moment.")
+	case errors.Is(err, agenthost.ErrHelloTimeout):
+		s.logf("learning: account worker start: %v", err)
+		return nil, unavailable(stillStarting)
 	}
-	return nil, unavailable("The agent could not start: " + cut(err.Error(), 500))
+	// The detail is for the server log; Settings shows plain words.
+	s.logf("learning: account worker start: %v", err)
+	return nil, unavailable(couldNotStart)
 }
+
+// The words Settings shows when the account's worker is not up.
+const (
+	stillStarting = "Timely's assistant is still starting. Try again in a moment."
+	couldNotStart = "Timely's assistant could not start. Try again in a moment; if it keeps happening, restart Timely."
+)
 
 // ask runs one request on the signed-in account's own worker, started on
 // demand, within the request timeout.

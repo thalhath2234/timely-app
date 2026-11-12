@@ -168,3 +168,26 @@ func TestMarkRestoredRefusesANameItCannotKeepOff(t *testing.T) {
 		}
 	}
 }
+
+type failingWorkers struct{ err error }
+
+func (f failingWorkers) Ensure(context.Context, string) (*agenthost.Worker, error) { return nil, f.err }
+func (f failingWorkers) Worker(string) (*agenthost.Worker, bool)                   { return nil, false }
+
+// Review round 6: a worker that is slow to start, or fails to, shows plain
+// words in Settings; the detail goes to the server log only.
+func TestWorkerStartErrorsAreShownInPlainWords(t *testing.T) {
+	slow := &agenthost.StartError{Account: "a", Err: agenthost.ErrHelloTimeout, Detail: "20s"}
+	for err, want := range map[error]string{slow: stillStarting, errors.New("exec: python: not found"): couldNotStart} {
+		var logged []string
+		s := &Service{workers: failingWorkers{err}, logf: func(f string, a ...any) { logged = append(logged, f) }}
+		_, got := s.worker(context.Background(), "a")
+		var he *echo.HTTPError
+		if !errors.As(got, &he) || he.Code != http.StatusServiceUnavailable || he.Message != want || strings.Contains(he.Message, "hello") {
+			t.Errorf("%v -> %v, want %q", err, got, want)
+		}
+		if len(logged) != 1 {
+			t.Errorf("%v: logged %d lines", err, len(logged))
+		}
+	}
+}
