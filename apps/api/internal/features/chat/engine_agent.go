@@ -314,8 +314,8 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		if language != "" {
 			row.Language = language
 		}
-		restored, row.AgentReseed = row.AgentReseed, false
 		row.AgentRunID, row.AgentInstance = r.id, r.instance
+		restored, row.AgentReseed = row.AgentReseed, false
 		row.Activity = ChatActivity{Run: r.id}
 		row.RunReads = RunReads{Run: r.id}
 		return nil
