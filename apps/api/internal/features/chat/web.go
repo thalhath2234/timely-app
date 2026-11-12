@@ -49,6 +49,9 @@ const (
 	needsSearchKey = "Web search needs a search key. Add one in Timely on the web or the desktop app, in Settings → Agent → Web search"
 	// notPublic refuses an address on this computer or a private network.
 	notPublic = "Timely only reads public web pages; that address is on this computer or a private network"
+	// secretInSearch refuses a search carrying what looks like an API key
+	// or token, in Hermes' words for such a web_extract URL.
+	secretInSearch = "Blocked: search contains what appears to be an API key or token. Secrets must not be sent in URLs."
 )
 
 // maxExtractURLs is how many pages one web_extract may read, and
@@ -254,8 +257,15 @@ func (s *Service) webSearch(ctx context.Context, run *toolRun, args json.RawMess
 
 // runSearch makes one provider search, counted against the run's caps; a
 // failed one counts towards maxSearchFailures. Only a run whose context ended
-// returns the context's error.
+// returns the context's error. A query carrying what looks like an API key
+// or token is refused first and not counted: the provider's own search
+// (OpenRouter's web plugin, Codex's live search) may open a page the query
+// names, so Hermes' check of a web_extract URL (_validate_extract_urls,
+// _PREFIX_RE, as carriesSecret) applies to the query as well.
 func (s *Service) runSearch(ctx context.Context, run *toolRun, query string) (WireMessage, error) {
+	if carriesSecret(query) {
+		return WireMessage{}, errors.New(secretInSearch)
+	}
 	if run.searchFailures >= maxSearchFailures {
 		return WireMessage{}, errors.New("Web search is not working right now. Answer without it and tell the person the search failed")
 	}
