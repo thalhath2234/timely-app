@@ -23,9 +23,15 @@ through the web tools. So, in a tainted session only:
 - a ``web_search`` whose query carries text from a Timely read, from memory (``MEMORY.md``,
   ``USER.md``, and every learned or edited skill's files in the account home) or from a tainted tool result other than the web tools' own (public web text going
   back to a search engine leaks nothing) is blocked.
-- a ``web_search`` whose query names a site (a link, ``site:host``, or a bare name with a path
-  such as ``evil.example/x``) that is neither one the person typed nor one a search returned is blocked: a
-  provider's own search may open what a query names (``SEARCH_HOST_BLOCKED``).
+- a ``web_search`` whose query names a site (a link, ``site:host``, or a bare name with a path,
+  query, fragment or port such as ``evil.example/x``, ``evil.example?d=1``) that is neither one the
+  person typed nor one a search returned is blocked: a provider's own search may open what a query
+  names (``SEARCH_HOST_BLOCKED``). The query is read as a fetcher would: NFKC, the ideographic and
+  full-width dots, and the ``[.]``, ``(.)`` and `` dot `` spellings are a dot.
+- a ``web_search`` whose query names a page (a site with a path, query or fragment) on an allowed
+  site is blocked unless ``web_extract`` could open that page: the front page, a link the person
+  typed or their bots read, or a URL a search returned. A provider's own search (Codex's live
+  search) may open it, so a query is a page read too (``SEARCH_PAGE_BLOCKED``).
 
 *Timely reads* are the person's own data the run already holds: Timely tool results, past-chat
 search hits (``session_search``: earlier chats are the person's), and Timely's parts of each turn's
@@ -59,6 +65,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -73,6 +80,8 @@ PAGE_BLOCKED = ("Blocked: this chat has read outside content, so Timely opens on
 SEARCH_BLOCKED = ("Blocked: this search would send text from the person's Timely data or memory to the web, "
                   "and this chat has read outside content. Search for it yourself. " + PASTE_LINK)
 SEARCH_HOST_BLOCKED = ("Blocked: this search names {host}, which is not a site the person named or one a web "
+                       "search in this chat returned, and this chat has read outside content. " + PASTE_LINK)
+SEARCH_PAGE_BLOCKED = ("Blocked: this search names a page on {host} that the person did not give and no web "
                        "search in this chat returned, and this chat has read outside content. " + PASTE_LINK)
 CHECK_FAILED = "Blocked: Timely could not check where {tool} would send data ({error}). " + PASTE_LINK
 
@@ -108,8 +117,22 @@ _URL = re.compile(r"https?://[^\s\"'<>\\)\]}]+", re.IGNORECASE)
 # A site a query names so that a provider's search could open it: a link (``https://host``,
 # ``//host``), ``site:host``, or a bare name with a path (``evil.example/...``). A bare name alone
 # (``node.js``) is a word, not an address.
-_NAME = r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})"
-_HOST_REF = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|//|\bsite:)" + _NAME + r"|\b" + _NAME + r"(?::\d+)?/")
+# A name is Unicode (an IDN), compared in its IDNA form. A bare name followed by a port, a path, or
+# a query or fragment with something after it (``evil.example?d=1``) is an address; "node.js?" at the
+# end of a question is not.
+_NAME = r"((?:[^\W_](?:[\w-]{0,61}[^\W_])?\.)+(?:[^\W\d_]{2,24}|xn--[a-z0-9-]{1,59}))"
+_AFTER_NAME = r"(?=:\d|/|[?#][^\s?#])"
+_HOST_REF = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|//|\bsite:)" + _NAME + r"|\b" + _NAME + _AFTER_NAME)
+# A page a query names: a link (with any user name in it), or a bare name or IP address with a
+# port, a path, or a query or fragment with something in it.
+_PAGE_REF = re.compile(r"(?i)(?:(?:[a-z][a-z0-9+.-]*:)?//(?:[^\s/?#@\"'<>]*@)?)?(?:(?<![\w.-])"
+                       r"(?:(?:[^\W_](?:[\w-]{0,61}[^\W_])?\.)+(?:[^\W\d_]{2,24}|xn--[a-z0-9-]{1,59})"
+                       r"|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]+\]))"
+                       r"(?::\d+(?:[/?#][^\s\"'<>]*)?|/[^\s\"'<>]*|[?#][^\s\"'<>?#][^\s\"'<>]*)")
+# What reads as a dot to a fetcher or a model: the ideographic and full-width dots (NFKC folds the
+# small and half-width ones into these) and the spelled-out forms people use to hide a link.
+_DOTS = str.maketrans({"\u3002": ".", "\uff0e": ".", "\uff61": "."})
+_DOT_WORDS = re.compile(r"(?i)\s*(?:\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\)|\{dot\})\s*|(?<=\w)\s+dot\s+(?=\w)")
 
 # The paragraphs Timely adds to a turn's message (Go chat/toolcall.go turnInput, engine_prompt.go
 # historySeed; the Go test TestTurnInputPrivateParts keeps both lists in step). Each starts with one
@@ -297,12 +320,26 @@ def ip_literals(text: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def query_text(query: str) -> str:
+    """A search query as a fetcher or a model would read its addresses: NFKC, every dot form a
+    dot."""
+    text = unicodedata.normalize("NFKC", query or "").translate(_DOTS)
+    return _DOT_WORDS.sub(".", text)
+
+
 def query_hosts(query: str) -> list[str]:
     """The sites a search query names (IP addresses anywhere, links, ``site:`` and bare names),
-    normalised."""
-    found = [a or b for a, b in _HOST_REF.findall(query or "")]
-    hosts = ip_literals(query) + [norm_host(h) for h in found]
+    normalised (IDNA for a Unicode name)."""
+    query = query_text(query)
+    found = [a or b for a, b in _HOST_REF.findall(query)]
+    hosts = ip_literals(query) + [_idna(norm_host(h)) for h in found]
     return list(dict.fromkeys(h for h in hosts if h))
+
+
+def query_pages(query: str) -> list[str]:
+    """The pages a search query names: links, and bare names or IP addresses with a path, query or
+    fragment, as written (trailing punctuation dropped)."""
+    return [m.rstrip(".,;:!?)]}") for m in _PAGE_REF.findall(query_text(query))]
 
 
 def strip_notice(text: str) -> str:
@@ -580,11 +617,20 @@ def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], 
         return None
     allowed = {norm_host(h) for h in person_hosts if isinstance(h, str)} | rec.search_hosts
     own = [d for text in private for d in pieces(strip_notice(str(text)))] + rec.timely_reads + list(memory)
+    links = [str(link) for link in person_links if isinstance(link, str)]
     if tool == "web_search":
         query = str(args.get("query") or "")
+        allowed_idna = {_idna(h) for h in allowed}
         for host in query_hosts(query):
-            if host not in allowed:
+            if host not in allowed_idna:
                 return SEARCH_HOST_BLOCKED.format(host=host)
+        searched = {page_key(u) for u in rec.search_urls}
+        for page in query_pages(query):
+            host = url_host(page)
+            if unsafe_url(page) or not host or _idna(host) not in allowed_idna:
+                return SEARCH_PAGE_BLOCKED.format(host=host or "another site")
+            if not front_page(page) and not person_page(page, links) and page_key(page) not in searched:
+                return SEARCH_PAGE_BLOCKED.format(host=host)
         if carries(query, own + rec.tainted_results):
             return SEARCH_BLOCKED
         return None
@@ -596,7 +642,6 @@ def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], 
     else:
         return None
     seen_urls = rec.search_urls
-    links = [str(link) for link in person_links if isinstance(link, str)]
     for url in urls:
         if unsafe_url(url) or not same_page(url):
             return PAGE_BLOCKED

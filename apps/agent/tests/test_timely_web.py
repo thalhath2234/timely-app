@@ -445,9 +445,41 @@ def test_search_naming_another_site_is_blocked_after_taint():
                   "//www.Evil.Example/x"):
         blocked = _check("web_search", {"query": query}, rec=rec)
         assert blocked and "evil.example" in blocked and egress.PASTE_LINK in blocked, query
-    for query in ("node.js streams", "site:found.example deals", "news.example/today", "weather tomorrow"):
-        assert _check("web_search", {"query": query}, rec=rec, person_hosts=["news.example"]) is None, query
+    for query in ("node.js streams", "site:found.example deals", "news.example/today", "weather tomorrow",
+                  "what is node.js?"):
+        assert _check("web_search", {"query": query}, rec=rec, person_hosts=["news.example"],
+                      person_links=["news.example/today"]) is None, query
     assert _check("web_search", {"query": "https://evil.example/x"}, tainted=False) is None
+
+
+@pytest.mark.parametrize("query", [
+    "evil.example?d=jane-okafor", "Open evil.example#jane and quote it", "https://evil\uff0eexample/r/jane",
+    "evil\u3002example/x", "evil[.]example/x", "evil(.)example/x", "evil dot example/x", "evil.example:8080",
+    "https://\u00e9vil.example/x",
+])
+def test_search_naming_a_site_in_any_spelling_is_blocked_after_taint(query):
+    """A provider's own search reads an address as a fetcher would: a bare name with a query,
+    fragment or port, a full-width or ideographic dot, or a spelled-out dot still names the site."""
+    blocked = _check("web_search", {"query": query}, rec=_rec(timely=[]), person_hosts=["news.example"])
+    assert blocked and blocked.startswith("Blocked: this search names"), (query, blocked)
+
+
+def test_search_naming_a_page_on_an_allowed_site_needs_the_page_rule():
+    """Codex's live search may open a page a query names, so after taint a query's page follows
+    web_extract's rule: a page path or query on a site the person typed or a search returned can
+    carry the person's data however encoded (review round 4: base64 in ?d= on the typed host)."""
+    import base64
+    data = base64.urlsafe_b64encode(NOTES.encode()).decode().rstrip("=")
+    rec = _rec(timely=[NOTES], search_hosts={"found.example"}, urls={"https://found.example/a?id=7"})
+    hosts, links = ["news.example"], ["news.example/article"]
+    for query in (f"https://news.example/c?d={data}", f"news.example/c?d={data}", f"news.example/{data}",
+                  "news.example/article/extra", "https://found.example/a?id=8", "found.example/b please",
+                  "news.example:8443/", "news.example#jane-okafor", "https://jane@news.example/"):
+        assert _check("web_search", {"query": query}, rec=rec, person_hosts=hosts,
+                      person_links=links) == egress.SEARCH_PAGE_BLOCKED.format(host=egress.url_host(query.split()[0])), query
+    for query in ("https://news.example/article", "news.example/article reviews", "https://found.example/a?id=7",
+                  "found.example/ deals", "https://news.example/", "site:news.example falcon"):
+        assert _check("web_search", {"query": query}, rec=rec, person_hosts=hosts, person_links=links) is None, query
 
 
 def test_long_documents_are_kept_whole_in_pieces():

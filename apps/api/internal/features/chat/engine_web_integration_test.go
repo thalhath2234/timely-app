@@ -357,7 +357,7 @@ func (s searchCompleters) Completer(context.Context, string, string, string) (Co
 }
 
 // web_search through the timely backend searches with the run's provider and
-// answers its sources as results (outside); a provider without search
+// answers its citations as results (outside); a provider without search
 // answers that web search needs a key, and nothing is searched.
 func TestIntegrationAgentEngineWebSearchUsesTheChatProvider(t *testing.T) {
 	citation, _ := json.Marshal(obj{"type": "url_citation", "url_citation": obj{"url": "https://dairy.example.com/prices", "title": "Dairy prices", "content": "Milk is 1.10"}})
@@ -395,7 +395,9 @@ func TestIntegrationAgentEngineWebSearchUsesTheChatProvider(t *testing.T) {
 				}
 				return
 			}
-			want := []webResult{{URL: "https://dairy.example.com/prices", Title: "Dairy prices", Description: "Milk is 1.10"}, {URL: "https://news.example.org/milk", Title: "report"}}
+			// The citation is the only result: the link in the answer text
+			// is the search model's writing, in a clean run's first search too.
+			want := []webResult{{URL: "https://dairy.example.com/prices", Title: "Dairy prices", Description: "Milk is 1.10"}}
 			if !results[0].Outside || got.Answer != searching.answer.Content || !slices.Equal(got.Results, want) {
 				t.Fatalf("search result %+v outside %v", got, results[0].Outside)
 			}
