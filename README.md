@@ -122,7 +122,7 @@ than Alpine) into `/app/agent`, owned by root and read-only to the `timely` user
 `TIMELY_AGENT_RUNTIME=/app/agent`. Agent state (each account's home, the seed tree and the
 read-only Timely skills copy) lands in `/data/agent`, on the same `apidata` volume as the rest of
 the API's data, so back up that volume. Terminal and file tools the agent is allowed to run act
-inside the container, on its filesystem and network, not on the Docker host (ADR 0026).
+inside the container, on its filesystem and network, not on the Docker host (plan 11.5).
 
 The image is about 904 MB on disk (about 220 MB as a gzipped `docker save`), against 104 MB for the
 old Alpine image. `make docker-agent-smoke` builds it for linux/amd64 and checks the runtime read-only as uid
