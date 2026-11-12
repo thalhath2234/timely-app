@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -908,11 +909,34 @@ func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {
 // in agent_session_forgets until a worker acknowledges it at the next run.
 func TestIntegrationAgentEngineDeleteWaitsForAWorker(t *testing.T) {
 	h := newEngineHarness(t)
+	waitingFor := func(cid string) int64 {
+		var n int64
+		h.db.Model(&AgentSessionForget{}).Where("user_id = ? AND conversation_id = ?", "user-a", cid).Count(&n)
+		return n
+	}
+	settles := func(cid string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for waitingFor(cid) != 0 {
+			if time.Now().After(deadline) {
+				t.Fatalf("the session delete of %s stayed waiting", cid)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	// An account with no agent home (it never used the agent) has nothing
+	// to delete: the row goes at once.
+	h.e.Forget("user-a", "chat_never")
+	settles("chat_never")
+	// With a home and no worker, agent-forget runs on it (review round 8);
+	// the fake runtime has no helpers, so it fails and the delete waits.
+	if err := os.MkdirAll(h.e.sup.Layout().Home("user-a"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	h.e.Forget("user-a", "chat_gone")
-	var waiting int64
-	h.db.Model(&AgentSessionForget{}).Where("user_id = ? AND conversation_id = ?", "user-a", "chat_gone").Count(&waiting)
-	if waiting != 1 {
-		t.Fatalf("%d waiting session deletes", waiting)
+	h.e.wg.Wait()
+	if waitingFor("chat_gone") != 1 {
+		t.Fatal("a failed agent-forget dropped the waiting delete")
 	}
 	c := h.chat("Plan my week", "supervised", "after-delete", lines(reply("Here it is", 0)))
 	h.wait(c.ID, "replied", statusIs("idle"))
@@ -924,17 +948,7 @@ func TestIntegrationAgentEngineDeleteWaitsForAWorker(t *testing.T) {
 	if body.ConversationID != "chat_gone" {
 		t.Fatalf("session.delete for %q", body.ConversationID)
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		h.db.Model(&AgentSessionForget{}).Where("user_id = ?", "user-a").Count(&waiting)
-		if waiting == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the acknowledged session delete stayed waiting")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	settles("chat_gone")
 }
 
 // The host-allowed account's run.start drops the scope line (Q-2.1);

@@ -20,6 +20,7 @@ import (
 //	agent-export    --agent-dir <root> --account ID --out <zip>  the zip that goes in the backup
 //	agent-import    --agent-dir <root> --account ID --zip <zip>  stages it beside the live home
 //	agent-reconcile --agent-dir <root>                            finishes or drops staged folders (prepare runs it too)
+//	agent-forget    --agent-dir <root> --account ID --sessions <json>  deletes chats from the live home with no worker running
 //
 // A restore runs in three steps around the Postgres transaction: StageRestore
 // before it (nothing live changes), CommitRestore after it commits (the
@@ -133,6 +134,41 @@ func (s *Supervisor) ExportState(ctx context.Context, account string, dropSessio
 		return nil, "", fmt.Errorf("%w: agent-export reported sha256 %s, the zip hashes to %s", ErrHelperFailed, trimForLog(res.SHA256, 12), sha[:12])
 	}
 	return zip, sha, nil
+}
+
+// ForgetSessions deletes chats the person deleted while the account had no
+// worker from its live home with agent-forget: what session.delete does in a
+// worker (the rows, the chats' sessions/ files, the search index's words),
+// so a desktop folder backup or the pre-upgrade copy never finds them while
+// the account waits for its next agent run (review round 8). An account
+// with no home has nothing to delete. It returns the ids the home held.
+func (s *Supervisor) ForgetSessions(ctx context.Context, account string, ids []string) ([]string, error) {
+	if account == "" {
+		return nil, errors.New("agenthost: no account")
+	}
+	if info, err := os.Stat(s.layout.Home(account)); err != nil || !info.IsDir() || len(ids) == 0 {
+		return nil, nil
+	}
+	env, err := s.stateEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	list, err := s.stateTemp("forget", ".json")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(list)
+	data, _ := json.Marshal(ids)
+	if err := os.WriteFile(list, data, 0o600); err != nil {
+		return nil, err
+	}
+	var res struct {
+		Gone []string `json:"gone"`
+	}
+	if err := s.runHelper(ctx, stateTimeout, env, nil, &res, "agent-forget", "--agent-dir", s.layout.Root, "--account", account, "--sessions", list); err != nil {
+		return nil, err
+	}
+	return res.Gone, nil
 }
 
 // StageRestore extracts zip beside the account's live home with

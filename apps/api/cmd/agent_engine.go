@@ -96,6 +96,9 @@ func newAgentEngine(db *gorm.DB, chatService *chat.Service, catalog func() agent
 		if _, err := sup.Prepare(ctx, map[string]any{"browser_executable": ""}); err != nil {
 			log.Printf("agent engine: prepare: %v", err)
 		}
+		// Chats deleted while their account had no worker, before a restart
+		// or a restore, leave the homes now (review round 8).
+		engine.DrainForgets(ctx)
 	}()
 	return stack
 }

@@ -136,6 +136,54 @@ func TestIntegrationAgentEngineRealWorker(t *testing.T) {
 	if c = h.waitLong(c.ID, "stopped", statusIs("stopped")); c.AgentRunID != "" {
 		t.Fatalf("stopped run left %q", c.AgentRunID)
 	}
+
+	// 5. Review round 8: a chat deleted while the account has no worker
+	// (reaped after its idle minutes, or back on Classic) leaves the home at
+	// once through agent-forget, not at the account's next agent run: the
+	// desktop folder backup copies state.db raw.
+	const word = "zqxjvwombatlentil"
+	gone := h.chat("remember "+word+" for me", "supervised", "", nil)
+	h.waitLong(gone.ID, "replied", statusIs("idle"))
+	home := h.e.sup.Layout().Home("user-a")
+	holds := func() bool {
+		parts, _ := filepath.Glob(filepath.Join(home, "state.db*"))
+		for _, part := range parts {
+			if b, err := os.ReadFile(part); err == nil && strings.Contains(strings.ToLower(string(b)), word) {
+				return true
+			}
+		}
+		return false
+	}
+	if !holds() {
+		t.Fatal("the probe does not see the chat in state.db")
+	}
+	stopCtx, stopDone := context.WithTimeout(context.Background(), 30*time.Second)
+	defer stopDone()
+	if err := h.e.sup.Stop(stopCtx, "user-a", "idle"); err != nil {
+		t.Fatal(err)
+	}
+	if _, up := h.e.sup.Worker("user-a"); up {
+		t.Fatal("the worker is still up")
+	}
+	h.e.Forget("user-a", gone.ID)
+	deadline = time.Now().Add(60 * time.Second)
+	for {
+		var waiting int64
+		h.db.Model(&AgentSessionForget{}).Where("user_id = ?", "user-a").Count(&waiting)
+		if waiting == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the delete waited for a worker")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if holds() {
+		t.Fatal("the deleted chat's words stayed in state.db with no worker running")
+	}
+	if _, up := h.e.sup.Worker("user-a"); up {
+		t.Fatal("agent-forget started a worker")
+	}
 }
 
 // waitLong is wait with room for a cold worker start; a run that ended

@@ -593,8 +593,10 @@ func (e *WorkerEngine) Steer(ctx context.Context, uid, cid, runID, text string) 
 
 // Forget implements AgentEngine (after Delete): session.delete in the
 // account's worker, once the chat's run is over. The request waits in
-// agent_session_forgets until a worker acknowledges it, so an idle account
-// or an API restart only delays it to the account's next run.
+// agent_session_forgets until it is done. With no worker running (an idle
+// account, or one back on Classic) agent-forget does it on the home at once
+// (review round 8): the desktop folder backup copies the home raw, so the
+// chat must not wait there for the account's next agent run.
 func (e *WorkerEngine) Forget(uid, cid string) {
 	e.mu.Lock()
 	delete(e.seeded, cid)
@@ -610,6 +612,81 @@ func (e *WorkerEngine) Forget(uid, cid string) {
 	}
 	if w, ok := e.sup.Worker(uid); ok {
 		e.sendForgets(w, uid, "")
+		return
+	}
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		e.forgetIdle(ctx, uid)
+	}()
+}
+
+// forgetIdle delivers uid's waiting session deletes: to its worker when one
+// runs, else with agent-forget on the home. A row goes once it is done; a
+// failure leaves it for the next try (the next Forget, run, API start or
+// shutdown).
+func (e *WorkerEngine) forgetIdle(ctx context.Context, uid string) {
+	if e.sup == nil {
+		return
+	}
+	if w, ok := e.sup.Worker(uid); ok {
+		e.sendForgets(w, uid, "")
+		return
+	}
+	var rows []AgentSessionForget
+	if err := e.s.db.WithContext(ctx).Where("user_id = ?", uid).Find(&rows).Error; err != nil {
+		e.opts.Logf("agent engine: session deletes: %v", err)
+		return
+	}
+	e.mu.Lock()
+	var cids []string
+	for _, row := range rows {
+		cid := row.ConversationID
+		if e.chats[cid] == nil && !e.forgetting[cid] {
+			cids = append(cids, cid)
+			e.forgetting[cid] = true
+		}
+	}
+	e.mu.Unlock()
+	if len(cids) == 0 {
+		return
+	}
+	defer func() {
+		e.mu.Lock()
+		for _, cid := range cids {
+			delete(e.forgetting, cid)
+		}
+		e.mu.Unlock()
+	}()
+	if _, err := e.sup.ForgetSessions(ctx, uid, cids); err != nil {
+		e.opts.Logf("agent engine: agent-forget: %v", err)
+		return
+	}
+	if err := e.s.db.WithContext(ctx).Where("user_id = ? AND conversation_id IN ?", uid, cids).Delete(&AgentSessionForget{}).Error; err != nil {
+		e.opts.Logf("agent engine: session delete done: %v", err)
+	}
+}
+
+// DrainForgets delivers every account's waiting session deletes (API start,
+// and Shutdown once the workers stopped), so a desktop "Back up now" or the
+// pre-upgrade copy, which stop the API first, never finds a deleted chat in
+// a home.
+func (e *WorkerEngine) DrainForgets(ctx context.Context) {
+	if e.sup == nil {
+		return
+	}
+	var uids []string
+	if err := e.s.db.WithContext(ctx).Model(&AgentSessionForget{}).Distinct("user_id").Pluck("user_id", &uids).Error; err != nil {
+		e.opts.Logf("agent engine: session deletes: %v", err)
+		return
+	}
+	for _, uid := range uids {
+		if ctx.Err() != nil {
+			return
+		}
+		e.forgetIdle(ctx, uid)
 	}
 }
 
@@ -668,6 +745,10 @@ func (e *WorkerEngine) Shutdown(ctx context.Context) error {
 	select {
 	case <-done:
 	case <-ctx.Done():
+	}
+	if err == nil {
+		// The workers are gone: what still waits goes through agent-forget.
+		e.DrainForgets(ctx)
 	}
 	return err
 }
