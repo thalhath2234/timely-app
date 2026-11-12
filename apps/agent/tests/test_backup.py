@@ -154,3 +154,28 @@ def test_ledger_paths_move_to_the_new_home(tmp_path):
     # no description of the old home: the skills/ part places it
     assert backup.rewrite_path("/elsewhere/h/skills/a/SKILL.md", "", new) == str(tmp_path / "new" / "skills" / "a" / "SKILL.md")
     assert backup.rewrite_path("/etc/passwd", "/old/home", new) is None
+
+
+def test_compact_copy_and_scrub_leave_no_deleted_text(tmp_path):
+    """Review round 7: a deleted row's text stays in free pages and the WAL until the file is
+    rewritten; an export's snapshot (compact_copy) and the live scrub after session.delete
+    (scrub_deleted) both rewrite it."""
+    import sqlite3
+    marker = b"DELETEDMARK"
+    for name, fix in (("snap.db", backup.compact_copy), ("live.db", backup.scrub_deleted)):
+        db = tmp_path / name
+        conn = sqlite3.connect(db)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE m (t TEXT)")
+        conn.executemany("INSERT INTO m VALUES (?)", [(marker.decode() + "x" * 3000,)] * 20 + [("kept",)])
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        conn.execute("DELETE FROM m WHERE t != 'kept'")
+        conn.commit()
+        conn.close()
+        assert marker in b"".join(p.read_bytes() for p in tmp_path.glob(name + "*"))
+        fix(db)
+        assert marker not in b"".join(p.read_bytes() for p in tmp_path.glob(name + "*")), name
+        conn = sqlite3.connect(db)
+        assert conn.execute("SELECT t FROM m").fetchall() == [("kept",)]
+        conn.close()

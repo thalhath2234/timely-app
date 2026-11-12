@@ -360,3 +360,47 @@ def test_c13_an_open_wal_database_exports_consistently():
         assert check.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 2000
     finally:
         check.close()
+
+
+def test_c13_a_deleted_chat_leaves_the_home_files_and_every_later_export(stub):
+    """Review round 7: the usual delete (the worker runs, session.delete is acknowledged and the
+    forget row goes) must not leave the chat's text in state.db's free pages or its WAL, which the
+    desktop's folder backup copies raw, nor in a later export made without --drop-sessions."""
+    a = harness.Agent(harness.new_root("c13del"), account="user-c13del")
+    w, ready = harness.ready_worker(a, hello={"timely_tools": harness.timely_tools()})
+    assert ready["self_test"]["ok"], ready["self_test"]
+    marker = "SECRETMARKQ7"
+    try:
+        for i in range(4):
+            w.send(harness.run_start(a, stub, run_id=f"c13del-{i}", conversation="c-del", toolsets=TOOLSETS,
+                                     text=f"turn {i}: my secret is {marker} " + "pad " * 400))
+            done, _seen = harness.drive(w, a.account, f"c13del-{i}")
+            assert done["completed"] is True, done
+        w.send(harness.run_start(a, stub, run_id="c13keep", conversation="c-keep", toolsets=TOOLSETS, text="hello"))
+        harness.drive(w, a.account, "c13keep")
+        before = b"".join(p.read_bytes() for p in a.home.glob("state.db*") if p.is_file())
+        assert marker.encode() in before  # the probe sees the text before the delete
+        w.send({"type": "session.delete", "id": "del-1", "account": a.account, "conversation_id": "c-del"})
+        while True:
+            msg = w.recv(60)
+            if msg.get("id") == "del-1":
+                break
+        assert msg["type"] == "ack" and msg["ok"] is True, msg
+    finally:
+        w.close()
+    for part in a.home.glob("state.db*"):
+        if part.is_file():
+            assert marker.encode() not in part.read_bytes(), part.name
+    out = a.dir / "after-delete.zip"
+    cli("agent-export", a, "--account", a.account, "--out", str(out))
+    with zipfile.ZipFile(out) as zf:
+        raw = zf.read("state.db")
+    assert marker.encode() not in raw
+    snap = a.dir / "snap.db"
+    snap.write_bytes(raw)
+    conn = sqlite3.connect(snap)
+    try:
+        assert conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM sessions WHERE id = 'c-keep'").fetchone()[0] == 1
+    finally:
+        conn.close()

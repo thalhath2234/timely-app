@@ -173,7 +173,6 @@ def _drop_sessions(db: Path, ids: Iterable[str]) -> list[str]:
     """Delete ``ids`` from a database copy with Hermes' own ``delete_session`` (what ``session.delete``
     runs for a deleted chat), then rewrite the file so no deleted page keeps their text. Returns the
     ids that were there."""
-    import sqlite3
     from hermes_state import SessionDB
     gone: list[str] = []
     sdb = SessionDB(db_path=db)
@@ -183,6 +182,14 @@ def _drop_sessions(db: Path, ids: Iterable[str]) -> list[str]:
                 gone.append(sid)
     finally:
         sdb.close()
+    compact_copy(db)
+    return gone
+
+
+def compact_copy(db: Path) -> None:
+    """Rewrite a database copy so no free page keeps deleted text: a chat deleted earlier (Hermes'
+    ``delete_session`` frees its pages without zeroing them) must not reach a backup from them."""
+    import sqlite3
     conn = sqlite3.connect(db)
     try:
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -192,7 +199,25 @@ def _drop_sessions(db: Path, ids: Iterable[str]) -> list[str]:
         conn.close()
     for sidecar in ("-wal", "-shm", "-journal"):
         Path(str(db) + sidecar).unlink(missing_ok=True)
-    return gone
+
+
+def scrub_deleted(db: Path, timeout: float = 10.0) -> bool:
+    """After a live ``delete_session``: rewrite ``state.db`` (VACUUM) and empty its WAL, so the
+    deleted chat's text leaves the home's files, which the desktop's folder backup copies raw.
+    Best effort: a busy database is left for the next export, which compacts its copy anyway."""
+    import sqlite3
+    if not db.is_file():
+        return False
+    try:
+        conn = sqlite3.connect(db, timeout=timeout)
+        try:
+            conn.execute("VACUUM")
+            busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return not busy or busy[0] == 0
 
 
 def chat_sessions(db: Path) -> list[str]:
@@ -246,7 +271,9 @@ def export_state(layout: paths.AgentLayout, account: str, out: Path,
             for abs_path, rel in chosen:
                 if abs_path.suffix == ".db":
                     # A WAL-safe copy staged beside the zip (/tmp may be a small tmpfs), the
-                    # deleted chats dropped from state.db, then zipped.
+                    # deleted chats dropped from state.db, rewritten so no free page keeps a
+                    # deleted chat's text (the sqlite backup API copies free pages too), then
+                    # zipped.
                     fd, snap_name = tempfile.mkstemp(prefix=".agent-db-", suffix=".db", dir=out.parent)
                     os.close(fd)
                     snap = Path(snap_name)
@@ -255,6 +282,8 @@ def export_state(layout: paths.AgentLayout, account: str, out: Path,
                             raise BackupError(f"no consistent snapshot of {rel.as_posix()} (database busy?)")
                         if drop and rel.as_posix() == "state.db":
                             _drop_sessions(snap, drop)
+                        else:
+                            compact_copy(snap)
                         _write_zip_file(zf, snap, rel.as_posix())
                     finally:
                         for suffix in ("", "-wal", "-shm", "-journal"):

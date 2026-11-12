@@ -559,7 +559,18 @@ class Worker:
         ok = False
         try:
             from hermes_state import SessionDB
-            ok = bool(SessionDB().delete_session(conversation))
+            sdb = SessionDB()
+            try:
+                ok = bool(sdb.delete_session(conversation))
+            finally:
+                sdb.close()
+            if ok:
+                # Hermes frees the rows' pages without zeroing them, and the WAL keeps them too:
+                # rewrite the file so the deleted chat's text leaves the home (the desktop's
+                # folder backup copies state.db and its WAL raw).
+                from timely_agent import backup
+                if not backup.scrub_deleted(Path(sdb.db_path)):
+                    logger.warning("session.delete %s: state.db is busy; its next export compacts it", conversation)
         except Exception as exc:
             logger.warning("session.delete %s: %s", conversation, exc)
         self.send({"type": "ack", "id": msg.get("id"), "ok": ok})
