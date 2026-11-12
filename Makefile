@@ -604,7 +604,7 @@ agent-test: ## Test Timely's agent worker (protocol, config render, seed tree, p
 	@mkdir -p "$(AGENT_TEST_TMP)"
 	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests --ignore=tests/contract $(ARGS)
 
-agent-contract: ## Contract tests of plan 10.4 f against real workers and a stub model, no network (ARGS=-k c19 picks tests)
+agent-contract: ## Contract tests of plan 10.4 f against real workers and a stub model, no network (ARGS=-k c19 picks tests; TIMELY_AGENT_TEST_TIMEOUT_SCALE=3 on a loaded machine)
 	@test -x "$(AGENT_PY)" || { echo "agent-contract: run make agent-install first"; exit 1; }
 	@mkdir -p "$(AGENT_TEST_TMP)"
 	@cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests/contract $(ARGS)

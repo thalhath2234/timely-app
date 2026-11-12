@@ -56,7 +56,9 @@ RETURNING *`, e.user, models.JobBotCheck).Scan(&job)
 				time.Sleep(5 * time.Millisecond)
 				continue
 			}
-			if err := e.s.HandleCheck(ctx, &job); err != nil {
+			// A check the test's stop cancelled (its work is done) is no
+			// failure; under load it can still be finishing.
+			if err := e.s.HandleCheck(ctx, &job); err != nil && ctx.Err() == nil {
 				e.t.Errorf("check: %v", err)
 			}
 			e.db.Model(&models.Job{}).Where("id = ?", job.ID).Update("status", models.JobSucceeded)

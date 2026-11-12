@@ -21,6 +21,12 @@ from typing import Any, Optional
 AGENT_DIR = Path(__file__).resolve().parent.parent
 BOOT = AGENT_DIR / "timely_agent" / "boot.py"
 TEST_BASE = Path(os.environ.get("TIMELY_AGENT_TEST_ROOT") or Path.home() / ".cache" / "timely-agent-test")
+# A loaded machine (a TLA+ check, other suites) can take tens of seconds to start a worker: set
+# TIMELY_AGENT_TEST_TIMEOUT_SCALE (e.g. 3) to wait longer for every message.
+try:
+    TIMEOUT_SCALE = max(1.0, float(os.environ.get("TIMELY_AGENT_TEST_TIMEOUT_SCALE") or 1))
+except ValueError:
+    TIMEOUT_SCALE = 1.0
 TEST_ROOT = TEST_BASE / f"run-{os.getpid()}"  # removed at the end of the session (conftest)
 
 if str(AGENT_DIR) not in sys.path:
@@ -165,6 +171,7 @@ class Worker:
         self.proc.stdin.flush()
 
     def recv(self, timeout: float = 60.0, skip=("heartbeat", "log")) -> dict:
+        timeout *= TIMEOUT_SCALE
         deadline = time.monotonic() + timeout
         while True:
             left = deadline - time.monotonic()
