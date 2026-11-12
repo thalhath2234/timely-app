@@ -481,6 +481,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,
         permission=str(msg.get("permission") or "supervised"), flags=flags,
         flush=sink.flush, session=state)
+    ctx.stopped = lambda: bool(run.stop_reason)
     counters = getattr(cache, "counters", None)
     turn_ran = False
     try:

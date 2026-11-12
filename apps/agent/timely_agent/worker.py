@@ -268,6 +268,8 @@ class Worker:
         dotenv_guard.install()  # R2: no dotenv reload after this point (MCP config loads call it)
         from timely_agent.learning import counters as learning_counters
         learning_counters.install()  # a stored review counter survives Hermes' first-turn hydration
+        from timely_agent.learning import passes as learning_passes
+        learning_passes.install_end_turn()  # a review-due turn ended by end_turn still learns
         # Bridge the account's terminal.* config into the TERMINAL_* process env, as Hermes' CLI and
         # gateway do at start: some readers (HOME for children: terminal.home_mode) only look there.
         # hermes_cli.config's bridge leaves out home_mode (only gateway/run.py bridges it), so

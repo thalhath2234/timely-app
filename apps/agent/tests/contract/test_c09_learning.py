@@ -146,6 +146,29 @@ def test_c09_cached_agent_fires_one_skill_review_across_two_turns(lagent, lworke
     assert ev["conversation_id"] == conv and ev["ledger_entry_id"] and "Read the list" in ev["after"], ev
 
 
+END_TURN_PROPOSAL = {"summary": "Add a task", "steps": [{"tool": "create_task", "summary": "Add Buy milk",
+                                                        "arguments": {"title": "Buy milk"}}],
+                     "direct": True, "reply": "", "remaining": "", "language": "en"}
+
+
+def test_c09_review_due_turn_ended_by_end_turn_still_learns(lagent, lworker, stub):
+    """Review round 6: a review-due turn that ends through Q-2.4's end_turn (a tool call after a
+    recorded propose_changes) is the turn finishing, not a Stop: the learning pass runs, rather
+    than Hermes using up the counter on an interrupted turn and spawning nothing."""
+    conv, tag = "c-c09e", "tag-c09e"
+    turn(lworker, lagent, stub, "c09e-1", conv, text(todo(6, tag), tag))
+    settle(lworker, lagent)
+    review = [{"calls": [create("c09e-sorting")]}, {"text": "Saved a skill."}]
+    script = todo(5, tag) + [{"calls": [["propose_changes", END_TURN_PROPOSAL]]},
+                             {"text": "Recorded it.", "calls": [["get_context", {}]]}]
+    done, events, _ = turn(lworker, lagent, stub, "c09e-2", conv, text(script, tag + "-2", review))
+    assert done["turn_exit_reason"] == "end_turn" and done["completed"] and not done["interrupted"], done
+    events += settle(lworker, lagent)
+    assert len(review_starts(stub, tag)) == 1
+    assert (skill_dir(lagent, "c09e-sorting") / "SKILL.md").is_file()
+    assert [e["origin"] for e in events if e["subject"] == "c09e-sorting"] == ["review"], events
+
+
 # ---------------------------------------------------------------- 9b
 
 def test_c09_tainted_session_stages_in_the_learning_pass(lagent, lworker, stub):

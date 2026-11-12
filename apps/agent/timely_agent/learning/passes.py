@@ -45,6 +45,55 @@ def busy() -> Iterator[None]:
             _active -= 1
 
 
+def install_end_turn() -> None:
+    """Let a turn that Timely ended after a recorded proposal (Q-2.4's ``end_turn``) still start
+    the learning pass that was due (idempotent; the worker calls it once Hermes is imported).
+
+    ``timely_gate`` ends such a turn with ``agent.interrupt``, so Hermes' ``finalize_turn`` sees an
+    interrupted turn: it uses up the due review counters, then spawns no review. ``end_turn`` is the
+    turn finishing, not a Stop, so the wrapper hands Hermes the turn as not interrupted when this
+    run's gate ended it and the person did not press Stop. A real Stop keeps Hermes' behaviour (no
+    review)."""
+    import agent.turn_finalizer as turn_finalizer
+    original = turn_finalizer._mirror_turn_to_memory
+    if getattr(original, "__timely_end_turn__", False):
+        return
+
+    def mirror(agent: Any, *, original_user_message: Any, final_response: Any, interrupted: bool,
+               messages: Any, review_memory: bool, review_skills: bool, vetoed: bool) -> None:
+        if interrupted and not vetoed and (review_memory or review_skills) and ended_by_timely(agent):
+            interrupted = False
+            final_response = final_response or closing_text(messages) or "Recorded the proposal."
+        original(agent, original_user_message=original_user_message, final_response=final_response,
+                 interrupted=interrupted, messages=messages, review_memory=review_memory,
+                 review_skills=review_skills, vetoed=vetoed)
+
+    mirror.__timely_end_turn__ = True  # type: ignore[attr-defined]
+    turn_finalizer._mirror_turn_to_memory = mirror
+
+
+def ended_by_timely(agent: Any) -> bool:
+    """Whether this thread's run ended its turn through ``end_turn`` (not a Stop) on ``agent``."""
+    from timely_agent import bridge
+    run = bridge.current_run.get()
+    if run is None or not run.end_turn_hit or run.agent is not agent:
+        return False
+    try:
+        return not run.stopped()
+    except Exception:
+        return False
+
+
+def closing_text(messages: Any) -> str:
+    """The last non-empty assistant text of a turn's messages."""
+    for message in reversed(messages or []):
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+    return ""
+
+
 def pending_review(agent: Any) -> Any:
     """The agent's live review token, or None when no learning pass is running."""
     token = getattr(agent, "_background_review_run", None)

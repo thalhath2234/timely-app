@@ -194,6 +194,8 @@ class RunContext:
     # Q-2.4: Go answered a recorded propose_changes with end_turn; the next tool call ends the turn.
     end_turn: bool = False
     end_turn_hit: bool = False
+    # Whether the person stopped this run (run_chat sets it): an end_turn is then a Stop too.
+    stopped: Callable[[], bool] = field(default=lambda: False, repr=False, compare=False)
     _batches: dict[str, Batch] = field(default_factory=dict, repr=False)
     _last_batch: Optional[Batch] = field(default=None, repr=False)
     _last_call: dict[str, str] = field(default_factory=dict, repr=False)
