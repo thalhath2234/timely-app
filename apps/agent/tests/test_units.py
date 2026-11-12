@@ -598,7 +598,7 @@ def test_learning_writes_off_blocks_skill_manage_and_memory(monkeypatch):
     assert timely_learning.pre_tool_call(tool_name="memory", args={})["message"] == timely_learning.LEARNING_OFF
 
 
-@pytest.mark.parametrize("name", ["hermes-agent", "release..notes", "notes/../hermes-agent", "Pantry steps"])
+@pytest.mark.parametrize("name", ["hermes-agent", "release..notes", "notes/../hermes-agent", "Pantry steps", "timely"])
 def test_skill_manage_refuses_names_timely_cannot_keep(monkeypatch, name):
     """Hermes accepts ``release..notes`` and ``hermes-agent``; Go cannot store the first, and the second is
     never turned off (a restored one would sit in every chat's skills index), so neither is learned."""

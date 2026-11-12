@@ -261,7 +261,7 @@ func TestLiveActivityLines(t *testing.T) {
 }
 
 // The Timely block keeps the scope line except for the host-allowed
-// account (Q-2.1), carries the write schemas and the skill pointer, and is
+// account (Q-2.1), carries the write schemas, and is
 // byte-identical for the same conversation (the provider's cached prefix).
 func TestTimelyBlock(t *testing.T) {
 	catalog := agent.Catalog{
@@ -277,8 +277,8 @@ func TestTimelyBlock(t *testing.T) {
 	if !strings.Contains(block, "Write tool schemas:\n") || !strings.Contains(block, `"create_task"`) || strings.Contains(block, `"get_task"`) {
 		t.Errorf("write schemas: %s", block[strings.Index(block, "Write tool"):])
 	}
-	if !strings.HasSuffix(block, timelySkill) || strings.Contains(block, webSearchOn) {
-		t.Error("skill pointer last; no web search line in phase 2")
+	if strings.Contains(block, "skill_view timely") || strings.Contains(block, webSearchOn) {
+		t.Error("no pointer to a timely skill that does not ship; no web search line without the web")
 	}
 	again := timelyBlock(&Conversation{Client: "web", Messages: append(c.Messages, message("assistant", "Done"), message("user", "And eggs"))}, run, false)
 	if again != block || blockHash(again) != blockHash(block) {
