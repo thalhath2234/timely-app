@@ -219,6 +219,39 @@ export function stdlibDir(pythonDir) {
   return path.join(lib, name);
 }
 
+// ------------------------------------------------------------ imports
+
+/**
+ * Modules the staged interpreter must import through boot.py's sys.path (the
+ * packaged app/site-packages and the folders its .pth files add). The MCP SDK
+ * imports pywin32 at module level on Windows, and pywin32 lives in win32/ and
+ * win32/lib/, reachable only after pywin32.pth ran.
+ */
+export const REQUIRED_IMPORTS = {
+  all: ["mcp", "mcp.client.stdio"],
+  win32: ["pywintypes", "win32api", "win32con", "win32job", "portalocker"],
+};
+
+/** Python source for `python -I -B -c`: boot.py's sys.path fix, then every required import; prints JSON. */
+export function importCheckSource(bootPy, platform = process.platform) {
+  const modules = [...REQUIRED_IMPORTS.all, ...(platform === "win32" ? REQUIRED_IMPORTS.win32 : [])];
+  return [
+    "import importlib, importlib.util, json",
+    `spec = importlib.util.spec_from_file_location("timely_boot", ${JSON.stringify(bootPy)})`,
+    "boot = importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(boot)",
+    "boot._fix_sys_path()",
+    "failed = {}",
+    `for name in ${JSON.stringify(modules)}:`,
+    "    try:",
+    "        importlib.import_module(name)",
+    "    except Exception as exc:",
+    "        failed[name] = f'{type(exc).__name__}: {exc}'",
+    `print(json.dumps({"checked": ${JSON.stringify(modules)}, "failed": failed}))`,
+    "",
+  ].join("\n");
+}
+
 // ------------------------------------------------------------ skills
 
 /** Folders under `root` holding a SKILL.md, relative and posix (seed.skill_dirs). */

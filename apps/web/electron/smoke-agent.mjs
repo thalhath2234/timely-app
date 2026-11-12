@@ -3,12 +3,13 @@
 //
 //   1. `python -I <root>/boot.py` with no command exits 2 with the usage line;
 //   2. `boot.py prepare --agent-dir <scratch>` exits 0 (Hermes imports, managed canary);
-//   3. the Go real-worker test (TestIntegrationRealWorker) with
+//   3. the MCP SDK (and on Windows pywin32 and portalocker) import through boot.py's sys.path;
+//   4. the Go real-worker test (TestIntegrationRealWorker) with
 //      TIMELY_AGENT_TEST_RUNTIME=<root>: prepare, render-account, spawn, hello,
 //      ready with the self-test, a run on the Go stub model, run.done, shutdown.
 //
 // With --read-only the root is made read-only first (POSIX: chmod a-w on every
-// entry; Windows: a deny-write ACE for Everyone), all three steps run against
+// entry; Windows: a deny-write ACE for Everyone), every step runs against
 // it, and any file or folder created, removed or changed inside the root fails
 // the smoke. Permissions are restored in every case.
 //
@@ -22,7 +23,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diffSnapshots, makeWritable, snapshot, stagedPython, walk } from "./stage-agent-lib.mjs";
+import { diffSnapshots, importCheckSource, makeWritable, snapshot, stagedPython, walk } from "./stage-agent-lib.mjs";
 import { getTarget, hostTargetKey } from "./targets.mjs";
 
 const webRoot = path.join(import.meta.dirname, "..");
@@ -120,6 +121,20 @@ export function smokeAgent({ root, readOnly }) {
         ok = false;
       }
       if (r.status !== 0 || !ok) throw new Error(`boot.py prepare exited ${r.status}:\n${r.stdout}\n${r.stderr.split("\n").slice(-30).join("\n")}`);
+    });
+    step("imports through boot.py's sys.path", () => {
+      const source = importCheckSource(path.join(root, "app", "timely_agent", "boot.py"));
+      const r = spawnSync(python, ["-I", "-B", "-c", source], { encoding: "utf8", cwd: scratch, env });
+      const line = r.stdout.trim().split(/\r?\n/).pop() ?? "";
+      let failed = null;
+      try {
+        failed = JSON.parse(line).failed;
+      } catch {
+        failed = null;
+      }
+      if (r.status !== 0 || !failed || Object.keys(failed).length) {
+        throw new Error(`the runtime cannot import what it ships (exit ${r.status}): ${JSON.stringify(failed)}\n${r.stderr}`);
+      }
     });
     step("Go TestIntegrationRealWorker", () => {
       const r = spawnSync("go", ["test", "./internal/agenthost", "-run", "TestIntegrationRealWorker$", "-count=1", "-v"], {

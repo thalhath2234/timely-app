@@ -31,6 +31,7 @@ import {
   diffSnapshots,
   dropLongBytecode,
   hermesCopyFilter,
+  importCheckSource,
   importsStdlibTest,
   largestFolders,
   listTree,
@@ -512,4 +513,30 @@ test("the boot.py shim runs app/timely_agent/boot.py as __main__ without its own
     argv: ["prepare", "--agent-dir", "x"],
   });
   assert.ok(!readdirSync(root).includes("__pycache__"));
+});
+
+test("the import check needs the MCP SDK everywhere and pywin32 and portalocker on Windows, through boot.py's sys.path", { skip: !findPython() && "no python3" }, (t) => {
+  const root = tmp(t);
+  const app = path.join(root, "app");
+  copyFileSync(path.join(repo, "apps/agent/timely_agent/boot.py"), write(app, "timely_agent/boot.py"));
+  mkdirSync(path.join(app, "hermes"));
+  write(app, "site-packages/mcp/__init__.py", "");
+  write(app, "site-packages/mcp/client/__init__.py", "");
+  write(app, "site-packages/mcp/client/stdio.py", "import pywintypes\n");
+  const run = (platform) => {
+    const r = spawnSync(findPython(), ["-I", "-B", "-c", importCheckSource(path.join(app, "timely_agent", "boot.py"), platform)], { encoding: "utf8", cwd: root });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout.trim().split("\n").pop());
+  };
+  // pywintypes sits in win32/lib, reachable only through the .pth (pywin32's layout).
+  let got = run("linux");
+  assert.deepEqual(got.checked, ["mcp", "mcp.client.stdio"]);
+  assert.match(got.failed["mcp.client.stdio"], /No module named 'pywintypes'/);
+  write(app, "site-packages/win32/lib/pywintypes.py", "");
+  write(app, "site-packages/pywin32.pth", "win32\nwin32/lib\n");
+  assert.deepEqual(run("linux").failed, {});
+  got = run("win32");
+  assert.deepEqual(Object.keys(got.failed).sort(), ["portalocker", "win32api", "win32con", "win32job"]);
+  for (const name of ["win32/win32api.py", "win32/win32con.py", "win32/win32job.py", "portalocker/__init__.py"]) write(app, `site-packages/${name}`, "");
+  assert.deepEqual(run("win32").failed, {});
 });

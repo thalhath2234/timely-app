@@ -48,6 +48,7 @@ import {
   dropLongBytecode,
   cpythonLicense,
   hermesCopyFilter,
+  importCheckSource,
   importsStdlibTest,
   largestFolders,
   listTree,
@@ -294,6 +295,20 @@ function seedCheck(target, out, python, selection) {
   }
 }
 
+/** The MCP SDK (and on Windows pywin32 and portalocker) import through boot.py's sys.path. */
+export function checkImports(root, python, env) {
+  const bootPy = path.join(root, "app", "timely_agent", "boot.py");
+  const r = run(python, ["-I", "-B", "-c", importCheckSource(bootPy)], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+  const answer = lastJsonLine(r.stdout);
+  if (r.status !== 0 || !answer || Object.keys(answer.failed ?? {}).length) {
+    const failed = Object.entries(answer?.failed ?? {}).map(([name, why]) => `${name}: ${why}`);
+    throw new Error(
+      `the staged runtime cannot import what it ships (exit ${r.status}):\n  ${failed.join("\n  ")}\n${r.stderr.split("\n").slice(-20).join("\n")}`,
+    );
+  }
+  return answer.checked;
+}
+
 function compileAll(target, out, python) {
   const app = path.join(out, "app");
   const stdlib = stdlibDir(path.join(out, "python"));
@@ -372,6 +387,7 @@ export async function stageAgent(targets = resolveTargets()) {
     copySource(target, out, selection);
     const pyVersion = checkInterpreter(target, python);
     seedCheck(target, out, python, selection);
+    log(target, `imports: ${checkImports(out, python, cleanEnv(os.homedir())).join(", ")}`);
     compileAll(target, out, python);
 
     // Licences first, so a failed tree check still reports every problem at once.

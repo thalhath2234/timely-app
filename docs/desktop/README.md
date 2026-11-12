@@ -488,7 +488,13 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   (the v0.1.1 class of bug); no browser (`playwright`, `pyppeteer`, Chromium or a Chrome binary:
   Timely never bundles Chromium and uses the installed Chrome or Edge, ADR 0022); every installed
   distribution has a licence file or licence metadata; the interpreter starts and reports the
-  expected platform.
+  expected platform; the staged interpreter imports `mcp` and `mcp.client.stdio` through `boot.py`'s
+  `sys.path`, and on Windows `pywintypes`, `win32api`, `win32con`, `win32job` and `portalocker` too.
+- **`.pth` files.** `app/site-packages` is a plain folder, not a venv, so site.py under `-I` never
+  reads its `.pth` files. `boot.py` registers it with `site.addsitedir`, which runs them: pywin32
+  (the MCP SDK's Windows dependency) lives in `win32/` and `win32/lib/` and is importable only after
+  `pywin32.pth` ran. `sys.path` is then `hermes/`, `app/`, `site-packages/`, the folders the `.pth`
+  files add, the stdlib.
 - **Licences.** `THIRD_PARTY_LICENSES` holds CPython's licence, Hermes' MIT licence and
   `apps/agent/NOTICE`, then each distribution's name, version, licence metadata and licence files
   (90 distributions on linux-x64).
@@ -507,7 +513,7 @@ measured yet.
 
 **Smoke test.** `node electron/smoke-agent.mjs [--root <agent dir>] [--read-only]`
 (`make smoke-agent`, `AGENT_ROOT=`, `READ_ONLY=1`) runs `python -I boot.py` (usage, exit 2), `boot.py
-prepare` into a scratch folder, then the Go real-worker test (`TestIntegrationRealWorker` with
+prepare` into a scratch folder, the import check above, then the Go real-worker test (`TestIntegrationRealWorker` with
 `TIMELY_AGENT_TEST_RUNTIME=<root>`: prepare, render-account, spawn, hello, ready with the self-test, a
 run on the test's stub model, run.done, shutdown). It needs Go on `PATH`; no AI provider is called.
 
@@ -517,7 +523,7 @@ run on the test's stub model, run.done, shutdown). It needs Go on `PATH`; no AI 
 ```bash
 make stage-agent
 make smoke-agent READ_ONLY=1        # chmod a-w on every entry (Windows: an icacls deny-write ACE for Everyone),
-                                    # all three steps, then fails on any file created, removed or changed
+                                    # every step, then fails on any file created, removed or changed
 make smoke-agent AGENT_ROOT=$PWD/apps/web/release/linux-unpacked/resources/agent READ_ONLY=1   # the packed copy
 make clean-agent-stage
 ```

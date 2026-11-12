@@ -423,6 +423,41 @@ os.write(pout, b'{{"type":"log","text":"protocol"}}\\n')
         assert text in err
 
 
+def test_packaged_site_packages_run_their_pth_files(tmp_path):
+    """The packaged runtime has no venv: ``app/site-packages`` is a plain folder, and site.py
+    under ``-I`` never reads its ``.pth`` files. pywin32 (the MCP SDK on Windows) lives in
+    ``win32/`` and ``win32/lib/`` and only imports once ``pywin32.pth`` ran, so ``_fix_sys_path``
+    must register the folder as a site dir and keep the order hermes, app, site-packages, the
+    folders its ``.pth`` files add, then the stdlib."""
+    app = tmp_path / "app"
+    (app / "timely_agent").mkdir(parents=True)
+    (app / "hermes").mkdir()
+    shutil.copy(harness.AGENT_DIR / "timely_agent" / "boot.py", app / "timely_agent" / "boot.py")
+    site = app / "site-packages"
+    (site / "win32" / "lib").mkdir(parents=True)
+    (site / "win32" / "lib" / "probe_types.py").write_text("VALUE = 'from the pth folder'\n")
+    (site / "probe_bootstrap.py").write_text("import os\nos.environ['PROBE_PTH_RAN'] = '1'\n")
+    (site / "probe.pth").write_text("win32\nwin32/lib\nimport probe_bootstrap\n")
+    script = tmp_path / "probe.py"
+    script.write_text(f"""
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("timely_boot", {str(app / 'timely_agent' / 'boot.py')!r})
+boot = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(boot)
+boot._fix_sys_path()
+import probe_types
+app = {str(app)!r}
+print(json.dumps({{"path": [os.path.relpath(p, app) for p in sys.path[:5]], "value": probe_types.VALUE,
+                  "ran": os.environ.get("PROBE_PTH_RAN")}}))
+""")
+    proc = subprocess.run([harness.python(), "-I", "-B", str(script)], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["value"] == "from the pth folder" and got["ran"] == "1"
+    assert got["path"][:5] == ["hermes", ".", "site-packages", os.path.join("site-packages", "win32"),
+                               os.path.join("site-packages", "win32", "lib")]
+
+
 def test_gate_blocks_messaging_and_never_offered_names_without_asking_go():
     """Plan 8.3: timely_gate's name block is the layer under the toolset selection. A messaging or
     never-offered tool the model names gets ``block`` and never reaches Go (``gate.ask``), even
