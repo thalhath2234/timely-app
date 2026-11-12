@@ -696,3 +696,17 @@ def test_c09_no_learning_pass_when_learning_is_off(lagent, lworker, stub):
     events += settle(lworker, lagent)
     assert review_starts(stub, tag) == []
     assert not skill_dir(lagent, "c09off-skill").exists() and events == [], events
+
+
+def test_c09_about_you_fact_with_approval_words_applies_in_a_clean_chat(lagent, lworker, stub):
+    """Review round 6 (Q-3.1, contract 9): a clean chat's About you fact that reads like approval
+    wording ("approves") applies with Undo; the skill-body rule reads skill steps only."""
+    conv, tag = "c-c09m", "tag-c09m"
+    fact = "Approves the team budget on Fridays."
+    script = [{"calls": [["memory", {"action": "add", "target": "user", "content": fact}]]}, {"text": "Noted."}]
+    done, events, _ = turn(lworker, lagent, stub, "c09m-1", conv, text(script, tag))
+    assert done["completed"], done
+    events += settle(lworker, lagent)
+    mine = [e for e in events if e["kind"] == "user" and fact in (e.get("after") or "")]
+    assert [(e["status"], e["origin"]) for e in mine] == [("applied", "chat")], events
+    assert fact in (lagent.home / "memories" / "USER.md").read_text(encoding="utf-8")

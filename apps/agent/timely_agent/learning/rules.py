@@ -157,6 +157,10 @@ def decide(tool: str, args: dict[str, Any], *, learning_writes: bool, tainted: b
         return Decision(STAGE, "bot", STAGED_MESSAGE)
     if tool == "memory" and unattended and any(a in DESTRUCTIVE_MEMORY for a in memory_actions(args)):
         return Decision(STAGE, "unattended", STAGED_MESSAGE)
+    if tool != "skill_manage":
+        # The skill-body rule reads skill steps only (Q-3.1, ADR 0028): an About you or Notes fact
+        # such as "Approves the team budget" applies with Undo in a clean chat (review round 6).
+        return Decision(ALLOW)
     rule = rule or skill_body_rule()
     for text in body_texts(args):
         hit = rule.match(text)

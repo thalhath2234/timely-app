@@ -62,8 +62,8 @@ def test_unattended_memory_patch_and_remove_stage_add_does_not():
 def test_skill_body_rule(text, stages):
     args = {"action": "create", "name": "x", "content": f"---\nname: x\ndescription: d\n---\n{text}\n"}
     assert (decide(args=args).reason == "skill_body") is stages, text
-    # memory text too, and the patch text of a skill_manage patch
-    assert (decide("memory", {"action": "add", "target": "memory", "content": text}).action == rules.STAGE) is stages
+    # the patch text of a skill_manage patch too; never an About you or Notes fact (review round 6)
+    assert decide("memory", {"action": "add", "target": "memory", "content": text}).action == rules.ALLOW
     assert (decide(args={"action": "patch", "name": "x", "old_string": "a", "new_string": text}).action
             == rules.STAGE) is stages
 
@@ -540,3 +540,17 @@ def test_a_blocked_change_reads_plainly_in_activity(monkeypatch):
     ev = staging.blocked_event("memory", {"action": "add", "target": "memory", "content": "x"}, origin="chat",
                                message=model_text, conversation_id="c", run_id="r", bot_id="", tainted_sources=[])
     assert ev["summary"] == staging.BLOCKED_SUMMARY and "Blocked" not in ev["summary"]
+
+
+@pytest.mark.parametrize("content", [
+    "Approves the team budget on Fridays.", "Prefers that I clarify dates before adding events.",
+    "Works on the terminal app at their job.", "Needs permission slips signed for school trips.",
+    "Ships a patch release every Tuesday.", "Lives near the bypass road.",
+    "Prefers full access to the shared calendar.",
+])
+def test_about_you_and_notes_facts_apply_in_a_clean_chat(content):
+    """Review round 6 (Q-3.1): in a clean chat an About you or Notes fact applies with Undo even
+    when it holds a tool name or approval wording; the skill-body rule reads skill steps only."""
+    for target in ("user", "memory"):
+        got = decide("memory", {"action": "add", "target": target, "content": content})
+        assert got.action == rules.ALLOW, (target, content, got)
