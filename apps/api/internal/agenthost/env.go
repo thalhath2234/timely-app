@@ -27,7 +27,7 @@ type EnvConfig struct {
 	BundledSkills  string
 	OptionalSkills string
 	// Packaged adds PYTHONDONTWRITEBYTECODE=1 (the packaged runtime is
-	// read-only).
+	// read-only). New sets it whenever Config.Runtime.Packaged is.
 	Packaged bool
 	// windowsBase is SYSTEMROOT and friends, which CPython needs on Windows
 	// to start at all. Filled from the API's environment by envFromHost.

@@ -130,12 +130,16 @@ func (s *stubModel) serve(w http.ResponseWriter, r *http.Request) {
 // against a stub model -> events -> run.done -> shutdown, on Linux and
 // Windows. It is skipped unless TIMELY_AGENT_TEST_RUNTIME names the runtime,
 // in any form TIMELY_AGENT_RUNTIME accepts ("dev" means the dev default:
-// apps/agent found above this package). The agent home goes under
+// apps/agent found above this package; a staged runtime's folder, such as
+// apps/web/.electron-agent/linux-x64 from make stage-agent, runs it as the
+// desktop and Docker do, packaged and read-only). The agent home goes under
 // $HOME/.cache/timely-agent-test, never ~/.hermes. The only model is the
 // stub on 127.0.0.1.
 //
 //	make agent-go-integration
 //	TIMELY_AGENT_TEST_RUNTIME=dev go test ./internal/agenthost -run TestIntegrationRealWorker -count=1 -v
+//	TIMELY_AGENT_TEST_RUNTIME=$PWD/../web/.electron-agent/linux-x64 go test ./internal/agenthost -run TestIntegrationRealWorker -count=1 -v
+//	make smoke-agent (the staged runtime, made read-only first with READ_ONLY=1)
 func TestIntegrationRealWorker(t *testing.T) {
 	value := strings.TrimSpace(os.Getenv("TIMELY_AGENT_TEST_RUNTIME"))
 	if value == "" {
