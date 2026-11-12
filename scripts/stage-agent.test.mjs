@@ -28,6 +28,7 @@ import {
   STAGE_FORMAT,
   TRIM,
   assertHostTarget,
+  assertHostTargets,
   checkTree,
   collectLicenses,
   cpythonLicense,
@@ -136,6 +137,21 @@ test("a target that is not the host is refused with the runner to use", () => {
   assert.doesNotThrow(() => assertHostTarget("linux-x64", "linux-x64"));
   assert.throws(() => assertHostTarget("win32-x64", "linux-x64"), /cannot stage win32-x64 on linux-x64.*stage win32-x64 on a Windows x64 runner/s);
   assert.throws(() => assertHostTarget("linux-arm64", "linux-x64"), /on a Linux arm64 runner/);
+});
+
+test("a target list naming another OS is refused as a whole, before anything is staged", () => {
+  assert.doesNotThrow(() => assertHostTargets(["linux-x64"], "linux-x64"));
+  assert.throws(() => assertHostTargets(["linux-x64", "win32-x64"], "linux-x64"), /cannot stage win32-x64 on linux-x64.*Nothing was staged/s);
+  assert.throws(() => assertHostTargets(["darwin-arm64", "darwin-x64"], "darwin-arm64"), /cannot stage darwin-x64/);
+  assert.throws(() => assertHostTargets(["win32-x64", "darwin-x64", "linux-x64"], "linux-x64"), /win32-x64.*\(and darwin-x64\)/s);
+});
+
+test("make stage-desktop stages the agent for the host only, whatever TIMELY_TARGETS says", () => {
+  const make = readFileSync(path.join(repo, "Makefile"), "utf8");
+  const recipe = /^stage-desktop:.*\n((?:\t.*\n)+)/m.exec(make)?.[1] ?? "";
+  assert.match(recipe, /TIMELY_TARGETS= node \$\(WEB\)\/electron\/stage-agent\.mjs/);
+  const pack = readFileSync(path.join(repo, "apps/web/electron/pack.mjs"), "utf8");
+  assert.ok(pack.indexOf("assertHostTargets(") < pack.indexOf('"next", "build"'), "pack refuses before the Next build");
 });
 
 test("the marker hash changes with each input it covers", () => {

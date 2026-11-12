@@ -161,14 +161,14 @@ build-web: ## Production build of the Next.js app
 build-desktop: ## Package an unpacked "Timely Dev" app for this OS, with the API and Postgres sidecars (release/<platform>-unpacked); runs next to an installed release
 	@pnpm --filter @timely/web electron:pack
 
-dist-desktop: ## Build a "Timely Dev" installer for this OS (AppImage / dmg / nsis); TIMELY_RELEASE=1 for the release app. TIMELY_TARGETS=linux-x64,darwin-arm64 for several
+dist-desktop: ## Build a "Timely Dev" installer for this OS and architecture (AppImage / dmg / nsis); TIMELY_RELEASE=1 for the release app. The agent runtime stages only for the host, so other targets build on their own runner
 	@pnpm --filter @timely/web electron:dist
 
 .PHONY: stage-desktop
-stage-desktop: ## Cross-compile the API, fetch Postgres 17 and stage the agent runtime for the desktop bundle (TIMELY_TARGETS=... for other OSes; the agent runtime stages only for this host)
+stage-desktop: ## Cross-compile the API, fetch Postgres 17 and stage the agent runtime for the desktop bundle (TIMELY_TARGETS=... stages the API and Postgres for those targets; the agent runtime always stages for this host only)
 	@node $(WEB)/electron/stage-api.mjs
 	@node $(WEB)/electron/stage-postgres.mjs
-	@node $(WEB)/electron/stage-agent.mjs
+	@TIMELY_TARGETS= node $(WEB)/electron/stage-agent.mjs
 
 .PHONY: dev-desktop-hosted
 dev-desktop-hosted: stage-desktop ## Run the Electron shell in hosted mode (its own Postgres + API) against a throwaway user-data dir

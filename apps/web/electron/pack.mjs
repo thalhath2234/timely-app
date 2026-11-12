@@ -19,7 +19,8 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { electronBuilderFlags, resolveTargets } from "./targets.mjs";
+import { assertHostTargets } from "./stage-agent-lib.mjs";
+import { electronBuilderFlags, hostTargetKey, resolveTargets } from "./targets.mjs";
 
 const webRoot = path.join(import.meta.dirname, "..");
 
@@ -58,6 +59,9 @@ function run(command, args, extraEnv = {}) {
 const { target, rest } = parseArgs(process.argv.slice(2));
 if (target) process.env.TIMELY_TARGETS = target;
 const targets = resolveTargets();
+// Every installer ships the agent runtime (owner answer Q-11.1), and it stages only on its own
+// OS and architecture: refuse another target before the Next build, not after staging.
+assertHostTargets(targets.map((t) => t.key), hostTargetKey());
 const release = process.env.TIMELY_RELEASE === "1";
 const builderConfig = release ? "electron-builder.yml" : "electron-builder.local.yml";
 console.log(release ? "release build: Timely" : "local build: Timely Dev (set TIMELY_RELEASE=1 for a release build)");

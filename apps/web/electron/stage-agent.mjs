@@ -11,7 +11,8 @@
 //     app/.hermes-sync/policy/
 //     NOTICE, THIRD_PARTY_LICENSES, MANIFEST.json, .staged-<hash>
 //
-//   node electron/stage-agent.mjs                    # the host target (TIMELY_TARGETS must name only it)
+//   node electron/stage-agent.mjs                    # the host target (TIMELY_TARGETS must name only it;
+//                                                    # any other target fails before anything is staged)
 //   node electron/stage-agent.mjs --target linux-x64
 //   node electron/stage-agent.mjs --clean            # delete every staged runtime
 //
@@ -43,7 +44,7 @@ import {
   EXPECTED_PLATFORM,
   MAX_PATH_CHARS,
   PIP_INSTALL_FLAGS,
-  assertHostTarget,
+  assertHostTargets,
   checkTree,
   collectLicenses,
   dropLongBytecode,
@@ -346,6 +347,7 @@ function clean() {
 }
 
 export async function stageAgent(targets = resolveTargets()) {
+  assertHostTargets(targets.map((t) => t.key), hostTargetKey());
   const makefile = readFileSync(path.join(repoRoot, "Makefile"), "utf8");
   const expectedVersion = makefileVar(makefile, "AGENT_PYTHON_VERSION");
   const lock = JSON.parse(readFileSync(path.join(hermesSrc, "pm", "lock.json"), "utf8"));
@@ -359,7 +361,6 @@ export async function stageAgent(targets = resolveTargets()) {
 
   const results = [];
   for (const target of targets) {
-    assertHostTarget(target.key, hostTargetKey());
     const started = Date.now();
     const artifact = pythonArtifact(lock, target.key, expectedVersion);
     const out = path.join(stageRoot, target.stageDir);

@@ -94,6 +94,22 @@ export function scratchRootFor(repoRoot, home = os.homedir()) {
   return path.join(home, ".cache", "timely-agent-stage", id);
 }
 
+/**
+ * Every key must be the host: checked for the whole list before anything is
+ * staged or built, so a multi-target run fails up front instead of after
+ * staging the host target.
+ */
+export function assertHostTargets(keys, hostKey) {
+  const others = keys.filter((key) => key !== hostKey);
+  if (others.length === 0) return;
+  try {
+    assertHostTarget(others[0], hostKey);
+  } catch (err) {
+    const list = others.length > 1 ? ` (and ${others.slice(1).join(", ")})` : "";
+    throw new Error(`${err.message}${list} Nothing was staged.`);
+  }
+}
+
 /** Native modules are installed for the running interpreter, so a target must be the host. */
 export function assertHostTarget(key, hostKey) {
   if (key === hostKey) return;

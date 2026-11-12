@@ -410,16 +410,15 @@ The target table lives in `electron/targets.mjs`, keyed `linux-x64`, `linux-arm6
 SHA-256.
 
 - Default: the host target.
-- `TIMELY_TARGETS=linux-x64,darwin-arm64` stages several targets (any script, any OS; Go cross-compiles and the zonky jars are plain downloads).
-- `node electron/pack.mjs --target darwin-x64,darwin-arm64` stages those targets and adds the matching electron-builder flags (`--mac --x64 --arm64`). One OS per run; electron-builder expands `${os}` once per platform. Every other argument is passed to electron-builder (`--dir`, `--publish never`, ...).
+- `TIMELY_TARGETS=linux-x64,darwin-arm64` stages the API and Postgres for several targets (`stage-api.mjs`, `stage-postgres.mjs`, any OS; Go cross-compiles and the zonky jars are plain downloads). The agent runtime is host-only: `make stage-desktop` stages it for the host whatever `TIMELY_TARGETS` says, and `stage-agent.mjs` refuses a list that names another target before staging anything.
+- `node electron/pack.mjs --target <host key>` adds the matching electron-builder flags (`--linux --x64`). Every installer ships the agent runtime, so pack refuses any other target before the Next build: a multi-target mac build (`--target darwin-x64,darwin-arm64`) is no longer possible, and each arch builds on its own runner. Every other argument is passed to electron-builder (`--dir`, `--publish never`, ...).
 - `TIMELY_SKIP_NEXT=1` reuses the existing `.next` build while iterating on packaging.
 
 The stage scripts can be run on their own: `node electron/stage-api.mjs`,
 `node electron/stage-postgres.mjs`, `node electron/stage-agent.mjs` (`make stage-desktop` runs all three).
 The agent runtime is the exception to cross-staging: its native wheels and interpreter belong to the
-running OS, so `stage-agent.mjs` refuses a target that is not the host ("stage win32-x64 on a Windows
-runner"), and `pack.mjs --target darwin-x64,darwin-arm64` on one Mac fails at the agent step for the
-other arch.
+running OS, so `stage-agent.mjs` and `pack.mjs` refuse a target that is not the host ("stage win32-x64
+on a Windows runner") before anything is staged or built.
 
 ### Postgres staging details
 
