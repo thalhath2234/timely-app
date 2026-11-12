@@ -130,30 +130,32 @@ function Chip({ chip, onLeave }: { chip: LearningChip; onLeave?: () => void }) {
           {chip.note && (
             <span className="text-muted-foreground">· {chip.note}</span>
           )}
-          {chip.view && (
-            <Link
-              href={learnedHref(chip.view)}
-              onClick={onLeave}
-              className={textButton}
-            >
-              View
-            </Link>
-          )}
-          {chip.actions.includes("Undo") && (
-            <button
-              type="button"
-              disabled={undo.isPending || checking}
-              onClick={() => void askUndo()}
-              aria-label={`Undo: ${chip.label}`}
-              className={textButton}
-            >
-              {undo.isPending || checking ? (
-                <LogoSpinner size={12} tone="mono" label="Undoing" />
-              ) : (
-                "Undo"
-              )}
-            </button>
-          )}
+          <span className="inline-flex items-center">
+            {chip.view && (
+              <Link
+                href={learnedHref(chip.view)}
+                onClick={onLeave}
+                className={textButton}
+              >
+                View
+              </Link>
+            )}
+            {chip.actions.includes("Undo") && (
+              <button
+                type="button"
+                disabled={undo.isPending || checking}
+                onClick={() => void askUndo()}
+                aria-label={`Undo: ${chip.label}`}
+                className={textButton}
+              >
+                {undo.isPending || checking ? (
+                  <LogoSpinner size={12} tone="mono" label="Undoing" />
+                ) : (
+                  "Undo"
+                )}
+              </button>
+            )}
+          </span>
         </span>
       </div>
       {error && (
