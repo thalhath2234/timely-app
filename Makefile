@@ -644,7 +644,7 @@ hermes-skills-review: ## Record reviewed skill trees in skills-reviewed.json aft
 
 ##@ Agent runtime packaging (plan 11.4, 11.5)
 
-.PHONY: stage-agent smoke-agent agent-python-licenses test-stage-agent clean-agent-stage docker-api docker-agent-smoke
+.PHONY: stage-agent smoke-agent agent-python-licenses agent-static-licenses test-stage-agent clean-agent-stage docker-api docker-agent-smoke
 stage-agent: ## Stage the agent runtime for this host into apps/web/.electron-agent/<os>-<arch> (CPython from Hermes' pm/lock.json, uv.lock + extras, shipped skills, compileall, ship checks, THIRD_PARTY_LICENSES, MANIFEST.json); needs uv
 	@node $(WEB)/electron/stage-agent.mjs
 
@@ -653,6 +653,9 @@ smoke-agent: ## Smoke-test a staged agent runtime: boot.py usage, prepare, then 
 
 agent-python-licenses: ## Record the licences of the libraries built into the shipped interpreter (OpenSSL, libffi, SQLite, ...) for every desktop target from python-build-standalone's full archives, into apps/agent/packaging/python-licenses/<version>/; run after a Hermes sync moves the Python pin (downloads about 110 MB per target, deleted afterwards; needs tar with zstd)
 	@node $(WEB)/electron/python-licenses.mjs
+
+agent-static-licenses: ## Record the licences of the code wheels link into their native modules (Rust crates and the Rust standard library, plus the C libraries in apps/agent/packaging/licenses/static/components.json) for every desktop target, into apps/agent/packaging/licenses/static/; run when stage-agent names a wheel without a record, review the diff and commit (installs each target's wheels and downloads the crates from crates.io, deleted afterwards; needs uv)
+	@node $(WEB)/electron/static-licenses.mjs
 
 test-stage-agent: ## Test the agent staging helpers: lock pins, extras, host check, shipped skills, tree checks, licences, read-only diff, the boot.py shim
 	@node --test scripts/stage-agent.test.mjs

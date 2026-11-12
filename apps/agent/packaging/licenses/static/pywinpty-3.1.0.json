@@ -1,0 +1,155 @@
+{
+  "dist": "pywinpty",
+  "version": "3.1.0",
+  "targets": [
+    "win32-x64"
+  ],
+  "rustStd": {
+    "rustc": [
+      "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4"
+    ],
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/rust-lang/rust/tree/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4",
+    "texts": [
+      {
+        "rel": "COPYRIGHT",
+        "text": "172020dbfd5b"
+      },
+      {
+        "rel": "LICENSE-APACHE",
+        "text": "62c7a1e35f56"
+      },
+      {
+        "rel": "LICENSE-MIT",
+        "text": "b71bd43a069c"
+      }
+    ]
+  },
+  "crates": [
+    {
+      "name": "crossbeam-channel",
+      "version": "0.5.15",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "5734ed989dfc"
+        },
+        {
+          "rel": "LICENSE-THIRD-PARTY",
+          "text": "b16db96b93b1"
+        }
+      ]
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "ff8f68cb076c"
+        }
+      ]
+    },
+    {
+      "name": "once_cell",
+      "version": "1.21.4",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "23f18e03dc49"
+        }
+      ]
+    },
+    {
+      "name": "pyo3-ffi",
+      "version": "0.30.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "32c76dbe0e73"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "afcbe3b2e6b3"
+        }
+      ]
+    },
+    {
+      "name": "pyo3",
+      "version": "0.30.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "32c76dbe0e73"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "afcbe3b2e6b3"
+        }
+      ]
+    },
+    {
+      "name": "rustc-demangle",
+      "version": "0.1.28",
+      "license": "MIT/Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "378f5840b258"
+        }
+      ]
+    },
+    {
+      "name": "windows",
+      "version": "0.62.2",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "license-apache-2.0",
+          "text": "c16f8dcf1a36"
+        },
+        {
+          "rel": "license-mit",
+          "text": "c2cfccb812fe"
+        }
+      ]
+    },
+    {
+      "name": "winpty-rs",
+      "version": "1.0.6",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "bbbdb819873b"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "ef626ea86c70"
+        }
+      ]
+    }
+  ],
+  "components": []
+}

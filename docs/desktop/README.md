@@ -500,7 +500,8 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   Timely never bundles Chromium and uses the installed Chrome or Edge, ADR 0022); no dotenv file
   (other than `.env.example`), `.op.env`, `auth.json`, `mcp-tokens/` or virtualenv (`.venv*`) under
   `app/` outside `site-packages`; every installed distribution has a licence text (a licence file in
-  its wheel, or one recorded in `apps/agent/packaging/licenses/dists.json`); the interpreter starts and reports the
+  its wheel, or one recorded in `apps/agent/packaging/licenses/dists.json`); every crate and C
+  library linked into a native module is recorded (`licenses/static/`, below); the interpreter starts and reports the
   expected platform; the staged interpreter imports `mcp` and `mcp.client.stdio` through `boot.py`'s
   `sys.path`, and on Windows `pywintypes`, `win32api`, `win32con`, `win32job` and `portalocker` too.
 - **`.pth` files.** `app/site-packages` is a plain folder, not a venv, so site.py under `-I` never
@@ -523,6 +524,21 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
     not enough (MIT and BSD require the copyright notice): a wheel without a licence file takes the
     text recorded in `apps/agent/packaging/licenses/dists.json` (fetch-use, firecrawl-anydoc, and on
     Windows pywin32 and the winrt packages), and one with neither fails the stage;
+  - the code wheels link statically into their native modules, which their dist-info does not
+    name: every crate a Rust extension module was built from and the Rust standard library
+    (pydantic-core, jiter, rpds-py, watchfiles, cryptography, nemo-relay, resvg-py,
+    firecrawl-anydoc, and on Windows pywinpty: about 250 crates, among them ring's BoringSSL and
+    OpenSSL/SSLeay terms, AWS-LC and tiny-skia), and the C libraries listed by hand in
+    `apps/agent/packaging/licenses/static/components.json` (cryptography's OpenSSL, cffi's libffi,
+    ruamel.yaml.clib's libyaml). `make agent-static-licenses` installs the uv.lock wheels for every
+    desktop target, reads the crate paths rustc leaves in each binary, downloads each crate from
+    crates.io (sha256 checked against the index) and records its licence files, or the standard
+    SPDX text under its authors' names when it ships none, in
+    `apps/agent/packaging/licenses/static/<dist>-<version>.json` and `texts/`. Each text appears
+    once in `THIRD_PARTY_LICENSES`, under an id the crate lines name. Staging fails when a binary
+    links a crate its record lacks, or a distribution that links Rust code or is in
+    `components.json` has no record for its exact version, so a Hermes sync that moves one of
+    these wheels is reviewed (run the target, read the diff, commit);
   - the GPL and LGPL libraries shipped in binary form, where to get their complete source, and the
     full GPL-2.0, GPL-3.0, LGPL-3.0 and GCC runtime exception texts. A distribution that ships GPL
     or LGPL code (its metadata licence, or a `License: ...GPL` line in a licence file) must be

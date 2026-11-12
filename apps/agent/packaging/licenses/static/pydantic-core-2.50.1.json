@@ -1,0 +1,488 @@
+{
+  "dist": "pydantic_core",
+  "version": "2.50.1",
+  "targets": [
+    "darwin-arm64",
+    "linux-arm64",
+    "linux-x64",
+    "win32-x64"
+  ],
+  "rustStd": {
+    "rustc": [
+      "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4"
+    ],
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/rust-lang/rust/tree/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4",
+    "texts": [
+      {
+        "rel": "COPYRIGHT",
+        "text": "172020dbfd5b"
+      },
+      {
+        "rel": "LICENSE-APACHE",
+        "text": "62c7a1e35f56"
+      },
+      {
+        "rel": "LICENSE-MIT",
+        "text": "b71bd43a069c"
+      }
+    ]
+  },
+  "crates": [
+    {
+      "name": "addr2line",
+      "version": "0.27.1",
+      "license": "Apache-2.0 OR MIT",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "e99d88d232bf"
+        }
+      ]
+    },
+    {
+      "name": "ahash",
+      "version": "0.8.12",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "0444c6991eea"
+        }
+      ]
+    },
+    {
+      "name": "aho-corasick",
+      "version": "1.1.3",
+      "license": "Unlicense OR MIT",
+      "files": [
+        {
+          "rel": "COPYING",
+          "text": "01c266bced4a"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "0f96a83840e1"
+        },
+        {
+          "rel": "UNLICENSE",
+          "text": "7e12e5df4bae"
+        }
+      ]
+    },
+    {
+      "name": "base64",
+      "version": "0.23.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "ab499c75a0f0"
+        }
+      ]
+    },
+    {
+      "name": "getrandom",
+      "version": "0.3.3",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "aaff376532ea"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "29e9fe5074bd"
+        }
+      ]
+    },
+    {
+      "name": "gimli",
+      "version": "0.34.0",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "7b63ecd5f190"
+        }
+      ]
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "ff8f68cb076c"
+        }
+      ]
+    },
+    {
+      "name": "hex",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "b40930bbcf80"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "f7bdb3426d04"
+        }
+      ]
+    },
+    {
+      "name": "icu_normalizer",
+      "version": "1.5.0",
+      "license": "Unicode-3.0",
+      "files": [
+        {
+          "rel": "LICENSE",
+          "text": "f367c1b8e1aa"
+        }
+      ]
+    },
+    {
+      "name": "idna",
+      "version": "1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "b38f11f60967"
+        }
+      ]
+    },
+    {
+      "name": "jiter",
+      "version": "0.16.0",
+      "license": "MIT",
+      "files": [
+        {
+          "rel": "LICENSE",
+          "text": "7c7134b9f7b9"
+        }
+      ]
+    },
+    {
+      "name": "lexical-parse-float",
+      "version": "1.0.5",
+      "license": "MIT/Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "8173d5c29b4f"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "23f18e03dc49"
+        },
+        {
+          "rel": "LICENSE.md",
+          "text": "99aab70a96f3"
+        }
+      ]
+    },
+    {
+      "name": "lru",
+      "version": "0.18.5",
+      "license": "MIT",
+      "files": [
+        {
+          "rel": "LICENSE",
+          "text": "a50b6cbe8a27"
+        }
+      ]
+    },
+    {
+      "name": "memchr",
+      "version": "2.7.4",
+      "license": "Unlicense OR MIT",
+      "files": [
+        {
+          "rel": "COPYING",
+          "text": "01c266bced4a"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "0f96a83840e1"
+        },
+        {
+          "rel": "UNLICENSE",
+          "text": "7e12e5df4bae"
+        }
+      ]
+    },
+    {
+      "name": "miniz_oxide",
+      "version": "0.9.1",
+      "license": "MIT OR Zlib OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE",
+          "text": "4108245a1f2d"
+        },
+        {
+          "rel": "LICENSE-APACHE.md",
+          "text": "0d542e0c8804"
+        },
+        {
+          "rel": "LICENSE-MIT.md",
+          "text": "799e9ca9d179"
+        },
+        {
+          "rel": "LICENSE-ZLIB.md",
+          "text": "0a54e647fe54"
+        }
+      ]
+    },
+    {
+      "name": "num-bigint",
+      "version": "0.4.6",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "6485b8ed310d"
+        }
+      ]
+    },
+    {
+      "name": "num-integer",
+      "version": "0.1.46",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "6485b8ed310d"
+        }
+      ]
+    },
+    {
+      "name": "once_cell",
+      "version": "1.21.3",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "23f18e03dc49"
+        }
+      ]
+    },
+    {
+      "name": "percent-encoding",
+      "version": "2.3.2",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "b38f11f60967"
+        }
+      ]
+    },
+    {
+      "name": "pyo3-ffi",
+      "version": "0.29.2",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "32c76dbe0e73"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "afcbe3b2e6b3"
+        }
+      ]
+    },
+    {
+      "name": "pyo3",
+      "version": "0.29.2",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "32c76dbe0e73"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "afcbe3b2e6b3"
+        }
+      ]
+    },
+    {
+      "name": "regex-automata",
+      "version": "0.4.18",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "6485b8ed310d"
+        }
+      ]
+    },
+    {
+      "name": "regex-syntax",
+      "version": "0.8.11",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "6485b8ed310d"
+        }
+      ]
+    },
+    {
+      "name": "regex",
+      "version": "1.13.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "6485b8ed310d"
+        }
+      ]
+    },
+    {
+      "name": "rustc-demangle",
+      "version": "0.1.28",
+      "license": "MIT/Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "378f5840b258"
+        }
+      ]
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.151",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "62c7a1e35f56"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "23f18e03dc49"
+        }
+      ]
+    },
+    {
+      "name": "smallvec",
+      "version": "1.16.2",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "0b28172679e0"
+        }
+      ]
+    },
+    {
+      "name": "speedate",
+      "version": "0.17.0",
+      "license": "MIT",
+      "files": [
+        {
+          "rel": "LICENSE",
+          "text": "2afdd30d54b4"
+        }
+      ]
+    },
+    {
+      "name": "url",
+      "version": "2.5.8",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "b38f11f60967"
+        }
+      ]
+    },
+    {
+      "name": "uuid",
+      "version": "1.23.4",
+      "license": "Apache-2.0 OR MIT",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "436bc5a105d8"
+        }
+      ]
+    }
+  ],
+  "components": []
+}

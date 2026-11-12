@@ -869,13 +869,144 @@ export function copyleftReview(dists, policy) {
   return { listed, problems };
 }
 
+/** Native code a wheel ships: extension modules and the shared libraries next to them. */
+export const NATIVE_BINARY = /\.(so(\.\d+)*|pyd|dylib|dll)$/i;
+
+// A crate's source path as rustc records it (panic locations, file!()): crates.io's
+// registry checkout (index.crates.io-<hash>, older github.com-<hash>) or the standard
+// library's own dependencies (/rust/deps/<crate>-<version>).
+const CRATE_PATH = /(?:(?:index\.crates\.io|github\.com)-[0-9a-f]{16}|[/\\]rust[/\\]deps)[/\\]([A-Za-z0-9_-]+?)-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?(?:\+[0-9A-Za-z.-]+)?)[/\\]/g;
+const RUSTC_PATH = /[/\\]rustc[/\\]([0-9a-f]{40})[/\\]library[/\\]/g;
+const GIT_CRATE_PATH = /[/\\]git[/\\]checkouts[/\\]([A-Za-z0-9_-]+)-[0-9a-f]{16}[/\\]/g;
+
+/**
+ * The Rust code linked into one binary, from the source paths rustc leaves in
+ * it: crates as "name@version" (sorted), the rustc commits of the standard
+ * library, and crates built from a git checkout instead of crates.io.
+ */
+export function rustCrates(buffer) {
+  const text = Buffer.isBuffer(buffer) ? buffer.toString("latin1") : String(buffer);
+  const crates = new Set();
+  for (const m of text.matchAll(CRATE_PATH)) crates.add(`${m[1]}@${m[2]}`);
+  const rustc = new Set([...text.matchAll(RUSTC_PATH)].map((m) => m[1]));
+  const git = new Set([...text.matchAll(GIT_CRATE_PATH)].map((m) => m[1]));
+  return { crates: [...crates].sort(), rustc: [...rustc].sort(), git: [...git].sort() };
+}
+
+/** RECORD's file paths ("path,hash,size"; a path holding a comma is double-quoted). */
+function recordPaths(text) {
+  const paths = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line) continue;
+    if (line.startsWith('"')) {
+      const end = line.indexOf('",');
+      if (end > 0) paths.push(line.slice(1, end).replaceAll('""', '"'));
+    } else paths.push(line.slice(0, line.indexOf(",") < 0 ? line.length : line.indexOf(",")));
+  }
+  return paths;
+}
+
+/**
+ * Every native binary under site-packages, grouped by the distribution whose
+ * RECORD lists it, with the Rust crates linked into it. Returns
+ * {dists: [{name, version, key, binaries: [{rel, crates, rustc, git}]}],
+ * unowned: [rel]}, `key` being "<normalized name>-<version>" (the record's
+ * file name) and `unowned` binaries no RECORD lists. Only distributions with
+ * at least one native binary appear.
+ */
+export function nativeBinaries(sitePackages) {
+  const owner = new Map();
+  const dists = new Map();
+  for (const name of readdirSync(sitePackages).sort()) {
+    if (!name.endsWith(".dist-info")) continue;
+    const info = path.join(sitePackages, name);
+    const meta = existsSync(path.join(info, "METADATA")) ? parseMetadata(readFileSync(path.join(info, "METADATA"), "utf8")) : parseMetadata("");
+    const dist = { name: meta.name || name.replace(/-[^-]+\.dist-info$/, ""), version: meta.version, dir: name, binaries: [] };
+    dist.key = `${normalizeDist(dist.name)}-${dist.version}`;
+    dists.set(name, dist);
+    const record = path.join(info, "RECORD");
+    if (!existsSync(record)) continue;
+    for (const rel of recordPaths(readFileSync(record, "utf8"))) {
+      const norm = path.posix.normalize(rel.replaceAll("\\", "/"));
+      if (NATIVE_BINARY.test(norm) && !norm.startsWith("../")) owner.set(norm, dist);
+    }
+  }
+  const unowned = [];
+  walk(sitePackages, (full, rel, entry) => {
+    if (!entry.isFile() || !NATIVE_BINARY.test(entry.name)) return true;
+    const found = { rel, ...rustCrates(readFileSync(full)) };
+    const dist = owner.get(rel);
+    if (dist) dist.binaries.push(found);
+    else unowned.push(rel);
+    return true;
+  });
+  return { dists: [...dists.values()].filter((d) => d.binaries.length), unowned };
+}
+
+/**
+ * The reviewed records of code linked statically into wheels
+ * (apps/agent/packaging/licenses/static/<normalized name>-<version>.json,
+ * written by make agent-static-licenses) for the distributions `found`
+ * (nativeBinaries().dists), each crate and component with its licence texts.
+ * A problem for each distribution whose binaries link Rust code, or that
+ * `components` (static/components.json: hand-listed C libraries) names, but
+ * has no record for its exact version, each crate a binary links that its record
+ * lacks, a standard library with no recorded texts, and a crate from a git
+ * checkout (no crates.io licence to record).
+ */
+export function staticLicenses(found, staticDir, { components = {} } = {}) {
+  const records = [];
+  const problems = [];
+  const hint = "run make agent-static-licenses, review the result and commit it";
+  const text = (id) => readFileSync(path.join(staticDir, "texts", `${id}.txt`), "utf8");
+  for (const dist of found) {
+    const linked = new Set(dist.binaries.flatMap((b) => b.crates));
+    const std = dist.binaries.some((b) => b.rustc.length);
+    for (const b of dist.binaries) {
+      for (const g of b.git) problems.push(`${dist.name} ${dist.version}: ${b.rel} links ${g} from a git checkout, not crates.io; record its licence by hand`);
+    }
+    const file = path.join(staticDir, `${dist.key}.json`);
+    const listed = components[normalizeDist(dist.name)];
+    if (!existsSync(file)) {
+      if (listed) {
+        problems.push(`${dist.name} ${dist.version} links ${listed.map((c) => c.name).join(", ")} in (static/components.json), but static/${dist.key}.json does not exist: ${hint}`);
+      } else if (linked.size || std) {
+        problems.push(
+          `${dist.name} ${dist.version} links ${linked.size} Rust crate(s) into ${dist.binaries.filter((b) => b.crates.length || b.rustc.length).map((b) => b.rel).join(", ")}, ` +
+            `but apps/agent/packaging/licenses/static/${dist.key}.json does not record their licences: ${hint}`,
+        );
+      }
+      continue;
+    }
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    const recorded = new Set((record.crates ?? []).map((c) => `${c.name}@${c.version}`));
+    const absent = [...linked].filter((c) => !recorded.has(c)).sort();
+    if (absent.length) {
+      problems.push(`${dist.name} ${dist.version} links crates static/${dist.key}.json does not record (${absent.length}): ${absent.slice(0, 12).join(", ")}${absent.length > 12 ? ", ..." : ""}; ${hint}`);
+    }
+    if (std && !record.rustStd?.texts?.length) problems.push(`${dist.name} ${dist.version} links the Rust standard library, which static/${dist.key}.json does not record; ${hint}`);
+    const withTexts = (entry) => ({ ...entry, files: (entry.files ?? []).map((f) => ({ ...f, body: text(f.text) })) });
+    records.push({
+      dist,
+      record: {
+        ...record,
+        rustStd: record.rustStd ? { ...record.rustStd, files: record.rustStd.texts.map((f) => ({ ...f, body: text(f.text) })) } : null,
+        crates: (record.crates ?? []).map(withTexts),
+        components: (record.components ?? []).map(withTexts),
+      },
+    });
+  }
+  return { records, problems };
+}
+
 /**
  * THIRD_PARTY_LICENSES: CPython, the libraries built into the interpreter,
- * Hermes, Timely's NOTICE, every distribution, then the GPL and LGPL
+ * Hermes, Timely's NOTICE, every distribution, the code linked statically
+ * into distributions' native modules (`statics`, from staticLicenses), then the GPL and LGPL
  * libraries shipped in binary form with their sources and the full licence
  * texts they need (`gnuTexts`: {id: text}).
  */
-export function thirdPartyLicenses({ cpython, interpreter = [], hermes, notice, dists, copyleft = [], gnuTexts = {} }) {
+export function thirdPartyLicenses({ cpython, interpreter = [], hermes, notice, dists, statics = [], copyleft = [], gnuTexts = {} }) {
   const rule = "=".repeat(78);
   const parts = [
     "Third-party software in Timely's agent runtime (resources/agent, /app/agent).",
@@ -917,6 +1048,40 @@ export function thirdPartyLicenses({ cpython, interpreter = [], hermes, notice, 
     parts.push(rule, `${d.name} ${d.version} (app/site-packages/${d.dir}): ${d.license || "see licence files"}`, rule);
     for (const f of d.files) parts.push(`--- ${f.rel}`, f.text.trim(), "");
     if (d.files.length === 0) parts.push("");
+  }
+  if (statics.length) {
+    parts.push(
+      rule,
+      "Code linked statically into the native modules of these distributions",
+      rule,
+      "Rust extension modules carry the crates they were built from and the Rust standard library, and some",
+      "wheels link C libraries in as well (apps/agent/packaging/licenses/static/). Each line names what is",
+      "linked, its licence and the texts that apply to it; every text follows once, under its [id], at the",
+      "end of this section.",
+      "",
+    );
+    const texts = new Map();
+    const ref = (files) => {
+      for (const f of files) if (!texts.has(f.text)) texts.set(f.text, { label: f.label, body: f.body });
+      return files.length ? `[${files.map((f) => f.text).join(", ")}]` : "";
+    };
+    for (const { dist, record } of statics) {
+      parts.push(`${dist.name} ${dist.version} (app/site-packages/${dist.dir}):`);
+      if (record.rustStd) {
+        const files = record.rustStd.files.map((f) => ({ ...f, label: `Rust standard library ${f.rel}` }));
+        parts.push(`  Rust standard library (rustc ${record.rustStd.rustc.map((c) => c.slice(0, 12)).join(", ")}): ${record.rustStd.license} ${ref(files)}`);
+      }
+      for (const c of record.components) {
+        const files = c.files.map((f) => ({ ...f, label: `${c.name} ${c.version} ${f.rel}` }));
+        parts.push(`  ${c.name} ${c.version} (C library): ${c.license} ${ref(files)}`);
+      }
+      for (const c of record.crates) {
+        const files = c.files.map((f) => ({ ...f, label: `${c.name} ${c.version} ${f.rel}` }));
+        parts.push(`  ${c.name} ${c.version}: ${c.license || "see text"} ${ref(files)}`);
+      }
+      parts.push("");
+    }
+    for (const [id, { label, body }] of texts) parts.push(`--- [${id}] ${label}`, body.trim(), "");
   }
   if (copyleft.length) {
     const ids = [...new Set(copyleft.flatMap(({ entry }) => entry.texts))];

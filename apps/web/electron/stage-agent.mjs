@@ -60,6 +60,7 @@ import {
   makeWritable,
   makefileVar,
   markerHash,
+  nativeBinaries,
   parseExtras,
   plainCopyFilter,
   pythonArtifact,
@@ -69,6 +70,7 @@ import {
   skillDirs,
   trackedSkillNames,
   stagedManifest,
+  staticLicenses,
   stagedPython,
   stdlibDir,
   thirdPartyLicenses,
@@ -426,6 +428,12 @@ export async function stageAgent(targets = resolveTargets()) {
     const review = copyleftReview(dists, JSON.parse(readFileSync(path.join(licensesDir, "copyleft.json"), "utf8")));
     const gnuDir = path.join(licensesDir, "gnu");
     const gnuTexts = Object.fromEntries(readdirSync(gnuDir).map((f) => [f.replace(/\.txt$/, ""), readFileSync(path.join(gnuDir, f), "utf8")]));
+    const staticDir = path.join(licensesDir, "static");
+    const components = Object.fromEntries(
+      Object.entries(JSON.parse(readFileSync(path.join(staticDir, "components.json"), "utf8"))).filter(([k]) => !k.startsWith("_")),
+    );
+    const native = nativeBinaries(site);
+    const statics = staticLicenses(native.dists, staticDir, { components });
     const interpreter = interpreterLicenses(path.join(agentSrc, "packaging", "python-licenses"), artifact.version, target.key);
     const pythonDir = path.join(out, "python");
     writeFileSync(
@@ -436,6 +444,7 @@ export async function stageAgent(targets = resolveTargets()) {
         hermes: readFileSync(path.join(hermesSrc, "LICENSE"), "utf8"),
         notice: readFileSync(path.join(agentSrc, "NOTICE"), "utf8"),
         dists,
+        statics: statics.records,
         copyleft: review.listed,
         gnuTexts,
       }),
@@ -444,13 +453,15 @@ export async function stageAgent(targets = resolveTargets()) {
     for (const name of missing) {
       problems.push(`no licence text (no licence file in its wheel and no entry in apps/agent/packaging/licenses/dists.json): ${name}`);
     }
-    problems.push(...review.problems);
+    problems.push(...review.problems, ...statics.problems);
+    for (const rel of native.unowned) problems.push(`native binary no distribution's RECORD lists, so its licences cannot be checked: app/site-packages/${rel}`);
     if (problems.length) {
       throw new Error(`the staged runtime cannot ship (${problems.length} problems):\n  ${problems.slice(0, 40).join("\n  ")}`);
     }
     log(
       target,
       `checks passed: ${dists.length} distributions licensed, ${interpreter.length} interpreter libraries, ` +
+        `${statics.records.length} distributions' statically linked code (${statics.records.reduce((n, r) => n + r.record.crates.length, 0)} crates), ` +
         `${review.listed.length} reviewed GPL/LGPL distributions, no absolute or escaping symlink, no browser, ` +
         `no stage path; longest path ${longest.length}/${MAX_PATH_CHARS}: ${longest}`,
     );

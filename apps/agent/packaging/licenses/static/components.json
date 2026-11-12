@@ -1,0 +1,30 @@
+{
+  "_comment": "C libraries that wheels link into their native modules, reviewed by hand (static-licenses.mjs adds each to the dist's record with its text). Keys are normalized distribution names. `detect` is a regular expression whose first group reads the library's version from the binary; without it, `version` says what is known. `text` is where the licence text comes from ({version} is filled in). A distribution listed here needs a record for its exact version or the stage fails.",
+  "cryptography": [
+    {
+      "name": "OpenSSL",
+      "license": "Apache-2.0",
+      "detect": "OpenSSL (\\d+\\.\\d+\\.\\d+) \\d+ [A-Z][a-z]{2} \\d{4}",
+      "text": "https://raw.githubusercontent.com/openssl/openssl/openssl-{version}/LICENSE.txt",
+      "why": "cryptography's wheels link OpenSSL into hazmat/bindings/_rust (its version string is in the binary); the wheel's own LICENSE does not name it"
+    }
+  ],
+  "cffi": [
+    {
+      "name": "libffi",
+      "version": "3.x (the binary does not record which)",
+      "license": "MIT",
+      "text": "https://raw.githubusercontent.com/libffi/libffi/v3.5.2/LICENSE",
+      "why": "_cffi_backend exports ffi_prep_cif and loads no libffi: libffi is linked in; cffi's LICENSE does not name it"
+    }
+  ],
+  "ruamel-yaml-clib": [
+    {
+      "name": "libyaml",
+      "version": "0.2.5 (ruamel.yaml.clib's copy)",
+      "license": "MIT",
+      "text": "https://raw.githubusercontent.com/yaml/libyaml/0.2.5/License",
+      "why": "_ruamel_yaml exports libyaml's yaml_* functions from the copy ruamel.yaml.clib compiles in; its LICENSE names only ruamel"
+    }
+  ]
+}

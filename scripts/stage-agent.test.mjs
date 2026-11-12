@@ -51,7 +51,10 @@ import {
   makeReadOnly,
   makeWritable,
   makefileVar,
+  nativeBinaries,
   pipInstallFlags,
+  rustCrates,
+  staticLicenses,
   markerHash,
   parseExtras,
   parseMetadata,
@@ -70,6 +73,7 @@ import {
   trackedOnly,
 } from "../apps/web/electron/stage-agent-lib.mjs";
 import { lockTree, windowsLockCommand } from "../apps/web/electron/smoke-agent.mjs";
+import { cargoPackage, indexPath, spdxIds } from "../apps/web/electron/static-licenses.mjs";
 import { TARGETS } from "../apps/web/electron/targets.mjs";
 
 const repo = path.join(import.meta.dirname, "..");
@@ -689,6 +693,182 @@ test("downloadFile retries a network error, a cut-off body and a 5xx, and names 
     /after 1 attempt\(s\): HTTP 404 Not Found/,
   );
   assert.equal(calls, 1);
+});
+
+// ------------------------------------------------------------ statically linked code
+
+const CRATES_IO = "index.crates.io-1949cf8c6b5b557f";
+
+test("rustCrates reads crates.io, standard-library and git crate paths in either slash form from a binary", () => {
+  const bin = Buffer.concat([
+    Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 1, 2]),
+    Buffer.from(`/root/.cargo/registry/src/${CRATES_IO}/ring-0.17.14/src/aead.rs\0`),
+    Buffer.from(`/home/runner/.cargo/registry/src/${CRATES_IO}/aws-lc-rs-1.18.1/src/lib.rs\0`),
+    Buffer.from(`C:\\Users\\runner\\.cargo\\registry\\src\\${CRATES_IO}\\windows-sys-0.59.0\\src\\lib.rs\0`),
+    Buffer.from(`/cargo/registry/src/github.com-1ecc6299db9ec823/base64-0.13.1/src/x.rs\0`),
+    Buffer.from(`/rust/deps/hashbrown-0.16.1/src/raw.rs\0`),
+    Buffer.from(`/rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/fmt.rs\0`),
+    Buffer.from(`/root/.cargo/git/checkouts/tiny-thing-0123456789abcdef/abc/src/lib.rs\0`),
+    Buffer.from(`/root/.cargo/registry/src/${CRATES_IO}/ring-0.17.14/src/again.rs\0`),
+    Buffer.from(`/root/.cargo/registry/src/${CRATES_IO}/semver-pre-1.0.0-rc.1/src/x.rs\0`),
+  ]);
+  const got = rustCrates(bin);
+  assert.deepEqual(got.crates, ["aws-lc-rs@1.18.1", "base64@0.13.1", "hashbrown@0.16.1", "ring@0.17.14", "semver-pre@1.0.0-rc.1", "windows-sys@0.59.0"]);
+  assert.deepEqual(got.rustc, ["48a229ceaefd4985c50990b14116b6d856af0985"]);
+  assert.deepEqual(got.git, ["tiny-thing"]);
+  assert.deepEqual(rustCrates(Buffer.from("plain C code, ffi_prep_cif")), { crates: [], rustc: [], git: [] });
+});
+
+/** A site-packages fixture: dists {dir: {name, version, files: {rel: content}}}. */
+function fakeSite(root, dists) {
+  for (const [dir, d] of Object.entries(dists)) {
+    write(root, `${dir}/METADATA`, `Metadata-Version: 2.4\nName: ${d.name}\nVersion: ${d.version}\n\n`);
+    const rels = Object.keys(d.files);
+    write(root, `${dir}/RECORD`, [...rels.map((r) => `${r.includes(",") ? `"${r}"` : r},sha256=x,1`), `${dir}/RECORD,,`].join("\n") + "\n");
+    for (const [rel, content] of Object.entries(d.files)) write(root, rel, content);
+  }
+}
+
+test("nativeBinaries groups each extension module's crates under the distribution whose RECORD lists it", (t) => {
+  const site = tmp(t);
+  fakeSite(site, {
+    "jiter-0.17.0.dist-info": {
+      name: "jiter",
+      version: "0.17.0",
+      files: { "jiter/__init__.py": "", "jiter/jiter.cpython-314-x86_64-linux-gnu.so": `x/${CRATES_IO}/serde-1.0.1/src/a.rs\0/rust/deps/gimli-0.32.3/x\0` },
+    },
+    "Pure_Thing-1.0.dist-info": { name: "Pure_Thing", version: "1.0", files: { "pure/__init__.py": "" } },
+    "cffi-2.1.1.dist-info": { name: "cffi", version: "2.1.1", files: { "_cffi_backend.cpython-314-x86_64-linux-gnu.so": "ffi_prep_cif" } },
+  });
+  write(site, "stray/_x.pyd", `${CRATES_IO}/rand-0.8.5/`);
+  const { dists, unowned } = nativeBinaries(site);
+  assert.deepEqual(
+    dists.map((d) => [d.key, d.binaries.map((b) => [b.rel, b.crates])]),
+    [
+      ["cffi-2.1.1", [["_cffi_backend.cpython-314-x86_64-linux-gnu.so", []]]],
+      ["jiter-0.17.0", [["jiter/jiter.cpython-314-x86_64-linux-gnu.so", ["gimli@0.32.3", "serde@1.0.1"]]]],
+    ],
+  );
+  assert.deepEqual(unowned, ["stray/_x.pyd"]);
+});
+
+function fakeStatic(dir, records, texts = {}) {
+  for (const [id, text] of Object.entries(texts)) write(dir, `texts/${id}.txt`, text);
+  for (const r of records) write(dir, `${r.key}.json`, JSON.stringify(r.record));
+}
+
+test("staticLicenses needs a record for each distribution linking Rust code or listed in components.json, naming every crate it links", (t) => {
+  const dir = tmp(t);
+  const bin = (rel, crates, rustc = []) => ({ rel, crates, rustc, git: [] });
+  const found = [
+    { name: "jiter", version: "0.17.0", key: "jiter-0.17.0", dir: "jiter-0.17.0.dist-info", binaries: [bin("jiter/j.so", ["serde@1.0.1", "ryu@1.0.0"], ["c0"])] },
+    { name: "nemo_relay", version: "0.11.0", key: "nemo-relay-0.11.0", dir: "nemo_relay-0.11.0.dist-info", binaries: [bin("nemo_relay/_native.so", ["ring@0.17.14"])] },
+    { name: "cffi", version: "2.1.1", key: "cffi-2.1.1", dir: "cffi-2.1.1.dist-info", binaries: [bin("_cffi_backend.so", [])] },
+    { name: "markupsafe", version: "3.0.4", key: "markupsafe-3.0.4", dir: "markupsafe-3.0.4.dist-info", binaries: [bin("markupsafe/_speedups.so", [])] },
+    { name: "watchfiles", version: "1.3.0", key: "watchfiles-1.3.0", dir: "w.dist-info", binaries: [{ rel: "w/_w.so", crates: [], rustc: [], git: ["notify"] }] },
+  ];
+  fakeStatic(
+    dir,
+    [
+      {
+        key: "jiter-0.17.0",
+        record: {
+          dist: "jiter",
+          version: "0.17.0",
+          rustStd: null,
+          crates: [
+            { name: "serde", version: "1.0.1", license: "MIT OR Apache-2.0", files: [{ rel: "LICENSE-MIT", text: "t1" }] },
+            { name: "extra", version: "2.0.0", license: "MIT", files: [{ rel: "LICENSE", text: "t1" }] },
+          ],
+          components: [],
+        },
+      },
+      { key: "watchfiles-1.3.0", record: { dist: "watchfiles", version: "1.3.0", rustStd: null, crates: [], components: [] } },
+    ],
+    { t1: "MIT text\n" },
+  );
+  const { records, problems } = staticLicenses(found, dir, { components: { cffi: [{ name: "libffi" }] } });
+  const all = problems.join("\n");
+  assert.match(all, /jiter 0\.17\.0 links crates static\/jiter-0\.17\.0\.json does not record \(1\): ryu@1\.0\.0; run make agent-static-licenses/);
+  assert.match(all, /jiter 0\.17\.0 links the Rust standard library, which static\/jiter-0\.17\.0\.json does not record/);
+  assert.match(all, /nemo_relay 0\.11\.0 links 1 Rust crate\(s\) into nemo_relay\/_native\.so, but apps\/agent\/packaging\/licenses\/static\/nemo-relay-0\.11\.0\.json does not record/);
+  assert.match(all, /cffi 2\.1\.1 links libffi in \(static\/components\.json\), but static\/cffi-2\.1\.1\.json does not exist/);
+  assert.match(all, /watchfiles 1\.3\.0: w\/_w\.so links notify from a git checkout/);
+  assert.doesNotMatch(all, /markupsafe/, "plain C extensions of the project's own code need no record");
+  assert.equal(problems.length, 5);
+  const jiter = records.find((r) => r.dist.name === "jiter").record;
+  assert.deepEqual(jiter.crates.map((c) => [c.name, c.files[0].body]), [["serde", "MIT text\n"], ["extra", "MIT text\n"]]);
+});
+
+test("THIRD_PARTY_LICENSES lists each distribution's linked crates and C libraries, with every text once", () => {
+  const files = (id, rel) => [{ rel, text: id, body: `text ${id}\n` }];
+  const statics = [
+    {
+      dist: { name: "cryptography", version: "50.0.2", dir: "cryptography-50.0.2.dist-info" },
+      record: {
+        rustStd: { rustc: ["48a229ceaefd4985c50990b14116b6d856af0985"], license: "MIT OR Apache-2.0", files: files("std1", "LICENSE-MIT") },
+        components: [{ name: "OpenSSL", version: "4.0.3", license: "Apache-2.0", files: files("ossl", "LICENSE.txt") }],
+        crates: [{ name: "pem", version: "3.0.0", license: "MIT", files: files("mit1", "LICENSE.md") }],
+      },
+    },
+    {
+      dist: { name: "jiter", version: "0.17.0", dir: "jiter-0.17.0.dist-info" },
+      record: { rustStd: null, components: [], crates: [{ name: "pem", version: "3.0.0", license: "MIT", files: files("mit1", "LICENSE.md") }] },
+    },
+  ];
+  const out = thirdPartyLicenses({ cpython: "PSF", hermes: "MIT", notice: "N", dists: [], statics });
+  assert.match(out, /Code linked statically into the native modules of these distributions/);
+  assert.match(out, /cryptography 50\.0\.2 \(app\/site-packages\/cryptography-50\.0\.2\.dist-info\):\n {2}Rust standard library \(rustc 48a229ceaefd\): MIT OR Apache-2\.0 \[std1\]\n {2}OpenSSL 4\.0\.3 \(C library\): Apache-2\.0 \[ossl\]\n {2}pem 3\.0\.0: MIT \[mit1\]/);
+  assert.match(out, /jiter 0\.17\.0 \(app\/site-packages\/jiter-0\.17\.0\.dist-info\):\n {2}pem 3\.0\.0: MIT \[mit1\]/);
+  assert.equal(out.split("--- [mit1] pem 3.0.0 LICENSE.md\ntext mit1").length, 2, "each text once");
+  assert.match(out, /--- \[ossl\] OpenSSL 4\.0\.3 LICENSE\.txt\ntext ossl/);
+});
+
+test("the committed static-link records are whole: every crate and component has a stored text, and each components.json entry has a record", () => {
+  const dir = path.join(repo, "apps/agent/packaging/licenses/static");
+  const components = JSON.parse(readFileSync(path.join(dir, "components.json"), "utf8"));
+  const records = readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "components.json");
+  assert.ok(records.length >= 8, records.join(", "));
+  const used = new Set();
+  for (const f of records) {
+    const r = JSON.parse(readFileSync(path.join(dir, f), "utf8"));
+    assert.equal(f, `${r.dist.toLowerCase().replace(/[-_.]+/g, "-")}-${r.version}.json`);
+    assert.ok(r.targets.includes("win32-x64"), `${f}: ${r.targets} (every record covers a release target)`);
+    for (const e of [...r.crates, ...r.components, ...(r.rustStd ? [{ name: "std", files: r.rustStd.texts }] : [])]) {
+      assert.ok(e.files.length > 0, `${f}: ${e.name} has no licence text`);
+      for (const file of e.files) {
+        assert.ok(existsSync(path.join(dir, "texts", `${file.text}.txt`)), `${f}: ${e.name} ${file.rel} -> ${file.text}`);
+        used.add(`${file.text}.txt`);
+      }
+    }
+  }
+  for (const name of Object.keys(components).filter((k) => !k.startsWith("_"))) {
+    assert.ok(records.some((f) => f.startsWith(`${name}-`)), `components.json lists ${name}, which has no record`);
+  }
+  assert.deepEqual(readdirSync(path.join(dir, "texts")).filter((f) => !used.has(f)), [], "texts no record uses");
+  const all = readdirSync(path.join(dir, "texts")).map((f) => readFileSync(path.join(dir, "texts", f), "utf8")).join("\n");
+  for (const notice of ["BoringSSL", "Eric Young"]) assert.ok(all.includes(notice), notice);
+  const resvg = records.find((f) => f.startsWith("resvg-py-"));
+  assert.ok(JSON.parse(readFileSync(path.join(dir, resvg), "utf8")).crates.some((c) => c.name === "tiny-skia"));
+});
+
+test("static-licenses.mjs reads crates.io index paths, Cargo.toml licence fields and SPDX expressions", () => {
+  assert.equal(indexPath("a"), "1/a");
+  assert.equal(indexPath("cc"), "2/cc");
+  assert.equal(indexPath("syn"), "3/s/syn");
+  assert.equal(indexPath("Ring"), "ri/ng/ring");
+  const pkg = cargoPackage('[package]\nname = "x"\nauthors = [\n    "A <a@x>",\n    "B",\n]\nlicense = "MIT OR Apache-2.0"\nlicense-file = "LICENSE.txt"\n\n[dependencies.y]\nlicense = "GPL"\n');
+  assert.deepEqual(pkg, { license: "MIT OR Apache-2.0", licenseFile: "LICENSE.txt", authors: ["A <a@x>", "B"] });
+  assert.deepEqual(spdxIds("(MIT OR Apache-2.0) AND Unicode-3.0"), ["MIT", "Apache-2.0", "Unicode-3.0"]);
+  assert.deepEqual(spdxIds("MIT/Apache-2.0"), ["MIT", "Apache-2.0"]);
+  assert.deepEqual(spdxIds("Apache-2.0 WITH LLVM-exception"), ["Apache-2.0", "LLVM-exception"]);
+});
+
+test("a staged runtime's THIRD_PARTY_LICENSES carries the notices of the crates its Rust modules link", { skip: !existsSync(path.join(repo, "apps/web/.electron-agent/linux-x64/THIRD_PARTY_LICENSES")) && "make stage-agent first" }, () => {
+  const text = readFileSync(path.join(repo, "apps/web/.electron-agent/linux-x64/THIRD_PARTY_LICENSES"), "utf8");
+  for (const notice of [/ring 0\.17\.14: /, /BoringSSL/, /tiny-skia 0\.12\.0: BSD-3-Clause/, /aws-lc-sys /, /OpenSSL \d+\.\d+\.\d+ \(C library\)/, /libffi /, /libyaml /]) {
+    assert.match(text, notice);
+  }
 });
 
 test("fullArchiveName names the full archive of an install_only build", () => {
