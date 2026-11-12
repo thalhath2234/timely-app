@@ -582,3 +582,28 @@ test("the import check needs the MCP SDK everywhere and pywin32 and portalocker 
   for (const name of ["win32/win32api.py", "win32/win32con.py", "win32/win32job.py", "portalocker/__init__.py"]) write(app, `site-packages/${name}`, "");
   assert.deepEqual(run("win32").failed, {});
 });
+
+// ------------------------------------------------------------ pinned tools
+
+test("every setup-uv step pins the uv the Docker image copies, so desktop and Docker runtimes are staged by the same uv", () => {
+  const docker = readFileSync(path.join(repo, "apps/api/Dockerfile"), "utf8");
+  const pinned = /ghcr\.io\/astral-sh\/uv:([0-9.]+)@sha256:[0-9a-f]{64}/.exec(docker)?.[1];
+  assert.ok(pinned, "the Dockerfile copies uv by version and digest");
+  for (const file of [".github/workflows/ci.yml", ".github/workflows/release.yml"]) {
+    const lines = readFileSync(path.join(repo, file), "utf8").split("\n");
+    const steps = lines.flatMap((line, i) => (/uses: astral-sh\/setup-uv@/.test(line) ? [i] : []));
+    assert.ok(steps.length > 0, file);
+    for (const i of steps) {
+      const block = [];
+      for (let j = i + 1; j < lines.length && !/^\s*- /.test(lines[j]); j++) block.push(lines[j]);
+      assert.match(block.join("\n"), new RegExp(`version: "${pinned.replaceAll(".", "\\.")}"`), `${file}:${i + 1}`);
+    }
+  }
+});
+
+test("every stage of the API image is pinned by digest", () => {
+  const docker = readFileSync(path.join(repo, "apps/api/Dockerfile"), "utf8");
+  const froms = docker.split("\n").filter((line) => /^FROM\s/i.test(line));
+  assert.ok(froms.length >= 3);
+  for (const line of froms) assert.match(line, /@sha256:[0-9a-f]{64}(\s|$)/, line);
+});

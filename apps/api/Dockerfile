@@ -6,7 +6,9 @@
 # 11.4), and a Debian slim runtime that holds both. Debian, not Alpine: the
 # runtime's interpreter and wheels are built for glibc.
 
-FROM golang:1.25-alpine AS builder
+# Every stage that contributes a shipped file is pinned by digest (scripts/stage-agent.test.mjs
+# checks it). Move this pin with the go.mod toolchain: GOTOOLCHAIN=local cannot fetch a newer Go.
+FROM golang:1.25.14-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS builder
 
 WORKDIR /src
 COPY apps/api/go.mod apps/api/go.sum ./

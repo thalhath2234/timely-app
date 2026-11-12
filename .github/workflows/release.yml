@@ -91,6 +91,8 @@ jobs:
       # sha256-checked against pm/lock.json, so a cached copy is checked too.
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
+          # The uv the Docker image copies (apps/api/Dockerfile); scripts/stage-agent.test.mjs checks they match.
+          version: "0.13.6"
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
       - name: Cache the agent's interpreter download

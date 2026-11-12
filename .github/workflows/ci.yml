@@ -125,6 +125,8 @@ jobs:
           cache-dependency-path: apps/api/go.sum
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
+          # The uv the Docker image copies (apps/api/Dockerfile); scripts/stage-agent.test.mjs checks they match.
+          version: "0.13.6"
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
       # agent-contract includes contract tests 9 (learning) and 13 (agent-state
@@ -154,6 +156,8 @@ jobs:
           cache-dependency-path: apps/api/go.sum
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
+          # The uv the Docker image copies (apps/api/Dockerfile); scripts/stage-agent.test.mjs checks they match.
+          version: "0.13.6"
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
       - name: Build the Go API
@@ -202,6 +206,8 @@ jobs:
           cache-dependency-path: apps/api/go.sum
       - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
+          # The uv the Docker image copies (apps/api/Dockerfile); scripts/stage-agent.test.mjs checks they match.
+          version: "0.13.6"
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
       # The python-build-standalone archive, sha256-checked against pm/lock.json
@@ -308,6 +314,8 @@ jobs:
       - if: steps.changed.outputs.run == 'true'
         uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
         with:
+          # The uv the Docker image copies (apps/api/Dockerfile); scripts/stage-agent.test.mjs checks they match.
+          version: "0.13.6"
           enable-cache: true
           cache-dependency-glob: apps/agent/hermes/uv.lock
       # agent-test and agent-contract run in the agent job
