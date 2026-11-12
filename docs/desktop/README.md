@@ -464,8 +464,8 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
 - **Trims.** `include/`, `share/`, `idlelib`, `tkinter`, `turtledemo`, `ensurepip`, Tcl/Tk, `_dbm` on Linux, the
   interpreter's own `pip` and the `pydoc`/`idle`/`-config` scripts, and on Linux `lib/libpython3*.so*`
   (131 MiB: the interpreter is linked statically and never loads it; the interpreter check below runs
-  the trimmed interpreter), and on Windows the debug symbols (`python*.pdb`, `DLLs/*.pdb`, 83 MiB in
-  37 files; electron-builder's own pdb exclusion skips `extraResources`): 155 MiB on linux-x64 in all. The stdlib
+  the trimmed interpreter), and on Windows every debug symbol (`python*.pdb`, `DLLs/*.pdb`,
+  `Lib/venv/scripts/nt/*.pdb`: 43 files, 90.3 MiB; electron-builder's own pdb exclusion skips `extraResources`): 155 MiB on linux-x64 in all. The stdlib
   `test` package is dropped when nothing staged imports it (python-build-standalone 3.14.9 ships
   none). The CPython licence stays.
 - **What of the source ships.** In a git checkout only files git tracks are copied
