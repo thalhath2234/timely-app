@@ -13,3 +13,13 @@ apps/api/data
 apps/web/tmp
 apps/web/astra-evidence
 apps/web/report-shots
+# Agent runtime (plan 11.5): the image stages its own from apps/agent, so the
+# local virtualenv, caches, staged runtimes and desktop build output stay out.
+apps/agent/.venv
+apps/agent/**/__pycache__
+apps/agent/.pytest_cache
+apps/agent/.ruff_cache
+apps/web/.electron-*
+apps/web/.cache
+apps/web/release
+apps/web/dist-electron
