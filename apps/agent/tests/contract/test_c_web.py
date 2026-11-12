@@ -3,10 +3,11 @@ worker and the stub model (plan 8.1 web row, 12, 13 "Verification"; owner decisi
 
 Timely puts no rule of its own on where a chat that read outside content may search or read.
 These tests prove that Hermes' own handling holds on every web path Timely uses: each web result
-reaches the model inside ``<untrusted_tool_result>`` (and so is threat-scanned: Hermes scans where
-it wraps, ``make_tool_result_message``), a ``web_extract`` URL that carries a key or token is
-refused before any backend is asked, Timely's own outside results (``ask_bot`` ...) are marked the
-same way, and the taint each read adds reaches Go with the next proposal (Go then holds it).
+reaches the model inside ``<untrusted_tool_result>``, Hermes' advisory threat scan of it reaches
+Go as ``event tool.output_risk``, a ``web_extract`` URL that carries a key or token is refused
+before any backend is asked, a private, loopback or metadata address never reaches a backend (the
+SSRF floor), Timely's own outside results (``ask_bot`` ...) are marked and scanned the same way,
+and the taint each read adds reaches Go with the next proposal (Go then holds it).
 
 The harness plays Go: it allows ``web_search``/``web_extract`` at ``gate.ask`` (Go's ``flags.web``
 verdict) and answers the backend's ``tool.call``. Hermes' SSRF floor resolves each extract URL's

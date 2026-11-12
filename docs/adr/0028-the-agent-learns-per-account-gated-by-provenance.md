@@ -129,8 +129,9 @@ deleting the account deletes the agent home.
   kept fully on and tested on every web path Timely uses (its own backend
   through Go, the keyed backends, CLI providers through the gateway): results
   wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
-  token refused, the private-address (SSRF) floor and website blocklist, and
-  the strict threat scan on memory and skill writes. Timely's results that
+  token refused, the private-address (SSRF) floor (Hermes' website blocklist
+  is opt-in and Timely sets none), and the strict threat scan on memory and
+  skill writes. Timely's results that
   quote outside text (Bot answers and findings, notifications, past-chat hits
   from a tainted chat) reach the model marked the same way. What does not
   change: taint still holds every later proposal for review and stages
