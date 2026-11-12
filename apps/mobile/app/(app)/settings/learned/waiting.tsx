@@ -9,25 +9,28 @@ import BottomSheet from "../../../../components/ui/BottomSheet";
 import { Button, PrimaryButton } from "../../../../components/ui/primitives";
 import { GroupHint, ListGroup, ListRow } from "../../../../components/settings/SettingsList";
 import { Block, DiffBlock, Tile } from "../../../../components/settings/LearnedParts";
-import { useDecidePendingLearning, usePendingLearningQuery } from "../../../../lib/hooks";
+import { useDecidePendingLearning, usePendingLearningQuery, useStagedLearningQuery } from "../../../../lib/hooks";
 import { useLearningWatch } from "../../../../lib/chat/useLearningWatch";
-import { pendingMeta, pendingWhy } from "../../../../lib/chat/learning";
+import { pendingMeta, pendingWhy, stagedAsPending } from "../../../../lib/chat/learning";
 import type { PendingView } from "../../../../lib/api/learning";
 import { isOffline } from "../../../../lib/networkState";
 import { createThemedStyleSheet } from "../../../../lib/theme";
 
 /**
  * Waiting for you: changes the agent staged instead of making (Q-3.1: the
- * chat read something from outside Timely, or a bot wrote it). Each opens
- * with its diff, Keep and Discard.
+ * chat read something from outside Timely, or a bot wrote it), listed from
+ * Timely's own staged events as on the web. Each opens with its diff (the
+ * worker's, read when a change opens), Keep and Discard; a change the worker
+ * no longer has says so and can still be discarded.
  */
 export default function Waiting() {
   const insets = useSafeAreaInsets();
   const { pending: openId } = useLocalSearchParams<{ pending?: string }>();
-  const pending = usePendingLearningQuery();
-  useLearningWatch();
-  const items = pending.data ?? [];
+  const pending = useStagedLearningQuery();
   const [shownId, setShownId] = useState<string | null>(null);
+  const diffs = usePendingLearningQuery(!!shownId || !!openId);
+  useLearningWatch();
+  const items = (pending.data ?? []).map((ev) => stagedAsPending(ev, diffs.data));
   // View diff on a chat's card opens its change here, once.
   const opened = useRef(false);
   useEffect(() => {
@@ -72,12 +75,27 @@ export default function Waiting() {
           </ListGroup>
         ) : null}
       </ScrollView>
-      <PendingSheet item={shown} onClose={() => setShownId(null)} />
+      <PendingSheet
+        item={shown}
+        diffLoading={diffs.isLoading}
+        diffMissing={!!diffs.data && !diffs.data.some((d) => d.pending_id === shown?.pending_id)}
+        onClose={() => setShownId(null)}
+      />
     </Screen>
   );
 }
 
-function PendingSheet({ item: open, onClose }: { item: PendingView | null; onClose: () => void }) {
+function PendingSheet({
+  item: open,
+  diffLoading,
+  diffMissing,
+  onClose,
+}: {
+  item: PendingView | null;
+  diffLoading: boolean;
+  diffMissing: boolean;
+  onClose: () => void;
+}) {
   const decide = useDecidePendingLearning();
   const last = useRef(open);
   if (open) last.current = open;
@@ -105,16 +123,18 @@ function PendingSheet({ item: open, onClose }: { item: PendingView | null; onClo
               onPress={() => choose("discard")}
             />
           </View>
-          <View style={{ flex: 1 }}>
-            <Button
-              testID="waiting-keep"
-              label="Keep"
-              stretch
-              loading={busy && decide.variables?.choice === "keep"}
-              disabled={offline || busy}
-              onPress={() => choose("keep")}
-            />
-          </View>
+          {diffMissing ? null : (
+            <View style={{ flex: 1 }}>
+              <Button
+                testID="waiting-keep"
+                label="Keep"
+                stretch
+                loading={busy && decide.variables?.choice === "keep"}
+                disabled={offline || busy || diffLoading}
+                onPress={() => choose("keep")}
+              />
+            </View>
+          )}
         </View>
       }
     >
@@ -125,6 +145,12 @@ function PendingSheet({ item: open, onClose }: { item: PendingView | null; onClo
             <Block label="What would change">
               <DiffBlock testID="waiting-diff" text={item.diff} />
             </Block>
+          ) : diffLoading ? (
+            <Text style={styles.meta}>Loading the change…</Text>
+          ) : diffMissing ? (
+            <Text testID="waiting-gone" style={styles.meta}>
+              This change is no longer available. Discard it to clear it from the list.
+            </Text>
           ) : null}
           {decide.error && decide.variables?.pendingIds[0] === item.pending_id ? (
             <Text style={styles.error}>{decide.error.message || "Could not save."}</Text>

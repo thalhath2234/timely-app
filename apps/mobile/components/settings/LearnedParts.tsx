@@ -7,7 +7,7 @@ import { colors, createThemedStyleSheet } from "../../lib/theme";
 import {
   useLearnedSkillsQuery,
   useLearningSettingsQuery,
-  usePendingLearningQuery,
+  useStagedLearningQuery,
 } from "../../lib/hooks";
 import { LEARNED_ROUTE, learnedRowMeta } from "../../lib/chat/learning";
 import AnimatedPressable from "../ui/AnimatedPressable";
@@ -23,7 +23,7 @@ export function LearnedRow({ agent }: { agent: boolean }) {
   // The counts come from the agent: ask only when chats run on it, so Settings never starts it for nothing.
   const ready = !!settings.data && agent;
   const skills = useLearnedSkillsQuery(ready);
-  const pending = usePendingLearningQuery(ready);
+  const pending = useStagedLearningQuery(ready);
   const router = useRouter();
   if (!settings.data) return null;
   const waiting = pending.data?.length ?? 0;

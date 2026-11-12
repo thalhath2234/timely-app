@@ -204,6 +204,7 @@ export const keys = {
   agentLearningSkills: ["agent-learning", "skills"] as const,
   agentLearningMemory: ["agent-learning", "memory"] as const,
   agentLearningPending: ["agent-learning", "pending"] as const,
+  agentLearningStaged: ["agent-learning", "staged"] as const,
   decisions: ["decisions"] as const,
   decisionSettings: ["decisions", "settings"] as const,
   decisionsStatus: ["decisions", "status"] as const,
@@ -2389,6 +2390,22 @@ export function useLearnedSkillsQuery(enabled = true) {
 
 export function useLearnedMemoryQuery(enabled = true) {
   return useQuery({ queryKey: keys.agentLearningMemory, queryFn: getLearnedMemory, enabled, retry: noRetryOn4xx });
+}
+
+/**
+ * What waits for Keep or Discard, from Timely's own staged events (as the web
+ * lists it): one the worker no longer has (a restore that did not bring its
+ * home back) still waits, so the person can discard it (review round 8).
+ * The worker's diffs come from usePendingLearningQuery when a change opens.
+ */
+export function useStagedLearningQuery(enabled = true) {
+  return useQuery({
+    queryKey: keys.agentLearningStaged,
+    queryFn: async () => (await getLearningEvents({ status: "staged", limit: 200 })).events.filter((ev) => ev.pendingId),
+    enabled,
+    staleTime: 10_000,
+    retry: noRetryOn4xx,
+  });
 }
 
 export function usePendingLearningQuery(enabled = true) {

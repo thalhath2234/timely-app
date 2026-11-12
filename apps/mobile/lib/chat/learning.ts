@@ -269,6 +269,23 @@ export function pendingMeta(
   return [item.summary || originWords(item.origin), ago(item.created_at, now)].filter(Boolean).join(" · ");
 }
 
+/** A staged event (Go's row) as a Waiting for you item, with the worker's diff when it has one. */
+export function stagedAsPending(ev: LearningEvent, diffs: readonly PendingItem[] | undefined): PendingItem {
+  return {
+    pending_id: ev.pendingId,
+    kind: ev.kind,
+    subject: ev.subject,
+    action: ev.action,
+    diff: diffs?.find((item) => item.pending_id === ev.pendingId)?.diff ?? "",
+    origin: ev.origin,
+    conversation_id: ev.conversationId,
+    summary: ev.summary,
+    reason: ev.reason,
+    tainted_sources: ev.taintedSources,
+    created_at: ev.createdAt,
+  };
+}
+
 /** Why it waits, in the card's words (the worker's reason, or the chat's outside content). */
 export function pendingWhy(item: Parameters<typeof pendingAsEvent>[0]): string {
   return pendingCard([pendingAsEvent(item)])?.why ?? "";

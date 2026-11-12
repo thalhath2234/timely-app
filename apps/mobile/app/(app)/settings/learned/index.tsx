@@ -27,7 +27,7 @@ import {
   useLearnedMemoryQuery,
   useLearningSettingsQuery,
   usePatchLearningSettings,
-  usePendingLearningQuery,
+  useStagedLearningQuery,
 } from "../../../../lib/hooks";
 import {
   ABOUT_YOU_ROUTE,
@@ -54,7 +54,7 @@ export default function LearnedSettings() {
   useLearningWatch();
   const ready = !!settings.data;
   const memory = useLearnedMemoryQuery(ready);
-  const pending = usePendingLearningQuery(ready);
+  const pending = useStagedLearningQuery(ready);
   const data = settings.data;
   const waiting = pending.data?.length ?? 0;
   const about = memory.data?.user;

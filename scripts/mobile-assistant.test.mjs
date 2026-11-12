@@ -781,6 +781,21 @@ test("Waiting for you rows read the worker's items with the card's words", () =>
   assert.equal(learning.pendingAsEvent(item).pendingId, "p1");
 });
 
+test("Waiting for you lists Timely's staged events, with the worker's diff when it has one", () => {
+  // Review round 8: a change Go holds staged but the worker lost (a restore without its home)
+  // still waits on the phone, as on the web, with no diff, so it can be discarded.
+  const ev = lev({ id: "lev_9", status: "staged", pendingId: "pnd_gone1", kind: "memory", action: "added",
+    subject: "user", conversationId: "cnv_1", reason: "tainted", createdAt: "2026-11-12T10:00:00Z" });
+  const gone = learning.stagedAsPending(ev, []);
+  assert.equal(gone.pending_id, "pnd_gone1");
+  assert.equal(gone.diff, "");
+  assert.equal(gone.conversation_id, "cnv_1");
+  assert.equal(gone.created_at, "2026-11-12T10:00:00Z");
+  assert.equal(learning.pendingWhy(gone), learning.pendingWhy({ ...gone, reason: "tainted" }));
+  const kept = learning.stagedAsPending(ev, [{ pending_id: "pnd_gone1", diff: "+ Prefers metric" }]);
+  assert.equal(kept.diff, "+ Prefers metric");
+});
+
 test("every What Timely learned route the chip, card and Settings open is a screen", () => {
   const file = (route) => new URL(`../apps/mobile/app${route.split("?")[0]}${route.endsWith("learned") ? "/index" : ""}.tsx`, import.meta.url);
   for (const route of [learning.LEARNED_ROUTE, learning.ACTIVITY_ROUTE, learning.ABOUT_YOU_ROUTE, learning.WAITING_ROUTE]) {
