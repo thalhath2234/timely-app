@@ -411,7 +411,8 @@ SHA-256.
 
 - Default: the host target.
 - `TIMELY_TARGETS=linux-x64,darwin-arm64` stages the API and Postgres for several targets (`stage-api.mjs`, `stage-postgres.mjs`, any OS; Go cross-compiles and the zonky jars are plain downloads). The agent runtime is host-only: `make stage-desktop` and `pnpm electron:stage` stage it for the host whatever `TIMELY_TARGETS` says (`stage-agent.mjs --host`), and `stage-agent.mjs` refuses a list that names another target before staging anything.
-- `node electron/pack.mjs --target <host key>` adds the matching electron-builder flags (`--linux --x64`). Every installer ships the agent runtime, so pack refuses any other target before the Next build: a multi-target mac build (`--target darwin-x64,darwin-arm64`) is no longer possible, and each arch builds on its own runner. Every other argument is passed to electron-builder (`--dir`, `--publish never`, ...).
+- `node electron/pack.mjs --target <host key>` adds the matching electron-builder flags (`--linux --x64`). Every installer ships the agent runtime, so pack refuses any other target before the Next build: a multi-target mac build (`--target darwin-x64,darwin-arm64`) is no longer possible, and each arch builds on its own runner.
+- **Intel Macs (`darwin-x64`) cannot build the desktop app.** cryptography 50.0.2, which Hermes v0.23.0's `uv.lock` pins, has no macOS x86_64 wheel, and the stage installs wheels only (`--no-build`). `stage-agent.mjs` and `pack.mjs` refuse `darwin-x64` up front with that reason (`UNSTAGEABLE_TARGETS` in `stage-agent-lib.mjs`) instead of failing inside `uv pip install`. Apple silicon (`darwin-arm64`) builds; check again when a Hermes sync moves cryptography. Every other argument is passed to electron-builder (`--dir`, `--publish never`, ...).
 - `TIMELY_SKIP_NEXT=1` reuses the existing `.next` build while iterating on packaging.
 - `TIMELY_AGENT_STAGED=1` packs the agent runtime already in `.electron-agent/<os>-<arch>/` instead of staging it again (release.yml sets it, so the installer holds the stage its smoke step checked); the stage must have finished for that target (`MANIFEST.json` and its `.staged-<hash>` marker) and come from the checkout as it is now: the same uv.lock, extras and Python pin (the marker), the same Hermes tag and the same tracked `apps/agent` files. A stage left from before a Hermes sync or a source edit is refused with "stage it again".
 
@@ -673,7 +674,8 @@ hold commas, so they name `runner.os`, never the target list).
 1. `prepare` checks that the tag equals `v<apps/web/package.json version>` and creates the
    GitHub Release (`gh release create --generate-notes`) so the matrix jobs never race to create it.
 2. `desktop` matrix: `ubuntu-latest` → `linux-x64`; `windows-latest` → `win32-x64`. Releases
-   do not include macOS; a mac build is still possible locally with `make dist-desktop` on a Mac.
+   do not include macOS; a mac build is still possible locally with `make dist-desktop` on an Apple
+   silicon Mac (not on an Intel Mac: darwin-x64 has no cryptography wheel at Hermes v0.23.0).
    Before packing, each stages the agent runtime for its own target
    (`node electron/stage-agent.mjs --target <target>`, with setup-uv and the same
    `agent-python-<runner.os>-<lock hash>` cache as CI) and runs

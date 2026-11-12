@@ -173,19 +173,34 @@ export function scratchRootFor(repoRoot, home = os.homedir()) {
 }
 
 /**
- * Every key must be the host: checked for the whole list before anything is
- * staged or built, so a multi-target run fails up front instead of after
- * staging the host target.
+ * Targets the agent runtime cannot be staged for, with the reason. The stage
+ * installs wheels only (--no-build), and Hermes v0.23.0's uv.lock pins
+ * cryptography 50.0.2, which has no macOS x86_64 wheel: an Intel Mac build
+ * would fail late inside uv pip install.
+ */
+export const UNSTAGEABLE_TARGETS = {
+  "darwin-x64":
+    "Intel Macs cannot ship the agent runtime: cryptography 50.0.2 (Hermes v0.23.0's uv.lock) has no macOS x86_64 wheel " +
+    "and the stage installs wheels only. Build on Apple silicon (darwin-arm64).",
+};
+
+/**
+ * Every key must be the host and stageable: checked for the whole list before
+ * anything is staged or built, so a multi-target run fails up front instead of
+ * after staging the host target.
  */
 export function assertHostTargets(keys, hostKey) {
   const others = keys.filter((key) => key !== hostKey);
-  if (others.length === 0) return;
-  try {
-    assertHostTarget(others[0], hostKey);
-  } catch (err) {
-    const list = others.length > 1 ? ` (and ${others.slice(1).join(", ")})` : "";
-    throw new Error(`${err.message}${list} Nothing was staged.`);
+  if (others.length) {
+    try {
+      assertHostTarget(others[0], hostKey);
+    } catch (err) {
+      const list = others.length > 1 ? ` (and ${others.slice(1).join(", ")})` : "";
+      throw new Error(`${err.message}${list} Nothing was staged.`);
+    }
   }
+  const unstageable = keys.find((key) => UNSTAGEABLE_TARGETS[key]);
+  if (unstageable) throw new Error(`stage-agent: cannot stage ${unstageable}. ${UNSTAGEABLE_TARGETS[unstageable]} Nothing was staged.`);
 }
 
 /** Native modules are installed for the running interpreter, so a target must be the host. */

@@ -173,6 +173,18 @@ test("a target list naming another OS is refused as a whole, before anything is 
   assert.throws(() => assertHostTargets(["win32-x64", "darwin-x64", "linux-x64"], "linux-x64"), /win32-x64.*\(and darwin-x64\)/s);
 });
 
+test("an Intel Mac is refused before anything is staged or built: cryptography 50 has no macOS x86_64 wheel", () => {
+  assert.throws(() => assertHostTargets(["darwin-x64"], "darwin-x64"), /cannot stage darwin-x64\. Intel Macs cannot ship the agent runtime: cryptography 50\.0\.2 .*no macOS x86_64 wheel.*Nothing was staged/s);
+  assert.doesNotThrow(() => assertHostTargets(["darwin-arm64"], "darwin-arm64"));
+  // The reason holds for the pinned lock: no cryptography wheel for macOS x86_64.
+  const lock = readFileSync(path.join(repo, "apps/agent/hermes/uv.lock"), "utf8");
+  const crypto = /\[\[package\]\]\nname = "cryptography"\nversion = "([^"]+)"[\s\S]*?(?=\n\[\[package\]\])/.exec(lock);
+  assert.equal(crypto?.[1], "50.0.2", "cryptography moved: check whether darwin-x64 has a wheel now and update UNSTAGEABLE_TARGETS");
+  assert.doesNotMatch(crypto[0], /macosx_[\d_]+_(x86_64|universal2)\.whl/);
+  // pack.mjs checks before the Next build (the test above), and stage-agent through stageAgent.
+  assert.match(readFileSync(path.join(repo, "apps/web/electron/stage-agent.mjs"), "utf8"), /assertHostTargets\(targets\.map/);
+});
+
 test("make stage-desktop and pnpm electron:stage stage the agent for the host only, whatever TIMELY_TARGETS says", () => {
   const make = readFileSync(path.join(repo, "Makefile"), "utf8");
   const recipe = /^stage-desktop:.*\n((?:\t.*\n)+)/m.exec(make)?.[1] ?? "";
