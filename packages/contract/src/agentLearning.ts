@@ -118,6 +118,11 @@ export type LearnedSkill = {
   restored: boolean;
   last_used?: string | null;
   created_by_event?: string | null;
+  /** Where it came from (the event that created it, Go reads it whatever its age): chat, review,
+   * bot, user ... Absent when no event names its creation. */
+  origin?: string;
+  /** The chat it was learned in ("" for none). */
+  conversation_id?: string;
 };
 
 export type LearnedSkillsResponse = { skills: LearnedSkill[] };

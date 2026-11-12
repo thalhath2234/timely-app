@@ -193,13 +193,18 @@ const ORIGIN_WORDS: Record<string, string> = {
 };
 
 /**
- * The skill's provenance: the oldest event that named it (its creation, when
- * the feed still has it). Null when no event names it.
+ * The skill's provenance: what the skills list says (Go reads the event that
+ * created it, however old), else the oldest event in `events` that named it.
+ * Null when neither names it.
  */
 export function skillOrigin(
   events: LearningEvent[],
   name: string,
+  given?: { origin?: string; conversation_id?: string },
 ): SkillOrigin | null {
+  if (given?.origin) {
+    return { label: ORIGIN_WORDS[given.origin] ?? "Learned", conversationId: given.conversation_id ?? "" };
+  }
   const mine = events
     .filter((ev) => ev.kind === "skill" && ev.subject === name)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));

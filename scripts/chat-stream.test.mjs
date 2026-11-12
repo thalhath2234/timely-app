@@ -491,6 +491,13 @@ describe("Settings: What Timely learned and web search", () => {
     assert.deepEqual(skillOrigin(events, "csv"), { label: "Learned in a chat", conversationId: "chat_7" });
     assert.deepEqual(skillOrigin(events, "mine"), { label: "You", conversationId: "" });
     assert.equal(skillOrigin(events, "unknown"), null);
+    // Review round 8: the skills list's own provenance wins over the recent events, which may
+    // have lost the creation or hold a later edit.
+    assert.deepEqual(skillOrigin(events, "csv", { origin: "review", conversation_id: "chat_taught" }),
+      { label: "Learned after a chat", conversationId: "chat_taught" });
+    assert.deepEqual(skillOrigin([], "old", { origin: "bot", conversation_id: "" }),
+      { label: "Suggested by a bot", conversationId: "" });
+    assert.deepEqual(skillOrigin(events, "csv", {}), { label: "Learned in a chat", conversationId: "chat_7" });
     assert.equal(skillOrigin([lev({ kind: "memory", subject: "csv" })], "csv"), null);
   });
 

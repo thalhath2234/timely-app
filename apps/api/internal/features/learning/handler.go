@@ -393,7 +393,64 @@ func (s *Service) listSkills(c *echo.Context) error {
 		skill["enabled"] = enabled && !slices.Contains(row.SkillsDisabled, name)
 		skill["restored"] = slices.Contains(row.SkillsRestored, name)
 	}
+	if err := s.skillProvenance(c.Request().Context(), user(c), skills); err != nil {
+		return err
+	}
 	return c.JSON(http.StatusOK, map[string]any{"skills": skills})
+}
+
+// skillProvenance adds where each skill came from (origin and
+// conversation_id, plan 9b.4) from the event that created it: the one with
+// its created_by_event ledger id, else its oldest "created" event. Every
+// skill carries it, however many events came after (review round 8: the
+// apps scanned only the newest 200). A skill with no such event gets none.
+func (s *Service) skillProvenance(ctx context.Context, uid string, skills []map[string]any) error {
+	var ledger, names []string
+	for _, skill := range skills {
+		if id, _ := skill["created_by_event"].(string); id != "" {
+			ledger = append(ledger, id)
+		}
+		if name, _ := skill["name"].(string); name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	var rows []Event
+	q := s.db.WithContext(ctx).Select("subject", "origin", "conversation_id", "ledger_entry_id", "action", "created_at").
+		Where("user_id = ? AND kind = ?", uid, KindSkill)
+	if len(ledger) > 0 {
+		q = q.Where("ledger_entry_id IN ? OR (action = 'created' AND subject IN ?)", ledger, names)
+	} else {
+		q = q.Where("action = 'created' AND subject IN ?", names)
+	}
+	if err := q.Order("created_at ASC, id ASC").Find(&rows).Error; err != nil {
+		return err
+	}
+	byLedger, byName := map[string]Event{}, map[string]Event{}
+	for _, ev := range rows {
+		if ev.LedgerEntryID != "" {
+			if _, ok := byLedger[ev.LedgerEntryID]; !ok {
+				byLedger[ev.LedgerEntryID] = ev
+			}
+		}
+		if _, ok := byName[ev.Subject]; !ok && ev.Action == "created" {
+			byName[ev.Subject] = ev
+		}
+	}
+	for _, skill := range skills {
+		name, _ := skill["name"].(string)
+		id, _ := skill["created_by_event"].(string)
+		ev, ok := byLedger[id]
+		if !ok || id == "" || ev.Subject != name {
+			ev, ok = byName[name]
+		}
+		if ok && ev.Origin != "" {
+			skill["origin"], skill["conversation_id"] = ev.Origin, ev.ConversationID
+		}
+	}
+	return nil
 }
 
 func nameParam(c *echo.Context, key string) (string, error) {

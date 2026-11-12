@@ -156,7 +156,7 @@ function SkillRow({
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView({ block: "center" });
   }, [focused]);
-  const origin = OWN.has(skill.source) ? skillOrigin(events, skill.name) : null;
+  const origin = OWN.has(skill.source) ? skillOrigin(events, skill.name, skill) : null;
   // What the skill does (its description) says more than where it sits; the category only without one.
   const meta = [origin?.label ?? sourceWord(skill), skill.description || categoryWords(skill.category)]
     .filter(Boolean)

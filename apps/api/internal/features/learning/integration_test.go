@@ -1162,3 +1162,47 @@ func TestIntegrationMemoryUndoAfterTheEntryChanged(t *testing.T) {
 		t.Fatalf("the spent Undo stays offered: %s", status(other.ID))
 	}
 }
+
+// Review round 8: every skill in the list says where it came from (the
+// event that created it), however many events came after; the apps once
+// read it from the newest 200 events only, and a later edit inside that
+// window passed for the skill's origin.
+func TestIntegrationSkillsCarryTheirProvenance(t *testing.T) {
+	r := newRig(t)
+	a := addUser(t, r.db)
+	r.seed(a, map[string]any{"id": "p-1", "kind": "skill", "action": "created", "subject": "csv-import", "origin": "review",
+		"conversation_id": "chat-taught-it", "run_id": "run-1", "status": "applied", "ledger_entry_id": "led-csv"})
+	r.seed(a, map[string]any{"id": "p-2", "kind": "skill", "action": "created", "subject": "aisles", "origin": "chat",
+		"conversation_id": "chat-aisles", "status": "applied", "ledger_entry_id": "led-aisles"})
+	// 205 later events (written straight to the table: the rig's publish
+	// channel holds fewer).
+	later := time.Now().Add(time.Minute)
+	for i := range 205 {
+		must(t, r.db.Create(&Event{ID: fmt.Sprintf("lev_m%d", i), UserID: a, WorkerEventID: fmt.Sprintf("m-%d", i), Kind: KindMemory,
+			Action: "added", After: fmt.Sprintf("note %d", i), Origin: "chat", ConversationID: "chat-other", Status: StatusApplied,
+			TaintedSources: json.RawMessage(`[]`), CreatedAt: later.Add(time.Duration(i) * time.Millisecond)}).Error)
+	}
+	r.seed(a, map[string]any{"id": "p-3", "kind": "skill", "action": "patched", "subject": "csv-import", "origin": "chat",
+		"conversation_id": "chat-patched-it", "status": "applied", "ledger_entry_id": "led-csv-2"})
+	r.kit.LearningReply("learning.list", map[string]any{"skills": []any{
+		map[string]any{"name": "csv-import", "source": "learned", "enabled": true, "created_by_event": "led-csv"},
+		map[string]any{"name": "aisles", "source": "learned", "enabled": true},
+		map[string]any{"name": "plain", "source": "learned", "enabled": true, "created_by_event": "led-gone"},
+	}})
+	code, body, _ := r.call(a, http.MethodGet, "/agent/learning/skills", nil)
+	skills, _ := body["skills"].([]any)
+	if code != http.StatusOK || len(skills) != 3 {
+		t.Fatalf("skills %d %v", code, body)
+	}
+	got := map[string][2]any{}
+	for _, raw := range skills {
+		skill := raw.(map[string]any)
+		got[skill["name"].(string)] = [2]any{skill["origin"], skill["conversation_id"]}
+	}
+	want := map[string][2]any{"csv-import": {"review", "chat-taught-it"}, "aisles": {"chat", "chat-aisles"}, "plain": {nil, nil}}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: provenance %v, want %v", name, got[name], w)
+		}
+	}
+}
