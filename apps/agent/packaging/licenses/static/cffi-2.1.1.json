@@ -1,0 +1,27 @@
+{
+  "dist": "cffi",
+  "version": "2.1.1",
+  "targets": [
+    "darwin-arm64",
+    "linux-arm64",
+    "linux-x64",
+    "win32-x64"
+  ],
+  "rustStd": null,
+  "crates": [],
+  "components": [
+    {
+      "name": "libffi",
+      "version": "3.x (the binary does not record which)",
+      "license": "MIT",
+      "why": "_cffi_backend exports ffi_prep_cif and loads no libffi: libffi is linked in; cffi's LICENSE does not name it",
+      "source": "https://raw.githubusercontent.com/libffi/libffi/v3.5.2/LICENSE",
+      "files": [
+        {
+          "rel": "LICENSE",
+          "text": "d5699fa51696"
+        }
+      ]
+    }
+  ]
+}

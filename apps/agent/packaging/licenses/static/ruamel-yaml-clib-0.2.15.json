@@ -1,0 +1,27 @@
+{
+  "dist": "ruamel.yaml.clib",
+  "version": "0.2.15",
+  "targets": [
+    "darwin-arm64",
+    "linux-arm64",
+    "linux-x64",
+    "win32-x64"
+  ],
+  "rustStd": null,
+  "crates": [],
+  "components": [
+    {
+      "name": "libyaml",
+      "version": "0.2.5 (ruamel.yaml.clib's copy)",
+      "license": "MIT",
+      "why": "_ruamel_yaml exports libyaml's yaml_* functions from the copy ruamel.yaml.clib compiles in; its LICENSE names only ruamel",
+      "source": "https://raw.githubusercontent.com/yaml/libyaml/0.2.5/License",
+      "files": [
+        {
+          "rel": "License",
+          "text": "c40112449f25"
+        }
+      ]
+    }
+  ]
+}

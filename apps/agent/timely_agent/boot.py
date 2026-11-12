@@ -58,13 +58,26 @@ def _fix_sys_path() -> None:
 
     ``-I`` puts the script's own folder (``timely_agent/``) first; it has to go, or
     ``timely_agent/plugins`` would shadow Hermes' top-level ``plugins`` package.
+
+    The packaged runtime's ``app/site-packages`` is a plain folder, not a venv, so site.py
+    never reads its ``.pth`` files. ``site.addsitedir`` does: pywin32 (the MCP SDK's Windows
+    dependency) is only importable once ``pywin32.pth`` put ``win32/`` and ``win32/lib/`` on the
+    path and ran ``pywin32_bootstrap`` for its DLLs. The folders a ``.pth`` adds come right
+    after site-packages, before the stdlib.
     """
     base = agent_dir()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     hermes = os.path.join(base, "hermes")
-    rest = [p for p in sys.path if p and os.path.abspath(p) not in {script_dir, base, hermes}]
     packaged_site = os.path.join(base, "site-packages")
-    extra = [packaged_site] if os.path.isdir(packaged_site) else []
+    rest = [p for p in sys.path if p and os.path.abspath(p) not in {script_dir, base, hermes, packaged_site}]
+    extra: list[str] = []
+    if os.path.isdir(packaged_site):
+        import site
+
+        known = set(sys.path)
+        site.addsitedir(packaged_site)
+        added = [p for p in sys.path if p not in known and os.path.abspath(p) != os.path.abspath(packaged_site)]
+        extra = [packaged_site, *added]
     sys.path[:] = [hermes, base, *extra, *rest]
 
 

@@ -11,6 +11,12 @@ export type ResourceDirs = {
   postgres: string;
   /** Next.js standalone output; may be missing in local hosted runs. */
   next: string;
+  /**
+   * The agent runtime root (boot.py, python/, app/; plan 11.4). It may be
+   * missing in a checkout that never ran stage-agent; agentRuntime() decides
+   * whether the API gets it.
+   */
+  agent: string;
 };
 
 export type ResourceInputs = {
@@ -23,10 +29,12 @@ export type ResourceInputs = {
 };
 
 /**
- * Packaged: `<resources>/{api,postgres,next-server}`. `TIMELY_RESOURCES_DIR`
+ * Packaged: `<resources>/{api,postgres,next-server,agent}`. `TIMELY_RESOURCES_DIR`
  * replaces `<resources>` for local testing. Unpackaged hosted runs fall back to
- * the staged `apps/web/.electron-{api,postgres}/<platform>-<arch>` and
- * `apps/web/.electron-next`.
+ * the staged `apps/web/.electron-{api,postgres,agent}/<platform>-<arch>` and
+ * `apps/web/.electron-next`. With the override, Next and the agent fall back
+ * to the staged folders when the override has none (electron/hosted.mjs links
+ * only api, postgres and next-server).
  */
 export function resolveResourceDirs(input: ResourceInputs): ResourceDirs {
   const env = input.env ?? process.env;
@@ -37,14 +45,17 @@ export function resolveResourceDirs(input: ResourceInputs): ResourceDirs {
     api: path.join(input.appPath, ".electron-api", target),
     postgres: path.join(input.appPath, ".electron-postgres", target),
     next: path.join(input.appPath, ".electron-next"),
+    agent: path.join(input.appPath, ".electron-agent", target),
   };
   const override = env.TIMELY_RESOURCES_DIR;
   if (override) {
     const next = path.join(override, "next-server");
+    const agent = path.join(override, "agent");
     return {
       api: path.join(override, "api"),
       postgres: path.join(override, "postgres"),
       next: existsSync(next) ? next : staged.next,
+      agent: existsSync(agent) ? agent : staged.agent,
     };
   }
   if (input.isPackaged) {
@@ -52,9 +63,27 @@ export function resolveResourceDirs(input: ResourceInputs): ResourceDirs {
       api: path.join(input.resourcesPath, "api"),
       postgres: path.join(input.resourcesPath, "postgres"),
       next: path.join(input.resourcesPath, "next-server"),
+      agent: path.join(input.resourcesPath, "agent"),
     };
   }
   return staged;
+}
+
+/**
+ * The agent root to hand the API as TIMELY_AGENT_RUNTIME. A packaged app
+ * always hands over `<resources>/agent`, even without boot.py (a damaged
+ * install): the API then reports the runtime missing instead of searching
+ * for one, because its own discovery walks up from the data folder and would
+ * run any apps/agent/.venv it finds there. Unpackaged, undefined when
+ * `<dir>/boot.py` is missing (an unstaged checkout), so the API falls back to
+ * that discovery (agenthost) and finds the developer's apps/agent.
+ */
+export function agentRuntime(
+  dir: string,
+  { packaged = false, exists = existsSync }: { packaged?: boolean; exists?: (file: string) => boolean } = {},
+): string | undefined {
+  if (packaged) return dir;
+  return exists(path.join(dir, "boot.py")) ? dir : undefined;
 }
 
 /** electron-builder's ${os} name, which electron/targets.mjs uses for stage dirs. */

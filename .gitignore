@@ -38,6 +38,8 @@ apps/api/.tmp
 apps/api/data/backups/
 # agent worker homes under make dev (state.db, memories, sessions, MCP token files)
 apps/api/data/agent/
+# the tracked-file list the API image's agent stage reads (make agent-tracked-list)
+apps/agent/.git-tracked
 apps/api/build-errors.log
 
 # ---- scripts ----

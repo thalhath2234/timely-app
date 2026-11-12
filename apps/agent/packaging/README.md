@@ -1,0 +1,10 @@
+# apps/agent/packaging
+
+Files that ship only in the packaged agent runtime (plan 11.4, phase 3b).
+
+- `python-licenses/<version>/`: the licences of the libraries built into the shipped interpreter, per desktop target, from python-build-standalone's `full` archives, and `incorporated.txt`, the notices of the code CPython compiles into the interpreter itself (mimalloc, HACL*, dtoa, ...) from `Doc/license.rst` at the CPython tag (`make agent-python-licenses`; rerun after a Hermes sync moves the Python pin).
+- `licenses/dists.json` and `licenses/dists/`: licence texts for wheels that ship none. `licenses/copyleft.json`: the reviewed distributions that ship GPL or LGPL binaries, their libraries and sources; `licenses/gnu/` holds the full GNU texts they need.
+- `licenses/static/`: the licences of the code wheels link into their native modules: per distribution and version, the Rust crates, the Rust standard library and the C libraries `components.json` lists by hand, with every text once in `texts/` (`make agent-static-licenses`; rerun when the stage names a wheel whose record is missing or lacks a crate, and review the diff).
+- `boot.py`: the root entry point of a staged runtime, `python -I <agent>/boot.py <command>`. It drops its own folder from `sys.path`, turns bytecode writing off and runs `app/timely_agent/boot.py` as `__main__`.
+
+`apps/web/electron/stage-agent.mjs` (`make stage-agent`) builds the runtime into `apps/web/.electron-agent/<os>-<arch>/`; `apps/web/electron/smoke-agent.mjs` (`make smoke-agent READ_ONLY=1`) checks it from a read-only folder. The layout, the checks and the measured sizes are in `docs/desktop/README.md`.

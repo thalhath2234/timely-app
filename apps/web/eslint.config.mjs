@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "dist-electron/**",
     "release/**",
     ".electron-next/**",
+    ".electron-agent/**",
     "electron/**/*.mjs",
     "next-env.d.ts",
   ]),

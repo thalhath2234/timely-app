@@ -20,6 +20,12 @@ export type ApiEnvInput = {
   dataDir: string;
   allowRegistration: boolean;
   shell: ShellEnv;
+  /**
+   * The packaged agent runtime root (paths.ts agentRuntime), passed as
+   * TIMELY_AGENT_RUNTIME. Absent: any inherited value is dropped, so a
+   * developer shell's runtime never stands in for the bundled one.
+   */
+  agentRuntime?: string;
   /** Base environment; defaults to process.env. */
   base?: NodeJS.ProcessEnv;
 };
@@ -32,6 +38,7 @@ export function buildApiEnv(input: ApiEnvInput): NodeJS.ProcessEnv {
     // developer-shell DB_*/API_* values are replaced below anyway.
     if (key.startsWith("ELECTRON_") || key.startsWith("DB_") || key.startsWith("API_")) delete base[key];
   }
+  delete base.TIMELY_AGENT_RUNTIME;
   return {
     ...base,
     PATH: input.shell.PATH,
@@ -50,6 +57,7 @@ export function buildApiEnv(input: ApiEnvInput): NodeJS.ProcessEnv {
     ALLOW_REGISTRATION: input.allowRegistration ? "true" : "false",
     // apps/api/internal/lifeline: exit when the app's stdin pipe closes.
     [LIFELINE_ENV]: "stdin",
+    ...(input.agentRuntime ? { TIMELY_AGENT_RUNTIME: input.agentRuntime } : {}),
   };
 }
 
