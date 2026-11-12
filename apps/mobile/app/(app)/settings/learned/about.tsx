@@ -5,6 +5,7 @@ import { ABOUT_YOU, budgetMeter, type MemoryStore } from "@timely/contract/agent
 import Screen from "../../../../components/ui/Screen";
 import MobileHeader from "../../../../components/ui/MobileHeader";
 import BottomSheet from "../../../../components/ui/BottomSheet";
+import ConfirmSheet from "../../../../components/ui/ConfirmSheet";
 import { Button, Field, PrimaryButton } from "../../../../components/ui/primitives";
 import { GroupHint, ListGroup, ListRow } from "../../../../components/settings/SettingsList";
 import { MeterRow, TextRow } from "../../../../components/settings/LearnedParts";
@@ -79,6 +80,7 @@ function EntrySheet({ store, editing, onClose }: { store: MemoryStore | undefine
   // Kept while the sheet slides away, so its title does not change on close.
   const [old] = useState(editing?.old ?? "");
   const [text, setText] = useState(old);
+  const [confirming, setConfirming] = useState(false);
   const meter = projectedBudget(store, old, text);
   const offline = isOffline();
   const save = () => {
@@ -94,25 +96,13 @@ function EntrySheet({ store, editing, onClose }: { store: MemoryStore | undefine
       onClose={onClose}
       title={old ? "Edit" : "Add to About you"}
       footer={
-        <View style={{ gap: 8 }}>
-          <PrimaryButton
-            testID="about-save"
-            label="Save"
-            loading={edit.isPending && edit.variables?.action !== "remove"}
-            disabled={offline || !canSaveEntry(store, old, text)}
-            onPress={save}
-          />
-          {old ? (
-            <Button
-              testID="about-delete"
-              label="Delete"
-              variant="destructive-ghost"
-              stretch
-              disabled={offline || edit.isPending}
-              onPress={() => edit.mutate({ target: "user", action: "remove", old }, { onSuccess: onClose })}
-            />
-          ) : null}
-        </View>
+        <PrimaryButton
+          testID="about-save"
+          label="Save"
+          loading={edit.isPending && edit.variables?.action !== "remove"}
+          disabled={offline || !canSaveEntry(store, old, text)}
+          onPress={save}
+        />
       }
     >
       <View style={{ gap: 8 }}>
@@ -129,7 +119,25 @@ function EntrySheet({ store, editing, onClose }: { store: MemoryStore | undefine
         />
         <Text style={[styles.meta, meter.tone === "full" && styles.full]}>{`${meter.text} characters`}</Text>
         {edit.error ? <Text style={styles.error}>{edit.error.message || "Could not save."}</Text> : null}
+        {old ? (
+          <Button
+            testID="about-delete"
+            label="Delete"
+            variant="destructive-ghost"
+            stretch
+            disabled={offline || edit.isPending}
+            onPress={() => setConfirming(true)}
+          />
+        ) : null}
       </View>
+      <ConfirmSheet
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title="Delete this from About you?"
+        message={old}
+        confirmLabel="Delete"
+        onConfirm={() => edit.mutate({ target: "user", action: "remove", old }, { onSuccess: onClose })}
+      />
     </BottomSheet>
   );
 }
