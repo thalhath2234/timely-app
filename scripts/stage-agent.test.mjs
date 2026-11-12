@@ -39,6 +39,7 @@ import {
   cpythonLicense,
   diffSnapshots,
   dropLongBytecode,
+  gitTracked,
   hermesCopyFilter,
   importCheckSource,
   importsStdlibTest,
@@ -50,6 +51,7 @@ import {
   markerHash,
   parseExtras,
   parseMetadata,
+  plainCopyFilter,
   pythonArtifact,
   scratchRootFor,
   selectSkills,
@@ -58,6 +60,7 @@ import {
   stdlibDir,
   thirdPartyLicenses,
   trimPlan,
+  trackedOnly,
 } from "../apps/web/electron/stage-agent-lib.mjs";
 import { lockTree } from "../apps/web/electron/smoke-agent.mjs";
 import { TARGETS } from "../apps/web/electron/targets.mjs";
@@ -352,6 +355,66 @@ test("checkTree passes a clean tree and reports the longest path", (t) => {
   const { problems, longest } = checkTree(root, { stagePath: root });
   assert.deepEqual(problems, []);
   assert.equal(longest.length, MAX_PATH_CHARS);
+});
+
+test("checkTree fails dotenv files, credentials and virtualenvs under app/, outside the pinned wheels", (t) => {
+  // An untracked apps/agent/hermes/.env was copied into the stage and listed in MANIFEST.json.
+  const root = tmp(t);
+  write(root, "app/hermes/.env", "FAKE=1\n");
+  write(root, "app/timely_agent/.env.local", "FAKE=1\n");
+  write(root, "app/hermes/.op.env");
+  write(root, "app/hermes/auth.json", "{}");
+  write(root, "app/hermes/mcp-tokens/x.json", "{}");
+  write(root, "app/hermes/.venv-probe/marker");
+  write(root, "app/hermes/.env.example", "KEY=\n");
+  write(root, "app/site-packages/somepkg/.env", "shipped by a hash-pinned wheel\n");
+  write(root, "app/hermes/environment.py", "x = 1\n");
+  const { problems } = checkTree(root, { stagePath: root });
+  const named = problems.map((p) => p.split(": ").pop()).sort();
+  assert.deepEqual(named, [
+    "app/hermes/.env",
+    "app/hermes/.op.env",
+    "app/hermes/.venv-probe",
+    "app/hermes/auth.json",
+    "app/hermes/mcp-tokens",
+    "app/timely_agent/.env.local",
+  ]);
+  for (const p of problems) assert.match(p, /never ships/);
+});
+
+test("trackedOnly copies only what git tracks and names what it left out", (t) => {
+  const repoRoot = tmp(t);
+  const src = path.join(repoRoot, "apps/agent/hermes");
+  write(src, "run_agent.py");
+  write(src, "tools/a.py");
+  write(src, ".env", "FAKE=1\n");
+  write(src, ".venv-probe/marker");
+  write(src, "tools/__pycache__/a.cpython-314.pyc");
+  write(src, "tools/scratch.py");
+  const tracked = new Set(["apps/agent/hermes/run_agent.py", "apps/agent/hermes/tools/a.py"]);
+  const skipped = [];
+  const out = path.join(repoRoot, "out");
+  cpSync(src, out, { recursive: true, filter: trackedOnly(plainCopyFilter(src), { repoRoot, tracked, skipped }) });
+  assert.deepEqual(files(out).sort(), ["run_agent.py", "tools/a.py"]);
+  // caches are the inner filter's business, not "left out"
+  assert.deepEqual(skipped.sort(), ["apps/agent/hermes/.env", "apps/agent/hermes/.venv-probe", "apps/agent/hermes/tools/scratch.py"]);
+  const inner = plainCopyFilter(src);
+  assert.equal(trackedOnly(inner, { repoRoot, tracked: null }), inner, "no git checkout (the Docker stage): the plain filter");
+});
+
+test("gitTracked lists tracked files under the folders asked for, and is null outside a checkout", { skip: spawnSync("git", ["--version"]).status !== 0 && "no git" }, (t) => {
+  const root = tmp(t);
+  assert.equal(gitTracked(root, ["apps/agent"]), null);
+  const git = (...args) => assert.equal(spawnSync("git", args, { cwd: root, encoding: "utf8" }).status, 0, args.join(" "));
+  git("init", "-q");
+  write(root, "apps/agent/hermes/a.py");
+  write(root, "apps/agent/hermes/sp ace/b.md");
+  write(root, "apps/agent/.gitignore", ".env\n");
+  write(root, "apps/agent/hermes/.env", "FAKE=1\n");
+  write(root, "other/c.txt");
+  git("add", "-A");
+  write(root, "apps/agent/hermes/untracked.py");
+  assert.deepEqual([...gitTracked(root, ["apps/agent/hermes"])].sort(), ["apps/agent/hermes/a.py", "apps/agent/hermes/sp ace/b.md"]);
 });
 
 test("checkTree fails a path of 151 characters", (t) => {
@@ -794,3 +857,4 @@ test("every Windows job turns core.autocrlf off before checking out", () => {
     }
   }
 });
+

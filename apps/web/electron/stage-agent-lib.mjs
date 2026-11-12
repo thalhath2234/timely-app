@@ -3,6 +3,7 @@
 // build stage run them without `pnpm install`. Each helper takes its inputs
 // as arguments so scripts/stage-agent.test.mjs can drive it on a fixture.
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
@@ -401,6 +402,47 @@ export function plainCopyFilter(srcRoot) {
   };
 }
 
+/**
+ * Repo-relative paths ("/"-separated) of the files git tracks under `folders`,
+ * or null when `repoRoot` is not a git checkout (the Docker build stage, whose
+ * context leaves out .git and every .env). Throws when it is one and git
+ * cannot list it: the stage never falls back to copying untracked files.
+ */
+export function gitTracked(repoRoot, folders) {
+  if (!existsSync(path.join(repoRoot, ".git"))) return null;
+  const r = spawnSync("git", ["-c", "core.quotepath=off", "ls-files", "-z", "--cached", "--", ...folders], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: 64 * 1048576,
+  });
+  if (r.error || r.status !== 0) {
+    throw new Error(`git ls-files failed in ${repoRoot} (${r.error?.message ?? `exit ${r.status}`}): ${r.stderr ?? ""}`);
+  }
+  return new Set(r.stdout.split("\0").filter(Boolean));
+}
+
+/**
+ * Wraps a cpSync filter so that only files git tracks (and the folders holding
+ * them) are copied: an untracked or ignored .env, credential file or virtualenv
+ * in the working tree never reaches the stage. `tracked` null (no checkout)
+ * returns `filter` itself. What the inner filter would have copied but git
+ * does not track is pushed onto `skipped` (repo-relative; a folder once).
+ */
+export function trackedOnly(filter, { repoRoot, tracked, skipped = [] }) {
+  if (!tracked) return filter;
+  const dirs = new Set();
+  for (const file of tracked) {
+    for (let i = file.lastIndexOf("/"); i > 0; i = file.lastIndexOf("/", i - 1)) dirs.add(file.slice(0, i));
+  }
+  return (src, dest) => {
+    if (!filter(src, dest)) return false;
+    const rel = toPosix(path.relative(repoRoot, src));
+    if (tracked.has(rel) || dirs.has(rel)) return true;
+    skipped.push(rel);
+    return false;
+  };
+}
+
 /** 0444 files and 0555 folders (the read-only attribute on Windows files). */
 export function makeReadOnly(dir) {
   walk(dir, (full, _rel, entry) => {
@@ -460,13 +502,24 @@ export function dropLongBytecode(root, maxChars = MAX_PATH_CHARS) {
   return dropped;
 }
 
+const SECRET_FILE = /^(\.env(\..+)?|\.op\.env|auth\.json)$/i;
+const SECRET_DIR = /^(mcp-tokens|\.venv.*)$/i;
+
+function localSecret(entry) {
+  if (entry.isDirectory()) return SECRET_DIR.test(entry.name);
+  return SECRET_FILE.test(entry.name) && entry.name.toLowerCase() !== ".env.example";
+}
+
 /**
  * Whole-tree checks (plan 11.4, work packages step 8). Returns a list of
  * problems, empty when the tree may ship:
  * - a symlink with an absolute target, or one resolving outside the root;
  * - a path longer than `maxChars` relative to the root;
  * - a file holding the absolute stage path (a build-machine path that would ship);
- * - a browser: playwright/pyppeteer/Chromium in site-packages or a Chrome binary anywhere (ADR 0022).
+ * - a browser: playwright/pyppeteer/Chromium in site-packages or a Chrome binary anywhere (ADR 0022);
+ * - under app/ (outside the hash-pinned wheels in site-packages): a dotenv file other than
+ *   .env.example, .op.env, auth.json, an mcp-tokens/ folder or a virtualenv (.venv*), which
+ *   only a developer's working tree holds (plan 12: secrets never reach the worker).
  */
 export function checkTree(root, { stagePath = root, maxChars = MAX_PATH_CHARS, sitePackages = "app/site-packages" } = {}) {
   const problems = [];
@@ -488,6 +541,10 @@ export function checkTree(root, { stagePath = root, maxChars = MAX_PATH_CHARS, s
           problems.push(`symlink resolving outside the root: ${rel} -> ${target}`);
         }
       }
+      return false;
+    }
+    if (rel.startsWith("app/") && !rel.startsWith(`${sitePackages}/`) && localSecret(entry)) {
+      problems.push(`a local secret or environment never ships (copy only what git tracks): ${rel}`);
       return false;
     }
     const inSite = rel.startsWith(`${sitePackages}/`) && rel.slice(sitePackages.length + 1).split("/").length === 1;

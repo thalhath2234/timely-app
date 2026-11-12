@@ -50,6 +50,7 @@ import {
   copyleftReview,
   dropLongBytecode,
   cpythonLicense,
+  gitTracked,
   hermesCopyFilter,
   importCheckSource,
   importsStdlibTest,
@@ -70,6 +71,7 @@ import {
   stdlibDir,
   thirdPartyLicenses,
   treeSize,
+  trackedOnly,
   trimPlan,
 } from "./stage-agent-lib.mjs";
 import { hostTargetKey, resolveTargets } from "./targets.mjs";
@@ -212,9 +214,14 @@ function copySource(target, out, selection) {
   for (const rel of ["hermes", "timely_agent", "skills", ".hermes-sync"]) removeTree(path.join(app, rel));
   for (const rel of ["boot.py", "NOTICE", "THIRD_PARTY_LICENSES", "MANIFEST.json"]) rmSync(path.join(out, rel), { force: true });
 
+  // Only what git tracks is copied, so an untracked or ignored .env, credential or virtualenv
+  // in the working tree never ships (checkTree fails one that gets in anyway). The Docker
+  // stage has no .git; its build context leaves out every .env instead.
+  const tracked = gitTracked(repoRoot, ["apps/agent"]);
+  const skipped = [];
   // Explicit filters keep cpSync on its JS copier (Node's native path aborts on Windows);
   // verbatimSymlinks keeps a relative link relative instead of rewriting it to this machine.
-  const opts = (filter) => ({ recursive: true, filter, verbatimSymlinks: true });
+  const opts = (filter) => ({ recursive: true, filter: trackedOnly(filter, { repoRoot, tracked, skipped }), verbatimSymlinks: true });
   cpSync(hermesSrc, path.join(app, "hermes"), opts(hermesCopyFilter(hermesSrc, selection)));
   const locales = readdirSync(path.join(app, "hermes", "locales"));
   if (locales.length !== 1 || locales[0] !== "en.yaml") {
@@ -234,6 +241,11 @@ function copySource(target, out, selection) {
   cpSync(policySrc, path.join(app, ".hermes-sync", "policy"), opts(plainCopyFilter(policySrc)));
   copyFileSync(path.join(agentSrc, "packaging", "boot.py"), path.join(out, "boot.py"));
   copyFileSync(path.join(agentSrc, "NOTICE"), path.join(out, "NOTICE"));
+  if (skipped.length) {
+    log(target, `left out ${skipped.length} untracked or ignored path(s) git does not track: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? ", ..." : ""}`);
+  } else if (!tracked) {
+    log(target, "no git checkout: copied the source folders without the git-tracked filter");
+  }
   log(
     target,
     `copied the source: ${selection.seed.length} bundled skills (seed set), ${selection.optional.length} offered optional skills, ` +
@@ -386,6 +398,9 @@ export async function stageAgent(targets = resolveTargets()) {
     }
 
     const selection = selectSkills({ hermesDir: hermesSrc, reviewed, denied, overrides });
+    if (selection.seed.length === 0) {
+      throw new Error("no bundled skill would be seeded: apps/agent/hermes/skills or the reviewed list is missing");
+    }
     copySource(target, out, selection);
     const pyVersion = checkInterpreter(target, python);
     seedCheck(target, out, python, selection);
