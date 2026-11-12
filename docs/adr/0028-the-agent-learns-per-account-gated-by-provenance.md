@@ -126,13 +126,16 @@ deleting the account deletes the agent home.
   after a chat read outside content. Eight review rounds kept finding new ways
   around the pattern-matching rule (spellings, encodings, planted search
   results, the provider's own search), so the owner chose Hermes' handling,
-  kept fully on and tested on every web path Timely uses (its own backend
-  through Go, the keyed backends, CLI providers through the gateway): results
+  kept fully on on every web path Timely uses (its own backend through Go,
+  the keyed backends, CLI providers through the gateway; tested on its own
+  backend and Exa, while Firecrawl and Parallel pass the same checks, which
+  Hermes runs before any backend is chosen): results
   wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
   token refused, the private-address (SSRF) floor (Hermes' website blocklist
-  is opt-in and Timely sets none), and the strict threat scan on memory and
+  is opt-in and Timely sets none, so nothing verifies it; owner to confirm),
+  and the strict threat scan on memory and
   skill writes. Timely's results that
-  quote outside text (Bot answers and findings, notifications, past-chat hits
+  quote outside text (Bot answers, findings and last readings, notifications, past-chat hits
   from a tainted chat) reach the model marked the same way. What does not
   change: taint still holds every later proposal for review and stages
   learning, and Bot fetches keep their own guard. The residual risk, that an
