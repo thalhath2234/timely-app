@@ -214,6 +214,22 @@ def _make_writable(root: Path) -> None:
             os.chmod(Path(dirpath, name), stat.S_IRUSR | stat.S_IWUSR)
 
 
+def _make_owner_writable(root: Path) -> None:
+    """Add the owner's write bit everywhere, keeping the other bits (a script stays executable).
+
+    The seed tree is copied from the install folder, which may be read-only (a packaged app
+    whose install was locked down, a root-owned ``/opt``). ``shutil`` keeps the source's mode
+    bits, and Hermes' ``sync_skills`` copies the seed tree into each account home the same
+    way, so without this every home would get skill folders its owner cannot edit, back up and
+    delete, or prune."""
+    for dirpath, _dirnames, filenames in os.walk(root):
+        os.chmod(dirpath, stat.S_IMODE(os.stat(dirpath).st_mode) | stat.S_IRWXU)
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            if not os.path.islink(p):
+                os.chmod(p, stat.S_IMODE(os.stat(p).st_mode) | stat.S_IRUSR | stat.S_IWUSR)
+
+
 def remove_tree(root: Path) -> None:
     if root.exists():
         _make_writable(root)
@@ -362,6 +378,7 @@ def build_seed_tree(layout, *, upstream: os.PathLike | str, overrides: os.PathLi
         if dest.exists():
             shutil.rmtree(dest)
         _copy_tree(d, dest)
+    _make_owner_writable(staging)
     final.parent.mkdir(parents=True, exist_ok=True)
     _publish(staging, final)
     shutil.rmtree(staging_root, ignore_errors=True)

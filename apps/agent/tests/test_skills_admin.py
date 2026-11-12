@@ -43,6 +43,39 @@ def test_denied_skills_never_reach_the_seed_tree(tmp_path):
     assert "maps" not in report["default_off"]
 
 
+def test_a_read_only_install_still_seeds_owner_writable_skills(tmp_path):
+    """A packaged app may run from a read-only install folder. The seed tree (and so every
+    account home, which Hermes copies from it keeping the modes) must stay owner-writable, or
+    the person's own skill edits, folder backups and their pruning fail."""
+    import os
+    import shutil
+    import stat
+
+    src = tmp_path / "install" / "skills"
+    shutil.copytree(HERMES_SKILLS / "research" / "arxiv", src / "research" / "arxiv")
+    (src / "research" / "DESCRIPTION.md").write_text("Research skills.\n")
+    for dirpath, _dirs, files in os.walk(src, topdown=False):
+        for name in files:
+            os.chmod(os.path.join(dirpath, name), 0o444)
+        os.chmod(dirpath, 0o555)
+    try:
+        layout = paths.AgentLayout.at(tmp_path / "agent")
+        reviewed = {"skills/research/arxiv": {"tree": seed.git_tree_id(src / "research" / "arxiv"), "default": "on"}}
+        out, report = seed.build_seed_tree(layout, upstream=src, overrides=None, reviewed=reviewed, denied=set())
+        assert report["seeded"] == ["skills/research/arxiv"]
+        for p in [out, *out.rglob("*")]:
+            mode = stat.S_IMODE(p.stat().st_mode)
+            assert mode & stat.S_IWUSR, f"{p} is not owner-writable ({oct(mode)})"
+        # What Hermes' sync_skills does with it (copytree keeps modes): the home copy is editable.
+        home = tmp_path / "home" / "skills"
+        shutil.copytree(out, home)
+        (home / "research" / "arxiv" / "SKILL.md").write_text("edited\n")
+        shutil.rmtree(home)
+    finally:
+        for dirpath, _dirs, _files in os.walk(tmp_path / "install"):
+            os.chmod(dirpath, 0o755)
+
+
 def test_a_missing_deny_list_seeds_nothing(tmp_path):
     layout = paths.AgentLayout.at(tmp_path / "agent")
     out, report = seed.build_seed_tree(layout, upstream=HERMES_SKILLS, overrides=None,

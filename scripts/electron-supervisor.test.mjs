@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, utimesSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, utimesSync, existsSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -641,6 +641,64 @@ test("backup: copies the agent homes beside the database folder, only what the a
     assert.equal(existsSync(path.join(backupDir, "pre-upgrade-a.agent")), false);
     assert.equal(existsSync(path.join(backupDir, "pre-upgrade-b.agent")), true);
   } finally {
+    cleanup();
+  }
+});
+
+test("backup: a home with read-only skill folders backs up, prunes and restores (a read-only install)", { skip: process.platform === "win32" || process.getuid?.() === 0 }, () => {
+  const { dir, cleanup } = tmpdir();
+  const lock = (root) => {
+    for (const name of readdirSync(root, { recursive: true })) {
+      const p = path.join(root, name);
+      if (statSync(p).isFile()) chmodSync(p, 0o444);
+    }
+    for (const name of readdirSync(root, { recursive: true }).reverse()) {
+      const p = path.join(root, name);
+      if (statSync(p).isDirectory()) chmodSync(p, 0o555);
+    }
+    chmodSync(root, 0o555);
+  };
+  try {
+    const pgData = stoppedDatabase(dir, "rows");
+    const accounts = agentAccountsDir(path.join(dir, "data"));
+    const a = "account-" + "a".repeat(24);
+    plantAgentHome(accounts, a, "one");
+    // A skill seeded from a read-only install folder keeps its modes.
+    const seeded = path.join(accounts, a, "skills", "media", "youtube-content");
+    mkdirSync(seeded, { recursive: true });
+    writeFileSync(path.join(seeded, "SKILL.md"), "seeded");
+    lock(path.join(accounts, a, "skills", "media"));
+    const backupDir = path.join(dir, "backups");
+
+    const target = copyDataDir({ pgData, backupDir, name: "manual-ro", agentAccounts: accounts });
+    assert.equal(readFileSync(path.join(`${target}.agent`, a, "skills", "media", "youtube-content", "SKILL.md"), "utf8"), "seeded");
+    assert.equal(existsSync(`${target}.agent.partial`), false, "no partial copy is left behind");
+    assert.equal(existsSync(`${target}.partial`), false);
+    // A second backup of the same name replaces the first.
+    copyDataDir({ pgData, backupDir, name: "manual-ro", agentAccounts: accounts });
+
+    // Restoring replaces the live home's read-only folders.
+    restoreDataDir({ pgData, backupDir, name: "manual-ro", agentAccounts: accounts });
+    assert.equal(readFileSync(path.join(accounts, a, "skills", "media", "youtube-content", "SKILL.md"), "utf8"), "seeded");
+
+    // An older backup that still holds read-only folders prunes.
+    lock(path.join(`${target}.agent`, a, "skills", "media"));
+    const later = copyDataDir({ pgData, backupDir, name: "manual-ro-later", agentAccounts: accounts });
+    const when = new Date(2027, 0, 1);
+    utimesSync(later, when, when);
+    utimesSync(target, new Date(2026, 0, 1), new Date(2026, 0, 1));
+    assert.deepEqual(pruneBackups(backupDir, "manual-ro", 1), ["manual-ro"]);
+    assert.equal(existsSync(`${target}.agent`), false);
+  } finally {
+    for (const root of [path.join(dir, "data"), path.join(dir, "backups")]) {
+      if (!existsSync(root)) continue;
+      for (const name of readdirSync(root, { recursive: true })) {
+        const p = path.join(root, name);
+        try {
+          if (statSync(p).isDirectory()) chmodSync(p, 0o755);
+        } catch {}
+      }
+    }
     cleanup();
   }
 });
