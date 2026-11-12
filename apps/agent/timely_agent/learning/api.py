@@ -767,7 +767,9 @@ def pending(msg: dict[str, Any], host: Host) -> dict[str, Any]:
 # ---------------------------------------------------------------- export
 
 def export(home: Path) -> dict[str, Any]:
-    """"Download what Timely learned": learned and edited skills plus ``memories/``."""
+    """"Download what Timely learned": learned and edited skills (archived ones too, under
+    ``skills/.archive/``: Delete of an archived skill tells the person to download first) plus
+    ``memories/``."""
     from tools.skills_sync import dir_hash
     manifest = _manifest(home)
     buf = io.BytesIO()
@@ -775,9 +777,9 @@ def export(home: Path) -> dict[str, Any]:
     total = 0
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for row in list_skills(home):
-            if row["source"] not in ("learned", "edited") or row["archived"]:
+            if row["source"] not in ("learned", "edited"):
                 continue
-            path = _skill_dir(row["name"])
+            path = _archived_dir(home, row["name"]) if row["archived"] else _skill_dir(row["name"])
             if path is None:
                 continue
             if row["name"] in manifest and dir_hash(path) == manifest[row["name"]]:

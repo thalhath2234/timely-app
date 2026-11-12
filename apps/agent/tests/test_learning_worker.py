@@ -253,6 +253,12 @@ def test_export_holds_learned_skills_and_memory_only(la, lw, stub):
     bundled = [s["name"] for s in ask(lw, la, "learning.list", what="skills")["data"]["skills"]
                if s["source"] == "bundled"]
     assert bundled and not any(f"/{b}/" in n for b in bundled for n in names), names
+    # an archived learned skill is in the download too (Delete of it says to download first)
+    assert ask(lw, la, "learning.skill_state", name=name, state="archive")["ok"]
+    res = ask(lw, la, "learning.export")
+    names = set(zipfile.ZipFile(io.BytesIO(base64.b64decode(res["data"]["zip_b64"]))).namelist())
+    assert f"skills/.archive/{name}/SKILL.md" in names, names
+    assert ask(lw, la, "learning.skill_state", name=name, state="restore")["ok"]
 
 
 def test_settings_update_rerenders_config_in_place(la, lw):
