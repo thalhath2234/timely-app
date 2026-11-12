@@ -531,7 +531,7 @@ func (f *fake) interruptAll() {
 // replay plays a fixture for one run and ends it with exactly one run.done.
 func (f *fake) replay(r *fakeRun, lines []json.RawMessage) {
 	defer f.runsDone.Done()
-	defer f.endRun(r)
+	defer f.forget(r)
 	interrupted := false
 	for _, raw := range lines {
 		if f.stopped(r) {
@@ -546,7 +546,7 @@ func (f *fake) replay(r *fakeRun, lines []json.RawMessage) {
 			return
 		}
 	}
-	f.endRun(r)
+	f.forget(r)
 	if interrupted {
 		f.send(map[string]any{"type": "run.done", "id": r.startID, "run": r.id, "final_response": r.text.String(),
 			"completed": false, "interrupted": true, "turn_exit_reason": "interrupted", "tokens": zeroTokens(),
@@ -558,13 +558,15 @@ func (f *fake) replay(r *fakeRun, lines []json.RawMessage) {
 		"estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}})
 }
 
-// endRun forgets a run before its run.done goes out, as the real worker
-// does, so a request Go sends right after run.done (session.delete, a new
-// run.start in the same conversation) never finds it still live.
-func (f *fake) endRun(r *fakeRun) {
+// forget drops a run from the live table. It runs before the run's run.done
+// is sent, so a session.delete or run.start that follows run.done never sees
+// the finished run as live.
+func (f *fake) forget(r *fakeRun) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.runs, r.id)
+	if f.runs[r.id] == r {
+		delete(f.runs, r.id)
+	}
 	for id, p := range f.pending {
 		if p == r {
 			delete(f.pending, id)
@@ -644,7 +646,7 @@ func (f *fake) step(r *fakeRun, raw json.RawMessage) bool {
 		return true
 	case "run.done":
 		obj["id"] = r.startID
-		f.endRun(r)
+		f.forget(r)
 		f.send(obj)
 		r.sentDone = true
 		return true
