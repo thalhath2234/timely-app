@@ -530,7 +530,11 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   `afterPack` hook (`electron/verify-pack.cjs`) compares the packed `resources/agent` with it (same
   files, same sizes, nothing extra, no absolute symlink), because electron-builder drops some
   folders of an `extraResources` tree without a word. Empty folders are not compared:
-  electron-builder drops them, and the runtime does not need them.
+  electron-builder drops them, and the runtime does not need them. With Windows signing configured
+  (`WIN_CSC_LINK`), electron-builder signs every `.exe` of `extraResources` while copying it, before
+  the hook runs (`python.exe`, `pythonw.exe`, the venv launchers, winpty's and pywin32's
+  executables), so on win32 a `.exe` whose size differs passes when it is the staged file plus an
+  Authenticode certificate table and nothing else changed.
 
 Measured on linux-x64 (2026-11-13, Hermes v0.23.0, without `libpython` and `_dbm`): 21,395 files,
 461 MB unpacked (439.5 MiB in the stage log, which counts in MiB; app/

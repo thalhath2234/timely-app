@@ -866,6 +866,81 @@ test("verify-pack: dropped, resized, extra and absolute-linked entries and a mis
   }
 });
 
+// A minimal PE32+ image: MZ header, PE signature, COFF header, an optional
+// header with 16 data directories, then `body` bytes.
+function peImage(bodyLength, fill = 0x5a) {
+  const buf = Buffer.alloc(0x188 + bodyLength, fill);
+  buf.fill(0, 0, 0x188);
+  buf.writeUInt16LE(0x5a4d, 0);
+  buf.writeUInt32LE(0x80, 0x3c);
+  buf.writeUInt32LE(0x00004550, 0x80);
+  buf.writeUInt16LE(0x20b, 0x98);
+  buf.writeUInt32LE(16, 0x98 + 108);
+  return buf;
+}
+
+// What signtool does to it: pad to 8 bytes, append a WIN_CERTIFICATE table,
+// point the security directory at it and rewrite the header checksum.
+function authenticodeSign(image, certLength = 9000) {
+  const padded = Buffer.concat([image, Buffer.alloc((8 - (image.length % 8)) % 8)]);
+  const cert = Buffer.alloc(certLength, 0x30);
+  const signed = Buffer.concat([padded, cert]);
+  const security = 0x98 + 112 + 4 * 8;
+  signed.writeUInt32LE(padded.length, security);
+  signed.writeUInt32LE(cert.length, security + 4);
+  signed.writeUInt32LE(0x1234abcd, 0x98 + 64);
+  return signed;
+}
+
+test("verify-pack: a Windows .exe signed while packing passes on win32 only, and only as the staged image plus a certificate", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const stage = path.join(dir, "stage");
+    const packed = path.join(dir, "packed");
+    const exes = ["python/python.exe", "app/site-packages/winpty/winpty-agent.exe"];
+    const write = (root, rel, data) => {
+      mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      writeFileSync(path.join(root, rel), data);
+    };
+    for (const root of [stage, packed]) {
+      write(root, "boot.py", "import sys\n");
+      write(root, "python/python314.dll", peImage(4001));
+      write(root, exes[0], peImage(5003));
+      write(root, exes[1], peImage(2048, 0x11));
+    }
+    const { files, links } = verifyPack.listAgentTree(stage);
+    const manifest = { target: "win32-x64", files, links, totals: { files: files.length, bytes: 0 } };
+    writeFileSync(path.join(packed, "MANIFEST.json"), JSON.stringify(manifest));
+    for (const rel of exes) writeFileSync(path.join(packed, rel), authenticodeSign(readFileSync(path.join(stage, rel))));
+
+    const win = { platform: "win32", stagedDir: stage };
+    assert.deepEqual(verifyPack.verifyAgentTree(packed, manifest, win), [], "signed executables are the staged ones");
+    // Re-signing a signed staged file replaces its certificate table.
+    write(stage, exes[1], authenticodeSign(peImage(2048, 0x11), 3000));
+    assert.deepEqual(verifyPack.verifyAgentTree(packed, { ...manifest, files: verifyPack.listAgentTree(stage).files }, win), []);
+    write(stage, exes[1], peImage(2048, 0x11));
+
+    const sizeDiffers = (problems) => problems.filter((p) => p.startsWith("size differs:")).map((p) => p.split(" ")[2]).sort();
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, { platform: "linux", stagedDir: stage })), [...exes].sort(), "only win32 signs while packing");
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest)), [...exes].sort());
+
+    // A changed byte before the certificate is a different program.
+    const tampered = authenticodeSign(readFileSync(path.join(stage, exes[0])));
+    tampered[0x200] ^= 0xff;
+    writeFileSync(path.join(packed, exes[0]), tampered);
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, win)), [exes[0]]);
+    // Bytes appended without a certificate table are not a signature.
+    writeFileSync(path.join(packed, exes[0]), Buffer.concat([readFileSync(path.join(stage, exes[0])), Buffer.alloc(64, 1)]));
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, win)), [exes[0]]);
+    writeFileSync(path.join(packed, exes[0]), authenticodeSign(readFileSync(path.join(stage, exes[0]))));
+    // Only .exe files are signed by default (no win.signExts), so a grown .dll fails.
+    writeFileSync(path.join(packed, "python/python314.dll"), authenticodeSign(peImage(4001)));
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, win)), ["python/python314.dll"]);
+  } finally {
+    cleanup();
+  }
+});
+
 test("verify-pack: afterPack refuses a target with no staged runtime (every installer ships the agent)", async () => {
   const { dir, cleanup } = tmpdir();
   try {
