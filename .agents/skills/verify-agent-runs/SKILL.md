@@ -95,7 +95,7 @@ Sync commit: `2d54c61f95c7ed1b0be8039df8267138aac38b20` (the model was last conf
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`
 - `apps/api/internal/features/chat/receipts.go`: `(*Service).discardReview`
 - `apps/api/internal/features/chat/engine.go`: `runEngine`, `startAgentRun`, `lostAgentRun`
-- `apps/api/internal/features/chat/engine_agent.go`: `(*WorkerEngine).Start`, `clearRun`, `Lost`, `Stop`, `loop`, `save`, `renew`, `done`, `stopped`, `fail`
+- `apps/api/internal/features/chat/engine_agent.go`: `(*WorkerEngine).Start`, `clearRun`, `Lost`, `Stop`, `loop`, `save`, `renew`, `done`, `stopped`, `fail`, `failWith`
 - `apps/api/internal/features/chat/toolcall.go`: `(*Service).toolCall` (reads only), `finishTurn`, `endRun`, `renewLease`
 - `apps/api/internal/features/chat/permission_mode.go`: `proposalStatus`, `holdReason`
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
