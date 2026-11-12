@@ -627,6 +627,52 @@ export function trackedOnly(filter, { repoRoot, tracked, skipped = [] }) {
   };
 }
 
+/** Untracked names a build context's apps/agent may hold without the tracked-file list being stale. */
+export const UNTRACKED_CONTEXT_NAMES = new Set([".hermes-update.lock", ".git-tracked", ".DS_Store"]);
+
+/**
+ * For a stage without git (the Docker build), where TRACKED_LIST stands in for
+ * git: the files the copy left out although the context holds them (`skipped`,
+ * from trackedOnly), and the files under apps/agent the list names but the
+ * context lacks. .dockerignore keeps the virtualenv, caches and .env out, so
+ * either kind almost always means the list predates a commit (a Hermes sync, a
+ * new timely_agent module), and the image would ship a runtime that cannot
+ * import its own modules. Returns {unlisted, missing}, repo-relative.
+ */
+export function staleTrackedList({ repoRoot, tracked, skipped }) {
+  const unlisted = [];
+  for (const rel of skipped) {
+    const full = path.join(repoRoot, ...rel.split("/"));
+    let st;
+    try {
+      st = lstatSync(full);
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory()) {
+      if (!UNTRACKED_CONTEXT_NAMES.has(path.basename(full))) unlisted.push(rel);
+      continue;
+    }
+    walk(full, (_f, sub, entry) => {
+      if (entry.isDirectory()) return !IGNORED_NAMES.has(entry.name);
+      if (!UNTRACKED_CONTEXT_NAMES.has(entry.name) && !/\.py[co]$/.test(entry.name)) unlisted.push(`${rel}/${sub}`);
+      return true;
+    });
+  }
+  const missing = [...tracked]
+    .filter((rel) => rel.startsWith("apps/agent/"))
+    .filter((rel) => {
+      try {
+        lstatSync(path.join(repoRoot, ...rel.split("/")));
+        return false;
+      } catch {
+        return true;
+      }
+    })
+    .sort();
+  return { unlisted: unlisted.sort(), missing };
+}
+
 /**
  * Names of the skill folders under `dir` (apps/agent/skills/overrides) whose
  * SKILL.md git tracks; all of them when `tracked` is null (no checkout). An

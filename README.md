@@ -117,8 +117,11 @@ docker compose up --build     # db + api (:8080) + web (:4001)
 ```
 
 The image's build context has no `.git`, so the agent stage copies only the files git tracks under
-`apps/agent` as `apps/agent/.git-tracked` lists them, and fails without that list. `make docker-api`
-writes it before building.
+`apps/agent` as `apps/agent/.git-tracked` lists them. It fails without that list, and when the list
+does not match the build context (a file under `apps/agent` it does not name, other than Hermes'
+`.hermes-update.lock`, or a file it names that is gone): a list from before a commit would leave new
+modules out of the image. `make docker-api` writes it before building; `docker compose up --build`
+does not, so run `make agent-tracked-list` before every build.
 
 The API image (`apps/api/Dockerfile`, `make docker-api`) is `debian:bookworm-slim` with the static
 Go API and the agent runtime that every desktop installer ships: the same

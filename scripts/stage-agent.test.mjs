@@ -70,6 +70,7 @@ import {
   siteTrimPlan,
   snapshot,
   sourceHash,
+  staleTrackedList,
   stagedManifest,
   stagedPython,
   trackedSkillNames,
@@ -532,6 +533,38 @@ test("without .git the stage copies only the files make agent-tracked-list liste
   assert.match(make, /^docker-api: agent-tracked-list /m);
   assert.match(make, /^docker-agent-smoke: agent-tracked-list /m);
   assert.doesNotMatch(readFileSync(path.join(repo, ".dockerignore"), "utf8"), /git-tracked/);
+});
+
+test("without .git a list older than the context fails the stage: a file it does not name, or one it names that is gone", (t) => {
+  // A list written before a Hermes sync added tools/approval_smart.py staged a runtime without it,
+  // and every check passed; the worker then failed on `from tools.approval_smart import ...`.
+  const root = tmp(t);
+  write(root, "apps/agent/hermes/tools/approval.py", "from tools.approval_smart import x");
+  write(root, "apps/agent/hermes/tools/approval_smart.py", "x = 1");
+  write(root, "apps/agent/hermes/.hermes-update.lock", "");
+  write(root, "apps/agent/hermes/tools/__pycache__/approval.cpython-314.pyc", "");
+  write(root, "apps/agent/timely_agent/new_pkg/__init__.py", "");
+  write(root, "apps/agent/timely_agent/seed.py", "");
+  write(root, "apps/agent/.git-tracked", ["apps/agent/hermes/tools/approval.py", "apps/agent/timely_agent/seed.py", "apps/agent/timely_agent/gone.py", ""].join("\0"));
+  const { tracked } = trackedSources(root);
+  const skipped = [];
+  for (const rel of ["hermes", "timely_agent"]) {
+    const src = path.join(root, "apps/agent", rel);
+    cpSync(src, path.join(root, "out", rel), { recursive: true, filter: trackedOnly(() => true, { repoRoot: root, tracked, skipped }) });
+  }
+  assert.ok(!existsSync(path.join(root, "out/hermes/tools/approval_smart.py")));
+  assert.deepEqual(staleTrackedList({ repoRoot: root, tracked, skipped }), {
+    unlisted: ["apps/agent/hermes/tools/approval_smart.py", "apps/agent/timely_agent/new_pkg/__init__.py"],
+    missing: ["apps/agent/timely_agent/gone.py"],
+  });
+  // A list that matches the context (an update lock and bytecode aside) passes.
+  rmSync(path.join(root, "apps/agent/timely_agent/new_pkg"), { recursive: true });
+  write(root, "apps/agent/timely_agent/gone.py", "");
+  const fresh = new Set([...tracked, "apps/agent/hermes/tools/approval_smart.py"]);
+  assert.deepEqual(staleTrackedList({ repoRoot: root, tracked: fresh, skipped: ["apps/agent/hermes/.hermes-update.lock", "apps/agent/hermes/tools/__pycache__"] }), { unlisted: [], missing: [] });
+  // The stage calls it whenever it has no git checkout.
+  const stage = readFileSync(path.join(repo, "apps/web/electron/stage-agent.mjs"), "utf8");
+  assert.match(stage, /if \(trackedFrom !== "git"\) \{\n\s+\/\/[^\n]*\n\s+const \{ unlisted, missing \} = staleTrackedList\(/);
 });
 
 test("checkTree fails a path of 151 characters", (t) => {

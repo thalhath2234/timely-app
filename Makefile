@@ -663,7 +663,7 @@ test-stage-agent: ## Test the agent staging helpers: lock pins, extras, host che
 clean-agent-stage: ## Delete staged agent runtimes (apps/web/.electron-agent) and their scratch folders; the interpreter download cache stays
 	@node $(WEB)/electron/stage-agent.mjs --clean
 
-agent-tracked-list: ## Write apps/agent/.git-tracked, the files git tracks under apps/agent: the image's agent stage has no .git and copies only these; run it before docker build or docker compose build (docker-api and docker-agent-smoke do)
+agent-tracked-list: ## Write apps/agent/.git-tracked, the files git tracks under apps/agent: the image's agent stage has no .git and copies only these and fails when the list does not match the build context; run it before every docker build or docker compose build (docker-api and docker-agent-smoke do)
 	@git ls-files -z --cached -- apps/agent > apps/agent/.git-tracked
 	@echo "apps/agent/.git-tracked: $$(git ls-files --cached -- apps/agent | wc -l) files"
 

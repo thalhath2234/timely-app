@@ -479,7 +479,9 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   never reaches the stage; the log names what was left out. The Docker build has no `.git`: it copies
   only the files `apps/agent/.git-tracked` lists (`git ls-files -z` output that `make
   agent-tracked-list` writes, and `make docker-api` and `make docker-agent-smoke` run first), and it
-  fails without that list. The tree check also fails a dotenv file, `.netrc`, `.pypirc`, `.npmrc`,
+  fails without that list or when the list does not match the context: a file under `apps/agent`
+  it does not name (other than `.hermes-update.lock` and bytecode) or a file it names that is gone,
+  either of which means it predates a commit and the image would miss new modules. The tree check also fails a dotenv file, `.netrc`, `.pypirc`, `.npmrc`,
   `credentials*.json`, an SSH key, a `*.pem`/`*.key`/`*.p12`/`*.pfx` file or a `.ssh/`, `.gnupg/`
   or `.aws/` folder under `app/` outside `site-packages`. `app/hermes/skills/` holds only the seed set (reviewed in
   `skills-reviewed.json`, not in `skills-denied.json`, no symlinks) and `optional-skills/` only the

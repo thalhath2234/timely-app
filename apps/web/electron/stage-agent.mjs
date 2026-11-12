@@ -69,6 +69,7 @@ import {
   selectSkills,
   siteTrimPlan,
   sourceHash,
+  staleTrackedList,
   skillDirs,
   trackedSkillNames,
   trackedSources,
@@ -247,7 +248,21 @@ function copySource(target, out, selection, tracked, trackedFrom) {
   if (skipped.length) {
     log(target, `left out ${skipped.length} untracked or ignored path(s) git does not track: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? ", ..." : ""}`);
   }
-  if (trackedFrom !== "git") log(target, `no git checkout: copied only the files ${trackedFrom} lists`);
+  if (trackedFrom !== "git") {
+    // Without git a stale list would drop files git tracks now, and every check below would still pass.
+    const { unlisted, missing } = staleTrackedList({ repoRoot, tracked, skipped });
+    if (unlisted.length || missing.length) {
+      const some = (list) => `${list.slice(0, 12).join(", ")}${list.length > 12 ? `, ... (${list.length})` : ""}`;
+      throw new Error(
+        `${trackedFrom} does not match the build context, so the stage cannot tell which files git tracks:` +
+          (unlisted.length ? `\n  in the context but not in the list: ${some(unlisted)}` : "") +
+          (missing.length ? `\n  in the list but not in the context: ${some(missing)}` : "") +
+          "\nRun make agent-tracked-list in the checkout before every image build (make docker-api does it). A file git does " +
+          "not track belongs outside apps/agent or in .dockerignore; a tracked file deleted in the working tree needs restoring or its deletion committed.",
+      );
+    }
+    log(target, `no git checkout: copied only the files ${trackedFrom} lists (it matches the build context)`);
+  }
   log(
     target,
     `copied the source: ${selection.seed.length} bundled skills (seed set), ${selection.optional.length} offered optional skills, ` +
