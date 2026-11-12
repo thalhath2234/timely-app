@@ -158,7 +158,7 @@ build-api: ## Compile the API to apps/api/bin/timely-api
 build-web: ## Production build of the Next.js app
 	@pnpm --filter @timely/web build
 
-build-desktop: ## Package an unpacked "Timely Dev" app for this OS, with the API and Postgres sidecars (release/<platform>-unpacked); runs next to an installed release
+build-desktop: ## Package an unpacked "Timely Dev" app for this OS, with the API, Postgres and agent runtime sidecars (release/<platform>-unpacked; stages the agent runtime for the host, needs uv); runs next to an installed release
 	@pnpm --filter @timely/web electron:pack
 
 dist-desktop: ## Build a "Timely Dev" installer for this OS and architecture (AppImage / dmg / nsis); TIMELY_RELEASE=1 for the release app. The agent runtime stages only for the host, so other targets build on their own runner

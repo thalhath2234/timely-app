@@ -1185,7 +1185,7 @@ New `agent` job on ubuntu: setup-uv (pinned SHA), uv cache, `make agent-install 
 
 ### 11.5 Docker and server installs
 
-`apps/api/Dockerfile` runtime stage (today `FROM alpine:3.21`, `apps/api/Dockerfile:12`) *(read, rev check)* moves to `debian:bookworm-slim` (glibc wheels), copies the same staged runtime for linux-x64/arm64, sets `TIMELY_AGENT_RUNTIME=/app/agent`. Agent state in the `/data` volume. Terminal and file tools act inside the container, on its filesystem and network (ADR 0026 does not say this yet; it is this plan's statement). Because phase 8 deletes the classic loop and rule bots, this is not optional: Q-11.1 and Q-11.2 are phase 0 preconditions, and phase 8 cannot start until the Docker image and every desktop installer ship the runtime (section 13).
+`apps/api/Dockerfile` runtime stage (was `FROM alpine:3.21`, `apps/api/Dockerfile:12` *(read, rev check)*; done in phase 3b: three stages ending in `debian:bookworm-slim`, see the phase 3b status in section 13) moves to `debian:bookworm-slim` (glibc wheels), copies the same staged runtime for linux-x64/arm64, sets `TIMELY_AGENT_RUNTIME=/app/agent`. Agent state in the `/data` volume. Terminal and file tools act inside the container, on its filesystem and network (ADR 0026 does not say this yet; it is this plan's statement). Because phase 8 deletes the classic loop and rule bots, this is not optional: Q-11.1 and Q-11.2 are phase 0 preconditions, and phase 8 cannot start until the Docker image and every desktop installer ship the runtime (section 13).
 
 ---
 
