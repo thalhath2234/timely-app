@@ -151,7 +151,7 @@ export function WebSearchGroup({ providerName }: { providerName: string }) {
                 rel="noopener noreferrer"
                 className="inline-flex w-fit items-center gap-1 text-xs font-medium text-primary underline-offset-4 hover:underline"
               >
-                Get a {chosenBackend.label} key
+                Get your {chosenBackend.label} key
                 <ExternalLink aria-hidden className="size-3" />
               </a>
             ) : null}
@@ -159,8 +159,10 @@ export function WebSearchGroup({ providerName }: { providerName: string }) {
         ) : null}
       </ListGroup>
       <GroupHint>
-        For chats on the New engine. Without a key they use your chat provider&apos;s own search; a key here is used
-        instead. Timely never shows the key again.
+        {keys.data && !keys.data.providerCanSearch
+          ? `For chats on the New engine. ${providerName || "Your chat provider"} can’t search the web, so chats can’t search until you add a key.`
+          : "For chats on the New engine. Without a key they use your chat provider’s own search; a key here is used instead."}{" "}
+        Timely never shows the key again.
       </GroupHint>
     </section>
   );
