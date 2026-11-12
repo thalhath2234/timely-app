@@ -557,7 +557,8 @@ def _tainted_hits(data, view) -> list[str]:
     return list(dict.fromkeys(hits))
 
 
-def transform_tool_result(tool_name: str = "", result: Any = None, session_id: str = "", **_: Any):
+def transform_tool_result(tool_name: str = "", result: Any = None, session_id: str = "",
+                          tool_call_id: str = "", **_: Any):
     """Drop every hit from a chat Go does not list as searchable (``search_allow``) or excludes,
     and wrap the result as untrusted data (as Hermes wraps a web result) when a hit left comes
     from a chat that read outside content: its text may quote a page (owner decision Q-3.9)."""
@@ -580,8 +581,8 @@ def transform_tool_result(tool_name: str = "", result: Any = None, session_id: s
             return None
         out = result if not changed and isinstance(result, str) else json.dumps(cleaned, ensure_ascii=False)
         if tainted:
-            from timely_agent import untrusted
-            return untrusted.wrap(SEARCH_TOOL, out)
+            from timely_agent import bridge, untrusted
+            return untrusted.mark(bridge.current_run.get(), SEARCH_TOOL, tool_call_id, out)
         return out
     except Exception:
         logger.exception("filtering a past-chat search result failed")

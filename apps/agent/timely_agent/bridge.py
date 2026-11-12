@@ -204,6 +204,8 @@ class RunContext:
     agent: Any = None
     # Flushes coalesced stream text before a Timely tool call goes to Go.
     flush: Optional[Callable[[], None]] = None
+    # The run's event sink (``event`` lines to Go), for hooks that report (tool.output_risk).
+    emit: Optional[Callable[[str, dict], None]] = None
     # Q-2.4: Go answered a recorded propose_changes with end_turn; the next tool call ends the turn.
     end_turn: bool = False
     end_turn_hit: bool = False

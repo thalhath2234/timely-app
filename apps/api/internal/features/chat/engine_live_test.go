@@ -260,6 +260,31 @@ func TestLiveActivityLines(t *testing.T) {
 	}
 }
 
+// Hermes' advisory threat scan reaches Go as a tool.output_risk event (the
+// worker forwards Hermes' tool_progress_callback, and scans Timely's own
+// outside results): Go logs a finding and leaves the activity as it is.
+func TestOutputRiskIsLoggedNotShown(t *testing.T) {
+	var ev workerEvent
+	if err := json.Unmarshal([]byte(`{"kind":"tool.output_risk","payload":{"tool_call_id":"c1","tool":"web_extract","risk":"high","findings":["prompt_injection","exfil_curl"]}}`), &ev); err != nil {
+		t.Fatal(err)
+	}
+	line, ok := outputRisk("run-1", ev)
+	if !ok || !strings.Contains(line, "web_extract result c1") || !strings.Contains(line, "prompt_injection, exfil_curl") || !strings.Contains(line, "run-1") {
+		t.Fatalf("logged %q (%v)", line, ok)
+	}
+	if changed, delta := newLiveRun("r").event(ev, time.Now()); changed || delta != nil {
+		t.Fatal("a scan finding changed the activity lines")
+	}
+	ev.Payload.Risk = "low"
+	if _, ok := outputRisk("run-1", ev); ok {
+		t.Fatal("a low-risk scan was logged")
+	}
+	ev.Kind, ev.Payload.Risk = "status", "high"
+	if _, ok := outputRisk("run-1", ev); ok {
+		t.Fatal("another event was logged as a scan finding")
+	}
+}
+
 // The Timely block keeps the scope line except for the host-allowed
 // account (Q-2.1), carries the write schemas, and is
 // byte-identical for the same conversation (the provider's cached prefix).

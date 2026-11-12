@@ -30,7 +30,9 @@ people's words) reaches the model wrapped as Hermes wraps a web result
 (``<untrusted_tool_result source="<tool>">``, ``timely_agent.untrusted.wrap``): the handler notes the
 call, and ``transform_tool_result``, which Hermes runs after ``post_tool_call`` and before the result
 enters the conversation, wraps it. Hermes passes the raw result on when a hook fails, so the hook
-wraps on any doubt.
+wraps on any doubt. As for a web result, Hermes' advisory threat scan runs on the text and a
+finding goes to Go as ``event tool.output_risk``; the block is cut to fit Hermes' result limit
+(``untrusted.mark``).
 """
 
 from __future__ import annotations
@@ -129,7 +131,7 @@ def transform_tool_result(tool_name: str = "", result: Any = None, tool_call_id:
     except Exception:
         logger.exception("checking whether %s quoted outside text failed", tool_name)
     from timely_agent import untrusted
-    return untrusted.wrap(tool_name, result)
+    return untrusted.mark(run, tool_name, tool_call_id, result)
 
 
 registered: list[str] = []  # what register() added, for the self-test

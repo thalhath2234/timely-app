@@ -920,6 +920,9 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		if m.Decode(&ev) != nil {
 			return false
 		}
+		if line, ok := outputRisk(r.id, ev); ok {
+			log.Printf("%s", line)
+		}
 		changed, delta := r.live.event(ev, time.Now().UTC())
 		if delta != nil {
 			text := r.live.draft.String()

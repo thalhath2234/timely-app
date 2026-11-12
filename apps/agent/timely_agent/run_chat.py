@@ -35,7 +35,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from timely_agent import bridge, config_render
+from timely_agent import bridge, config_render, untrusted
 from timely_agent.learning import feed as learning_feed
 from timely_agent.learning import passes as learning_passes
 
@@ -303,6 +303,13 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
     def status(kind=None, message=None, *_, **__):
         emit("status", {"kind": str(kind or ""), "message": str(message or "")})
 
+    def progress(event=None, name=None, *_, tool_call_id=None, risk_metadata=None, **__):
+        # Only Hermes' advisory threat scan of an untrusted result (web_search, web_extract,
+        # browser_*, mcp_*): its one way out is this callback (tool_executor
+        # _emit_tool_complete_and_risk). The rest of the feed has its own callbacks above.
+        if event == "tool.output_risk":
+            untrusted.report_risk(emit, name, tool_call_id, risk_metadata)
+
     reasoning_cfg = model.get("reasoning")
     system_text = str(msg.get("system_text") or "")
     return AIAgent(
@@ -335,6 +342,7 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
         tool_complete_callback=tool_complete,
         reasoning_callback=reasoning,
         status_callback=status,
+        tool_progress_callback=progress,
     )
 
 
@@ -514,7 +522,7 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,
         permission=str(msg.get("permission") or "supervised"), flags=flags,
-        flush=sink.flush, session=state)
+        flush=sink.flush, emit=sink.emit, session=state)
     ctx.stopped = lambda: bool(run.stop_reason)
     counters = getattr(cache, "counters", None)
     turn_ran = False

@@ -27,7 +27,26 @@ type workerEvent struct {
 		Result     json.RawMessage `json:"result"`
 		Kind       string          `json:"kind"`
 		Message    string          `json:"message"`
+		// tool.output_risk: Hermes' advisory threat scan of an untrusted
+		// result (PROTOCOL.md section 5).
+		Risk     string   `json:"risk"`
+		Findings []string `json:"findings"`
 	} `json:"payload"`
+}
+
+// outputRisk is the log line for a tool.output_risk event: Hermes' advisory
+// scan found prompt injection or the like in a web page, a search, or a
+// Timely result that quotes outside text. The model already reads that
+// result as untrusted data; the scan never blocks, so Go only records it.
+func outputRisk(run string, ev workerEvent) (string, bool) {
+	if ev.Kind != "tool.output_risk" || ev.Payload.Risk == "" || ev.Payload.Risk == "low" {
+		return "", false
+	}
+	findings := strings.Join(ev.Payload.Findings, ", ")
+	if findings == "" {
+		findings = "none named"
+	}
+	return fmt.Sprintf("agent run %s: Hermes flagged the %s result %s as %s risk (%s)", run, clip(ev.Payload.Tool, 80), clip(ev.Payload.ToolCallID, 80), clip(ev.Payload.Risk, 20), clip(findings, 300)), true
 }
 
 // liveDelta is one streamed chunk as /chats/watch sends it (Shared
