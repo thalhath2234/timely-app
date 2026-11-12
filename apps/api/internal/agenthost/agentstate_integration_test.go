@@ -116,7 +116,8 @@ func TestIntegrationRealWorkerAgentState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Warnings) != 0 {
+	// The only warning names the learned skill that came back turned off (Q-3.4).
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], `"`+skill+`" came back turned off`) {
 		t.Fatalf("restore warnings %q", result.Warnings)
 	}
 	homeB := supB.Layout().Home(uid)
