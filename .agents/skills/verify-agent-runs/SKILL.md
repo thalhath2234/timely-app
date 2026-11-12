@@ -100,6 +100,8 @@ Sync commit: `67db50ba4d8bfcbb55941db7c068ba5579d4bdb2` (the model was last conf
 - `apps/api/internal/features/chat/permission_mode.go`: `proposalStatus`, `holdReason`
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
 
+Resynced 2026-11-12 (phase 3 review round 5): `Start` (after its checkpoint it narrows the run's learning flags to the row it locked and the account's switches, and after sending run.start it sends learning.stop when either turned off meanwhile) changed; it does not change how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
+
 Resynced 2026-11-12 (phase 3 review round 2): `Start` (run.start carries `person_links`, the links the person typed, for the page rule every web backend now shares) changed; it does not change how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
 Resynced 2026-11-12 (phase 3 review fixes): `toolCall` (web_search gets the conversation for the exfiltration rule's host check) and `Start` (run.start carries `search_allow` and `private_context`) changed; neither changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
