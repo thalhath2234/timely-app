@@ -580,8 +580,8 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   executables), so on win32 a `.exe` whose size differs passes when it is the staged file plus an
   Authenticode certificate table and nothing else changed.
 
-Measured on linux-x64 (2026-11-13, Hermes v0.23.0, without `libpython` and `_dbm`): 21,395 files,
-461 MB unpacked (439.5 MiB in the stage log, which counts in MiB; app/
+Measured on linux-x64 (2026-11-13, Hermes v0.23.0, without `libpython` and `_dbm`, phase 3b review
+round 5): 21,395 files, 461.6 MB unpacked (440.2 MiB in the stage log, which counts in MiB; app/
 360 MB: site-packages 220 MB, hermes 138 MB, timely_agent 1 MB; python/ 101 MB), 106 MB as an xz
 tarball and 156 MB under gzip. MB here is 10^6 bytes. Plan 11.4 estimated 420-460 MB unpacked and
 +105 MB compressed (owner answer Q-11.1: +~105 MB per installer).
