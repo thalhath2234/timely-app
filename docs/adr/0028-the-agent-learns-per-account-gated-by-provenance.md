@@ -120,7 +120,9 @@ deleting the account deletes the agent home.
 - **Q-3.8** Web search without a search key uses the chat provider's own search
   through Timely's web backend; a search key saved in Settings overrides it.
   Searches and pages are taint. In a tainted chat the agent may not open a
-  site the person did not name or a search did not return, nor search with
+  site the person did not name or a clean search (one made before the chat
+  read outside content) did not return, opens an allowed page only as it was
+  given (review round 8: another spelling could carry data), nor search with
   the person's own data; until host approvals exist (phase 5) such a call is
   blocked with "Paste the link yourself if you want me to open it."
 

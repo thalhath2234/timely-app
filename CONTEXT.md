@@ -120,7 +120,7 @@ The changes Auto always asks about first: deleting or overwriting (deletes, more
 _Avoid_: dangerous actions, blocklist (the floors no mode lifts are separate)
 
 **Taint**:
-The mark a chat carries once outside content reached the agent in it: a web page or search, a Timely read of outside data (a Bot's findings), or a past-chat search hit from a chat that carries the mark. It stays with the chat for good, through restarts. In a tainted chat every change is held for review, every learning write is Staged, and the agent cannot open a site the person did not name or search with the person's own data.
+The mark a chat carries once outside content reached the agent in it: a web page or search, a Timely read of outside data (a Bot's findings), or a past-chat search hit from a chat that carries the mark. It stays with the chat for good, through restarts. In a tainted chat every change is held for review, every learning write is Staged, and the agent cannot open a site the person did not name or a clean search (one made before the mark) did not return, opens an allowed page only as it was given, and cannot search with the person's own data.
 _Avoid_: dirty, unsafe, untrusted chat (in copy, say "this chat read something from outside Timely")
 
 **Learning pass**:

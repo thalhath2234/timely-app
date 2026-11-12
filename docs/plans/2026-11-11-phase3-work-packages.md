@@ -3,7 +3,7 @@
 - Date: 2026-11-11. Branch `feature/hermes-phase3`, stacked on `feature/hermes-phase2` (PR #292, open). Phase 1 is PR #291 (merged).
 - Plan: `docs/plans/2026-11-08-timely-agent-from-hermes.md` (called "the plan"), section 13 "Phase 3" and the sections it cites: 2, 3.3-3.6, 4.4, 5.1-5.8, 6.1-6.6, 8.1, 8.2, 8.4, 9, 9b, 10.4 (contract tests 9 and 13), 11, 12. ADRs 0007, 0008, 0009, 0020, 0026, 0027, 0028.
 - Phase 1/2 facts: `apps/agent/AGENTS.md`, `apps/agent/PROTOCOL.md`, `apps/agent/timely_agent/README.md`, `apps/api/internal/agenthost`, `apps/api/internal/features/chat/engine_agent.go`, `docs/plans/2026-11-09-phase2-work-packages.md`.
-- Status (2026-11-12): all nine packages are committed on `feature/hermes-phase3`, and `verify` ran last. What ran, the counts and the open findings are in the plan's section 13, "Phase 3 status". Open before the phase can exit: `GET /agent/learning/skills` cannot read the worker's `{skills: [...]}` answer (`go-learning`), `make test` fails on `test-mobile-scrollbars` for the four new phone screens (`mobile-ui`), and fixture pages need a hosts override to get past Hermes' SSRF floor in end-to-end runs (flag 2 below). This document wrote no product code.
+- Status (2026-11-12): all nine packages are committed on `feature/hermes-phase3`, and `verify` ran last. What ran, the counts and the open findings are in the plan's section 13, "Phase 3 status". The integration round fixed the `{skills: [...]}` read (`go-learning`) and `test-mobile-scrollbars` (`mobile-ui`); still open: fixture pages need a hosts override to get past Hermes' SSRF floor in end-to-end runs (flag 2 below). Later review rounds are recorded in the plan's section 13. This document wrote no product code.
 
 ## Binding owner answers used here
 
