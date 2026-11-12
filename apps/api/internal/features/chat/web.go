@@ -46,7 +46,9 @@ const (
 	webOff = "Web search is off in this chat"
 	// needsSearchKey answers a web_search whose provider has no search of
 	// its own (ADR 0009: nothing switches to another provider silently).
-	needsSearchKey = "Web search needs a search key in Settings → Agent"
+	// The key is added on the web or desktop app: the phone's Settings has
+	// no search key row.
+	needsSearchKey = "Web search needs a search key. Add one in Timely on the web or the desktop app, in Settings → Agent → Web search"
 	// pasteLink refuses a page read the exfiltration rule stops (plan 8.1,
 	// 12; block in phases 3 and 4).
 	pasteLink = "Paste the link yourself if you want me to open it"
