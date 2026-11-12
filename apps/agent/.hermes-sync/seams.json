@@ -771,6 +771,22 @@
       "signature": "def _tick_memory_nudge(agent: Any) -> bool",
       "sha256": "9248d98c09760952ee0f56f9e4c25ce1a59f6390735c809b48bf412fb3e763d1"
     },
+    "review counters: first-turn hydration (counters R3)": {
+      "file": "agent/turn_context.py",
+      "qualname": "_hydrate_from_history",
+      "line": 718,
+      "end_line": 762,
+      "signature": "def _hydrate_from_history(agent: Any, conversation_history: Optional[list[Any]]) -> None",
+      "sha256": "ecb057dbbe1ec0c690f18d6882a22aca76b21d3fd2d1cff9fe3be3779122a8f2"
+    },
+    "review counters: hydration then tick, one turn start": {
+      "file": "agent/turn_context.py",
+      "qualname": "build_turn_context",
+      "line": 1093,
+      "end_line": 1297,
+      "signature": "def build_turn_context(agent, user_message: Any, system_message: Optional[str], conversation_history: Optional[list[dict[str, Any]]], task_id: Optional[str], stream_callback, persist_user_message: Optional[Any], persist_user_timestamp: Optional[float]=None, persist_user_platform_id: Optional[str]=None, *, persist_user_display_kind: Optional[str]=None, persist_user_display_metadata: Optional[dict[str, Any]]=None, turn_author: Optional[dict[str, Any]]=None, restore_or_build_system_prompt, install_safe_stdio, sanitize_surrogates, summarize_user_message_for_log, set_session_context, set_current_write_origin, ra, moa_active: bool=False, title_user_message: Optional[str]=None) -> TurnContext",
+      "sha256": "04fc39d6df490ae53abf258798ec4dff418613eba498f17d9f0674a7b6435439"
+    },
     "review counters: reset only for a call that runs": {
       "file": "agent/tool_executor.py",
       "qualname": "_dispatch_authorized_once",

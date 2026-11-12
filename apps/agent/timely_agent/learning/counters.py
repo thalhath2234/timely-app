@@ -7,6 +7,12 @@ Hermes fires the skill review when tool-calling iterations since the last ``skil
 module keeps them when the agent leaves the cache (LRU eviction, a changed config signature, a
 failed run), after every turn and at shutdown, in ``<home>/.timely/counters.json``, and sets them
 on the next agent built for that conversation, also in a new worker process after a restart.
+
+Hermes hydrates a fresh agent's memory counter from the transcript on its first turn
+(``agent.turn_context._hydrate_from_history``): a counter of 0 becomes ``prior user turns % interval``.
+A stored 0 is real (a memory write, or a staged write's reset, set it), so :func:`install` wraps
+that hydration and puts the counters :meth:`Counters.apply` set back right after it, before the
+turn ticks them; otherwise the memory pass fires early after every restart or agent rebuild.
 """
 
 from __future__ import annotations
@@ -20,6 +26,27 @@ from timely_agent.learning import files
 
 FIELDS = (("iters_since_skill", "_iters_since_skill"), ("turns_since_memory", "_turns_since_memory"))
 MAX_CONVERSATIONS = 2000
+RESTORE_ATTR = "_timely_counters_restore"  # what apply() set, put back after Hermes' first-turn hydration
+
+
+def install() -> None:
+    """Wrap Hermes' first-turn hydration so the stored counters survive it (idempotent; the worker
+    calls it once Hermes is imported)."""
+    import agent.turn_context as turn_context
+    original = turn_context._hydrate_from_history
+    if getattr(original, "__timely_counters__", False):
+        return
+
+    def hydrate(agent: Any, conversation_history: Any) -> None:
+        original(agent, conversation_history)
+        restore = getattr(agent, RESTORE_ATTR, None)
+        if restore:
+            setattr(agent, RESTORE_ATTR, None)
+            for attr, value in restore.items():
+                setattr(agent, attr, value)
+
+    hydrate.__timely_counters__ = True  # type: ignore[attr-defined]
+    turn_context._hydrate_from_history = hydrate
 
 
 class Counters:
@@ -74,6 +101,7 @@ class Counters:
             return False
         for key, attr in FIELDS:
             setattr(agent, attr, row[key])
+        setattr(agent, RESTORE_ATTR, {attr: row[key] for key, attr in FIELDS})
         return True
 
     def forget(self, conversation: str) -> None:

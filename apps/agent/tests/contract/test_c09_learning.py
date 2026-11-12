@@ -309,6 +309,45 @@ def test_c09_undo_during_a_learning_pass_reports_and_names_the_later_change(lage
     assert not [e for e in later if e["subject"] == name], later  # reported once, before the reply
 
 
+def test_c09_memory_counter_of_zero_survives_a_restart(stub):
+    """A memory write at turn 7 resets the memory counter to 0 and counters.json keeps it. After a
+    worker restart, Hermes' first-turn hydration would make a stored 0 ``7 % 10`` and fire the
+    memory pass at turn 10; the stored counter wins, so no memory pass runs before turn 17 (plan
+    3.3, review round 4)."""
+    a = harness.Agent(harness.new_root("c09m"))
+    conv, tag = "c-c09m", "tag-c09m"
+
+    def memory_reviews() -> list[dict]:
+        out = []
+        for r in review_starts(stub, tag):
+            last = _text(r["body"]["messages"][-1].get("content"))
+            if "saving to memory" in last or "**Memory**:" in last:
+                out.append(r)
+        return out
+
+    w, _ = harness.ready_worker(a, hello={"timely_tools": harness.timely_tools()})
+    try:
+        for i in range(1, 8):
+            script = ([{"calls": [["memory", {"action": "add", "target": "memory", "content": f"c09m fact {i}"}]]}]
+                      if i == 7 else [{"text": f"ok {i}"}])
+            turn(w, a, stub, f"c09m-{i}", conv, text(script, f"{tag}-{i}", []))
+            settle(w, a)
+    finally:
+        w.close()
+    stored = json.loads((a.home / ".timely" / "counters.json").read_text())["conversations"][conv]
+    assert stored["turns_since_memory"] == 0, stored
+    w, _ = harness.ready_worker(a, hello={"timely_tools": harness.timely_tools()})
+    try:
+        for i in range(8, 12):
+            turn(w, a, stub, f"c09m-{i}", conv, text([{"text": f"ok {i}"}], f"{tag}-{i}", []))
+            settle(w, a)
+    finally:
+        w.close()
+    assert memory_reviews() == [], [_text(r["body"]["messages"][-1].get("content"))[:80] for r in memory_reviews()]
+    stored = json.loads((a.home / ".timely" / "counters.json").read_text())["conversations"][conv]
+    assert stored["turns_since_memory"] == 4, stored
+
+
 def test_c09_staged_patch_carries_the_skill_before_and_plain_words(lagent, lworker, stub):
     """A staged patch shows what the skill says now (``before``) and a plain one-line summary,
     not Hermes' own wording."""

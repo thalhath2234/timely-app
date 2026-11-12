@@ -133,6 +133,8 @@ TIMELY_SEAMS = [
     ("review counters: initial values", "agent/agent_init.py", "_init_memory"),
     ("review counters: skill nudge interval", "agent/agent_init.py", "_apply_agent_section"),
     ("review counters: memory turn tick", "agent/turn_context.py", "_tick_memory_nudge"),
+    ("review counters: first-turn hydration (counters R3)", "agent/turn_context.py", "_hydrate_from_history"),
+    ("review counters: hydration then tick, one turn start", "agent/turn_context.py", "build_turn_context"),
     ("review counters: reset only for a call that runs", "agent/tool_executor.py", "_dispatch_authorized_once"),
     ("review trigger at turn end", "agent/turn_finalizer.py", "finalize_turn"),
     ("learning pass gate (skip_background_review)", "agent/turn_finalizer.py", "_mirror_turn_to_memory"),
