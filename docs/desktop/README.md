@@ -460,7 +460,7 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   extras, the target, the trim rules and the `uv pip install` flags) skips the download, trim and install on a re-run. The source copy, the seed check,
   compileall and the checks always run, so a re-stage after a source change takes about 10-15 s.
   `make clean-agent-stage` deletes every stage and keeps the download cache.
-- **Trims.** `include/`, `share/`, `idlelib`, `tkinter`, `turtledemo`, `ensurepip`, Tcl/Tk, the
+- **Trims.** `include/`, `share/`, `idlelib`, `tkinter`, `turtledemo`, `ensurepip`, Tcl/Tk, `_dbm` on Linux, the
   interpreter's own `pip` and the `pydoc`/`idle`/`-config` scripts, and on Linux `lib/libpython3*.so*`
   (131 MB: the interpreter is linked statically and never loads it; the interpreter check below runs
   the trimmed interpreter), 153 MB on linux-x64 in all. The stdlib
@@ -495,9 +495,30 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   (the MCP SDK's Windows dependency) lives in `win32/` and `win32/lib/` and is importable only after
   `pywin32.pth` ran. `sys.path` is then `hermes/`, `app/`, `site-packages/`, the folders the `.pth`
   files add, the stdlib.
-- **Licences.** `THIRD_PARTY_LICENSES` holds CPython's licence, Hermes' MIT licence and
-  `apps/agent/NOTICE`, then each distribution's name, version, licence metadata and licence files
-  (90 distributions on linux-x64).
+- **Licences.** `THIRD_PARTY_LICENSES` holds, in order:
+  - CPython's licence;
+  - the libraries python-build-standalone links into the interpreter (OpenSSL, libffi, mpdecimal,
+    expat, SQLite, zstd, xz, bzip2, zlib, libedit/ncurses, ...), with the modules that use each.
+    The `install_only` archive carries none of their texts, so `make agent-python-licenses` takes
+    them once from the matching `full` archive (sha256-checked against the release's `SHA256SUMS`,
+    which must also list the lock's `install_only` sha256) into
+    `apps/agent/packaging/python-licenses/<lock version>/<target>.json` and `texts/`. Staging fails
+    when the pinned version has no record for the target, so run it after a Hermes sync that moves
+    the Python pin and commit the result;
+  - Hermes' MIT licence and `apps/agent/NOTICE`;
+  - each distribution's name, version, licence metadata and licence files. A licence name alone is
+    not enough (MIT and BSD require the copyright notice): a wheel without a licence file takes the
+    text recorded in `apps/agent/packaging/licenses/dists.json` (fetch-use, firecrawl-anydoc, and on
+    Windows pywin32 and the winrt packages), and one with neither fails the stage;
+  - the GPL and LGPL libraries shipped in binary form, where to get their complete source, and the
+    full GPL-2.0, GPL-3.0, LGPL-3.0 and GCC runtime exception texts. A distribution that ships GPL
+    or LGPL code (its metadata licence, or a `License: ...GPL` line in a licence file) must be
+    reviewed in `apps/agent/packaging/licenses/copyleft.json` at its exact version, or the stage
+    fails. Today that is pillow-heif 1.8.1 (libx265 GPLv2, libheif and libde265 LGPLv3, and on
+    Windows the MinGW-w64 runtime), a base dependency of hermes-agent and browser-harness.
+
+  On Linux `_dbm` is trimmed: it links Berkeley DB, whose Sleepycat licence asks every binary
+  redistribution to say how to get the complete DB source, and nothing staged uses `dbm.ndbm`.
 - **`MANIFEST.json`** lists every regular file with its size and every symlink. electron-builder's
   `afterPack` hook (`electron/verify-pack.cjs`) compares the packed `resources/agent` with it (same
   files, same sizes, nothing extra, no absolute symlink), because electron-builder drops some

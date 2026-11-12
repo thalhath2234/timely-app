@@ -1,0 +1,11 @@
+{
+  "_comment": "Licence texts for distributions whose wheel ships no licence file (stage-agent.mjs collectLicenses). Keys are normalized distribution names; `checked` is the version whose upstream text this is, and `source` where it came from. A distribution with no licence file and no entry here fails the stage.",
+  "fetch-use": { "file": "dists/fetch-use.txt", "checked": "0.4.0", "source": "metadata, pyproject.toml and README of the 0.4.0 sdist (no licence file exists upstream)" },
+  "firecrawl-anydoc": { "file": "dists/firecrawl-anydoc.txt", "checked": "0.2.4", "source": "https://github.com/firecrawl/anydoc/blob/v0.2.4/LICENSE" },
+  "pywin32": { "file": "dists/pywin32.txt", "checked": "311", "source": "win32/license.txt and win32com/License.txt of the pywin32 311 wheel (Windows)" },
+  "winrt-runtime": { "file": "dists/pywinrt.txt", "checked": "3.2.1", "source": "https://github.com/pywinrt/pywinrt/blob/v3.2.1/LICENSE" },
+  "winrt-windows-applicationmodel": { "file": "dists/pywinrt.txt", "checked": "3.2.1", "source": "https://github.com/pywinrt/pywinrt/blob/v3.2.1/LICENSE" },
+  "winrt-windows-foundation": { "file": "dists/pywinrt.txt", "checked": "3.2.1", "source": "https://github.com/pywinrt/pywinrt/blob/v3.2.1/LICENSE" },
+  "winrt-windows-foundation-collections": { "file": "dists/pywinrt.txt", "checked": "3.2.1", "source": "https://github.com/pywinrt/pywinrt/blob/v3.2.1/LICENSE" },
+  "winrt-windows-services-store": { "file": "dists/pywinrt.txt", "checked": "3.2.1", "source": "https://github.com/pywinrt/pywinrt/blob/v3.2.1/LICENSE" }
+}

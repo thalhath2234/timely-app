@@ -31,6 +31,11 @@ import {
   assertHostTargets,
   checkTree,
   collectLicenses,
+  copyleftReview,
+  declaresCopyleft,
+  fullArchiveName,
+  interpreterLicenses,
+  pythonLicenseRecord,
   cpythonLicense,
   diffSnapshots,
   dropLongBytecode,
@@ -200,6 +205,7 @@ test("trimPlan drops headers, Tcl/Tk, idle, pip and the test package on a Linux 
     "lib/python3.14/test/support.py", "lib/python3.14/site-packages/pip/__init__.py",
     "lib/python3.14/site-packages/pip-26.2.2.dist-info/METADATA", "lib/python3.14/site-packages/README.txt",
     "lib/python3.14/lib-dynload/_tkinter.cpython-314-x86_64-linux-gnu.so", "lib/python3.14/lib-dynload/_ssl.cpython-314-x86_64-linux-gnu.so",
+    "lib/python3.14/lib-dynload/_dbm.cpython-314-x86_64-linux-gnu.so", "lib/python3.14/dbm/sqlite3.py",
     "lib/python3.14/unittest/__init__.py", "lib/python3.14/tomllib/__init__.py",
   ]) write(py, rel);
   const { drop, tests } = trimPlan(py);
@@ -210,6 +216,7 @@ test("trimPlan drops headers, Tcl/Tk, idle, pip and the test package on a Linux 
     "lib/python3.14/idlelib", "lib/python3.14/tkinter", "lib/python3.14/turtledemo", "lib/python3.14/turtle.py",
     "lib/python3.14/ensurepip", "lib/python3.14/site-packages/pip", "lib/python3.14/site-packages/pip-26.2.2.dist-info",
     "lib/python3.14/lib-dynload/_tkinter.cpython-314-x86_64-linux-gnu.so",
+    "lib/python3.14/lib-dynload/_dbm.cpython-314-x86_64-linux-gnu.so",
   ]));
   assert.equal(cpythonLicense(py), "lib/python3.14/LICENSE.txt");
   assert.equal(stdlibDir(py), path.join(py, "lib", "python3.14"));
@@ -431,7 +438,7 @@ test("parseMetadata reads licence fields and folds continuation lines", () => {
   assert.deepEqual(m.licenseFiles, ["LICENSE", "NOTICE"]);
 });
 
-test("collectLicenses takes licence files and metadata, and names distributions with neither", (t) => {
+test("collectLicenses takes licence files, falls back to a recorded text, and names distributions left with only a licence name", (t) => {
   const site = tmp(t);
   write(site, "files_only-1.0.dist-info/METADATA", "Name: files-only\nVersion: 1.0\n\n");
   write(site, "files_only-1.0.dist-info/licenses/LICENSE.txt", "MIT text\n");
@@ -440,20 +447,141 @@ test("collectLicenses takes licence files and metadata, and names distributions 
   write(site, "old-3.0.dist-info/METADATA", "Name: old\nVersion: 3.0\nLicense-File: COPYING\n\n");
   write(site, "old-3.0.dist-info/COPYING", "GPL? no, BSD\n");
   write(site, "classified-1.dist-info/METADATA", "Name: classified\nVersion: 1\nClassifier: License :: OSI Approved :: MIT License\n\n");
+  write(site, "Fetch_Use-0.4.0.dist-info/METADATA", "Name: Fetch_Use\nVersion: 0.4.0\nLicense: MIT\n\n");
   write(site, "bare-0.1.dist-info/METADATA", "Name: bare\nVersion: 0.1\n\n");
   write(site, "bare/__init__.py");
-  const { dists, missing } = collectLicenses(site);
-  assert.deepEqual(missing, ["bare"]);
+  // A licence name is not the copyright notice MIT and BSD require.
+  assert.deepEqual(collectLicenses(site).missing, ["Fetch_Use", "bare", "classified", "expr"]);
+  const licensesDir = tmp(t);
+  write(licensesDir, "dists/fetch-use.txt", "MIT License\n\nCopyright (c) Browser-Use\n");
+  write(licensesDir, "dists/expr.txt", "Apache text\n");
+  const overrides = { "fetch-use": { file: "dists/fetch-use.txt" }, expr: { file: "dists/expr.txt" }, "files-only": { file: "dists/never.txt" } };
+  const { dists, missing } = collectLicenses(site, { licensesDir, overrides });
+  assert.deepEqual(missing, ["bare", "classified"]);
   const by = Object.fromEntries(dists.map((d) => [d.name, d]));
-  assert.deepEqual(by["files-only"].files.map((f) => f.rel).sort(), ["licenses/LICENSE.txt", "licenses/vendor/NOTICE"]);
+  assert.deepEqual(by["files-only"].files.map((f) => f.rel).sort(), ["licenses/LICENSE.txt", "licenses/vendor/NOTICE"], "a shipped licence file wins");
+  assert.deepEqual(by.Fetch_Use.files, [{ rel: "apps/agent/packaging/licenses/dists/fetch-use.txt", text: "MIT License\n\nCopyright (c) Browser-Use\n" }]);
   assert.equal(by.expr.license, "Apache-2.0");
   assert.deepEqual(by.old.files.map((f) => f.rel), ["COPYING"]);
   assert.equal(by.classified.license, "License :: OSI Approved :: MIT License");
   const text = thirdPartyLicenses({ cpython: "PSF", hermes: "MIT Nous", notice: "Timely NOTICE", dists });
-  for (const needle of ["PSF", "MIT Nous", "Timely NOTICE", "files-only 1.0", "MIT text", "notice text", "expr 2.0 (app/site-packages/expr-2.0.dist-info): Apache-2.0", "BSD"]) {
+  for (const needle of ["PSF", "MIT Nous", "Timely NOTICE", "files-only 1.0", "MIT text", "notice text", "expr 2.0 (app/site-packages/expr-2.0.dist-info): Apache-2.0", "BSD", "Copyright (c) Browser-Use"]) {
     assert.ok(text.includes(needle), needle);
   }
   assert.ok(text.indexOf("PSF") < text.indexOf("MIT Nous") && text.indexOf("MIT Nous") < text.indexOf("Timely NOTICE"));
+});
+
+const BUNDLED = `License for "pillow-heif" binary wheels: GPLv2, due to base library licenses.
+
+Name: x265
+License: GPLv2
+Files: libx265.[dylib|so|dll]
+  Source code: https://github.com/Multicorewareinc/x265/tree/4.3
+`;
+
+test("a distribution shipping GPL or LGPL binaries needs a reviewed entry with its version, and brings the full texts and sources", (t) => {
+  const site = tmp(t);
+  write(site, "pillow_heif-1.8.1.dist-info/METADATA", "Name: pillow_heif\nVersion: 1.8.1\nLicense-Expression: BSD-3-Clause\n\n");
+  write(site, "pillow_heif-1.8.1.dist-info/licenses/LICENSES_bundled.txt", BUNDLED);
+  write(site, "pillow_heif.libs/libx265-4883ecb5.so.217", "elf");
+  write(site, "pillow-13.0.0.dist-info/METADATA", "Name: pillow\nVersion: 13.0.0\nLicense-Expression: MIT-CMU\n\n");
+  write(site, "pillow-13.0.0.dist-info/licenses/LICENSE", "FreeType: FTL or the GNU General Public License version 2 (GPLv2.TXT)\n");
+  write(site, "lgpl_lib-1.dist-info/METADATA", "Name: lgpl-lib\nVersion: 1\nLicense-Expression: LGPL-3.0-or-later\n\n");
+  write(site, "lgpl_lib-1.dist-info/LICENSE", "lgpl\n");
+  const { dists } = collectLicenses(site);
+  assert.deepEqual(dists.filter(declaresCopyleft).map((d) => d.name), ["lgpl-lib", "pillow_heif"]);
+  const entry = {
+    version: "1.8.1",
+    why: "HEIC support",
+    texts: ["GPL-2.0", "LGPL-3.0"],
+    libraries: [{ name: "x265 4.3", license: "GPL-2.0-or-later", files: "libx265", source: "https://github.com/Multicorewareinc/x265/tree/4.3" }],
+  };
+  let review = copyleftReview(dists, {});
+  assert.equal(review.problems.length, 2);
+  assert.match(review.problems.join("\n"), /pillow_heif 1\.8\.1 ships GPL or LGPL code: review it/);
+  review = copyleftReview(dists, { "pillow-heif": { ...entry, version: "1.8.0" }, "lgpl-lib": { ...entry, version: "1", libraries: [] } });
+  assert.deepEqual(review.problems, [
+    "pillow_heif is 1.8.1 but apps/agent/packaging/licenses/copyleft.json reviewed 1.8.0: check its bundled libraries, versions and source links, then update the entry",
+  ]);
+  review = copyleftReview(dists, { "pillow-heif": entry });
+  assert.equal(review.listed.length, 1);
+  const gnuTexts = { "GPL-2.0": "GNU GENERAL PUBLIC LICENSE\nVersion 2, June 1991\n", "LGPL-3.0": "GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007\n" };
+  const text = thirdPartyLicenses({ cpython: "PSF", hermes: "MIT", notice: "N", dists, copyleft: review.listed, gnuTexts });
+  for (const needle of ["Version 2, June 1991", "Version 3, 29 June 2007", "x265 4.3: GPL-2.0-or-later", "complete source: https://github.com/Multicorewareinc/x265/tree/4.3"]) {
+    assert.ok(text.includes(needle), needle);
+  }
+  assert.throws(() => thirdPartyLicenses({ cpython: "", hermes: "", notice: "", dists, copyleft: review.listed, gnuTexts: {} }), /no licence text for GPL-2\.0, LGPL-3\.0/);
+});
+
+test("the committed licence texts cover every distribution of the dev runtime and its reviewed copyleft entries", { skip: !existsSync(path.join(repo, "apps/agent/.venv/lib/python3.14/site-packages")) && "make agent-install first" }, () => {
+  const licensesDir = path.join(repo, "apps/agent/packaging/licenses");
+  const overrides = JSON.parse(readFileSync(path.join(licensesDir, "dists.json"), "utf8"));
+  for (const [name, o] of Object.entries(overrides)) if (!name.startsWith("_")) assert.ok(existsSync(path.join(licensesDir, o.file)), o.file);
+  const { dists, missing } = collectLicenses(path.join(repo, "apps/agent/.venv/lib/python3.14/site-packages"), { licensesDir, overrides });
+  assert.deepEqual(missing, []);
+  const policy = JSON.parse(readFileSync(path.join(licensesDir, "copyleft.json"), "utf8"));
+  const review = copyleftReview(dists, policy);
+  assert.deepEqual(review.problems, []);
+  assert.deepEqual(review.listed.map(({ dist }) => dist.name), ["pillow_heif"]);
+  for (const id of policy["pillow-heif"].texts) assert.ok(existsSync(path.join(licensesDir, "gnu", `${id}.txt`)), id);
+});
+
+// ------------------------------------------------------------ the interpreter's built-in libraries
+
+test("fullArchiveName names the full archive of an install_only build", () => {
+  assert.equal(
+    fullArchiveName("cpython-3.14.9+20261021-x86_64-unknown-linux-gnu-install_only.tar.gz"),
+    "cpython-3.14.9+20261021-x86_64-unknown-linux-gnu-pgo+lto-full.tar.zst",
+  );
+  assert.equal(
+    fullArchiveName("cpython-3.14.9+20261021-x86_64-pc-windows-msvc-install_only.tar.gz"),
+    "cpython-3.14.9+20261021-x86_64-pc-windows-msvc-pgo-full.tar.zst",
+  );
+  assert.throws(() => fullArchiveName("cpython-3.14.9-full.tar.zst"), /not an install_only archive/);
+});
+
+test("pythonLicenseRecord groups PYTHON.json's licence files by library and module", () => {
+  const meta = {
+    python_version: "3.14.9",
+    licenses: ["Python-2.0", "CNRI-Python"],
+    build_info: {
+      extensions: {
+        _ssl: [{ licenses: ["Apache-2.0"], license_paths: ["licenses/LICENSE.openssl-3.txt"] }],
+        _hashlib: [{ licenses: ["Apache-2.0"], license_paths: ["licenses/LICENSE.openssl-3.txt"] }],
+        _sqlite3: [{ licenses: [], license_paths: ["licenses/LICENSE.sqlite.txt"], license_public_domain: true }],
+        math: [{}],
+      },
+    },
+  };
+  const texts = { "LICENSE.openssl-3.txt": "Apache", "LICENSE.sqlite.txt": "blessing" };
+  const r = pythonLicenseRecord({ key: "linux-x64", archive: "a.tar.zst", sha256: "s", meta, texts });
+  assert.deepEqual(r.libraries, [
+    { file: "LICENSE.openssl-3.txt", spdx: ["Apache-2.0"], modules: ["_hashlib", "_ssl"], publicDomain: false },
+    { file: "LICENSE.sqlite.txt", spdx: [], modules: ["_sqlite3"], publicDomain: true },
+  ]);
+  assert.throws(() => pythonLicenseRecord({ key: "k", archive: "a", sha256: "s", meta, texts: {} }), /names licenses\/LICENSE\.openssl-3\.txt, which the archive does not hold/);
+});
+
+test("every desktop target has the licences of the interpreter's built-in libraries for the pinned Python, and they reach THIRD_PARTY_LICENSES", (t) => {
+  const lock = JSON.parse(readFileSync(path.join(repo, "apps/agent/hermes/pm/lock.json"), "utf8"));
+  const version = lock.packages.python.version;
+  const root = path.join(repo, "apps/agent/packaging/python-licenses");
+  for (const key of Object.keys(TARGETS)) {
+    const libs = interpreterLicenses(root, version, key);
+    const openssl = libs.find((l) => l.modules.includes("_ssl"));
+    assert.ok(openssl, `${key}: OpenSSL`);
+    assert.deepEqual(openssl.spdx, ["Apache-2.0"]);
+    assert.match(openssl.text, /Apache License/);
+    for (const lib of libs) assert.ok(lib.text.trim().length > 0 && !lib.text.includes("\r"), `${key}: ${lib.file}`);
+    const record = JSON.parse(readFileSync(path.join(root, version, `${key}.json`), "utf8"));
+    assert.equal(record.archive, fullArchiveName(decodeURIComponent(path.posix.basename(new URL(lock.packages.python.artifacts[key].url).pathname))));
+    if (key !== "win32-x64") for (const m of ["_ctypes", "_decimal", "pyexpat", "_lzma", "_bz2", "zlib", "_zstd"]) assert.ok(libs.some((l) => l.modules.includes(m)), `${key}: ${m}`);
+    const text = thirdPartyLicenses({ cpython: "PSF", interpreter: libs, hermes: "MIT", notice: "N", dists: [] });
+    assert.match(text, /Libraries built into the interpreter/);
+    assert.match(text, /--- openssl-3: Apache-2\.0 \(used by _hashlib, _ssl\)/);
+  }
+  assert.throws(() => interpreterLicenses(root, "3.99.0+1", "linux-x64"), /make agent-python-licenses/);
+  void t;
 });
 
 // ------------------------------------------------------------ manifest and read-only smoke

@@ -644,12 +644,15 @@ hermes-skills-review: ## Record reviewed skill trees in skills-reviewed.json aft
 
 ##@ Agent runtime packaging (plan 11.4, 11.5)
 
-.PHONY: stage-agent smoke-agent test-stage-agent clean-agent-stage docker-api docker-agent-smoke
+.PHONY: stage-agent smoke-agent agent-python-licenses test-stage-agent clean-agent-stage docker-api docker-agent-smoke
 stage-agent: ## Stage the agent runtime for this host into apps/web/.electron-agent/<os>-<arch> (CPython from Hermes' pm/lock.json, uv.lock + extras, shipped skills, compileall, ship checks, THIRD_PARTY_LICENSES, MANIFEST.json); needs uv
 	@node $(WEB)/electron/stage-agent.mjs
 
 smoke-agent: ## Smoke-test a staged agent runtime: boot.py usage, prepare, then the Go real worker on its stub model (AGENT_ROOT=<agent dir>, default the host stage; READ_ONLY=1 makes it read-only and fails on any write into it)
 	@node $(WEB)/electron/smoke-agent.mjs $(if $(AGENT_ROOT),--root "$(AGENT_ROOT)") $(if $(filter 1,$(READ_ONLY)),--read-only)
+
+agent-python-licenses: ## Record the licences of the libraries built into the shipped interpreter (OpenSSL, libffi, SQLite, ...) for every desktop target from python-build-standalone's full archives, into apps/agent/packaging/python-licenses/<version>/; run after a Hermes sync moves the Python pin (downloads about 110 MB per target, deleted afterwards; needs tar with zstd)
+	@node $(WEB)/electron/python-licenses.mjs
 
 test-stage-agent: ## Test the agent staging helpers: lock pins, extras, host check, shipped skills, tree checks, licences, read-only diff, the boot.py shim
 	@node --test scripts/stage-agent.test.mjs

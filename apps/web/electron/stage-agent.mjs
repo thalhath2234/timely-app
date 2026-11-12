@@ -47,11 +47,13 @@ import {
   assertHostTargets,
   checkTree,
   collectLicenses,
+  copyleftReview,
   dropLongBytecode,
   cpythonLicense,
   hermesCopyFilter,
   importCheckSource,
   importsStdlibTest,
+  interpreterLicenses,
   largestFolders,
   listTree,
   makeReadOnly,
@@ -391,25 +393,38 @@ export async function stageAgent(targets = resolveTargets()) {
     compileAll(target, out, python);
 
     // Licences first, so a failed tree check still reports every problem at once.
-    const { dists, missing } = collectLicenses(site);
+    const licensesDir = path.join(agentSrc, "packaging", "licenses");
+    const licenceTexts = JSON.parse(readFileSync(path.join(licensesDir, "dists.json"), "utf8"));
+    const { dists, missing } = collectLicenses(site, { licensesDir, overrides: licenceTexts });
+    const review = copyleftReview(dists, JSON.parse(readFileSync(path.join(licensesDir, "copyleft.json"), "utf8")));
+    const gnuDir = path.join(licensesDir, "gnu");
+    const gnuTexts = Object.fromEntries(readdirSync(gnuDir).map((f) => [f.replace(/\.txt$/, ""), readFileSync(path.join(gnuDir, f), "utf8")]));
+    const interpreter = interpreterLicenses(path.join(agentSrc, "packaging", "python-licenses"), artifact.version, target.key);
     const pythonDir = path.join(out, "python");
     writeFileSync(
       path.join(out, "THIRD_PARTY_LICENSES"),
       thirdPartyLicenses({
         cpython: readFileSync(path.join(pythonDir, cpythonLicense(pythonDir)), "utf8"),
+        interpreter,
         hermes: readFileSync(path.join(hermesSrc, "LICENSE"), "utf8"),
         notice: readFileSync(path.join(agentSrc, "NOTICE"), "utf8"),
         dists,
+        copyleft: review.listed,
+        gnuTexts,
       }),
     );
     const { problems, longest } = checkTree(out, { stagePath: out });
-    for (const name of missing) problems.push(`no licence file or licence metadata: ${name}`);
+    for (const name of missing) {
+      problems.push(`no licence text (no licence file in its wheel and no entry in apps/agent/packaging/licenses/dists.json): ${name}`);
+    }
+    problems.push(...review.problems);
     if (problems.length) {
       throw new Error(`the staged runtime cannot ship (${problems.length} problems):\n  ${problems.slice(0, 40).join("\n  ")}`);
     }
     log(
       target,
-      `checks passed: ${dists.length} distributions licensed, no absolute or escaping symlink, no browser, ` +
+      `checks passed: ${dists.length} distributions licensed, ${interpreter.length} interpreter libraries, ` +
+        `${review.listed.length} reviewed GPL/LGPL distributions, no absolute or escaping symlink, no browser, ` +
         `no stage path; longest path ${longest.length}/${MAX_PATH_CHARS}: ${longest}`,
     );
 

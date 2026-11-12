@@ -183,6 +183,10 @@ export const TRIM = [
   /^(lib\/python3\.\d+|lib)\/(idlelib|tkinter|turtledemo|ensurepip|turtle\.py)$/i,
   /^(lib\/python3\.\d+|lib)\/site-packages\/pip(-[^/]*)?$/i, // the interpreter's own pip
   /^(lib\/python3\.\d+\/lib-dynload|dlls)\/_tkinter[^/]*$/i,
+  // Linux: _dbm links Berkeley DB, whose Sleepycat licence asks every binary
+  // redistribution to say how to get the complete DB source; nothing staged
+  // imports dbm.ndbm (the dbm package falls back to dbm.sqlite3 and dbm.dumb).
+  /^lib\/python3\.\d+\/lib-dynload\/_dbm\.[^/]*$/i,
   /^dlls\/(tcl|tk)[^/]*\.dll$/i,
   /^(tcl|tk)[0-9][^/]*\.dll$/i,
 ];
@@ -525,11 +529,18 @@ export function parseMetadata(text) {
 
 const LICENSE_NAME = /^(licen[cs]e|copying|notice|authors|copyright)/i;
 
+/** PEP 503 normalized distribution name. */
+export const normalizeDist = (name) => name.toLowerCase().replace(/[-_.]+/g, "-");
+
 /**
  * Every `*.dist-info` in site-packages with its licence metadata and the text
- * of its licence files. `missing` names distributions with neither.
+ * of its licence files. A distribution whose wheel ships no licence file takes
+ * the text `overrides` names for it ({normalized name: {file}}, read from
+ * `licensesDir`); `missing` names distributions left without any licence text,
+ * since a licence name alone (MIT, BSD) does not carry the copyright notice
+ * those licences require.
  */
-export function collectLicenses(sitePackages) {
+export function collectLicenses(sitePackages, { licensesDir = "", overrides = {} } = {}) {
   const dists = [];
   const missing = [];
   for (const name of readdirSync(sitePackages).sort()) {
@@ -561,14 +572,105 @@ export function collectLicenses(sitePackages) {
       license: meta.expression || meta.license.split("\n")[0].slice(0, 200) || meta.classifiers.join("; "),
       files: [...files].map(([rel, text]) => ({ rel, text })),
     };
-    if (!dist.license && dist.files.length === 0) missing.push(dist.name);
+    const override = dist.files.length === 0 ? overrides[normalizeDist(dist.name)] : undefined;
+    if (override && licensesDir) {
+      dist.files.push({ rel: `apps/agent/packaging/licenses/${override.file}`, text: readFileSync(path.join(licensesDir, override.file), "utf8") });
+    }
+    if (dist.files.length === 0) missing.push(dist.name);
     dists.push(dist);
   }
   return { dists, missing };
 }
 
-/** THIRD_PARTY_LICENSES: CPython, Hermes, Timely's NOTICE, then every distribution. */
-export function thirdPartyLicenses({ cpython, hermes, notice, dists }) {
+/** python-build-standalone's `full` archive of the build an `install_only` archive comes from. */
+export function fullArchiveName(installOnly) {
+  if (!installOnly.endsWith("-install_only.tar.gz")) throw new Error(`${installOnly} is not an install_only archive`);
+  const variant = installOnly.includes("-pc-windows-") ? "pgo" : "pgo+lto";
+  return installOnly.replace(/-install_only\.tar\.gz$/, `-${variant}-full.tar.zst`);
+}
+
+/**
+ * What python-licenses.mjs records for one target from a `full` archive's
+ * PYTHON.json and python/licenses/: per licence file, the SPDX ids and the
+ * modules that link the library. CPython's own licence is left out (the
+ * install_only archive ships it).
+ */
+export function pythonLicenseRecord({ key, archive, sha256, meta, texts }) {
+  const byFile = new Map();
+  const extensions = meta?.build_info?.extensions ?? {};
+  for (const [module, variants] of Object.entries(extensions)) {
+    for (const v of variants) {
+      for (const rel of v.license_paths ?? []) {
+        const file = path.posix.basename(rel);
+        if (!(file in texts)) throw new Error(`${archive}: ${module} names ${rel}, which the archive does not hold`);
+        const lib = byFile.get(file) ?? { file, spdx: new Set(), modules: new Set(), publicDomain: false };
+        for (const id of v.licenses ?? []) lib.spdx.add(id);
+        lib.modules.add(module);
+        lib.publicDomain ||= v.license_public_domain === true;
+        byFile.set(file, lib);
+      }
+    }
+  }
+  if (byFile.size === 0) throw new Error(`${archive}: PYTHON.json names no licence files for its extension modules`);
+  const libraries = [...byFile.values()]
+    .map((l) => ({ file: l.file, spdx: [...l.spdx].sort(), modules: [...l.modules].sort(), publicDomain: l.publicDomain }))
+    .sort((a, b) => (a.file < b.file ? -1 : 1));
+  return { target: key, archive, sha256, python: meta.python_version, cpython: meta.licenses ?? [], libraries };
+}
+
+/**
+ * The recorded licences of the interpreter's built-in libraries for `key`
+ * (apps/agent/packaging/python-licenses/<version>/<key>.json), each with its text.
+ */
+export function interpreterLicenses(root, version, key) {
+  const file = path.join(root, version, `${key}.json`);
+  if (!existsSync(file)) {
+    throw new Error(
+      `no licence record of the interpreter's built-in libraries for Python ${version} on ${key} (${file}). ` +
+        "Run make agent-python-licenses after a Hermes sync that moves the Python pin, and commit the result.",
+    );
+  }
+  const record = JSON.parse(readFileSync(file, "utf8"));
+  return record.libraries.map((lib) => ({ ...lib, text: readFileSync(path.join(root, version, "texts", lib.file), "utf8") }));
+}
+
+/** Does this distribution ship GPL or LGPL code (its metadata licence, or a `License: ...GPL` line in a licence file)? */
+export function declaresCopyleft(dist) {
+  if (/\bL?GPL/.test(dist.license)) return true;
+  return dist.files.some((f) => /^[ \t]*License:[^\n]*\bL?GPL/im.test(f.text));
+}
+
+/**
+ * The reviewed copyleft distributions (apps/agent/packaging/licenses/copyleft.json)
+ * among `dists`, and a problem for each copyleft distribution that is not
+ * reviewed or whose version moved since.
+ */
+export function copyleftReview(dists, policy) {
+  const listed = [];
+  const problems = [];
+  for (const d of dists) {
+    if (!declaresCopyleft(d)) continue;
+    const entry = policy[normalizeDist(d.name)];
+    if (!entry) {
+      problems.push(
+        `${d.name} ${d.version} ships GPL or LGPL code: review it and record its libraries, their sources and the licence texts in apps/agent/packaging/licenses/copyleft.json`,
+      );
+    } else if (entry.version !== d.version) {
+      problems.push(
+        `${d.name} is ${d.version} but apps/agent/packaging/licenses/copyleft.json reviewed ${entry.version}: check its bundled libraries, versions and source links, then update the entry`,
+      );
+    } else listed.push({ dist: d, entry });
+  }
+  return { listed, problems };
+}
+
+/**
+ * THIRD_PARTY_LICENSES: CPython, the libraries built into the interpreter,
+ * Hermes, Timely's NOTICE, every distribution, then the GPL and LGPL
+ * libraries shipped in binary form with their sources and the full licence
+ * texts they need (`gnuTexts`: {id: text}).
+ */
+export function thirdPartyLicenses({ cpython, interpreter = [], hermes, notice, dists, copyleft = [], gnuTexts = {} }) {
   const rule = "=".repeat(78);
   const parts = [
     "Third-party software in Timely's agent runtime (resources/agent, /app/agent).",
@@ -578,6 +680,23 @@ export function thirdPartyLicenses({ cpython, hermes, notice, dists }) {
     rule,
     cpython.trim(),
     "",
+  ];
+  if (interpreter.length) {
+    parts.push(
+      rule,
+      "Libraries built into the interpreter (python/)",
+      rule,
+      "python-build-standalone links these into the interpreter and its extension modules; the texts come",
+      "from the matching `full` archive (apps/agent/packaging/python-licenses/). Modules this runtime",
+      "trims (_tkinter, and _dbm on Linux) are listed as the archive records them.",
+      "",
+    );
+    for (const lib of interpreter) {
+      const ids = lib.spdx.length ? lib.spdx.join(", ") : lib.publicDomain ? "public domain" : "see text";
+      parts.push(`--- ${lib.file.replace(/^LICENSE\.|(\.[\w-]+)?\.txt$/g, "")}: ${ids} (used by ${lib.modules.join(", ")})`, lib.text.trim(), "");
+    }
+  }
+  parts.push(
     rule,
     "Hermes Agent (app/hermes/), MIT License",
     rule,
@@ -588,11 +707,23 @@ export function thirdPartyLicenses({ cpython, hermes, notice, dists }) {
     rule,
     notice.trim(),
     "",
-  ];
+  );
   for (const d of dists) {
     parts.push(rule, `${d.name} ${d.version} (app/site-packages/${d.dir}): ${d.license || "see licence files"}`, rule);
     for (const f of d.files) parts.push(`--- ${f.rel}`, f.text.trim(), "");
     if (d.files.length === 0) parts.push("");
+  }
+  if (copyleft.length) {
+    const ids = [...new Set(copyleft.flatMap(({ entry }) => entry.texts))];
+    const missingText = ids.filter((id) => !gnuTexts[id]);
+    if (missingText.length) throw new Error(`no licence text for ${missingText.join(", ")} in apps/agent/packaging/licenses/gnu/`);
+    parts.push(rule, "GPL and LGPL libraries shipped in binary form, and where to get their source", rule);
+    for (const { dist, entry } of copyleft) {
+      parts.push(`${dist.name} ${dist.version} (app/site-packages/${dist.dir}): ${entry.why}`);
+      for (const lib of entry.libraries) parts.push(`  - ${lib.name}: ${lib.license}; ${lib.files}`, `    complete source: ${lib.source}`);
+      parts.push("");
+    }
+    for (const id of ids) parts.push(rule, `Full text: ${id}`, rule, gnuTexts[id].trim(), "");
   }
   return `${parts.join("\n")}\n`;
 }
