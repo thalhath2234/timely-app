@@ -131,7 +131,8 @@ func TestIntegrationBackupCarriesAgentState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Warnings) != 0 || result.Counts["agent_learning_settings"] != 1 || result.Counts["agent_learning_events"] != 1 {
+	// Review round 8: the person hears that the restored skills are off.
+	if !slices.Equal(result.Warnings, []string{warnSkillsRestored([]string{"pantry-steps"})}) || result.Counts["agent_learning_settings"] != 1 || result.Counts["agent_learning_events"] != 1 {
 		t.Fatalf("result %+v", result)
 	}
 	staged, committed, discarded := agent.counts()
@@ -273,7 +274,7 @@ func TestIntegrationRestoreAgentStateFailures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !slices.Equal(result.Warnings, []string{warnSkillsBlocked([]string{"injected"})}) {
+		if !slices.Equal(result.Warnings, []string{warnSkillsBlocked([]string{"injected"}), warnSkillsRestored([]string{"pantry-steps"})}) {
 			t.Fatalf("warnings %q", result.Warnings)
 		}
 	})

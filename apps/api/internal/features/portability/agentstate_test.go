@@ -166,3 +166,13 @@ func TestOutsideBackupStripsWhatTimelyLearned(t *testing.T) {
 		t.Fatalf("outside backup %v", backup)
 	}
 }
+
+// A restore says the learned skills came back turned off (Q-3.4).
+func TestWarnSkillsRestored(t *testing.T) {
+	if got := warnSkillsRestored([]string{"pantry-steps"}); !strings.Contains(got, `"pantry-steps" came back turned off`) {
+		t.Fatal(got)
+	}
+	if got := warnSkillsRestored([]string{"a", "b", "c"}); !strings.HasPrefix(got, "3 learned skills came back turned off") {
+		t.Fatal(got)
+	}
+}

@@ -421,7 +421,9 @@ func (s *Service) restore(userID string, backup *Backup, fromMCP bool) (*Restore
 	}
 	committed = true
 	if staged != nil {
-		if warn := s.commitAgent(*staged); len(warn) > 0 {
+		if warn := s.commitAgent(*staged); len(warn) == 0 && len(staged.RestoredSkills) > 0 {
+			warnings = append(warnings, warnSkillsRestored(staged.RestoredSkills))
+		} else if len(warn) > 0 {
 			warnings = append(warnings, warn...)
 			// The home stays the old one, so its switches, skill lists and
 			// feed stay too: the backup's lists would turn back on skills

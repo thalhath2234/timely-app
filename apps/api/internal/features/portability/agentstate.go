@@ -40,6 +40,16 @@ var (
 	warnAgentKept        = "What Timely learned was not in this backup, so it was left as it is."
 )
 
+// warnSkillsRestored tells the person their learned skills came back
+// turned off, waiting for a look (Q-3.4); the phone has no Skills screen,
+// so the restore result is where it hears of them.
+func warnSkillsRestored(names []string) string {
+	if len(names) == 1 {
+		return fmt.Sprintf("The learned skill %q came back turned off. Check it in Settings › What Timely learned and turn it on if you want it.", names[0])
+	}
+	return fmt.Sprintf("%d learned skills came back turned off. Check them in Settings › What Timely learned and turn on the ones you want.", len(names))
+}
+
 func warnSkillsBlocked(names []string) string {
 	if len(names) == 1 {
 		return fmt.Sprintf("The learned skill %q was left out because it looked unsafe.", names[0])
