@@ -6,7 +6,8 @@
 // modules (pydantic-core, jiter, cryptography, nemo-relay, resvg-py, ...) also
 // carry every crate they were built from and the Rust standard library, and a
 // few wheels link a C library in (cryptography: OpenSSL; cffi: libffi;
-// ruamel.yaml.clib: libyaml). Their MIT, BSD, ISC and Apache notices must ship
+// ruamel.yaml.clib: libyaml; pywinpty bundles winpty and Windows Terminal's
+// OpenConsole/ConPTY). Their MIT, BSD, ISC and Apache notices must ship
 // with the binaries. For every desktop target this script installs the wheels
 // of Hermes' uv.lock the way stage-agent.mjs does (uv pip install --target
 // --python-platform, nothing built), reads the crates each native binary names
@@ -269,7 +270,7 @@ async function main() {
         if (versions.length === 0) throw new Error(`${m.name} ${m.version}: components.json's ${c.name} pattern ${c.detect} matched no binary; check the wheel and the entry`);
         for (const version of versions) {
           const url = c.text.replace("{version}", version);
-          comps.push({ name: c.name, version, license: c.license, why: c.why, source: url, files: [{ rel: path.posix.basename(new URL(url).pathname), text: storeText(texts, await fetchText(url)) }] });
+          comps.push({ name: c.name, version, ...(c.kind ? { kind: c.kind } : {}), license: c.license, why: c.why, source: url, files: [{ rel: path.posix.basename(new URL(url).pathname), text: storeText(texts, await fetchText(url)) }] });
         }
       }
       const record = { dist: m.name, version: m.version, targets: [...m.targets].sort(), rustStd, crates, components: comps };

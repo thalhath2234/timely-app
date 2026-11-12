@@ -204,9 +204,9 @@ export function assertHostTarget(key, hostKey) {
  * sha256 naming the `.staged-<hash>` marker: everything steps 2-4 depend on,
  * including the trim rules and the install flags, so changing either restages.
  */
-export function markerHash({ pythonEntry, uvLock, extras, target, trim = TRIM.map(String), install = pipInstallFlags(target) }) {
+export function markerHash({ pythonEntry, uvLock, extras, target, trim = TRIM.map(String), siteTrim = SITE_TRIM.map(String), install = pipInstallFlags(target) }) {
   const h = createHash("sha256");
-  h.update(JSON.stringify({ format: STAGE_FORMAT, python: pythonEntry, extras, target, trim, install }));
+  h.update(JSON.stringify({ format: STAGE_FORMAT, python: pythonEntry, extras, target, trim, siteTrim, install }));
   h.update("\0");
   h.update(uvLock);
   return h.digest("hex").slice(0, 16);
@@ -271,6 +271,34 @@ export const TRIM = [
   // 95 MB, and electron-builder's own pdb exclusion covers only the app's files, not extraResources.
   /(^|\/)[^/]*\.pdb$/i,
 ];
+
+// Paths relative to app/site-packages that the worker never loads, removed after
+// the install (case insensitive, never descended once matched). pywin32's Windows
+// wheel ships the Pythonwin IDE and service hosts beside the modules the MCP SDK
+// and portalocker import (win32/, win32/lib/, pywin32_system32/): Pythonwin bundles
+// Scintilla (scintilla.dll, whose licence wants its notice in the documentation)
+// and Microsoft's MFC runtime (mfc140u.dll), which THIRD_PARTY_LICENSES would
+// otherwise have to carry. pywin32.pth's Pythonwin entry is skipped when the
+// folder is missing.
+export const SITE_TRIM = [
+  /^pythonwin$/i, // Pythonwin.exe, win32ui, scintilla.dll, mfc140u.dll
+  /^isapi$/i, // IIS extension host (PyISAPI_loader.dll)
+  /^win32\/(pythonservice\.exe|perfmondata\.dll)$/i, // Windows service and perfmon hosts
+  /^pywin32\.chm$/i, // the pywin32 help file
+];
+
+/** Relative paths under app/site-packages that SITE_TRIM removes (top-most only). */
+export function siteTrimPlan(site) {
+  const drop = [];
+  walk(site, (_full, rel) => {
+    if (SITE_TRIM.some((rx) => rx.test(rel))) {
+      drop.push(rel);
+      return false;
+    }
+    return true;
+  });
+  return drop;
+}
 
 /** The stdlib test package, dropped only when nothing staged imports it. */
 export const STDLIB_TEST = /^(lib\/python3\.\d+|lib)\/test$/i;
@@ -1199,7 +1227,7 @@ export function thirdPartyLicenses({ cpython, incorporated = "", interpreter = [
       }
       for (const c of record.components) {
         const files = c.files.map((f) => ({ ...f, label: `${c.name} ${c.version} ${f.rel}` }));
-        parts.push(`  ${c.name} ${c.version} (C library): ${c.license} ${ref(files)}`);
+        parts.push(`  ${c.name} ${c.version} (${c.kind ?? "C library"}): ${c.license} ${ref(files)}`);
       }
       for (const c of record.crates) {
         const files = c.files.map((f) => ({ ...f, label: `${c.name} ${c.version} ${f.rel}` }));

@@ -67,6 +67,7 @@ import {
   pythonArtifact,
   scratchRootFor,
   selectSkills,
+  siteTrimPlan,
   sourceHash,
   skillDirs,
   trackedSkillNames,
@@ -204,6 +205,9 @@ function installSitePackages(target, python, site, extras) {
   for (const name of ["bin", "Scripts", ".lock"]) rmSync(path.join(site, name), { recursive: true, force: true });
   const installed = (r.stderr.match(/^ \+ /gm) ?? []).length;
   log(target, `installed ${installed} distributions from uv.lock (extras: ${extras.join(", ")})`);
+  const trimmed = siteTrimPlan(site);
+  for (const rel of trimmed) rmSync(path.join(site, rel), { recursive: true, force: true });
+  if (trimmed.length) log(target, `trimmed what the worker never loads from site-packages: ${trimmed.join(", ")}`);
 }
 
 // ---------------------------------------------------------------- step 5

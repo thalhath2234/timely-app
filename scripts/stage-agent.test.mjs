@@ -26,6 +26,7 @@ import {
   LINUX_GLIBC_FLOOR,
   MAX_PATH_CHARS,
   PIP_INSTALL_FLAGS,
+  SITE_TRIM,
   STAGE_FORMAT,
   TRIM,
   assertHostTarget,
@@ -66,6 +67,7 @@ import {
   pythonArtifact,
   scratchRootFor,
   selectSkills,
+  siteTrimPlan,
   snapshot,
   sourceHash,
   stagedManifest,
@@ -888,6 +890,34 @@ test("THIRD_PARTY_LICENSES lists each distribution's linked crates and C librari
   assert.match(out, /jiter 0\.17\.0 \(app\/site-packages\/jiter-0\.17\.0\.dist-info\):\n {2}pem 3\.0\.0: MIT \[mit1\]/);
   assert.equal(out.split("--- [mit1] pem 3.0.0 LICENSE.md\ntext mit1").length, 2, "each text once");
   assert.match(out, /--- \[ossl\] OpenSSL 4\.0\.3 LICENSE\.txt\ntext ossl/);
+});
+
+test("the Windows runtime's THIRD_PARTY_LICENSES names the programs pywinpty bundles: rprichard's winpty and Windows Terminal's OpenConsole and ConPTY", () => {
+  const dir = path.join(repo, "apps/agent/packaging/licenses/static");
+  const components = Object.fromEntries(Object.entries(JSON.parse(readFileSync(path.join(dir, "components.json"), "utf8"))).filter(([k]) => !k.startsWith("_")));
+  const record = readdirSync(dir).find((f) => /^pywinpty-.*\.json$/.test(f));
+  const version = JSON.parse(readFileSync(path.join(dir, record), "utf8")).version;
+  const dist = { name: "pywinpty", version, dir: `pywinpty-${version}.dist-info`, key: `pywinpty-${version}`, binaries: [{ rel: "winpty/winpty.dll", crates: [], rustc: [], git: [] }] };
+  const { records, problems } = staticLicenses([dist], dir, { components });
+  assert.deepEqual(problems, []);
+  const names = records[0].record.components.map((c) => c.name);
+  assert.deepEqual(names, ["winpty", "Windows Terminal OpenConsole and ConPTY"]);
+  const text = thirdPartyLicenses({ cpython: "PSF", hermes: "MIT", notice: "N", dists: [], statics: records });
+  assert.match(text, /winpty 0\.4\.3 \(bundled DLL and program\): MIT/);
+  assert.match(text, /Windows Terminal OpenConsole and ConPTY 1\.25\.\S+ .*\(bundled DLL and program\): MIT/);
+  for (const notice of ["Copyright (c) 2011-2016 Ryan Prichard", "Copyright (c) Microsoft Corporation"]) assert.ok(text.includes(notice), notice);
+});
+
+test("the pywin32 parts the worker never loads leave site-packages: Pythonwin (Scintilla, MFC), isapi, the service and perfmon hosts", (t) => {
+  const site = tmp(t);
+  for (const rel of ["pythonwin/scintilla.dll", "pythonwin/mfc140u.dll", "pythonwin/pywin/__init__.py", "isapi/PyISAPI_loader.dll", "win32/pythonservice.exe", "win32/perfmondata.dll", "PyWin32.chm", "win32/win32api.pyd", "win32/lib/win32con.py", "pywin32_system32/pywintypes314.dll", "pywin32.pth", "winpty/winpty.dll"]) write(site, rel);
+  const drop = siteTrimPlan(site).sort();
+  assert.deepEqual(drop, ["PyWin32.chm", "isapi", "pythonwin", "win32/perfmondata.dll", "win32/pythonservice.exe"]);
+  // A change to the rules restages instead of reusing the marker.
+  const base = { pythonEntry: { version: "1", url: "u", sha256: "s" }, uvLock: Buffer.from("lock"), extras: ["mcp"], target: "win32-x64" };
+  assert.notEqual(markerHash(base), markerHash({ ...base, siteTrim: SITE_TRIM.slice(1).map(String) }));
+  // What the import check needs on Windows stays.
+  for (const keep of ["win32/win32api.pyd", "win32/lib/win32con.py", "pywin32_system32/pywintypes314.dll"]) assert.ok(!drop.some((d) => keep.startsWith(d)), keep);
 });
 
 test("the committed static-link records are whole: every crate and component has a stored text, and each components.json entry has a record", () => {

@@ -1,5 +1,5 @@
 {
-  "_comment": "C libraries that wheels link into their native modules, reviewed by hand (static-licenses.mjs adds each to the dist's record with its text). Keys are normalized distribution names. `detect` is a regular expression whose first group reads the library's version from the binary; without it, `version` says what is known. `text` is where the licence text comes from ({version} is filled in). A distribution listed here needs a record for its exact version or the stage fails.",
+  "_comment": "C libraries that wheels link into their native modules, reviewed by hand (static-licenses.mjs adds each to the dist's record with its text). Keys are normalized distribution names. `detect` is a regular expression whose first group reads the library's version from the binary; without it, `version` says what is known. `text` is where the licence text comes from ({version} is filled in). A distribution listed here needs a record for its exact version or the stage fails. `kind` names what is bundled when it is not a C library linked into a module (THIRD_PARTY_LICENSES prints it).",
   "cryptography": [
     {
       "name": "OpenSSL",
@@ -25,6 +25,24 @@
       "license": "MIT",
       "text": "https://raw.githubusercontent.com/yaml/libyaml/0.2.5/License",
       "why": "_ruamel_yaml exports libyaml's yaml_* functions from the copy ruamel.yaml.clib compiles in; its LICENSE names only ruamel"
+    }
+  ],
+  "pywinpty": [
+    {
+      "name": "winpty",
+      "version": "0.4.3",
+      "kind": "bundled DLL and program",
+      "license": "MIT",
+      "text": "https://raw.githubusercontent.com/rprichard/winpty/{version}/LICENSE",
+      "why": "pywinpty's Windows wheel ships rprichard/winpty as winpty/winpty.dll and winpty/winpty-agent.exe (winpty-agent prints \"winpty version 0.4.3\"); pywinpty's LICENSE.txt names only Spyder IDE"
+    },
+    {
+      "name": "Windows Terminal OpenConsole and ConPTY",
+      "version": "1.25.2609.30003 (the binaries' file version; text from the v1.25.2733.0 release tag)",
+      "kind": "bundled DLL and program",
+      "license": "MIT",
+      "text": "https://raw.githubusercontent.com/microsoft/terminal/v1.25.2733.0/LICENSE",
+      "why": "pywinpty's Windows wheel ships microsoft/terminal's winpty/OpenConsole.exe and winpty/conpty.dll (ProductName \"Windows Terminal\", Microsoft Corporation); pywinpty's LICENSE.txt does not name them"
     }
   ]
 }

@@ -543,7 +543,8 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
     firecrawl-anydoc, and on Windows pywinpty: about 250 crates, among them ring's BoringSSL and
     OpenSSL/SSLeay terms, AWS-LC and tiny-skia), and the C libraries listed by hand in
     `apps/agent/packaging/licenses/static/components.json` (cryptography's OpenSSL, cffi's libffi,
-    ruamel.yaml.clib's libyaml). `make agent-static-licenses` installs the uv.lock wheels for every
+    ruamel.yaml.clib's libyaml, and on Windows the programs pywinpty bundles: rprichard's winpty
+    `winpty.dll` and `winpty-agent.exe`, and Windows Terminal's `OpenConsole.exe` and `conpty.dll`). `make agent-static-licenses` installs the uv.lock wheels for every
     desktop target, reads the crate paths rustc leaves in each binary, downloads each crate from
     crates.io (sha256 checked against the index) and records its licence files, or the standard
     SPDX text under its authors' names when it ships none, in
@@ -561,6 +562,11 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
 
   On Linux `_dbm` is trimmed: it links Berkeley DB, whose Sleepycat licence asks every binary
   redistribution to say how to get the complete DB source, and nothing staged uses `dbm.ndbm`.
+  On Windows the stage removes the parts of pywin32 the worker never loads (`SITE_TRIM`):
+  `pythonwin/` (the Pythonwin IDE with Scintilla's `scintilla.dll` and Microsoft's `mfc140u.dll`),
+  `isapi/`, `win32/pythonservice.exe`, `win32/perfmondata.dll` and `PyWin32.chm`. The modules the
+  MCP SDK and portalocker import (`win32/`, `win32/lib/`, `pywin32_system32/`) stay, and the import
+  check covers them.
 - **`MANIFEST.json`** lists every regular file with its size and every symlink. electron-builder's
   `afterPack` hook (`electron/verify-pack.cjs`) compares the packed `resources/agent` with it (same
   files, same sizes, nothing extra, no absolute symlink), because electron-builder drops some
