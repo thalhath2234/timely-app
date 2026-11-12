@@ -723,6 +723,22 @@
       "signature": "def rollback_entry(entry_id: str) -> tuple[bool, str]",
       "sha256": "7ea259a4b74f8dfe3892c81dd8df638f452d624b6b119a4d1c9a594c8bd76b54"
     },
+    "skills: per-skill mutation lock (Undo waits for a write's ledger entry)": {
+      "file": "tools/skill_manager_tool.py",
+      "qualname": "_skill_mutation_lock",
+      "line": 93,
+      "end_line": 96,
+      "signature": "def _skill_mutation_lock(name: str)",
+      "sha256": "2e95f9d5fef677bda262582f8ae02ff28609028f7e5851baeddd1bcbad5d01c1"
+    },
+    "messages: a stored message_uid is kept (seeded rows marked for the exfiltration rule)": {
+      "file": "agent/message_metadata.py",
+      "qualname": "stamp_message_uid",
+      "line": 164,
+      "end_line": 174,
+      "signature": "def stamp_message_uid(msg: MutableMapping[str, Any]) -> str",
+      "sha256": "a7676d0cc414b9823671c5fba462cbd885851bbce4cc2800ba3375f2b36501e2"
+    },
     "skill ledger: actor": {
       "file": "tools/skill_ledger.py",
       "qualname": "derive_actor",

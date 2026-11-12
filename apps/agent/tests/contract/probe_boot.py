@@ -1,7 +1,7 @@
 """Test-only wrapper around ``timely_agent/boot.py`` for contract tests 5, 6, 18 and 19.
 
     python -I probe_boot.py [--net-log FILE] [--stdout-tool] [--taint-tool] [--system-via MODE]
-                            [--tool-search MODE] [--slow-bind S] [--slow-ledger S] worker
+                            [--tool-search MODE] [--slow-bind S] [--slow-ledger ACTION:S] worker
 
 ``--net-log FILE`` records every name lookup and every outgoing IP connection the worker
 process makes (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyname_ex``,
@@ -153,15 +153,17 @@ def _install_slow_bind(seconds: float) -> None:
     bridge.bind_session = bind_session
 
 
-def _install_slow_ledger(seconds: float) -> None:
-    """``--slow-ledger S``: Hermes appends a skill write's ledger entry S seconds after the write
-    (a loaded machine), inside the skill's mutation lock as Hermes does."""
+def _install_slow_ledger(action: str, seconds: float) -> None:
+    """``--slow-ledger ACTION:S``: Hermes appends the ledger entry of a skill ``ACTION`` (patch,
+    create ...) S seconds after the write (a loaded machine), inside the skill's mutation lock as
+    Hermes does."""
     import time
     from tools import skill_ledger
     original = skill_ledger.record_mutation
 
     def record_mutation(*args, **kwargs):
-        time.sleep(seconds)
+        if (args[0] if args else kwargs.get("action")) == action:
+            time.sleep(seconds)
         return original(*args, **kwargs)
     skill_ledger.record_mutation = record_mutation
 
@@ -183,8 +185,8 @@ def main(argv: list[str]) -> int:
             seconds = float(argv.pop(0))
             patches.append(lambda seconds=seconds: _install_slow_bind(seconds))
         elif flag == "--slow-ledger":
-            seconds = float(argv.pop(0))
-            patches.append(lambda seconds=seconds: _install_slow_ledger(seconds))
+            action, _, seconds = argv.pop(0).partition(":")
+            patches.append(lambda action=action, seconds=float(seconds): _install_slow_ledger(action, seconds))
         elif flag == "--tool-search":
             mode = argv.pop(0)
             patches.append(lambda mode=mode: _install_tool_search(mode))

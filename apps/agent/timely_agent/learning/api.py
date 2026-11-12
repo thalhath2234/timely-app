@@ -453,7 +453,11 @@ def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
     restored = entry_id in _restored_entries(host.home) and bool(skill_name) and recreates
     feed = _feed()
     superseded: list[str] = []
-    with (feed.lock if feed is not None else _nolock()):
+    # Hermes' skill_manage writes the files first and appends the ledger entry after, both under
+    # the skill's mutation lock: holding that lock here, a write already under way finishes (its
+    # entry included, so it is reported and named in ``superseded``) and a later one waits. Lock
+    # order is feed, then skill, as a user edit takes them (``_user_writes`` around skill_manage).
+    with (feed.lock if feed is not None else _nolock()), _skill_lock(skill_name):
         if feed is not None:
             feed.report_ledger(feed_mod.Context(origin="review"))
         seen = feed.ledger_ids() if feed is not None else {str(e.get("id")) for e in files.read_ledger(host.home)}
@@ -480,6 +484,15 @@ def rollback(msg: dict[str, Any], host: Host) -> dict[str, Any]:
 @contextmanager
 def _nolock() -> Iterator[None]:
     yield
+
+
+def _skill_lock(name: str):
+    """Hermes' per-skill mutation lock (thread-re-entrant, file based); none for an entry without
+    a skill name."""
+    if not name:
+        return _nolock()
+    from tools.skill_manager_tool import _skill_mutation_lock
+    return _skill_mutation_lock(name)
 
 
 def _skill_manage(**kwargs) -> dict[str, Any]:

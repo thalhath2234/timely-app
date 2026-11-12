@@ -276,14 +276,31 @@ def _request_collect(w, a, mtype, **fields) -> tuple[dict, list[dict]]:
             return msg, events
 
 
-def test_c09_undo_during_a_learning_pass_reports_and_names_the_later_change(lagent, lworker, stub):
+@pytest.fixture(scope="module")
+def slow_ledger_worker():
+    """A worker whose skill patches reach the ledger 3 s after the file (a loaded machine)."""
+    a = harness.Agent(harness.new_root("c09us"), prepare_opts={"timely_skills_src": str(FIXTURE_SKILLS)})
+    w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(HERE / "probe_boot.py"),
+                                             "--slow-ledger", "patch:3", "worker"],
+                                    hello={"timely_tools": harness.timely_tools()})
+    assert ready["self_test"]["ok"], ready["self_test"]
+    yield a, w
+    w.close()
+
+
+@pytest.mark.parametrize("slow", [False, True], ids=["prompt-ledger", "slow-ledger"])
+def test_c09_undo_during_a_learning_pass_reports_and_names_the_later_change(lagent, lworker, stub, slow, request):
     """The person clicks Undo on a skill the chat created while the learning pass that followed is
     still patching it (the pass starts as the reply ends). The rollback takes the patch back too:
     the patch's event goes out before the reply, and the reply names its ledger entry in
     ``superseded``, so Go marks it undone instead of showing an applied change whose Undo would
-    bring the skill back (review round 4)."""
-    conv, tag = "c-c09u", "tag-c09u"
-    name = "c09u-undo-skill"
+    bring the skill back (review round 4). With the ledger entry landing well after the file
+    (``slow-ledger``) the Undo waits for the skill's mutation lock, so it still sees the patch
+    (review round 5)."""
+    if slow:
+        lagent, lworker = request.getfixturevalue("slow_ledger_worker")
+    conv, tag = f"c-c09u-{int(slow)}", f"tag-c09u-{int(slow)}"
+    name = f"c09u-undo-skill-{int(slow)}"
     _, ev1, _ = turn(lworker, lagent, stub, "c09u-1", conv, text([{"calls": [create(name)]}], tag))
     created = [e for e in ev1 if e["subject"] == name]
     assert [(e["action"], e["status"]) for e in created] == [("created", "applied")], ev1
