@@ -31,6 +31,7 @@ import {
   assertHostTargets,
   checkTree,
   collectLicenses,
+  copyInto,
   copyleftReview,
   declaresCopyleft,
   fullArchiveName,
@@ -58,6 +59,7 @@ import {
   snapshot,
   stagedManifest,
   stagedPython,
+  trackedSkillNames,
   stdlibDir,
   thirdPartyLicenses,
   trimPlan,
@@ -409,6 +411,26 @@ test("trackedOnly copies only what git tracks and names what it left out", (t) =
   assert.deepEqual(skipped.sort(), ["apps/agent/hermes/.env", "apps/agent/hermes/.venv-probe", "apps/agent/hermes/tools/scratch.py"]);
   const inner = plainCopyFilter(src);
   assert.equal(trackedOnly(inner, { repoRoot, tracked: null }), inner, "no git checkout (the Docker stage): the plain filter");
+});
+
+test("an untracked-only skills folder stages as an empty folder, and an untracked override hides no upstream skill", (t) => {
+  const repoRoot = tmp(t);
+  const skills = path.join(repoRoot, "apps/agent/skills");
+  write(skills, "probe/SKILL.md", "---\n");
+  write(skills, "overrides/replaced/SKILL.md", "---\n");
+  write(skills, "overrides/draft/SKILL.md", "---\n");
+  const out = path.join(repoRoot, "out", "skills");
+  copyInto(skills, out, { recursive: true, filter: trackedOnly(plainCopyFilter(skills), { repoRoot, tracked: new Set(["apps/agent/hermes/a.py"]) }) });
+  assert.deepEqual(readdirSync(out), [], "nothing tracked: an empty folder, which makeReadOnly can walk");
+  makeReadOnly(out);
+  makeWritable(out);
+  copyInto(path.join(repoRoot, "missing"), path.join(repoRoot, "out", "none"), { recursive: true });
+  assert.ok(existsSync(path.join(repoRoot, "out", "none")));
+
+  const overrides = path.join(skills, "overrides");
+  const tracked = new Set(["apps/agent/skills/overrides/replaced/SKILL.md"]);
+  assert.deepEqual(trackedSkillNames(overrides, { repoRoot, tracked }), ["replaced"]);
+  assert.deepEqual(trackedSkillNames(overrides, { repoRoot, tracked: null }), ["draft", "replaced"], "no checkout: every override");
 });
 
 test("gitTracked lists tracked files under the folders asked for, and is null outside a checkout", { skip: spawnSync("git", ["--version"]).status !== 0 && "no git" }, (t) => {

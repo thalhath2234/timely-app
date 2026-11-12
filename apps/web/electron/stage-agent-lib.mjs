@@ -5,7 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -459,6 +459,24 @@ export function trackedOnly(filter, { repoRoot, tracked, skipped = [] }) {
     skipped.push(rel);
     return false;
   };
+}
+
+/**
+ * Names of the skill folders under `dir` (apps/agent/skills/overrides) whose
+ * SKILL.md git tracks; all of them when `tracked` is null (no checkout). An
+ * untracked override never ships (trackedOnly), so it must not hide the
+ * upstream skill it replaces either.
+ */
+export function trackedSkillNames(dir, { repoRoot, tracked }) {
+  return skillDirs(dir)
+    .filter((rel) => !tracked || tracked.has(toPosix(path.relative(repoRoot, path.join(dir, rel, "SKILL.md")))))
+    .map((rel) => path.basename(rel));
+}
+
+/** cpSync `src` to `dest`, leaving `dest` a folder even when `src` is missing or the filter copies nothing. */
+export function copyInto(src, dest, opts) {
+  if (existsSync(src)) cpSync(src, dest, opts);
+  mkdirSync(dest, { recursive: true });
 }
 
 /** 0444 files and 0555 folders (the read-only attribute on Windows files). */

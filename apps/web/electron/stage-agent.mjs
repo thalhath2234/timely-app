@@ -48,6 +48,7 @@ import {
   assertHostTargets,
   checkTree,
   collectLicenses,
+  copyInto,
   copyleftReview,
   dropLongBytecode,
   cpythonLicense,
@@ -68,6 +69,7 @@ import {
   scratchRootFor,
   selectSkills,
   skillDirs,
+  trackedSkillNames,
   stagedManifest,
   stagedPython,
   stdlibDir,
@@ -210,7 +212,7 @@ function installSitePackages(target, python, site, extras) {
 
 // ---------------------------------------------------------------- step 5
 
-function copySource(target, out, selection) {
+function copySource(target, out, selection, tracked) {
   const app = path.join(out, "app");
   mkdirSync(app, { recursive: true });
   for (const rel of ["hermes", "timely_agent", "skills", ".hermes-sync"]) removeTree(path.join(app, rel));
@@ -219,7 +221,6 @@ function copySource(target, out, selection) {
   // Only what git tracks is copied, so an untracked or ignored .env, credential or virtualenv
   // in the working tree never ships (checkTree fails one that gets in anyway). The Docker
   // stage has no .git; its build context leaves out every .env instead.
-  const tracked = gitTracked(repoRoot, ["apps/agent"]);
   const skipped = [];
   // Explicit filters keep cpSync on its JS copier (Node's native path aborts on Windows);
   // verbatimSymlinks keeps a relative link relative instead of rewriting it to this machine.
@@ -236,8 +237,8 @@ function copySource(target, out, selection) {
   cpSync(timelyAgent, path.join(app, "timely_agent"), opts(plainCopyFilter(timelyAgent)));
   const skillsSrc = path.join(agentSrc, "skills");
   const skillsOut = path.join(app, "skills");
-  if (existsSync(skillsSrc)) cpSync(skillsSrc, skillsOut, opts(plainCopyFilter(skillsSrc)));
-  else mkdirSync(skillsOut);
+  // An empty folder when apps/agent/skills is missing or git tracks nothing in it yet.
+  copyInto(skillsSrc, skillsOut, opts(plainCopyFilter(skillsSrc)));
   makeReadOnly(skillsOut);
   const policySrc = path.join(agentSrc, ".hermes-sync", "policy");
   cpSync(policySrc, path.join(app, ".hermes-sync", "policy"), opts(plainCopyFilter(policySrc)));
@@ -372,7 +373,9 @@ export async function stageAgent(targets = resolveTargets()) {
   const policy = path.join(agentSrc, ".hermes-sync", "policy");
   const reviewed = JSON.parse(readFileSync(path.join(policy, "skills-reviewed.json"), "utf8"));
   const denied = JSON.parse(readFileSync(path.join(policy, "skills-denied.json"), "utf8"));
-  const overrides = skillDirs(path.join(agentSrc, "skills", "overrides")).map((rel) => path.basename(rel));
+  // The Docker stage has no .git: tracked is null and every file counts (its build context leaves out .env files).
+  const tracked = gitTracked(repoRoot, ["apps/agent"]);
+  const overrides = trackedSkillNames(path.join(agentSrc, "skills", "overrides"), { repoRoot, tracked });
   const hermesTag = JSON.parse(readFileSync(path.join(hermesSrc, "HERMES_UPSTREAM.json"), "utf8")).tag ?? "";
 
   const results = [];
@@ -403,7 +406,7 @@ export async function stageAgent(targets = resolveTargets()) {
     if (selection.seed.length === 0) {
       throw new Error("no bundled skill would be seeded: apps/agent/hermes/skills or the reviewed list is missing");
     }
-    copySource(target, out, selection);
+    copySource(target, out, selection, tracked);
     const pyVersion = checkInterpreter(target, python);
     seedCheck(target, out, python, selection);
     log(target, `imports: ${checkImports(out, python, cleanEnv(os.homedir())).join(", ")}`);
