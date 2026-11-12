@@ -525,10 +525,17 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   folders of an `extraResources` tree without a word. Empty folders are not compared:
   electron-builder drops them, and the runtime does not need them.
 
-Measured on linux-x64 (2026-11-13, Hermes v0.23.0, without `libpython`): 21,396 files, 442 MB
-unpacked (app/ 343 MB: site-packages 210 MB, hermes 132 MB, timely_agent 1 MB; python/ 99 MB), about
-107 MB as an xz tarball and 157 MB under gzip. Plan 11.4 estimated 420-460 MB unpacked and +105 MB
-compressed. `bin/python3.14` (75 MB) still carries debug info; stripping it is not done (the lock pins
+Measured on linux-x64 (2026-11-13, Hermes v0.23.0, without `libpython` and `_dbm`): 21,395 files,
+440 MB unpacked (app/ 343 MB: site-packages 210 MB, hermes 132 MB, timely_agent 1 MB; python/ 96 MB),
+106 MB as an xz tarball and 156 MB under gzip. Plan 11.4 estimated 420-460 MB unpacked and +105 MB
+compressed (owner answer Q-11.1: +~105 MB per installer).
+
+Installer growth, measured on linux-x64 with Timely Dev 0.3.5: the AppImage is 512.8 MB with the
+runtime and 348.4 MB built `--prepackaged` from the same unpacked app without `resources/agent`, so
+**+164 MB**. electron-builder sets no AppImage compression, and mksquashfs then uses gzip;
+`appImage: { compression: xz }` would bring it near the xz figure, at the cost of slower start-up,
+and is the owner's call. pacman packages with xz (about +106 MB expected; not buildable on the host
+that measured, whose fpm lacks `libcrypt.so.1`). nsis (7z/LZMA) is not measured yet. `bin/python3.14` (75 MB) still carries debug info; stripping it is not done (the lock pins
 the `install_only` build, and the Docker build has no `strip`). Windows and macOS sizes are not
 measured yet.
 
