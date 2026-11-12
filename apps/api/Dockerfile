@@ -73,7 +73,7 @@ USER timely
 # Containers must listen on every interface; the default is loopback only.
 # Agent state (homes, seed tree, Timely skills copy) goes to /data/agent, on the
 # same volume as the rest of the API's data. Terminal and file tools act inside
-# this container (ADR 0026).
+# this container (plan 11.5; ADR 0026 does not say this yet).
 ENV API_BIND=0.0.0.0 \
     TIMELY_DATA_DIR=/data \
     TIMELY_AGENT_RUNTIME=/app/agent
