@@ -646,6 +646,19 @@ def test_c09_learning_stop_right_after_run_start_reaches_the_run(stub, scope):
     assert any("Blocked" in r for r in tool_results(stub, tag)), tool_results(stub, tag)
 
 
+def test_c09_a_skill_named_like_a_denied_bundled_one_is_not_learned(lagent, lworker, stub):
+    """``maps`` is a bundled skill Timely always keeps off (Hermes' skills.disabled): a learned skill
+    of that name would show as learned and never load, so its create is blocked and the model is
+    asked for another name (review round 5)."""
+    conv, tag = "c-c09deny", "tag-c09deny"
+    done, events, _ = turn(lworker, lagent, stub, "c09deny-1", conv, text([{"calls": [create("maps")]}], tag))
+    assert done["completed"], done
+    assert [e for e in events if e["subject"] == "maps"] == [], events
+    assert not skill_dir(lagent, "maps").exists()
+    results = tool_results(stub, tag)
+    assert any("Blocked" in r and "another name" in r for r in results), results
+
+
 def test_c09_no_learning_pass_when_learning_is_off(lagent, lworker, stub):
     """Plan 9b.2: a run with learning_writes false (Sensitive, "Don't learn from this chat", learning
     off) skips Hermes' learning pass (skip_background_review), so the conversation is not replayed

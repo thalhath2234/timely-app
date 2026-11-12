@@ -63,6 +63,8 @@ READ_ONLY_MESSAGE = ("Blocked: {name} is a skill shipped with Timely and is read
                      "Create a learned skill with a new name instead.")
 NAME_MESSAGE = ("Blocked: Timely can't keep a skill named {name} ({why}). Use a plain name of letters, "
                 "digits and dashes, such as weekly-review.")
+OFF_NAME_MESSAGE = ("Blocked: a skill named {name} stays turned off in Timely, so it would never be used. "
+                    "Save it under another name.")
 READ_ONLY_PATH_MESSAGE = "Blocked: {path} belongs to a skill shipped with Timely and is read-only."
 LEARNING_OFF = ("Blocked: Timely is not saving skills or memory yet. Answer without saving; "
                 "do not retry.")
@@ -128,6 +130,16 @@ def _skill_targets(args: dict) -> Iterable[str]:
                 yield op["name"]
 
 
+def _created_names(args: dict) -> list[str]:
+    """The skills a skill_manage call creates: its own name, and each batch operation's."""
+    out = [args["name"]] if args.get("action") == "create" and isinstance(args.get("name"), str) else []
+    ops = args.get("operations")
+    for op in ops if isinstance(ops, list) else []:
+        if isinstance(op, dict) and op.get("action") == "create" and isinstance(op.get("name"), str):
+            out.append(op["name"])
+    return [n for n in out if n]
+
+
 def external_skill(name: str) -> bool:
     """True when ``name`` resolves (as Hermes resolves it) to a skill under an external dir,
     or names a skill folder there."""
@@ -157,6 +169,15 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
                     return {"action": "block", "message": NAME_MESSAGE.format(name=name, why=why)}
                 if external_skill(name):
                     return {"action": "block", "message": READ_ONLY_MESSAGE.format(name=name)}
+            created = _created_names(args)
+            if created:
+                # A name Timely keeps off (a denied bundled skill, whatever skills_enabled says) would
+                # show as learned and never load.
+                from agent.skill_utils import get_disabled_skill_names
+                off = get_disabled_skill_names()
+                for name in created:
+                    if Path(name).name in off:
+                        return {"action": "block", "message": OFF_NAME_MESSAGE.format(name=name)}
             fp = args.get("file_path")
             if isinstance(fp, str) and fp and os.path.isabs(fp) and _under_external(Path(fp)):
                 return {"action": "block", "message": READ_ONLY_PATH_MESSAGE.format(path=fp)}
