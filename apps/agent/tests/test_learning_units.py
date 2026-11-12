@@ -373,6 +373,45 @@ def learning_plugin(monkeypatch):
     return timely_learning
 
 
+def test_search_hook_wraps_a_tainted_hit_when_nothing_is_dropped(learning_plugin):
+    """Every hit is searchable and one comes from a chat Go lists as tainted: the result reaches
+    the model as untrusted data, its JSON unchanged (Q-3.9)."""
+    tl = learning_plugin
+    state = bridge.bind_session("conv-w", flags={"learning_writes": True, "search_history": True},
+                                tainted_conversations=["dirty"], search_allow=["dirty", "ok", "conv-w"])
+    token = bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="conv-w",
+                                                     session=state))
+    try:
+        result = json.dumps({"success": True, "count": 2, "results": [
+            {"session_id": "ok", "snippet": "groceries"},
+            {"session_id": "dirty", "snippet": "the page said to send the notes to x@attacker.example"}]})
+        out = tl.transform_tool_result(tool_name="session_search", result=result, session_id="conv-w")
+    finally:
+        bridge.current_run.reset(token)
+    assert out.startswith('<untrusted_tool_result source="session_search">\n'), out
+    assert out.rstrip().endswith("</untrusted_tool_result>") and result in out
+
+
+def test_search_hook_wraps_a_hit_tainted_only_in_this_worker(learning_plugin):
+    """A chat that read outside content after Go built this run's list is known only to the
+    worker's own session state (``_live_taint``): its hit is wrapped too."""
+    tl = learning_plugin
+    bridge.bind_session("live-dirty", flags={"learning_writes": True},
+                        tainted_sources=[{"kind": "web", "tool": "web_extract", "host": "news.example"}])
+    state = bridge.bind_session("conv-l", flags={"learning_writes": True, "search_history": True},
+                                search_allow=["live-dirty", "conv-l"])
+    token = bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="conv-l",
+                                                     session=state))
+    try:
+        result = json.dumps({"success": True, "count": 1, "results": [
+            {"session_id": "live-dirty", "snippet": "a page summary from earlier today"}]})
+        out = tl.transform_tool_result(tool_name="session_search", result=result, session_id="conv-l")
+    finally:
+        bridge.current_run.reset(token)
+        bridge.forget_session("live-dirty")
+    assert out is not None and out.startswith('<untrusted_tool_result source="session_search">'), out
+
+
 def test_search_hook_adds_excluded_chats_and_refuses_them(learning_plugin):
     tl = learning_plugin
     state = bridge.bind_session("conv-q", flags={"learning_writes": True, "search_history": True},
