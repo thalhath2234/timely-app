@@ -19,6 +19,16 @@
       "publicDomain": false
     },
     {
+      "file": "LICENSE.expat.txt",
+      "spdx": [
+        "MIT"
+      ],
+      "modules": [
+        "pyexpat"
+      ],
+      "publicDomain": false
+    },
+    {
       "file": "LICENSE.libffi.txt",
       "spdx": [
         "MIT"
@@ -49,6 +59,16 @@
       "publicDomain": false
     },
     {
+      "file": "LICENSE.mpdecimal.txt",
+      "spdx": [
+        "BSD-2-Clause"
+      ],
+      "modules": [
+        "_decimal"
+      ],
+      "publicDomain": false
+    },
+    {
       "file": "LICENSE.openssl-3.txt",
       "spdx": [
         "Apache-2.0"
@@ -74,6 +94,16 @@
       ],
       "modules": [
         "_tkinter"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.zlib-ng.txt",
+      "spdx": [
+        "Zlib"
+      ],
+      "modules": [
+        "zlib"
       ],
       "publicDomain": false
     },

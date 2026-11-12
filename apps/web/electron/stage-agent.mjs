@@ -52,7 +52,9 @@ import {
   hermesCopyFilter,
   importCheckSource,
   importsStdlibTest,
+  incorporatedLicenses,
   interpreterLicenses,
+  interpreterModuleProblems,
   largestFolders,
   listTree,
   makeReadOnly,
@@ -433,12 +435,14 @@ export async function stageAgent(targets = resolveTargets()) {
     );
     const native = nativeBinaries(site);
     const statics = staticLicenses(native.dists, staticDir, { components });
-    const interpreter = interpreterLicenses(path.join(agentSrc, "packaging", "python-licenses"), artifact.version, target.key);
+    const pythonLicenses = path.join(agentSrc, "packaging", "python-licenses");
+    const interpreter = interpreterLicenses(pythonLicenses, artifact.version, target.key);
     const pythonDir = path.join(out, "python");
     writeFileSync(
       path.join(out, "THIRD_PARTY_LICENSES"),
       thirdPartyLicenses({
         cpython: readFileSync(path.join(pythonDir, cpythonLicense(pythonDir)), "utf8"),
+        incorporated: incorporatedLicenses(pythonLicenses, artifact.version),
         interpreter,
         hermes: readFileSync(path.join(hermesSrc, "LICENSE"), "utf8"),
         notice: readFileSync(path.join(agentSrc, "NOTICE"), "utf8"),
@@ -452,7 +456,7 @@ export async function stageAgent(targets = resolveTargets()) {
     for (const name of missing) {
       problems.push(`no licence text (no licence file in its wheel and no entry in apps/agent/packaging/licenses/dists.json): ${name}`);
     }
-    problems.push(...review.problems, ...statics.problems);
+    problems.push(...review.problems, ...statics.problems, ...interpreterModuleProblems(pythonDir, interpreter));
     for (const rel of native.unowned) problems.push(`native binary no distribution's RECORD lists, so its licences cannot be checked: app/site-packages/${rel}`);
     if (problems.length) {
       throw new Error(`the staged runtime cannot ship (${problems.length} problems):\n  ${problems.slice(0, 40).join("\n  ")}`);

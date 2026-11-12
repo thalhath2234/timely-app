@@ -16,6 +16,14 @@
 //                        the SPDX ids and the modules that link it
 //     texts/LICENSE.*.txt
 //
+// A module PYTHON.json gives no licence path for (pyexpat, _decimal and zlib on
+// Windows) gets its library's text from the archive anyway (BUNDLED_LIBRARIES).
+// The run also writes <lock version>/incorporated.txt, the notices of the code
+// CPython compiles into the interpreter itself (mimalloc, HACL*, dtoa, SipHash,
+// ...), which CPython's LICENSE.txt leaves out: Doc/license.rst's "Licenses and
+// Acknowledgements for Incorporated Software" and the HACL* header, both from
+// the CPython tag (stage-agent-lib.mjs cpythonIncorporated).
+//
 // stage-agent.mjs adds them to THIRD_PARTY_LICENSES and fails when the pinned
 // version has no record for the target. The archives (about 110 MB each) go
 // to apps/web/.cache/agent/full/ and are deleted once read. Needs tar with
@@ -28,7 +36,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { downloadFile, fullArchiveName, pythonLicenseRecord } from "./stage-agent-lib.mjs";
+import { INCORPORATED_FILE, cpythonIncorporated, downloadFile, fullArchiveName, pythonLicenseRecord } from "./stage-agent-lib.mjs";
 import { TARGETS } from "./targets.mjs";
 
 const webRoot = path.join(import.meta.dirname, "..");
@@ -46,6 +54,17 @@ async function main(keys) {
   const out = path.join(pythonLicensesRoot, python.version);
   mkdirSync(path.join(out, "texts"), { recursive: true });
   mkdirSync(cache, { recursive: true });
+  const cpython = python.version.split("+")[0];
+  const fetchText = async (rel) => {
+    const file = path.join(cache, "cpython-source.txt");
+    await fetchTo(`https://raw.githubusercontent.com/python/cpython/v${cpython}/${rel}`, file);
+    const text = readFileSync(file, "utf8");
+    rmSync(file);
+    return text;
+  };
+  const incorporated = cpythonIncorporated({ rst: await fetchText("Doc/license.rst"), hacl: await fetchText("Modules/_hacl/Hacl_Hash_SHA2.c"), python: cpython });
+  writeFileSync(path.join(out, INCORPORATED_FILE), incorporated);
+  console.log(`python-licenses: CPython ${cpython}'s incorporated-software notices → ${path.relative(repoRoot, out)}/${INCORPORATED_FILE}`);
   let sums = "";
   for (const key of keys) {
     const artifact = python.artifacts[key];

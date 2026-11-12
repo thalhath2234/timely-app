@@ -515,14 +515,23 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   files add, the stdlib.
 - **Licences.** `THIRD_PARTY_LICENSES` holds, in order:
   - CPython's licence;
+  - the third-party code CPython compiles into the interpreter itself (mimalloc, HACL*, David Gay's
+    dtoa, SipHash, Mersenne Twister, cfuhash, the zstd bindings, and the bundled expat and libmpdec),
+    which CPython's `LICENSE.txt` leaves out: the "Licenses and Acknowledgements for Incorporated
+    Software" section of `Doc/license.rst` at the CPython tag, plus the HACL* licence from the header
+    of `Modules/_hacl/Hacl_Hash_SHA2.c`, which that section does not list
+    (`apps/agent/packaging/python-licenses/<lock version>/incorporated.txt`);
   - the libraries python-build-standalone links into the interpreter (OpenSSL, libffi, mpdecimal,
     expat, SQLite, zstd, xz, bzip2, zlib, libedit/ncurses, ...), with the modules that use each.
     The `install_only` archive carries none of their texts, so `make agent-python-licenses` takes
     them once from the matching `full` archive (sha256-checked against the release's `SHA256SUMS`,
     which must also list the lock's `install_only` sha256) into
-    `apps/agent/packaging/python-licenses/<lock version>/<target>.json` and `texts/`. Staging fails
-    when the pinned version has no record for the target, so run it after a Hermes sync that moves
-    the Python pin and commit the result;
+    `apps/agent/packaging/python-licenses/<lock version>/<target>.json` and `texts/`. On Windows
+    PYTHON.json gives `pyexpat`, `_decimal` and `zlib` no licence path although `DLLs/pyexpat.pyd`,
+    `DLLs/_decimal.pyd` and `zlib1.dll` hold expat, mpdecimal and zlib-ng, so the record takes those
+    texts from the archive anyway (`BUNDLED_LIBRARIES`), and staging fails when a shipped module of
+    that kind has no licence in the record. Staging also fails when the pinned version has no record
+    for the target, so run it after a Hermes sync that moves the Python pin and commit the result;
   - Hermes' MIT licence and `apps/agent/NOTICE`;
   - each distribution's name, version, licence metadata and licence files. A licence name alone is
     not enough (MIT and BSD require the copyright notice): a wheel without a licence file takes the

@@ -37,7 +37,11 @@ import {
   declaresCopyleft,
   downloadFile,
   fullArchiveName,
+  BUNDLED_LIBRARIES,
+  cpythonIncorporated,
+  incorporatedLicenses,
   interpreterLicenses,
+  interpreterModuleProblems,
   pythonLicenseRecord,
   cpythonLicense,
   diffSnapshots,
@@ -967,6 +971,64 @@ test("pythonLicenseRecord groups PYTHON.json's licence files by library and modu
   assert.throws(() => pythonLicenseRecord({ key: "k", archive: "a", sha256: "s", meta, texts: {} }), /names licenses\/LICENSE\.openssl-3\.txt, which the archive does not hold/);
 });
 
+test("pythonLicenseRecord takes the bundled library's text for a module PYTHON.json gives no licence path (Windows' pyexpat, _decimal, zlib)", () => {
+  const meta = {
+    python_version: "3.14.9",
+    build_info: {
+      extensions: {
+        _ssl: [{ licenses: ["Apache-2.0"], license_paths: ["licenses/LICENSE.openssl-3.txt"] }],
+        pyexpat: [{ shared_lib: "install/DLLs/pyexpat.pyd" }],
+        _decimal: [{ shared_lib: "install/DLLs/_decimal.pyd" }],
+        zlib: [{ in_core: true }],
+      },
+    },
+  };
+  const texts = { "LICENSE.openssl-3.txt": "Apache", "LICENSE.expat.txt": "MIT", "LICENSE.mpdecimal.txt": "BSD", "LICENSE.zlib-ng.txt": "zlib" };
+  const r = pythonLicenseRecord({ key: "win32-x64", archive: "a.tar.zst", sha256: "s", meta, texts });
+  assert.deepEqual(
+    r.libraries.map((l) => [l.file, l.spdx, l.modules]),
+    [
+      ["LICENSE.expat.txt", ["MIT"], ["pyexpat"]],
+      ["LICENSE.mpdecimal.txt", ["BSD-2-Clause"], ["_decimal"]],
+      ["LICENSE.openssl-3.txt", ["Apache-2.0"], ["_ssl"]],
+      ["LICENSE.zlib-ng.txt", ["Zlib"], ["zlib"]],
+    ],
+  );
+  // A module with its own licence path keeps it; a missing fallback text fails.
+  meta.build_info.extensions.pyexpat = [{ licenses: ["MIT"], license_paths: ["licenses/LICENSE.expat.txt"] }];
+  assert.deepEqual(pythonLicenseRecord({ key: "k", archive: "a", sha256: "s", meta, texts }).libraries.find((l) => l.file === "LICENSE.expat.txt").modules, ["pyexpat"]);
+  delete texts["LICENSE.mpdecimal.txt"];
+  assert.throws(() => pythonLicenseRecord({ key: "k", archive: "a", sha256: "s", meta, texts }), /_decimal has no licence path and the archive holds no LICENSE\.mpdecimal\.txt/);
+});
+
+test("a shipped pyexpat, _decimal or zlib1.dll whose library the interpreter's licence record lacks fails the stage", (t) => {
+  const root = tmp(t);
+  write(root, "DLLs/_decimal.pyd");
+  write(root, "DLLs/pyexpat.pyd");
+  write(root, "DLLs/zlib1.dll");
+  write(root, "DLLs/_ssl.pyd");
+  write(root, "python314.dll");
+  const before = [{ file: "LICENSE.openssl-3.txt", modules: ["_hashlib", "_ssl"] }];
+  assert.deepEqual(interpreterModuleProblems(root, before).map((p) => p.split(" ")[0]).sort(), ["python/DLLs/_decimal.pyd", "python/DLLs/pyexpat.pyd", "python/DLLs/zlib1.dll"]);
+  assert.match(interpreterModuleProblems(root, before).join("\n"), /links mpdecimal, which the interpreter's licence record does not cover: run make agent-python-licenses/);
+  const after = [...before, { file: "LICENSE.expat.txt", modules: ["pyexpat"] }, { file: "LICENSE.mpdecimal.txt", modules: ["_decimal"] }, { file: "LICENSE.zlib-ng.txt", modules: ["zlib"] }];
+  assert.deepEqual(interpreterModuleProblems(root, after), []);
+  write(root, "lib/python3.14/lib-dynload/_decimal.cpython-314-x86_64-linux-gnu.so");
+  assert.equal(interpreterModuleProblems(root, before).filter((p) => p.includes("lib-dynload")).length, 1);
+});
+
+test("cpythonIncorporated keeps Doc/license.rst's incorporated-software section and adds the HACL* licence", () => {
+  const rst = "CPython\n=======\n\nPSF text\n\nLicenses and Acknowledgements for Incorporated Software\n=======================================================\n\nmimalloc\n--------\n\n   Copyright (c) 2018-2021 Microsoft Corporation, Daan Leijen\n";
+  const hacl = "/* MIT License\n *\n * Copyright (c) 2016-2022 INRIA, CMU and Microsoft Corporation\n *\n * Permission is hereby granted\n */\n\n#include \"x.h\"\n";
+  const text = cpythonIncorporated({ rst, hacl, python: "3.14.9" });
+  assert.match(text, /blob\/v3\.14\.9\/Doc\/license\.rst/);
+  assert.doesNotMatch(text, /PSF text/);
+  assert.match(text, /^Licenses and Acknowledgements for Incorporated Software\n=+\n\nmimalloc/m);
+  assert.match(text, /HACL\*\n-----\n[\s\S]*\n {3}MIT License\n\n {3}Copyright \(c\) 2016-2022 INRIA, CMU and Microsoft Corporation\n\n {3}Permission is hereby granted\n$/);
+  assert.throws(() => cpythonIncorporated({ rst: "no section", hacl, python: "3.14.9" }), /has no "Licenses and Acknowledgements/);
+  assert.throws(() => cpythonIncorporated({ rst, hacl: "#include", python: "3.14.9" }), /MIT licence header/);
+});
+
 test("every desktop target has the licences of the interpreter's built-in libraries for the pinned Python, and they reach THIRD_PARTY_LICENSES", (t) => {
   const lock = JSON.parse(readFileSync(path.join(repo, "apps/agent/hermes/pm/lock.json"), "utf8"));
   const version = lock.packages.python.version;
@@ -980,12 +1042,22 @@ test("every desktop target has the licences of the interpreter's built-in librar
     for (const lib of libs) assert.ok(lib.text.trim().length > 0 && !lib.text.includes("\r"), `${key}: ${lib.file}`);
     const record = JSON.parse(readFileSync(path.join(root, version, `${key}.json`), "utf8"));
     assert.equal(record.archive, fullArchiveName(decodeURIComponent(path.posix.basename(new URL(lock.packages.python.artifacts[key].url).pathname))));
-    if (key !== "win32-x64") for (const m of ["_ctypes", "_decimal", "pyexpat", "_lzma", "_bz2", "zlib", "_zstd"]) assert.ok(libs.some((l) => l.modules.includes(m)), `${key}: ${m}`);
-    const text = thirdPartyLicenses({ cpython: "PSF", interpreter: libs, hermes: "MIT", notice: "N", dists: [] });
+    // Windows too: its PYTHON.json gives pyexpat, _decimal and zlib no licence path (BUNDLED_LIBRARIES).
+    for (const m of ["_ctypes", "_decimal", "pyexpat", "_lzma", "_bz2", "zlib", "_zstd"]) assert.ok(libs.some((l) => l.modules.includes(m)), `${key}: ${m}`);
+    const incorporated = incorporatedLicenses(root, version);
+    const text = thirdPartyLicenses({ cpython: "PSF", incorporated, interpreter: libs, hermes: "MIT", notice: "N", dists: [] });
     assert.match(text, /Libraries built into the interpreter/);
     assert.match(text, /--- openssl-3: Apache-2\.0 \(used by _hashlib, _ssl\)/);
+    assert.match(text, /Software incorporated in CPython \(python\/\)/);
+    // What CPython compiles into the interpreter itself, and the libraries Windows builds into DLLs/*.pyd.
+    for (const notice of ["HACL*", "INRIA, CMU and Microsoft", "Daan Leijen", "David M. Gay", "SipHash", "Makoto Matsumoto", "Don Owens", "Ma Lin", "Thai Open Source Software Center", "Stefan Krah", "Jean-loup Gailly"]) {
+      assert.ok(text.includes(notice), `${key}: ${notice}`);
+    }
   }
+  const win = interpreterLicenses(root, version, "win32-x64");
+  for (const [module, lib] of Object.entries(BUNDLED_LIBRARIES)) assert.ok(win.some((l) => l.file === lib.file && l.modules.includes(module)), `win32-x64: ${module} -> ${lib.file}`);
   assert.throws(() => interpreterLicenses(root, "3.99.0+1", "linux-x64"), /make agent-python-licenses/);
+  assert.throws(() => incorporatedLicenses(root, "3.99.0+1"), /make agent-python-licenses/);
   void t;
 });
 

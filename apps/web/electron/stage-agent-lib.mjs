@@ -823,10 +823,25 @@ export function fullArchiveName(installOnly) {
 }
 
 /**
+ * Libraries a module is built from where PYTHON.json may give no licence path.
+ * On win32-x64 python-build-standalone records none for pyexpat (expat),
+ * _decimal (mpdecimal 4) and zlib (zlib-ng, in python3XX.dll and zlib1.dll),
+ * yet the binaries hold them and the `full` archive has their texts; the
+ * other targets record them. pythonLicenseRecord falls back to these, and
+ * interpreterModuleProblems fails a stage whose record lacks one it ships.
+ */
+export const BUNDLED_LIBRARIES = {
+  pyexpat: { file: "LICENSE.expat.txt", spdx: ["MIT"] },
+  _decimal: { file: "LICENSE.mpdecimal.txt", spdx: ["BSD-2-Clause"] },
+  zlib: { file: "LICENSE.zlib-ng.txt", spdx: ["Zlib"] },
+};
+
+/**
  * What python-licenses.mjs records for one target from a `full` archive's
  * PYTHON.json and python/licenses/: per licence file, the SPDX ids and the
- * modules that link the library. CPython's own licence is left out (the
- * install_only archive ships it).
+ * modules that link the library, with BUNDLED_LIBRARIES standing in for a
+ * module PYTHON.json gives no licence path. CPython's own licence is left out
+ * (the install_only archive ships it).
  */
 export function pythonLicenseRecord({ key, archive, sha256, meta, texts }) {
   const byFile = new Map();
@@ -845,6 +860,15 @@ export function pythonLicenseRecord({ key, archive, sha256, meta, texts }) {
     }
   }
   if (byFile.size === 0) throw new Error(`${archive}: PYTHON.json names no licence files for its extension modules`);
+  for (const [module, fallback] of Object.entries(BUNDLED_LIBRARIES)) {
+    const variants = extensions[module];
+    if (!variants || variants.some((v) => (v.license_paths ?? []).length)) continue;
+    if (!(fallback.file in texts)) throw new Error(`${archive}: ${module} has no licence path and the archive holds no ${fallback.file}`);
+    const lib = byFile.get(fallback.file) ?? { file: fallback.file, spdx: new Set(), modules: new Set(), publicDomain: false };
+    for (const id of fallback.spdx) lib.spdx.add(id);
+    lib.modules.add(module);
+    byFile.set(fallback.file, lib);
+  }
   const libraries = [...byFile.values()]
     .map((l) => ({ file: l.file, spdx: [...l.spdx].sort(), modules: [...l.modules].sort(), publicDomain: l.publicDomain }))
     .sort((a, b) => (a.file < b.file ? -1 : 1));
@@ -865,6 +889,78 @@ export function interpreterLicenses(root, version, key) {
   }
   const record = JSON.parse(readFileSync(file, "utf8"));
   return record.libraries.map((lib) => ({ ...lib, text: readFileSync(path.join(root, version, "texts", lib.file), "utf8") }));
+}
+
+/**
+ * Problems for interpreter modules shipped as their own file (DLLs/*.pyd,
+ * lib-dynload/*.so, Windows' zlib1.dll) that link a BUNDLED_LIBRARIES library
+ * no licence in `libraries` (interpreterLicenses) covers. On Linux and macOS
+ * these modules are built into the interpreter, which the record covers from
+ * PYTHON.json.
+ */
+export function interpreterModuleProblems(pythonDir, libraries) {
+  const covered = new Set(libraries.flatMap((l) => l.modules));
+  const problems = [];
+  walk(pythonDir, (_full, rel, entry) => {
+    if (!entry.isFile()) return true;
+    const name = entry.name.toLowerCase();
+    const module = /^zlib1\.dll$/.test(name) ? "zlib" : /^([a-z_]+?)(\.[\w-]+)?\.(pyd|so|dylib)$/.exec(name)?.[1];
+    if (module && BUNDLED_LIBRARIES[module] && !covered.has(module)) {
+      problems.push(`python/${rel} links ${BUNDLED_LIBRARIES[module].file.replace(/^LICENSE\.|\.txt$/g, "")}, which the interpreter's licence record does not cover: run make agent-python-licenses and commit the result`);
+    }
+    return true;
+  });
+  return problems;
+}
+
+/** The file holding CPython's "Licenses and Acknowledgements for Incorporated Software" for a lock version. */
+export const INCORPORATED_FILE = "incorporated.txt";
+
+/**
+ * The notices of the third-party code CPython compiles into the interpreter
+ * itself (mimalloc, HACL*, dtoa, SipHash, Mersenne Twister, cfuhash, expat,
+ * libmpdec, the zstd bindings, ...), which CPython's LICENSE.txt leaves out:
+ * the "Licenses and Acknowledgements for Incorporated Software" section of
+ * Doc/license.rst at the tag (`rst`), then the HACL* licence from the header
+ * of Modules/_hacl/Hacl_Hash_SHA2.c (`hacl`), which that section does not list.
+ */
+export function cpythonIncorporated({ rst, hacl, python }) {
+  const tag = `v${python}`;
+  const lines = rst.replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((l, i) => l === "Licenses and Acknowledgements for Incorporated Software" && /^=+$/.test(lines[i + 1] ?? ""));
+  if (start < 0) throw new Error(`Doc/license.rst at ${tag} has no "Licenses and Acknowledgements for Incorporated Software" section`);
+  const section = lines.slice(start).join("\n").trim();
+  const header = /^\/\*\s*MIT License\s*\n([\s\S]*?)\*\//.exec(hacl.replace(/\r\n/g, "\n"));
+  if (!header) throw new Error(`Modules/_hacl/Hacl_Hash_SHA2.c at ${tag} does not start with its MIT licence header`);
+  const haclText = ["MIT License", ...header[1].split("\n").map((l) => l.replace(/^ ?\* ?/, ""))].join("\n").trim();
+  return [
+    `CPython ${python}: the third-party code CPython builds into the interpreter (CPython's LICENSE.txt above leaves it out).`,
+    `From https://github.com/python/cpython/blob/${tag}/Doc/license.rst and, for HACL*, the header of Modules/_hacl/Hacl_Hash_SHA2.c.`,
+    "",
+    section,
+    "",
+    "",
+    "HACL*",
+    "-----",
+    "",
+    "The built-in MD5, SHA-1, SHA-2, SHA-3, BLAKE2 and HMAC of the :mod:`hashlib` module (Modules/_hacl) come from",
+    "HACL* (https://github.com/hacl-star/hacl-star), distributed under the MIT license::",
+    "",
+    ...haclText.split("\n").map((l) => (l ? `   ${l}` : "")),
+    "",
+  ].join("\n");
+}
+
+/** The recorded notices of the code CPython incorporates (cpythonIncorporated) for a lock version. */
+export function incorporatedLicenses(root, version) {
+  const file = path.join(root, version, INCORPORATED_FILE);
+  if (!existsSync(file)) {
+    throw new Error(
+      `no notices of the code CPython ${version} incorporates (${file}). Run make agent-python-licenses after a Hermes sync ` +
+        "that moves the Python pin, and commit the result.",
+    );
+  }
+  return readFileSync(file, "utf8");
 }
 
 /** Does this distribution ship GPL or LGPL code (its metadata licence, or a `License: ...GPL` line in a licence file)? */
@@ -1028,13 +1124,14 @@ export function staticLicenses(found, staticDir, { components = {} } = {}) {
 }
 
 /**
- * THIRD_PARTY_LICENSES: CPython, the libraries built into the interpreter,
+ * THIRD_PARTY_LICENSES: CPython, the code it incorporates (`incorporated`,
+ * incorporatedLicenses), the libraries built into the interpreter,
  * Hermes, Timely's NOTICE, every distribution, the code linked statically
  * into distributions' native modules (`statics`, from staticLicenses), then the GPL and LGPL
  * libraries shipped in binary form with their sources and the full licence
  * texts they need (`gnuTexts`: {id: text}).
  */
-export function thirdPartyLicenses({ cpython, interpreter = [], hermes, notice, dists, statics = [], copyleft = [], gnuTexts = {} }) {
+export function thirdPartyLicenses({ cpython, incorporated = "", interpreter = [], hermes, notice, dists, statics = [], copyleft = [], gnuTexts = {} }) {
   const rule = "=".repeat(78);
   const parts = [
     "Third-party software in Timely's agent runtime (resources/agent, /app/agent).",
@@ -1045,6 +1142,7 @@ export function thirdPartyLicenses({ cpython, interpreter = [], hermes, notice, 
     cpython.trim(),
     "",
   ];
+  if (incorporated.trim()) parts.push(rule, "Software incorporated in CPython (python/)", rule, incorporated.trim(), "");
   if (interpreter.length) {
     parts.push(
       rule,
