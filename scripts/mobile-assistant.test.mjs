@@ -691,7 +691,7 @@ test("Settings → Agent's row counts learned and edited skills, About you and w
 
 test("Activity rows say what changed, its status, when and where from; Undo only while in effect", () => {
   const now = Date.parse("2026-11-11T12:00:00Z");
-  assert.deepEqual(learning.activityRow(lev(), now), { title: "Skill “bank-csv-import” created", meta: "Learned · 2 h ago · from a chat" });
+  assert.deepEqual(learning.activityRow(lev(), now), { title: "Skill “bank-csv-import” created", meta: "Learned · 2 h ago · in a chat" });
   assert.deepEqual(learning.activityRow(lev({ kind: "user", action: "replaced", origin: "user", status: "undone", createdAt: "2026-11-11T11:57:00Z" }), now), {
     title: "About you updated",
     meta: "Undone · 3 min ago · by you",
@@ -738,7 +738,7 @@ test("About you's meter follows the edit, and Save needs a change that fits", ()
 test("Waiting for you rows read the worker's items with the card's words", () => {
   const now = Date.parse("2026-11-11T12:00:00Z");
   const item = { pending_id: "p1", kind: "skill", subject: "flipkart-price-read", action: "patched", diff: "-old\n+new", origin: "chat", conversation_id: "c1", created_at: "2026-11-11T11:00:00Z" };
-  assert.equal(learning.pendingMeta(item, now), "from a chat · 1 h ago");
+  assert.equal(learning.pendingMeta(item, now), "in a chat · 1 h ago");
   assert.equal(learning.pendingMeta({ ...item, summary: "Reads the deal price" }, now), "Reads the deal price · 1 h ago");
   const tainted = { ...item, reason: "tainted", tainted_sources: [{ kind: "web", tool: "web_extract" }] };
   assert.equal(learning.pendingWhy(tainted), "This chat read something from outside Timely, so it waits for you.");

@@ -22,6 +22,7 @@ import {
   pendingItemWhy,
   activityStatus,
   learnedOffSummary,
+  originWords,
 } from "../packages/contract/src/agentLearning.ts";
 
 let seq = 0;
@@ -347,6 +348,11 @@ describe("Settings rows", () => {
     assert.equal(activityStatus({ status: "applied", origin: "user" }), "");
     assert.equal(activityStatus({ status: "undone", origin: "user" }), statusWord("undone"));
     assert.equal(activityStatus({ status: "applied", origin: "review" }), statusWord("applied"));
+    // one wording for both apps' Activity (review round 6)
+    assert.deepEqual(
+      ["chat", "review", "bot", "user", "curator", "sync", "restore", "other"].map(originWords),
+      ["in a chat", "after a chat", "from a bot", "by you", "by Timely", "from an update", "from a backup", ""],
+    );
   });
 });
 

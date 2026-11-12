@@ -19,6 +19,7 @@ import {
   pendingCard,
   projectedMemoryUse,
   activityStatus,
+  originWords,
   learnedSkillCount,
   type BudgetMeter,
   type LearnedSkill,
@@ -166,16 +167,6 @@ export function learnedRowMeta(
   return learnedSummary(learnedSkillCount(skills), waiting);
 }
 
-const ORIGIN_WORDS: Record<string, string> = {
-  chat: "from a chat",
-  review: "after a chat",
-  bot: "from a bot",
-  user: "by you",
-  curator: "tidy-up",
-  sync: "from an update",
-  restore: "from a backup",
-};
-
 /** "3 min ago" style, from an RFC 3339 time. */
 export function ago(iso: string, now = Date.now()): string {
   const at = Date.parse(iso);
@@ -189,10 +180,10 @@ export function ago(iso: string, now = Date.now()): string {
   return days === 1 ? "yesterday" : `${days} days ago`;
 }
 
-/** An Activity row: what changed, then "Learned · 2 h ago · from a chat". */
+/** An Activity row: what changed, then "Learned · 2 h ago · in a chat". */
 export function activityRow(ev: LearningEvent, now = Date.now()): { title: string; meta: string } {
   // The person's own change says "by you", not "Learned" (activityStatus).
-  const meta = [activityStatus(ev), ago(ev.createdAt, now), ORIGIN_WORDS[ev.origin] ?? ""].filter(Boolean).join(" · ");
+  const meta = [activityStatus(ev), ago(ev.createdAt, now), originWords(ev.origin)].filter(Boolean).join(" · ");
   return { title: cardLine(ev), meta };
 }
 
@@ -249,7 +240,7 @@ export function pendingMeta(
   item: Pick<PendingItem, "origin" | "created_at"> & { summary?: string },
   now = Date.now(),
 ): string {
-  return [item.summary || ORIGIN_WORDS[item.origin] || "", ago(item.created_at, now)].filter(Boolean).join(" · ");
+  return [item.summary || originWords(item.origin), ago(item.created_at, now)].filter(Boolean).join(" · ");
 }
 
 /** Why it waits, in the card's words (the worker's reason, or the chat's outside content). */

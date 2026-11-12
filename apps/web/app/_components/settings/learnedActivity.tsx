@@ -5,6 +5,7 @@ import {
   ACTIVITY,
   canUndoLearning,
   cardLine,
+  originWords,
   statusWord,
   type LearningEvent,
 } from "@timely/contract/agentLearning";
@@ -14,16 +15,6 @@ import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import { cn } from "@/app/utils/cn";
 import { useLearningActivity, useUndoLearning } from "@/app/utils/hooks/learning";
 import { EmptyRow, ErrorRow, Tag, confirmUndo, when } from "./learnedShared";
-
-const ORIGIN: Record<string, string> = {
-  chat: "in a chat",
-  review: "after a chat",
-  bot: "from a bot",
-  user: "by you",
-  curator: "by Timely",
-  sync: "with an update",
-  restore: "from a backup",
-};
 
 /** Activity: every change, newest first, with Undo on what can still be taken back. */
 export default function LearnedActivity() {
@@ -72,7 +63,7 @@ function ActivityRow({ event, events }: { event: LearningEvent; events: Learning
   const Icon = event.kind === "skill" ? Lightbulb : event.kind === "user" ? UserRound : BookOpen;
   const live = canUndoLearning(event);
   const blocked = event.status === "blocked";
-  const meta = [ORIGIN[event.origin] ?? "", when(event.createdAt)].filter(Boolean).join(" · ");
+  const meta = [originWords(event.origin), when(event.createdAt)].filter(Boolean).join(" · ");
   return (
     <div className="flex min-h-12 items-center gap-2.5 px-3.5 py-1.5">
       <span

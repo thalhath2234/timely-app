@@ -535,6 +535,22 @@ export function pendingItemWhy(ev: LearningEvent): string {
   return "Timely waits for you before saving this.";
 }
 
+/** Where an Activity change came from, as both apps' Activity lists say it (one wording, review round 6). */
+export const ORIGIN_WORDS: Record<string, string> = {
+  chat: "in a chat",
+  review: "after a chat",
+  bot: "from a bot",
+  user: "by you",
+  curator: "by Timely",
+  sync: "from an update",
+  restore: "from a backup",
+};
+
+/** An Activity row's origin words ("" for an origin Timely does not name). */
+export function originWords(origin: string): string {
+  return ORIGIN_WORDS[origin] ?? "";
+}
+
 /** An Activity row's status word: none for the person's own change still in effect ("by you" says it). */
 export function activityStatus(ev: Pick<LearningEvent, "status" | "origin">): string {
   if (ev.origin === "user" && (ev.status === "applied" || ev.status === "kept")) return "";
