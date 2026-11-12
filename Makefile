@@ -644,7 +644,7 @@ hermes-skills-review: ## Record reviewed skill trees in skills-reviewed.json aft
 
 ##@ Agent runtime packaging (plan 11.4, 11.5)
 
-.PHONY: stage-agent smoke-agent agent-python-licenses agent-static-licenses test-stage-agent clean-agent-stage docker-api docker-agent-smoke
+.PHONY: stage-agent smoke-agent agent-python-licenses agent-static-licenses test-stage-agent clean-agent-stage agent-tracked-list docker-api docker-agent-smoke
 stage-agent: ## Stage the agent runtime for this host into apps/web/.electron-agent/<os>-<arch> (CPython from Hermes' pm/lock.json, uv.lock + extras, shipped skills, compileall, ship checks, THIRD_PARTY_LICENSES, MANIFEST.json); needs uv
 	@node $(WEB)/electron/stage-agent.mjs
 
@@ -663,8 +663,12 @@ test-stage-agent: ## Test the agent staging helpers: lock pins, extras, host che
 clean-agent-stage: ## Delete staged agent runtimes (apps/web/.electron-agent) and their scratch folders; the interpreter download cache stays
 	@node $(WEB)/electron/stage-agent.mjs --clean
 
-docker-api: ## Build the API Docker image (Debian slim with the agent runtime) as timely-api:local
+agent-tracked-list: ## Write apps/agent/.git-tracked, the files git tracks under apps/agent: the image's agent stage has no .git and copies only these; run it before docker build or docker compose build (docker-api and docker-agent-smoke do)
+	@git ls-files -z --cached -- apps/agent > apps/agent/.git-tracked
+	@echo "apps/agent/.git-tracked: $$(git ls-files --cached -- apps/agent | wc -l) files"
+
+docker-api: agent-tracked-list ## Build the API Docker image (Debian slim with the agent runtime) as timely-api:local
 	docker build -f $(API)/Dockerfile -t timely-api:local .
 
-docker-agent-smoke: ## Build the API image in a throwaway BuildKit builder and smoke-test its agent runtime read-only, as uid 10001, with a throwaway Postgres (removes what it creates, build cache included)
+docker-agent-smoke: agent-tracked-list ## Build the API image in a throwaway BuildKit builder and smoke-test its agent runtime read-only, as uid 10001, with a throwaway Postgres (removes what it creates, build cache included)
 	@bash scripts/docker-agent-smoke.sh

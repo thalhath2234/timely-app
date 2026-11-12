@@ -21,7 +21,8 @@ RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/timely-
 # ---------------------------------------------------------------- agent runtime
 # stage-agent.mjs uses only node: builtins, uv and tar. It needs the Makefile
 # (AGENT_PYTHON_VERSION), apps/agent and its own three files at their repo
-# paths. It stages the build platform's own target only, so TARGETARCH picks
+# paths. With no .git here it copies only the files apps/agent/.git-tracked
+# lists (make agent-tracked-list; make docker-api runs it) and fails without it. It stages the build platform's own target only, so TARGETARCH picks
 # the key: amd64 is linux-x64, arm64 is linux-arm64 (not built by any release).
 FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS agent
 

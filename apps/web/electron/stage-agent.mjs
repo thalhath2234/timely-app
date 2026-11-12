@@ -49,7 +49,6 @@ import {
   dropLongBytecode,
   downloadFile,
   cpythonLicense,
-  gitTracked,
   hermesCopyFilter,
   importCheckSource,
   importsStdlibTest,
@@ -69,6 +68,7 @@ import {
   sourceHash,
   skillDirs,
   trackedSkillNames,
+  trackedSources,
   stagedManifest,
   staticLicenses,
   stagedPython,
@@ -206,7 +206,7 @@ function installSitePackages(target, python, site, extras) {
 
 // ---------------------------------------------------------------- step 5
 
-function copySource(target, out, selection, tracked) {
+function copySource(target, out, selection, tracked, trackedFrom) {
   const app = path.join(out, "app");
   mkdirSync(app, { recursive: true });
   for (const rel of ["hermes", "timely_agent", "skills", ".hermes-sync"]) removeTree(path.join(app, rel));
@@ -214,7 +214,7 @@ function copySource(target, out, selection, tracked) {
 
   // Only what git tracks is copied, so an untracked or ignored .env, credential or virtualenv
   // in the working tree never ships (checkTree fails one that gets in anyway). The Docker
-  // stage has no .git; its build context leaves out every .env instead.
+  // stage has no .git and reads the list make agent-tracked-list wrote instead.
   const skipped = [];
   // Explicit filters keep cpSync on its JS copier (Node's native path aborts on Windows);
   // verbatimSymlinks keeps a relative link relative instead of rewriting it to this machine.
@@ -240,9 +240,8 @@ function copySource(target, out, selection, tracked) {
   copyFileSync(path.join(agentSrc, "NOTICE"), path.join(out, "NOTICE"));
   if (skipped.length) {
     log(target, `left out ${skipped.length} untracked or ignored path(s) git does not track: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? ", ..." : ""}`);
-  } else if (!tracked) {
-    log(target, "no git checkout: copied the source folders without the git-tracked filter");
   }
+  if (trackedFrom !== "git") log(target, `no git checkout: copied only the files ${trackedFrom} lists`);
   log(
     target,
     `copied the source: ${selection.seed.length} bundled skills (seed set), ${selection.optional.length} offered optional skills, ` +
@@ -382,8 +381,8 @@ export async function stageAgent(targets = resolveTargets()) {
   const policy = path.join(agentSrc, ".hermes-sync", "policy");
   const reviewed = JSON.parse(readFileSync(path.join(policy, "skills-reviewed.json"), "utf8"));
   const denied = JSON.parse(readFileSync(path.join(policy, "skills-denied.json"), "utf8"));
-  // The Docker stage has no .git: tracked is null and every file counts (its build context leaves out .env files).
-  const tracked = gitTracked(repoRoot, ["apps/agent"]);
+  // The Docker stage has no .git: the list make agent-tracked-list wrote stands in (trackedSources).
+  const { tracked, from: trackedFrom } = trackedSources(repoRoot);
   const overrides = trackedSkillNames(path.join(agentSrc, "skills", "overrides"), { repoRoot, tracked });
   const sources = sourceHash(repoRoot, tracked);
 
@@ -415,7 +414,7 @@ export async function stageAgent(targets = resolveTargets()) {
     if (selection.seed.length === 0) {
       throw new Error("no bundled skill would be seeded: apps/agent/hermes/skills or the reviewed list is missing");
     }
-    copySource(target, out, selection, tracked);
+    copySource(target, out, selection, tracked, trackedFrom);
     const pyVersion = checkInterpreter(target, python);
     seedCheck(target, out, python, selection);
     log(target, `imports: ${checkImports(out, python, cleanEnv(os.homedir())).join(", ")}`);
@@ -513,7 +512,7 @@ function cliTargets(argv) {
  */
 export function reuseStagedAgent(targets) {
   const inputs = stageInputs();
-  const sources = sourceHash(repoRoot, gitTracked(repoRoot, ["apps/agent"]));
+  const sources = sourceHash(repoRoot, trackedSources(repoRoot).tracked);
   return targets.map((target) => {
     const out = path.join(stageRoot, target.stageDir);
     const manifest = stagedManifest(out, target.key, { marker: stageMarker(inputs, target.key), hermesTag: inputs.hermesTag, sources });

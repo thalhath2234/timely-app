@@ -476,8 +476,12 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   none). The CPython licence stays.
 - **What of the source ships.** In a git checkout only files git tracks are copied
   (`git ls-files`), so an untracked or ignored `.env`, credential or virtualenv in the working tree
-  never reaches the stage; the log names what was left out. The Docker build has no `.git` and copies
-  the folders as they are (its build context leaves out every `.env`). `app/hermes/skills/` holds only the seed set (reviewed in
+  never reaches the stage; the log names what was left out. The Docker build has no `.git`: it copies
+  only the files `apps/agent/.git-tracked` lists (`git ls-files -z` output that `make
+  agent-tracked-list` writes, and `make docker-api` and `make docker-agent-smoke` run first), and it
+  fails without that list. The tree check also fails a dotenv file, `.netrc`, `.pypirc`, `.npmrc`,
+  `credentials*.json`, an SSH key, a `*.pem`/`*.key`/`*.p12`/`*.pfx` file or a `.ssh/`, `.gnupg/`
+  or `.aws/` folder under `app/` outside `site-packages`. `app/hermes/skills/` holds only the seed set (reviewed in
   `skills-reviewed.json`, not in `skills-denied.json`, no symlinks) and `optional-skills/` only the
   offered ones; `locales/` only `en.yaml` (owner answer Q-1.4); `plugin-catalog/` is kept; no
   `__pycache__` from the checkout. On linux-x64 at Hermes v0.23.0: 30 bundled skills, 78 optional

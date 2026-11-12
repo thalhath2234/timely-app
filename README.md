@@ -112,8 +112,13 @@ including the AUR update and signing secrets: [`package.md`](package.md).
 
 ```bash
 docker compose up db          # Postgres 17 on :5432
+make agent-tracked-list       # before every API image build: the files the agent stage may copy
 docker compose up --build     # db + api (:8080) + web (:4001)
 ```
+
+The image's build context has no `.git`, so the agent stage copies only the files git tracks under
+`apps/agent` as `apps/agent/.git-tracked` lists them, and fails without that list. `make docker-api`
+writes it before building.
 
 The API image (`apps/api/Dockerfile`, `make docker-api`) is `debian:bookworm-slim` with the static
 Go API and the agent runtime that every desktop installer ships: the same

@@ -67,6 +67,7 @@ import {
   stagedManifest,
   stagedPython,
   trackedSkillNames,
+  trackedSources,
   stdlibDir,
   thirdPartyLicenses,
   trimPlan,
@@ -464,6 +465,67 @@ test("gitTracked lists tracked files under the folders asked for, and is null ou
   git("add", "-A");
   write(root, "apps/agent/hermes/untracked.py");
   assert.deepEqual([...gitTracked(root, ["apps/agent/hermes"])].sort(), ["apps/agent/hermes/a.py", "apps/agent/hermes/sp ace/b.md"]);
+});
+
+test("checkTree also fails keys, credential files and key folders a developer's tree may hold under app/", (t) => {
+  const root = tmp(t);
+  for (const rel of [
+    "app/timely_agent/credentials.json",
+    "app/hermes/.ssh/id_ed25519",
+    "app/hermes/id_rsa",
+    "app/hermes/server.pem",
+    "app/hermes/tls.key",
+    "app/hermes/.netrc",
+    "app/hermes/.pypirc",
+    "app/hermes/.npmrc",
+    "app/hermes/.aws/config",
+    "app/hermes/store.p12",
+  ]) {
+    write(root, rel);
+  }
+  write(root, "app/hermes/keys.py", "x = 1\n");
+  write(root, "app/hermes/skills/x/credentials.md", "how to set credentials\n");
+  write(root, "app/site-packages/certifi/cacert.pem", "shipped by a hash-pinned wheel\n");
+  const named = checkTree(root, { stagePath: root }).problems.map((p) => p.split(": ").pop()).sort();
+  assert.deepEqual(named, [
+    "app/hermes/.aws",
+    "app/hermes/.netrc",
+    "app/hermes/.npmrc",
+    "app/hermes/.pypirc",
+    "app/hermes/.ssh",
+    "app/hermes/id_rsa",
+    "app/hermes/server.pem",
+    "app/hermes/store.p12",
+    "app/hermes/tls.key",
+    "app/timely_agent/credentials.json",
+  ]);
+});
+
+test("without .git the stage copies only the files make agent-tracked-list listed, and refuses to guess when there is no list", (t) => {
+  // The Docker build context has no .git: before this, every untracked file under apps/agent
+  // (a credentials.json, an SSH key, Hermes' .hermes-update.lock) went into /app/agent.
+  const root = tmp(t);
+  write(root, "apps/agent/timely_agent/seed.py", "x");
+  write(root, "apps/agent/timely_agent/credentials.json", "{}");
+  assert.throws(() => trackedSources(root), /and no apps\/agent\/\.git-tracked: .*make agent-tracked-list/s);
+  write(root, "apps/agent/.git-tracked", "");
+  assert.throws(() => trackedSources(root), /lists no file/);
+  write(root, "apps/agent/.git-tracked", "apps/agent/timely_agent/seed.py\0");
+  const { tracked, from } = trackedSources(root);
+  assert.equal(from, "apps/agent/.git-tracked");
+  const out = path.join(root, "out");
+  const skipped = [];
+  cpSync(path.join(root, "apps/agent/timely_agent"), out, {
+    recursive: true,
+    filter: trackedOnly(plainCopyFilter(path.join(root, "apps/agent/timely_agent")), { repoRoot: root, tracked, skipped }),
+  });
+  assert.deepEqual(files(out), ["seed.py"]);
+  assert.deepEqual(skipped, ["apps/agent/timely_agent/credentials.json"]);
+  const make = readFileSync(path.join(repo, "Makefile"), "utf8");
+  assert.match(make, /^agent-tracked-list:.*\n\t@git ls-files -z --cached -- apps\/agent > apps\/agent\/\.git-tracked$/m);
+  assert.match(make, /^docker-api: agent-tracked-list /m);
+  assert.match(make, /^docker-agent-smoke: agent-tracked-list /m);
+  assert.doesNotMatch(readFileSync(path.join(repo, ".dockerignore"), "utf8"), /git-tracked/);
 });
 
 test("checkTree fails a path of 151 characters", (t) => {

@@ -551,6 +551,32 @@ export function gitTracked(repoRoot, folders) {
   return new Set(r.stdout.split("\0").filter(Boolean));
 }
 
+/** The tracked-file list `make agent-tracked-list` writes for builds without .git (the Docker build stage). */
+export const TRACKED_LIST = "apps/agent/.git-tracked";
+
+/**
+ * The files git tracks under apps/agent, for the stage's copy filter: from
+ * git in a checkout, else from TRACKED_LIST (`git ls-files -z` output, which
+ * make docker-api and make docker-agent-smoke write before building). Throws
+ * when there is neither, so an untracked credential, key or lock file in the
+ * build context can never reach an image.
+ */
+export function trackedSources(repoRoot) {
+  const fromGit = gitTracked(repoRoot, ["apps/agent"]);
+  if (fromGit) return { tracked: fromGit, from: "git" };
+  const list = path.join(repoRoot, ...TRACKED_LIST.split("/"));
+  if (existsSync(list)) {
+    const tracked = new Set(readFileSync(list, "utf8").split("\0").filter(Boolean));
+    if (tracked.size === 0) throw new Error(`${TRACKED_LIST} lists no file: write it again with make agent-tracked-list`);
+    return { tracked, from: TRACKED_LIST };
+  }
+  throw new Error(
+    `no git checkout at ${repoRoot} and no ${TRACKED_LIST}: the stage copies only files git tracks, so it cannot tell ` +
+      "them from untracked ones. Run make agent-tracked-list in the checkout before docker build or docker compose build " +
+      "(make docker-api and make docker-agent-smoke do it).",
+  );
+}
+
 /**
  * Wraps a cpSync filter so that only files git tracks (and the folders holding
  * them) are copied: an untracked or ignored .env, credential file or virtualenv
@@ -650,8 +676,8 @@ export function dropLongBytecode(root, maxChars = MAX_PATH_CHARS) {
   return dropped;
 }
 
-const SECRET_FILE = /^(\.env(\..+)?|\.op\.env|auth\.json)$/i;
-const SECRET_DIR = /^(mcp-tokens|\.venv.*)$/i;
+const SECRET_FILE = /^(\.env(\..+)?|\.op\.env|auth\.json|\.netrc|_netrc|\.pypirc|\.npmrc|credentials?(\.[\w-]+)?\.json|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|.*\.(pem|key|p12|pfx|keystore|jks))$/i;
+const SECRET_DIR = /^(mcp-tokens|\.venv.*|\.ssh|\.gnupg|\.aws)$/i;
 
 function localSecret(entry) {
   if (entry.isDirectory()) return SECRET_DIR.test(entry.name);
@@ -666,8 +692,10 @@ function localSecret(entry) {
  * - a file holding the absolute stage path (a build-machine path that would ship);
  * - a browser: playwright/pyppeteer/Chromium in site-packages or a Chrome binary anywhere (ADR 0022);
  * - under app/ (outside the hash-pinned wheels in site-packages): a dotenv file other than
- *   .env.example, .op.env, auth.json, an mcp-tokens/ folder or a virtualenv (.venv*), which
- *   only a developer's working tree holds (plan 12: secrets never reach the worker).
+ *   .env.example, .op.env, auth.json, .netrc, .pypirc, .npmrc, credentials*.json, an SSH key
+ *   (id_rsa, id_ed25519, ...), a *.pem, *.key, *.p12, *.pfx, keystore or jks file, or an
+ *   mcp-tokens/, .ssh/, .gnupg/, .aws/ or virtualenv (.venv*) folder, which only a developer's
+ *   working tree holds (plan 12: secrets never reach the worker).
  */
 export function checkTree(root, { stagePath = root, maxChars = MAX_PATH_CHARS, sitePackages = "app/site-packages" } = {}) {
   const problems = [];
