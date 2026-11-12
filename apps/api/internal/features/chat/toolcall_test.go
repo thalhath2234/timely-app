@@ -19,22 +19,25 @@ import (
 // sha256 of what the model was sent on one call: every message (role,
 // content, tool calls, tool call id, cache mark) and the tool specs offered.
 // The time notice is the only part that changes from run to run, so it is
-// replaced by a placeholder before hashing.
+// replaced by a placeholder before hashing. Recorded again when Classic
+// began wrapping outside reads (list_bots, ask_bot) in Hermes' untrusted
+// block (untrusted.go, Q-3.9): with markUntrusted as the identity the old
+// digests still matched, so the block is the only change.
 var classicGolden = map[string][]string{
 	"reads": {
 		"d4fbaf8d43bdf88bf12b9515b577f5e2f8f286b67eb5a5a94e86e1e1b7df381c",
 		"b2f1a56f65ee0177f25b1ed6176c57263a65d4a35728aa7539f5d986097a140b",
-		"ce2a69ce194b268d80ac221d7b118a34eaee7ba058910cd23ad3ad14bcfd2a51",
-		"cccd3db2b4c1e37787d916f3bbc20cea493f8926c8c896a7982870b930e43c55",
-		"3afe4615c8282d99e5d471b34b196ffe7b67648761e9c1de902dcc7cf95dde5c",
-		"334474d50fb040badaa7134468199e68fabe99844cb645d7521ac5a669fcbcdc",
-		"234415c89d191fe69604fe521d87210bcacdea2209d5c867d4cadb3a6dfc7bcd",
-		"23cbcfbe9feb7fc901f51173a7bdecf20e31db9559bbfd97fe92b98db21b76ed",
+		"a90449fa91da30f4ad5ebdd60e0b43c5bfb0939174cb867f596d159c420eaaea",
+		"55650c080b70f61c6fde1963fefe1831866c020dde04ebbbe1e5288b107d368d",
+		"4e5986988c068ff79fdcf2b6f399715b9e31b09b2ea73e9e5355d73d647b64d4",
+		"8fa8ba6c626dcc0615c1fcb00217fcea83b7ca6af04f2608aadd530db7ec717d",
+		"828476474d54830ff2aeb3fd3a21be1e7af5c660f28aacd803b634897489060f",
+		"425bddaf25f60ec4daf84115724c9ec1f06fcccd75a0dcaa543556de08fa9a22",
 	},
 	"tagged": {
 		"685463bc1e49061227fec2c7dd4f725005781ca0e0016b40d40a3be6d3bad20b",
 		"cc624758b34999223ddf2bcd16d3a51fcb44b4fccbfa7b47e6deb8d817eaa062",
-		"bd36b3366f43d563592abf4c55bf8132dd5f23b1b6bcb5602b32239a62730478",
+		"a1fcb9668923eb74bb5dccfd708a212b4805429d1df5a31a57537e40346a977c",
 	},
 	"propose": {
 		"cf8c0d24a7c2f556ff66423435a84f93722a02a6bdfb72b9f06e4eee11bf1c8f",
