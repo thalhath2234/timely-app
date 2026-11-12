@@ -455,6 +455,12 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   a dependency without a wheel for the target fails the stage rather than compiling on a release
   runner. `site-packages/bin` and `Scripts/` are deleted (their console scripts carry absolute
   shebangs).
+- **glibc floor (Linux).** The Linux runtime needs glibc 2.28 or newer (Debian 10, RHEL 8, Ubuntu
+  20.04): staging passes `--python-platform x86_64-manylinux_2_28` (`aarch64-` on linux-arm64), so
+  the wheels do not follow the build machine's glibc. Without it a host with glibc 2.34+ picked
+  cryptography's `manylinux_2_34` wheel, and an older distribution failed only when a feature
+  imported it. The interpreter itself needs 2.17. Measured on the linux-x64 stage: the highest
+  `GLIBC_` symbol in any shipped `.so` is 2.28.
 - **Cache.** The interpreter archive is cached in `apps/web/.cache/agent/` and checked against the
   lock's sha256 before use; a mismatch deletes it and fails. uv's own cache holds the wheels.
 - **Marker.** `.staged-<hash>` (sha256 of `STAGE_FORMAT`, the lock's python entry, `uv.lock`, the

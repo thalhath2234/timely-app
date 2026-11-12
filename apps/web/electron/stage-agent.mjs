@@ -44,7 +44,7 @@ import { fileURLToPath } from "node:url";
 import {
   EXPECTED_PLATFORM,
   MAX_PATH_CHARS,
-  PIP_INSTALL_FLAGS,
+  pipInstallFlags,
   assertHostTargets,
   checkTree,
   collectLicenses,
@@ -195,7 +195,7 @@ function installSitePackages(target, python, site, extras) {
   mkdirSync(cacheDir, { recursive: true });
   const req = path.join(cacheDir, `requirements-${target.key}.txt`);
   writeFileSync(req, exp.stdout);
-  const args = ["pip", "install", "--python", python, "--target", site, ...PIP_INSTALL_FLAGS, "-r", req];
+  const args = ["pip", "install", "--python", python, "--target", site, ...pipInstallFlags(target.key), "-r", req];
   const r = run("uv", args, { stdio: ["ignore", "pipe", "pipe"] });
   if (r.status !== 0) {
     throw new Error(

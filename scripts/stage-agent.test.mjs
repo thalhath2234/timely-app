@@ -23,6 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  LINUX_GLIBC_FLOOR,
   MAX_PATH_CHARS,
   PIP_INSTALL_FLAGS,
   STAGE_FORMAT,
@@ -49,6 +50,7 @@ import {
   makeReadOnly,
   makeWritable,
   makefileVar,
+  pipInstallFlags,
   markerHash,
   parseExtras,
   parseMetadata,
@@ -180,10 +182,20 @@ test("the marker hash changes with each input it covers", () => {
   assert.notEqual(markerHash({ ...base, target: "win32-x64" }), h);
 });
 
+test("Linux site-packages are installed for a fixed glibc floor, not the staging host's glibc", () => {
+  assert.equal(LINUX_GLIBC_FLOOR, "2.28");
+  assert.deepEqual(pipInstallFlags("linux-x64"), [...PIP_INSTALL_FLAGS, "--python-platform", "x86_64-manylinux_2_28"]);
+  assert.deepEqual(pipInstallFlags("linux-arm64"), [...PIP_INSTALL_FLAGS, "--python-platform", "aarch64-manylinux_2_28"]);
+  for (const key of ["win32-x64", "darwin-arm64", "darwin-x64"]) assert.deepEqual(pipInstallFlags(key), PIP_INSTALL_FLAGS, key);
+  // A stage installed without the pin (the host's glibc picked the wheels) is not reused.
+  const base = { pythonEntry: { version: "1", url: "u", sha256: "s" }, uvLock: Buffer.from("lock"), extras: ["mcp"], target: "linux-x64" };
+  assert.notEqual(markerHash(base), markerHash({ ...base, install: PIP_INSTALL_FLAGS }));
+});
+
 test("a change to the trim rules or the install flags restages instead of reusing the marker", () => {
   const base = { pythonEntry: { version: "1", url: "u", sha256: "s" }, uvLock: Buffer.from("lock"), extras: ["mcp"], target: "linux-x64" };
   const h = markerHash(base);
-  assert.equal(markerHash({ ...base, trim: TRIM.map(String), install: PIP_INSTALL_FLAGS }), h);
+  assert.equal(markerHash({ ...base, trim: TRIM.map(String), install: pipInstallFlags("linux-x64") }), h);
   // The libpython rule (5afaf5eb) added without a format bump reused stages that still held libpython.
   const withoutLibpython = TRIM.filter((rx) => !rx.test("lib/libpython3.14.so")).map(String);
   assert.equal(withoutLibpython.length, TRIM.length - 1);

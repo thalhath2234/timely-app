@@ -23,6 +23,25 @@ export const STAGE_FORMAT = 2;
 /** `uv pip install` flags for app/site-packages (stage-agent.mjs adds --python, --target and -r). */
 export const PIP_INSTALL_FLAGS = ["--no-deps", "--require-hashes", "--no-build", "--link-mode", "copy"];
 
+/**
+ * The oldest glibc the Linux runtime runs on. Left to itself uv picks the
+ * newest manylinux wheel the staging host's glibc allows (cryptography's
+ * manylinux_2_34 on ubuntu-latest), which would make the floor depend on the
+ * build machine and fail only when a feature imports that module. 2.28 is
+ * Debian 10, RHEL 8 and Ubuntu 20.04 (docs/desktop/README.md).
+ */
+export const LINUX_GLIBC_FLOOR = "2.28";
+const PYTHON_PLATFORM = {
+  "linux-x64": `x86_64-manylinux_${LINUX_GLIBC_FLOOR.replace(".", "_")}`,
+  "linux-arm64": `aarch64-manylinux_${LINUX_GLIBC_FLOOR.replace(".", "_")}`,
+};
+
+/** PIP_INSTALL_FLAGS plus, on Linux, `--python-platform` for the LINUX_GLIBC_FLOOR wheels. */
+export function pipInstallFlags(targetKey) {
+  const platform = PYTHON_PLATFORM[targetKey];
+  return platform ? [...PIP_INSTALL_FLAGS, "--python-platform", platform] : PIP_INSTALL_FLAGS;
+}
+
 /** Skill folders and files Hermes' own seed code skips (timely_agent/seed.py IGNORED_NAMES). */
 export const IGNORED_NAMES = new Set(["__pycache__", ".DS_Store", ".git"]);
 
@@ -127,7 +146,7 @@ export function assertHostTarget(key, hostKey) {
  * sha256 naming the `.staged-<hash>` marker: everything steps 2-4 depend on,
  * including the trim rules and the install flags, so changing either restages.
  */
-export function markerHash({ pythonEntry, uvLock, extras, target, trim = TRIM.map(String), install = PIP_INSTALL_FLAGS }) {
+export function markerHash({ pythonEntry, uvLock, extras, target, trim = TRIM.map(String), install = pipInstallFlags(target) }) {
   const h = createHash("sha256");
   h.update(JSON.stringify({ format: STAGE_FORMAT, python: pythonEntry, extras, target, trim, install }));
   h.update("\0");
