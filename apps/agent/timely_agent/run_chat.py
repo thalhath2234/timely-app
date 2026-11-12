@@ -426,20 +426,39 @@ def _report_pass(conversation: str, run_id: str) -> None:
         return
     state = bridge.session_state(conversation)
     from_bot = state is not None and (state.from_bot or state.kind != "chat")
-    feed.diff(learning_feed.Context(
+    ctx = learning_feed.Context(
         origin="bot" if from_bot else "review", conversation_id=conversation, run_id=run_id,
-        tainted_sources=state.taint_snapshot() if state is not None else []))
+        tainted_sources=state.taint_snapshot() if state is not None else [])
+    if state is not None and state.run_id and state.run_id != run_id:
+        # A later run of the chat started while the pass ran: its own writes (a skill it made
+        # itself) are its own, reported by its diff with its chip. The pass claims only what it
+        # wrote (review round 8); its memory and staged writes reported themselves already.
+        def own(entry: dict) -> bool:
+            evidence = entry.get("evidence") if isinstance(entry.get("evidence"), dict) else {}
+            return entry.get("actor") == "curator" and str(evidence.get("session_id") or "") == conversation
+
+        with feed.lock:
+            for entry in feed.claim_ledger(keep=own):
+                ev = learning_feed.ledger_event(feed.home, entry, ctx)
+                if ev is not None:
+                    feed.emit(ev)
+        return
+    feed.diff(ctx)
 
 
-def _pass_over(conversation: str, run_id: str) -> None:
+def _pass_over(conversation: str, run_id: str, agent: Any = None) -> None:
     """The learning pass of ``run_id`` ended: report what it changed, then stop naming later
     writes after it."""
     try:
         _report_pass(conversation, run_id)
     finally:
         state = bridge.session_state(conversation)
-        if state is not None and state.review_run_id == run_id:
-            state.review_run_id = ""
+        if state is not None:
+            if state.review_run_id == run_id:
+                state.review_run_id = ""
+            if agent is not None:
+                with state.lock:
+                    state.review_agents = [a for a in state.review_agents if a is not agent]
 
 
 def _log_pass_usage(conversation: str, spent: dict[str, Any]) -> None:
@@ -554,10 +573,16 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         # report what it learned.
         if learning_passes.pending_review(agent) is not None:
             state.review_run_id = run.run_id
-        if not learning_passes.watch(agent, lambda rid=run.run_id: _pass_over(conversation, rid),
+            with state.lock:
+                # learning.stop and session.delete cancel the pass on this agent too, after a
+                # later turn took a fresh one (review round 8).
+                state.review_agents = [a for a in state.review_agents if a is not agent] + [agent]
+        if not learning_passes.watch(agent, lambda rid=run.run_id, a=agent: _pass_over(conversation, rid, a),
                                      on_usage=lambda spent: _log_pass_usage(conversation, spent)):
             if state.review_run_id == run.run_id:
                 state.review_run_id = ""
+            with state.lock:
+                state.review_agents = [a for a in state.review_agents if a is not agent]
         after = _session_tokens(agent)
         cost_after = result.get("estimated_cost_usd", getattr(agent, "session_estimated_cost_usd", None))
         done.update(

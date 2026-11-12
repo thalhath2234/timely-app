@@ -128,19 +128,29 @@ def stop(conversation_id: str, search_only: bool = False) -> dict[str, Any]:
         return {"stopped": len(bridge.stop_search(conversation_id))}
     states = bridge.stop_learning(conversation_id)
     for state in states:
-        agent = state.agent
-        if agent is None:
+        cancel_passes(state, "learning turned off")
+    return {"stopped": len(states)}
+
+
+def cancel_passes(state: Any, reason: str) -> None:
+    """Cancel the learning pass on the conversation's agent and on every agent whose pass outlived
+    a later turn (review round 8: the next turn takes a fresh agent, and the pass keeps calling the
+    model on the dropped one). Never raises; the writes are blocked whatever happens here."""
+    with state.lock:
+        agents = [state.agent] + list(state.review_agents)
+    seen: list[Any] = []
+    for agent in agents:
+        if agent is None or any(agent is a for a in seen):
             continue
+        seen.append(agent)
 
         def cancel(agent=agent) -> None:
             try:
                 from agent.background_review import cancel_background_review_for_live_turn
-                cancel_background_review_for_live_turn(agent, message="learning turned off",
-                                                       tool_reason="learning turned off")
-            except Exception as exc:  # the writes are blocked whatever happens here
+                cancel_background_review_for_live_turn(agent, message=reason, tool_reason=reason)
+            except Exception as exc:
                 logger.debug("cancelling a learning pass: %s", exc)
         threading.Thread(target=cancel, name="timely-learning-stop", daemon=True).start()
-    return {"stopped": len(states)}
 
 
 @contextmanager

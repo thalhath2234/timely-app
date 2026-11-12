@@ -615,3 +615,65 @@ def test_a_learning_pass_outlives_the_next_turn_and_keeps_its_run(stub):
     events = [m["event"] for m in seen if m.get("type") == "learning"]
     learned = sorted((e["kind"], e["action"], e["origin"], e["run_id"]) for e in events)
     assert learned == [("memory", "added", "review", "pn1"), ("skill", "created", "review", "pn1")], events
+
+
+def test_a_learning_pass_does_not_take_the_next_turns_own_skill(stub):
+    """Review round 8: the earlier turn's pass (writing nothing) ends while the next turn, which
+    created a skill itself, is still writing its reply. The pass's report claims only its own
+    writes, so the skill's chip and Undo go with the turn that made it (pr2, origin chat), not
+    under the earlier reply as the learning pass's."""
+    a = harness.Agent(harness.new_root("lw-pass-claim"))
+    conv, tag = "c-pass-claim", "tag-pass-claim"
+    w, _ready = harness.ready_worker(a)
+    review = [{"sleep": 5, "text": "Nothing to save."}]
+    steps = [{"calls": [["skill_manage", {"action": "create", "name": "r2-skill", "content": BODY.format(n="r2-skill")}]]},
+             {"sleep": 12, "text": "saved it"}]
+    seen: list[dict] = []
+    try:
+        w.send(harness.run_start(a, stub, run_id="pr1", conversation=conv, text=script(todo(11, tag), tag, review),
+                                 budgets={}, toolsets=TOOLSETS, flags=dict(LEARN)))
+        _done, first = harness.drive(w, a.account, "pr1", timeout=120)
+        seen += first
+        w.send(harness.run_start(a, stub, run_id="pr2", conversation=conv, text=script(steps, tag + "-2"),
+                                 budgets={}, toolsets=TOOLSETS, flags=dict(LEARN)))
+        done, second = harness.drive(w, a.account, "pr2", timeout=120)
+        seen += second
+        assert done["completed"] is True, done
+    finally:
+        w.close()
+    assert (a.home / "skills" / "r2-skill" / "SKILL.md").is_file()
+    events = [m["event"] for m in seen if m.get("type") == "learning"]
+    got = [(e["kind"], e["action"], e["subject"], e["origin"], e["run_id"]) for e in events]
+    assert got == [("skill", "created", "r2-skill", "chat", "pr2")], got
+
+
+def test_learning_stop_cancels_a_pass_that_outlived_the_next_turn(stub):
+    """Review round 8: once the next turn took a fresh agent, the earlier pass runs on the dropped
+    one. "Don't learn from this chat" (learning.stop) must cancel it there too, so it stops calling
+    the person's model (its writes were already blocked)."""
+    a = harness.Agent(harness.new_root("lw-pass-stop"))
+    conv, tag = "c-pass-stop", "tag-pass-stop"
+    w, _ready = harness.ready_worker(a)
+    review = [{"sleep": 3, "calls": [["memory", {"action": "add", "target": "memory", "content": f"Note {i}."}]]}
+              for i in range(6)] + [{"text": "saved"}]
+
+    def review_calls() -> int:
+        return sum(1 for r in stub.requests if r["method"] == "POST" and REVIEW_MARK in json.dumps(
+            (r.get("body") or {}).get("messages") or []) and tag in json.dumps((r.get("body") or {}).get("messages") or []))
+    try:
+        w.send(harness.run_start(a, stub, run_id="ps1", conversation=conv, text=script(todo(11, tag), tag, review),
+                                 budgets={}, toolsets=TOOLSETS, flags=dict(LEARN)))
+        harness.drive(w, a.account, "ps1", timeout=120)
+        w.send(harness.run_start(a, stub, run_id="ps2", conversation=conv, text="thanks", budgets={},
+                                 toolsets=TOOLSETS, flags=dict(LEARN)))
+        harness.drive(w, a.account, "ps2", timeout=120)
+        reply = ask(w, a, "learning.stop", conversation_id=conv)
+        assert reply.get("data", reply).get("stopped", 0) >= 1, reply
+        at_stop = review_calls()
+        time.sleep(14)
+        later = review_calls()
+    finally:
+        w.close()
+    assert at_stop >= 1 and later <= at_stop + 1, (at_stop, later)
+    assert "Note 5." not in ((a.home / "memories" / "MEMORY.md").read_text(encoding="utf-8")
+                             if (a.home / "memories" / "MEMORY.md").is_file() else "")

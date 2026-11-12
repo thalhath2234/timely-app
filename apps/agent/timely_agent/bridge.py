@@ -90,6 +90,9 @@ class SessionState:
     # run's chip, though a later run of the chat may have started meanwhile.
     review_run_id: str = ""
     agent: Any = None
+    # The agents whose learning pass still runs (the current one's, and a dropped one's after a
+    # later turn took a fresh agent): learning.stop and session.delete cancel each.
+    review_agents: list[Any] = field(default_factory=list)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property

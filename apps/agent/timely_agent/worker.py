@@ -553,6 +553,12 @@ class Worker:
         with self.runs_lock:
             if any(r.msg.get("conversation_id") == conversation for r in self.runs.values()):
                 raise P.ProtocolError(P.E_BUSY, "the conversation has a live run; stop it first", msg.get("id"))
+        state = bridge.session_state(conversation)
+        if state is not None:
+            # A learning pass still reading the deleted chat stops calling the model.
+            from timely_agent.learning import api as learning_api
+            bridge.stop_learning(conversation)
+            learning_api.cancel_passes(state, "chat deleted")
         self.cache.drop(conversation, keep_counters=False)
         self.counters.forget(conversation)
         bridge.forget_session(conversation)
