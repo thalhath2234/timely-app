@@ -303,6 +303,20 @@ func markEngine(row *Conversation, from int, agentRun string) {
 	}
 }
 
+// markStopped tags the messages a Stop of an agent run wrote (the cut
+// reply and the notice, from index from on) with that run, so its
+// learning chip and Keep / Discard card show under them rather than at the
+// end of the chat, where a later reply would seem to have learned it.
+func markStopped(row *Conversation, from int, agentRun string) {
+	if agentRun == "" {
+		return
+	}
+	for i := from; i < len(row.Messages); i++ {
+		row.Messages[i].Engine = engineAgent
+		row.Messages[i].AgentRun = agentRun
+	}
+}
+
 // classicSinceAgent reports a chat whose latest finished turn came from the
 // classic engine: the agent engine's session has not seen it.
 func classicSinceAgent(messages []Message) bool {

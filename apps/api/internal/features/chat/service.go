@@ -492,12 +492,16 @@ func (s *Service) stop(c *echo.Context) error {
 				}
 			}
 			row.Activity = ChatActivity{}
+			from := len(row.Messages)
 			if text := strings.TrimSpace(draft); text != "" {
 				m := message("assistant", text)
 				m.Cut = true
 				row.Messages = append(row.Messages, m)
 			}
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
+			// The cut reply and the notice belong to the stopped run, so what
+			// it learned shows under them, not under a later reply.
+			markStopped(row, from, runID)
 		}
 		return nil
 	})

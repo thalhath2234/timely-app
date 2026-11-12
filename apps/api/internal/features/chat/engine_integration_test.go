@@ -564,6 +564,13 @@ func TestIntegrationAgentEngineStopMidRunAppliesNothing(t *testing.T) {
 	if n := len(c.Messages); n < 2 || c.Messages[n-2].Content != "Drafting" || c.Messages[n-2].Kind != "" || !c.Messages[n-2].Cut {
 		t.Fatalf("streamed text not kept on Stop: %+v", c.Messages)
 	}
+	// Both belong to the stopped run, so what it learned shows under them,
+	// never under a later reply (review round 6).
+	for _, m := range c.Messages[len(c.Messages)-2:] {
+		if m.AgentRun != stops[0].Run || m.Engine != engineAgent {
+			t.Fatalf("Stop's message %q: agentRun %q engine %q, want run %s", m.Content, m.AgentRun, m.Engine, stops[0].Run)
+		}
+	}
 	// Retry sends the request again: the cut reply did not end the turn.
 	if code, body := h.post("/chats/"+c.ID+"/retry", "{}"); code != 200 {
 		t.Fatalf("retry: %d %s", code, body)

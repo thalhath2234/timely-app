@@ -1021,6 +1021,7 @@ func (e *WorkerEngine) stopped(r *agentRun) {
 		endRun(row, r.tools)
 		row.Status = "stopped"
 		row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
+		markStopped(row, len(row.Messages)-1, r.id)
 		return nil
 	})
 }
