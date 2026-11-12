@@ -663,5 +663,5 @@ clean-agent-stage: ## Delete staged agent runtimes (apps/web/.electron-agent) an
 docker-api: ## Build the API Docker image (Debian slim with the agent runtime) as timely-api:local
 	docker build -f $(API)/Dockerfile -t timely-api:local .
 
-docker-agent-smoke: ## Build the API image and smoke-test its agent runtime read-only, as uid 10001, with a throwaway Postgres (removes what it creates)
+docker-agent-smoke: ## Build the API image in a throwaway BuildKit builder and smoke-test its agent runtime read-only, as uid 10001, with a throwaway Postgres (removes what it creates, build cache included)
 	@bash scripts/docker-agent-smoke.sh

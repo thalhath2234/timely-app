@@ -26,9 +26,13 @@
 #      then, as a control, the API with TIMELY_AGENT_RUNTIME on a missing path
 #      must log that line, so the silence above means something.
 #
-# A trap removes the containers, networks and volumes this run created, the
-# smoke image, and postgres:17 when this run pulled it. Nothing else is
-# touched and nothing is pruned. KEEP_IMAGES=1 keeps both images.
+# The image is built in a throwaway BuildKit builder (docker-container
+# driver), so its layers and the uv and Python cache mounts never pile up in
+# the default builder's cache. A trap removes that builder with its state
+# volume, moby/buildkit when this run pulled it, the containers, networks and
+# volumes this run created, the smoke image, and postgres:17 when this run
+# pulled it. Nothing else is touched and nothing is pruned. KEEP_IMAGES=1
+# keeps the smoke image and postgres:17.
 # SMOKE_IMAGE=<ref> skips the build and checks that image instead (it is then
 # never removed).
 set -euo pipefail
@@ -49,6 +53,9 @@ networks=()
 volumes=()
 remove_images=()
 scratch=""
+builder=""
+buildkit_image=moby/buildkit:buildx-stable-1
+remove_buildkit=0
 
 cleanup() {
   local status=$?
@@ -59,6 +66,9 @@ cleanup() {
   if [[ "${KEEP_IMAGES:-}" != 1 ]]; then
     for i in "${remove_images[@]}"; do docker image rm "$i" >/dev/null 2>&1; done
   fi
+  # buildx rm stops the BuildKit container and deletes its state volume (the build cache).
+  [[ -n "$builder" ]] && docker buildx rm "$builder" >/dev/null 2>&1
+  [[ $remove_buildkit -eq 1 ]] && docker image rm "$buildkit_image" >/dev/null 2>&1
   [[ -n "$scratch" ]] && rm -rf "$scratch"
   if [[ $status -eq 0 ]]; then
     echo "docker-agent-smoke: PASS"
@@ -104,7 +114,11 @@ if [[ $build -eq 1 ]]; then
   step "build $image ($platform)"
   remove_images+=("$image")
   started=$SECONDS
-  DOCKER_BUILDKIT=1 docker build --platform "$platform" -f "$repo/apps/api/Dockerfile" \
+  docker buildx version >/dev/null 2>&1 || fail "docker buildx is not installed (the build runs in a throwaway builder)"
+  docker image inspect "$buildkit_image" >/dev/null 2>&1 || remove_buildkit=1
+  builder="$run_id"
+  docker buildx create --name "$builder" --driver docker-container >/dev/null
+  docker buildx build --builder "$builder" --load --platform "$platform" -f "$repo/apps/api/Dockerfile" \
     --build-arg VERSION=smoke -t "$image" "$repo"
   echo "built in $((SECONDS - started)) s"
 else

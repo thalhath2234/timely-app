@@ -858,6 +858,16 @@ test("the docker CI job runs on a PR that changes anything the image copies, its
   for (const src of [...sources, "apps/api/Dockerfile", "scripts/docker-agent-smoke.sh", ".github/workflows/ci.yml"]) assert.ok(covered(src), `${src} is not in the docker job's filter`);
 });
 
+test("make docker-agent-smoke builds in a throwaway builder that its trap removes, so no build cache stays behind", () => {
+  const script = readFileSync(path.join(repo, "scripts/docker-agent-smoke.sh"), "utf8");
+  assert.match(script, /docker buildx create --name "\$builder" --driver docker-container/);
+  assert.match(script, /docker buildx build --builder "\$builder" --load /);
+  assert.doesNotMatch(script, /^\s*(DOCKER_BUILDKIT=1 )?docker build /m, "a plain docker build fills the default builder's cache");
+  const cleanup = script.slice(script.indexOf("cleanup() {"), script.indexOf("trap cleanup EXIT"));
+  assert.match(cleanup, /docker buildx rm "\$builder"/);
+  assert.match(cleanup, /docker image rm "\$buildkit_image"/);
+});
+
 test("docker compose pins the image's agent runtime, so the shared root .env cannot point it at a host path", () => {
   const docker = readFileSync(path.join(repo, "apps/api/Dockerfile"), "utf8");
   const runtime = /TIMELY_AGENT_RUNTIME=(\S+)/.exec(docker)?.[1];
