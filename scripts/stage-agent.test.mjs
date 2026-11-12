@@ -225,18 +225,20 @@ test("trimPlan drops headers, Tcl/Tk, idle, pip and the test package on a Linux 
   assert.equal(stdlibDir(py), path.join(py, "lib", "python3.14"));
 });
 
-test("trimPlan covers the Windows layout (Lib, DLLs, libs, Scripts, tcl)", (t) => {
+test("trimPlan covers the Windows layout (Lib, DLLs, libs, Scripts, tcl, debug symbols)", (t) => {
   const py = path.join(tmp(t), "python");
   for (const rel of [
     "python.exe", "python314.dll", "LICENSE.txt", "include/Python.h", "libs/python314.lib", "Scripts/pip.exe", "tcl/tcl9.0/init.tcl",
     "DLLs/_tkinter.pyd", "DLLs/tcl86t.dll", "DLLs/tk86t.dll", "DLLs/_ssl.pyd", "Lib/os.py", "Lib/tkinter/__init__.py",
     "Lib/idlelib/x.py", "Lib/test/x.py", "Lib/site-packages/pip/__init__.py",
+    // 37 debug symbol files, 83 MB in the 3.14.9 archive; electron-builder's pdb exclusion skips extraResources
+    "python.pdb", "python314.pdb", "pythonw.pdb", "DLLs/_ssl.pdb", "DLLs/_tkinter.pdb",
   ]) write(py, rel);
   const { drop, tests } = trimPlan(py);
   assert.deepEqual(tests, ["Lib/test"]);
   assert.deepEqual(new Set(drop), new Set([
     "include", "libs", "Scripts", "tcl", "DLLs/_tkinter.pyd", "DLLs/tcl86t.dll", "DLLs/tk86t.dll", "Lib/tkinter", "Lib/idlelib",
-    "Lib/site-packages/pip",
+    "Lib/site-packages/pip", "python.pdb", "python314.pdb", "pythonw.pdb", "DLLs/_ssl.pdb", "DLLs/_tkinter.pdb",
   ]));
   assert.equal(cpythonLicense(py), "LICENSE.txt");
   assert.equal(stdlibDir(py), path.join(py, "Lib"));

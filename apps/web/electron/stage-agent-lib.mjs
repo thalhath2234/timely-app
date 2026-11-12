@@ -190,6 +190,9 @@ export const TRIM = [
   /^lib\/python3\.\d+\/lib-dynload\/_dbm\.[^/]*$/i,
   /^dlls\/(tcl|tk)[^/]*\.dll$/i,
   /^(tcl|tk)[0-9][^/]*\.dll$/i,
+  // Windows debug symbols (python*.pdb, DLLs/*.pdb): 83 MB, and electron-builder's own pdb
+  // exclusion covers only the app's files, not extraResources.
+  /^(dlls\/)?[^/]*\.pdb$/i,
 ];
 
 /** The stdlib test package, dropped only when nothing staged imports it. */
