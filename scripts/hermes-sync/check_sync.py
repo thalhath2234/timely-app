@@ -214,7 +214,7 @@ def main():
     try:
         reviewed_doc = check_lib.read_json(check_policy.SKILLS_REVIEWED)
         e += check_policy.check_skills(reviewed_doc, trees, dump.get("skills") if dump else None,
-                                       check_policy.skill_execs(trees))
+                                       check_policy.skill_execs(trees), check_policy.skill_converted(trees))
     except (OSError, ValueError) as exc:
         reviewed_doc = None
         e.append(f"{check_policy.SKILLS_REVIEWED}: {exc}")

@@ -1219,6 +1219,28 @@ test("apps/agent is checked out byte for byte on every OS, so skill tree ids mat
   if (r.status !== 0) return; // not a git checkout (the Docker build stage)
   const humanizer = r.stdout.split("\n").filter((l) => l.startsWith(probe[0]));
   assert.ok(humanizer.some((l) => l.endsWith(": text: unset")), r.stdout);
+
+  // Every file of every bundled and offered skill: vendored hermes/.gitattributes is more
+  // specific than `* -text` and checks *.ps1 out with CRLF, which would change the skill's
+  // tree id on disk (seed.git_tree_id) on every OS and drop it as unreviewed.
+  const reviewed = JSON.parse(readFileSync(path.join(repo, "apps/agent/.hermes-sync/policy/skills-reviewed.json"), "utf8")).skills;
+  const shipped = Object.entries(reviewed)
+    .filter(([rel, e]) => rel.startsWith("skills/") || e.offered === true)
+    .map(([rel]) => `apps/agent/hermes/${rel}`);
+  assert.ok(shipped.length > 30, String(shipped.length));
+  const ls = spawnSync("git", ["ls-files", "-z", "--", ...shipped], { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1048576 });
+  const paths = ls.stdout.split("\0").filter(Boolean);
+  assert.ok(paths.length > shipped.length, String(paths.length));
+  const fileAttrs = new Map();
+  for (let i = 0; i < paths.length; i += 500) {
+    const a = spawnSync("git", ["check-attr", "-z", "text", "eol", "working-tree-encoding", "ident", "filter", "--", ...paths.slice(i, i + 500)], { cwd: repo, encoding: "utf8" });
+    const f = a.stdout.split("\0");
+    for (let j = 0; j + 2 < f.length; j += 3) fileAttrs.set(f[j], { ...fileAttrs.get(f[j]), [f[j + 1]]: f[j + 2] });
+  }
+  const rewritten = [...fileAttrs]
+    .filter(([, a]) => a.eol === "crlf" || (["set", "auto"].includes(a.text) && a.eol !== "lf") || ["working-tree-encoding", "ident", "filter"].some((k) => !["unspecified", "unset"].includes(a[k])))
+    .map(([p, a]) => `${p} ${JSON.stringify(a)}`);
+  assert.deepEqual(rewritten, [], "a shipped skill file whose checkout differs from its blob");
 });
 
 test("every Windows job turns core.autocrlf off before checking out", () => {

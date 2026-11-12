@@ -542,6 +542,25 @@ class Skills(unittest.TestCase):
         check_policy.review_skills(r, self.trees, ["two"], execs=execs)
         self.assertNotIn("exec", r["skills"]["optional-skills/c/two"])
 
+    def test_skill_whose_checkout_rewrites_a_file_cannot_be_offered(self):
+        """hermes/.gitattributes checks *.ps1 out with CRLF; seed.git_tree_id hashes the bytes on
+        disk, so such a skill never matches its reviewed tree and would be dropped silently."""
+        converted = {"skills/p/one": [], "optional-skills/c/two": ["install.ps1"], "optional-skills/c/three": ["x.ps1"]}
+        msgs = check_policy.check_skills(self.reviewed(), self.trees, None, None, converted)
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("offered optional skill optional-skills/c/two: git rewrites install.ps1 on checkout", msgs[0])
+        converted["skills/p/one"] = ["run.ps1"]
+        self.assertIn("bundled skill skills/p/one: git rewrites run.ps1", check_policy.check_skills(self.reviewed(), self.trees, None, None, converted)[0])
+
+    def test_converted_on_checkout(self):
+        f = check_policy.converted_on_checkout
+        self.assertTrue(f({"text": "set", "eol": "crlf"}))
+        self.assertTrue(f({"text": "set", "eol": "unspecified"}))  # core.eol native: CRLF on Windows
+        self.assertTrue(f({"text": "auto"}))
+        self.assertTrue(f({"text": "unset", "filter": "lfs"}))
+        self.assertFalse(f({"text": "set", "eol": "lf"}))
+        self.assertFalse(f({"text": "unset", "eol": "unspecified", "filter": "unspecified"}))
+
     def test_signals(self):
         d = tempfile.mkdtemp(prefix="skill.")
         self.addCleanup(__import__("shutil").rmtree, d)
@@ -666,7 +685,14 @@ class ReviewedGate(unittest.TestCase):
     def test_committed_reviewed_file_covers_the_copy(self):
         trees = check_policy.skill_trees()
         self.assertEqual(check_policy.check_skills(check_lib.read_json(check_policy.SKILLS_REVIEWED),
-                                                   trees, None, check_policy.skill_execs(trees)), [])
+                                                   trees, None, check_policy.skill_execs(trees),
+                                                   check_policy.skill_converted(trees)), [])
+
+    def test_skill_converted_finds_the_crlf_powershell_files(self):
+        """ast-grep holds the only *.ps1 files today (offered: false, so nothing ships wrong)."""
+        converted = check_policy.skill_converted(check_policy.skill_trees())
+        self.assertEqual(converted["optional-skills/software-development/ast-grep"], ["install.ps1", "tests/smoke.ps1"])
+        self.assertEqual(converted["skills/creative/humanizer"], [])
 
     def test_skill_execs_lists_the_committed_100755_files(self):
         trees = check_policy.skill_trees()
