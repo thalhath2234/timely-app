@@ -8,6 +8,7 @@
       { "name": "x265 4.3", "license": "GPL-2.0-or-later", "files": "libx265 (pillow_heif.libs/, pillow_heif/.dylibs/ or beside it on Windows)", "source": "https://github.com/Multicorewareinc/x265/tree/4.3" },
       { "name": "libheif 1.23.6", "license": "LGPL-3.0-or-later", "files": "libheif", "source": "https://github.com/strukturag/libheif/tree/v1.23.6" },
       { "name": "libde265 1.1.3", "license": "LGPL-3.0-or-later", "files": "libde265", "source": "https://github.com/strukturag/libde265/tree/v1.1.3" },
+      { "name": "pillow-heif 1.8.1 build scripts", "license": "BSD-3-Clause", "files": "how the libraries above were configured and built (libheif/build_libs.py, libheif/windows/)", "source": "https://github.com/bigcat88/pillow_heif/tree/v1.8.1/libheif" },
       { "name": "MinGW-w64 runtime (Windows only)", "license": "GPL-3.0-or-later WITH GCC-exception-3.1 (libgcc, libstdc++); MIT and BSD (libwinpthread)", "files": "libgcc_s_seh-1.dll, libstdc++-6.dll, libwinpthread-1.dll", "source": "https://sourceforge.net/p/mingw-w64/mingw-w64/ci/master/tree/ and https://gcc.gnu.org/" }
     ]
   }
