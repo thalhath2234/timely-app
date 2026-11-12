@@ -656,6 +656,23 @@ test("a run's learning shows once, under its last message; changes of runs with 
   assert.equal(learning.looseLearning([lev()], messages).chip, null);
 });
 
+test("a stopped run's learning shows under its Stopped notice, not under a later reply (review round 6)", () => {
+  const messages = [
+    { id: "m1", role: "user" },
+    reply({ id: "m2", agentRun: "run-a" }),
+    { id: "m3", role: "user" },
+    reply({ id: "m4", agentRun: "run-b", cut: true }),
+    { id: "m5", role: "assistant", kind: "notice", content: "Stopped.", agentRun: "run-b" },
+    { id: "m6", role: "user" },
+    reply({ id: "m7", agentRun: "run-c" }),
+  ];
+  assert.deepEqual([...learning.learningAnchors(messages)].sort(), ["m2", "m5", "m7"]);
+  const stopped = lev({ id: "ev-b", runId: "run-b", kind: "user", subject: "user", action: "added", after: "Shops at Ward Street." });
+  assert.equal(learning.looseLearning([stopped], messages).chip, null);
+  assert.ok(learning.turnLearning([stopped], messages[4]).chip);
+  assert.equal(learning.turnLearning([stopped], messages[6]).chip, null);
+});
+
 test("the chat follows its learning on the agent engine; Don't learn is offered only where it matters", () => {
   const chat = { messages: [reply()], runEngine: "agent", engine: "", sensitive: false, noLearning: false };
   assert.equal(followsLearning(chat, "classic"), true);

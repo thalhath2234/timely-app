@@ -42,10 +42,10 @@ export function turnLearning(
 }
 
 /**
- * Changes of this chat whose run wrote no message here (a run that was
- * stopped or failed leaves a cut reply and a notice without its run, or no
- * reply at all): shown at the end of the chat, as on the phone
- * (looseLearning in apps/mobile/lib/chat/learning.ts).
+ * Changes of this chat whose run wrote no message here (a failed run writes
+ * none; a stopped run's cut reply and notice carry its run): shown at the
+ * end of the chat, as on the phone (looseLearning in
+ * apps/mobile/lib/chat/learning.ts).
  */
 export function looseLearning(
   events: LearningEvent[] | undefined,

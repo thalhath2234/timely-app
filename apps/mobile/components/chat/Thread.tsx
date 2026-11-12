@@ -335,15 +335,23 @@ export default function Thread({
               </View>
             ) : null}
             {message.kind === "notice" ? (
-              <View style={styles.notice}>
-                <NoticeIcon content={message.content} />
-                <Text
-                  numberOfLines={2}
-                  style={[common.muted, { flexShrink: 1 }]}
-                >
-                  {message.content}
-                </Text>
-              </View>
+              <>
+                <View style={styles.notice}>
+                  <NoticeIcon content={message.content} />
+                  <Text
+                    numberOfLines={2}
+                    style={[common.muted, { flexShrink: 1 }]}
+                  >
+                    {message.content}
+                  </Text>
+                </View>
+                {/* A stopped run's "Stopped." notice carries its run: what it learned shows here. */}
+                {learning && anchors.has(message.id) ? (
+                  <View style={{ paddingLeft: 38, marginTop: 8 }}>
+                    <TurnLearningView turn={turnLearning(learning.events, message)} learning={learning} />
+                  </View>
+                ) : null}
+              </>
             ) : message.kind === "similar" && message.chat ? (
               <View style={styles.similar}>
                 <View style={styles.similarRow}>

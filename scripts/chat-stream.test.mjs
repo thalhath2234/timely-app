@@ -387,8 +387,18 @@ describe("what a chat shows of what the agent learned", () => {
     assert.equal(none.card, null);
   });
 
-  test("a stopped or failed run's changes show at the end of the chat", () => {
-    // stop() leaves a cut reply and a Stopped notice with no agentRun; the run still learned.
+  test("a stopped run's changes show under its Stopped notice, not under a later reply (review round 6)", () => {
+    // stop() tags the cut reply and the notice with the run.
+    const messages = [{ id: "u1" }, { id: "a1", agentRun: "run_1" }, { id: "u2" }, { id: "cut", cut: true, agentRun: "run_stopped" },
+      { id: "n1", kind: "notice", agentRun: "run_stopped" }, { id: "u3" }, { id: "a3", agentRun: "run_3" }];
+    const events = [lev({ runId: "run_stopped", kind: "user", subject: "user", action: "added", after: "Likes tea" })];
+    assert.deepEqual([...learningAnchors(messages)], [[1, "run_1"], [4, "run_stopped"], [6, "run_3"]]);
+    assert.equal(turnLearning(events, "run_stopped").chip.label, "Learned: About you added");
+    assert.deepEqual(looseLearning(events, messages), { chip: null, card: null });
+  });
+
+  test("a failed run's changes show at the end of the chat", () => {
+    // A failed run, or a stop from before runs were tagged, leaves no message with its run; the run still learned.
     const messages = [{ id: "u1" }, { id: "a1", agentRun: "run_1" }, { id: "u2" }, { id: "cut", cut: true }, { id: "n1", kind: "notice" }];
     const events = [
       lev({}),

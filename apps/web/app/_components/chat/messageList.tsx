@@ -204,8 +204,9 @@ export default function MessageList({
       )
       .filter(([, turn]) => turn.chip || turn.card),
   );
-  // A run that was stopped or failed wrote no reply to show its learning
-  // under: what it learned goes at the end, as on the phone.
+  // A run that failed wrote no message to show its learning under (a
+  // stopped run's notice carries it): what it learned goes at the end, as on
+  // the phone.
   const loose = looseLearning(learning, chat.messages);
   const last = chat.messages?.[chat.messages.length - 1];
   // Only the newest reply, with nothing the person said after it, keeps live answer chips.
