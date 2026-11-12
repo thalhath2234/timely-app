@@ -71,7 +71,9 @@ func (s *Service) exportAgent(ctx context.Context, userID string) (*AgentState, 
 	// A chat deleted while no worker ran still waits for its session.delete:
 	// the backup leaves its transcript out (review round 6).
 	var forgotten []string
-	if err := s.db.Raw(`SELECT conversation_id FROM agent_session_forgets WHERE user_id = ? ORDER BY conversation_id`, userID).Scan(&forgotten).Error; err != nil {
+	if s.db == nil {
+		// no database (unit tests): nothing waits
+	} else if err := s.db.Raw(`SELECT conversation_id FROM agent_session_forgets WHERE user_id = ? ORDER BY conversation_id`, userID).Scan(&forgotten).Error; err != nil {
 		log.Printf("backup %s: agent state left out: %v", safeAccountDirectory(userID), err)
 		return nil, []string{warnAgentUnreadable}
 	}
