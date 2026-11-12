@@ -8,9 +8,9 @@ import BottomSheet from "../../../../components/ui/BottomSheet";
 import { Button, Field, PrimaryButton } from "../../../../components/ui/primitives";
 import { GroupHint, ListGroup, ListRow } from "../../../../components/settings/SettingsList";
 import { MeterRow, TextRow } from "../../../../components/settings/LearnedParts";
-import { useEditLearnedMemory, useLearnedMemoryQuery } from "../../../../lib/hooks";
+import { useAgentChatSettingsQuery, useEditLearnedMemory, useLearnedMemoryQuery } from "../../../../lib/hooks";
 import { useLearningWatch } from "../../../../lib/chat/useLearningWatch";
-import { canSaveEntry, projectedBudget } from "../../../../lib/chat/learning";
+import { canSaveEntry, engineLearningCopy, projectedBudget } from "../../../../lib/chat/learning";
 import { isOffline } from "../../../../lib/networkState";
 import { createThemedStyleSheet } from "../../../../lib/theme";
 
@@ -19,7 +19,7 @@ type Editing = { old: string } | null;
 
 /**
  * About you (USER.md): what Timely knows about the person, read at the start
- * of every chat. Entries with the budget meter; add, edit, delete. Every
+ * of every chat on the agent engine (never on Classic; the hint says so). Entries with the budget meter; add, edit, delete. Every
  * change also lands in Activity, with Undo.
  */
 export default function AboutYou() {
@@ -27,6 +27,7 @@ export default function AboutYou() {
   const memory = useLearnedMemoryQuery();
   useLearningWatch();
   const store = memory.data?.user;
+  const { aboutHint } = engineLearningCopy(useAgentChatSettingsQuery().data?.engine);
   const [editing, setEditing] = useState<Editing>(null);
   // Each open is a fresh sheet (its text starts from the entry); closing keeps it until it slides away.
   const [session, setSession] = useState(0);
@@ -55,7 +56,7 @@ export default function AboutYou() {
             <ListGroup>
               <MeterRow label="Space used" meter={budgetMeter(store.used, store.limit)} />
             </ListGroup>
-            <GroupHint>{"Timely reads this at the start of every chat. Changes apply from your next chat."}</GroupHint>
+            <GroupHint>{aboutHint}</GroupHint>
             <ListGroup testID="about-entries">
               {store.entries.map((entry, i) => (
                 <TextRow key={`${i}:${entry}`} testID={`about-entry-${i}`} text={entry} onPress={() => open({ old: entry })} />

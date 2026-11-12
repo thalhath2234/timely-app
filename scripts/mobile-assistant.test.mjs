@@ -788,3 +788,15 @@ test("every What Timely learned route the chip, card and Settings open is a scre
   }
   assert.equal(learning.viewHref(learning.turnLearning([lev()], reply()).chip).split("?")[0], learning.ACTIVITY_ROUTE);
 });
+
+test("on Classic, What Timely learned says learning needs the New engine and About you says when it is read (review round 7)", () => {
+  const classic = learning.engineLearningCopy("classic");
+  assert.equal(classic.notice.title, "Learning needs the New engine");
+  assert.equal(classic.notice.meta, "Your chats use Classic. Choose New in Settings › Agent.");
+  assert.equal(classic.aboutHint, "Timely reads this only in chats on the New engine. Choose it in Settings › Agent.");
+  for (const engine of ["agent", undefined]) {
+    const copy = learning.engineLearningCopy(engine);
+    assert.equal(copy.notice, null);
+    assert.equal(copy.aboutHint, "Timely reads this at the start of every chat. Changes apply from your next chat.");
+  }
+});

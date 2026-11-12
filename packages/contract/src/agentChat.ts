@@ -142,6 +142,16 @@ export const ENGINE_COPY: Record<AccountEngine, { name: string; description: str
   agent: { name: "New", description: "The new agent engine: replies stream in as they are written." },
 };
 
+/** What Timely learned and About you while chats run on Classic: learning, About you and
+ * past-chat search happen only on the agent engine (plan 9b; Classic never reads them). */
+export const LEARNS_ON_AGENT_ONLY = `Timely learns only in chats on the ${ENGINE_COPY.agent.name} engine.`;
+export const CHOOSE_AGENT_ENGINE = "Choose it in Settings › Agent.";
+/** The phone's row title for that notice (a row title stays on one line). */
+export const LEARNING_NEEDS_AGENT = `Learning needs the ${ENGINE_COPY.agent.name} engine`;
+/** About you's hint: read at the start of every chat on the agent engine, never on Classic. */
+export const ABOUT_YOU_HINT = "Timely reads this at the start of every chat. Changes apply from your next chat.";
+export const ABOUT_YOU_CLASSIC_HINT = `Timely reads this only in chats on the ${ENGINE_COPY.agent.name} engine. ${CHOOSE_AGENT_ENGINE}`;
+
 /** errorAction of a run the agent engine could not start; the apps offer
  * USE_CLASSIC_LABEL, which sends PATCH {engine: "classic"} and then Retry. */
 export const USE_CLASSIC_ACTION = "use_classic";

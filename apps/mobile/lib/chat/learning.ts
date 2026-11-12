@@ -30,7 +30,33 @@ import {
   type PendingCard,
   type PendingItem,
 } from "@timely/contract/agentLearning";
+import {
+  ABOUT_YOU_CLASSIC_HINT,
+  ABOUT_YOU_HINT,
+  ENGINE_COPY,
+  LEARNING_NEEDS_AGENT,
+} from "@timely/contract/agentChat";
 import type { Chat, ChatMessage } from "./types";
+
+/**
+ * What Timely learned and About you on the account's engine: Classic (the
+ * default) never learns, reads About you or searches past chats, so the
+ * learned screen says so with a row that opens Settings → Agent, and About
+ * you's hint names the engine that reads it. Nothing while the engine loads.
+ */
+export function engineLearningCopy(engine: string | undefined): {
+  notice: { title: string; meta: string } | null;
+  aboutHint: string;
+} {
+  if (engine !== "classic") return { notice: null, aboutHint: ABOUT_YOU_HINT };
+  return {
+    notice: {
+      title: LEARNING_NEEDS_AGENT,
+      meta: `Your chats use ${ENGINE_COPY.classic.name}. Choose ${ENGINE_COPY.agent.name} in Settings › Agent.`,
+    },
+    aboutHint: ABOUT_YOU_CLASSIC_HINT,
+  };
+}
 
 export const LEARNED_ROUTE = "/(app)/settings/learned";
 export const ACTIVITY_ROUTE = "/(app)/settings/learned/activity";

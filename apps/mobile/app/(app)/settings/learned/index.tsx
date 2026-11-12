@@ -1,4 +1,5 @@
 import { ScrollView, Text, View } from "react-native";
+import { CircleAlert } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -22,6 +23,7 @@ import {
   SwitchRow,
 } from "../../../../components/settings/SettingsList";
 import {
+  useAgentChatSettingsQuery,
   useLearnedMemoryQuery,
   useLearningSettingsQuery,
   usePatchLearningSettings,
@@ -33,9 +35,11 @@ import {
   SEARCH_NEEDS_LEARNING,
   SKILLS_ON_COMPUTER,
   WAITING_ROUTE,
+  engineLearningCopy,
 } from "../../../../lib/chat/learning";
+import { AGENT_SETTINGS_ROUTE } from "../../../../components/bots/useBotActions";
 import { useLearningWatch } from "../../../../lib/chat/useLearningWatch";
-import { createThemedStyleSheet } from "../../../../lib/theme";
+import { colors, createThemedStyleSheet } from "../../../../lib/theme";
 
 /**
  * Settings → Agent → What Timely learned on the phone (plan 9b.4): the
@@ -54,6 +58,8 @@ export default function LearnedSettings() {
   const data = settings.data;
   const waiting = pending.data?.length ?? 0;
   const about = memory.data?.user;
+  // On Classic (the default engine) nothing here happens in chats: say so first.
+  const { notice } = engineLearningCopy(useAgentChatSettingsQuery().data?.engine);
 
   return (
     <Screen>
@@ -72,6 +78,17 @@ export default function LearnedSettings() {
         ) : null}
         {data ? (
           <>
+            {notice ? (
+              <ListGroup testID="learned-classic">
+                <ListRow
+                  title={notice.title}
+                  meta={notice.meta}
+                  leading={<CircleAlert size={18} color={colors.warningText} />}
+                  accessibilityLabel={`${notice.title}. ${notice.meta}`}
+                  onPress={() => router.push(AGENT_SETTINGS_ROUTE)}
+                />
+              </ListGroup>
+            ) : null}
             <ListGroup testID="learned-switches">
               <SwitchRow
                 title={LEARN_SWITCH}
