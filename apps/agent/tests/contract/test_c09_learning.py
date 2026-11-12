@@ -710,3 +710,33 @@ def test_c09_about_you_fact_with_approval_words_applies_in_a_clean_chat(lagent, 
     mine = [e for e in events if e["kind"] == "user" and fact in (e.get("after") or "")]
     assert [(e["status"], e["origin"]) for e in mine] == [("applied", "chat")], events
     assert fact in (lagent.home / "memories" / "USER.md").read_text(encoding="utf-8")
+
+
+def test_c09_search_stop_right_after_run_start_reaches_the_run(stub):
+    """Review round 6: "Search my past chats" turned off while a run's start was being built.
+    Go sends ``learning.stop`` with ``search_only`` right after run.start; it reaches the worker
+    before the run binds its session state (``--slow-bind``), and the run's session_search is
+    blocked while its learning writes stay on."""
+    a = harness.Agent(harness.new_root("c09ss"), prepare_opts={"timely_skills_src": str(FIXTURE_SKILLS)})
+    probe = HERE / "probe_boot.py"
+    w, ready = harness.ready_worker(a, argv=[harness.python(), "-I", str(probe), "--slow-bind", "2", "worker"],
+                                    hello={"timely_tools": harness.timely_tools()})
+    assert ready["self_test"]["ok"], ready["self_test"]
+    conv, tag = "c-c09ss", "tag-c09ss"
+    script = [{"calls": [["session_search", {"query": "wombat"}]]}, {"calls": [create("c09ss-skill")]},
+              {"text": "Done."}]
+    try:
+        w.send(harness.run_start(a, stub, run_id="c09ss", conversation=conv, budgets={},
+                                 toolsets=TOOLSETS + ["session_search"], flags={**LEARN, "search_history": True},
+                                 text=text(script, tag)))
+        w.send({"type": "learning.stop", "id": "go-stop-search", "account": a.account, "search_only": True})
+        done, seen = harness.drive(w, a.account, "c09ss", timeout=120)
+        settle(w, a)
+    finally:
+        w.close()
+    stopped = [m for m in seen if m.get("id") == "go-stop-search"]
+    assert stopped and stopped[0]["type"] == "learning.result" and stopped[0]["ok"], stopped
+    assert done["completed"], done
+    results = tool_results(stub, tag)
+    assert any("searching past chats is off" in r for r in results), results
+    assert (skill_dir(a, "c09ss-skill") / "SKILL.md").is_file()

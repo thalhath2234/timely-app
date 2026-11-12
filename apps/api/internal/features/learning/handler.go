@@ -119,6 +119,11 @@ func (s *Service) patchSettings(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	if in.SearchHistory != nil && !*in.SearchHistory && row.Learning {
+		// A run or learning pass still going searches no more past chats
+		// (with learning off none searches already).
+		s.StopSearch(ctx, uid, "")
+	}
 	return c.JSON(http.StatusOK, settingsView(row))
 }
 
@@ -538,6 +543,17 @@ func (s *Service) forgetSkill(ctx context.Context, uid, name string) error {
 // learning off (ADR 0028). A worker that is not running has no pass to stop,
 // and its next run.start carries the switch.
 func (s *Service) StopLearning(ctx context.Context, uid, cid string) {
+	s.stop(ctx, uid, cid, false)
+}
+
+// StopSearch tells the account's running worker that a run or learning
+// pass of the conversation (every one without cid) searches past chats no
+// more: "Search my past chats" turned off (learning.stop with search_only).
+func (s *Service) StopSearch(ctx context.Context, uid, cid string) {
+	s.stop(ctx, uid, cid, true)
+}
+
+func (s *Service) stop(ctx context.Context, uid, cid string, searchOnly bool) {
 	if s.workers == nil {
 		return
 	}
@@ -548,6 +564,9 @@ func (s *Service) StopLearning(ctx context.Context, uid, cid string) {
 	fields := map[string]any{}
 	if cid != "" {
 		fields["conversation_id"] = cid
+	}
+	if searchOnly {
+		fields["search_only"] = true
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()

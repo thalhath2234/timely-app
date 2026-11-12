@@ -34,8 +34,9 @@ type Service struct {
 	live       *realtime.Hub
 	botNames   func(ctx context.Context, userID string) ([]BotName, error)
 	engine     AgentEngine
-	// stopLearning tells the worker a chat no longer learns (SetStopLearning).
-	stopLearning func(uid, cid string)
+	// stopLearning tells the worker a chat no longer learns, or with
+	// searchOnly no longer searches past chats (SetStopLearning).
+	stopLearning func(uid, cid string, searchOnly bool)
 	wg           sync.WaitGroup
 }
 
@@ -820,14 +821,14 @@ func (s *Service) configure(c *echo.Context) error {
 		// A run or learning pass of this chat still going writes nothing
 		// more ("Timely won't learn from this chat").
 		uid, cid := user(c), c.Param("id")
-		go s.stopLearning(uid, cid)
+		go s.stopLearning(uid, cid, false)
 	}
 	return err
 }
 
 // SetStopLearning lets "Don't learn from this chat" stop a run or learning
 // pass of the chat that is still going (learning.Service.StopLearning).
-func (s *Service) SetStopLearning(fn func(uid, cid string)) { s.stopLearning = fn }
+func (s *Service) SetStopLearning(fn func(uid, cid string, searchOnly bool)) { s.stopLearning = fn }
 
 // newChatPermission is a new chat's permission mode: the one asked for,
 // else the account's default for new chats.

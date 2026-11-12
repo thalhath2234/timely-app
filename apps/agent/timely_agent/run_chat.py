@@ -147,6 +147,8 @@ class Run:
     # the run's flags came from Go before the person's switch, so its writes stay off whenever
     # the run binds its session state (``run_turn``).
     learning_stopped: bool = False
+    # The same for "Search my past chats" turned off (``learning.stop`` with ``search_only``).
+    search_stopped: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def attach(self, agent: Any) -> None:
@@ -478,6 +480,8 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         private_context=msg.get("private_context"), person_links=msg.get("person_links"))
     if run.learning_stopped:  # after the bind: a stop that lands meanwhile reaches the state itself
         bridge.stop_learning(conversation)
+    if run.search_stopped:
+        bridge.stop_search(conversation)
     ctx = bridge.RunContext(
         run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,

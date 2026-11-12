@@ -350,14 +350,18 @@ class Worker:
             curator.tick(self.home)
 
     # ------------------------------------------------------------ learning (PROTOCOL.md section 10)
-    def _stop_learning_runs(self, conversation: str) -> None:
-        """Mark the live runs of ``conversation`` (every one without it) as no longer learning, in
-        the read loop: a run.start Go sent before the stop is already registered here, even when
-        its thread has not bound the session state yet (that bind would set Go's older flags)."""
+    def _stop_learning_runs(self, conversation: str, search_only: bool = False) -> None:
+        """Mark the live runs of ``conversation`` (every one without it) as no longer learning (or,
+        ``search_only``, no longer searching past chats), in the read loop: a run.start Go sent
+        before the stop is already registered here, even when its thread has not bound the session
+        state yet (that bind would set Go's older flags)."""
         with self.runs_lock:
             for run in self.runs.values():
                 if not conversation or run.msg.get("conversation_id") == conversation:
-                    run.learning_stopped = True
+                    if search_only:
+                        run.search_stopped = True
+                    else:
+                        run.learning_stopped = True
 
     def on_learning(self, msg: dict[str, Any]) -> None:
         """``learning.*`` and ``settings.update``: answered on a thread of their own (an export or
@@ -371,7 +375,7 @@ class Worker:
         if problem:
             raise P.ProtocolError(P.E_BAD_MESSAGE, problem, mid)
         if msg["type"] == "learning.stop":
-            self._stop_learning_runs(str(msg.get("conversation_id") or ""))
+            self._stop_learning_runs(str(msg.get("conversation_id") or ""), msg.get("search_only") is True)
         host = api.Host(home=self.home, account=str(self.chan.account), render=self._render_settings,
                         after_settings=self._drop_idle_agents)
 

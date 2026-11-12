@@ -390,8 +390,11 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	// learning.stop may have reached the worker before this run.start did,
 	// so stop again now that the worker knows the run.
 	if setup.learningWrites && e.s.stopLearning != nil {
-		if learning, _ := e.learnsNow(ctx, c.UserID, c.ID, nil); !learning {
-			go e.s.stopLearning(c.UserID, c.ID)
+		switch learning, search := e.learnsNow(ctx, c.UserID, c.ID, nil); {
+		case !learning:
+			go e.s.stopLearning(c.UserID, c.ID, false)
+		case setup.searchHistory && !search:
+			go e.s.stopLearning(c.UserID, c.ID, true)
 		}
 	}
 	return nil

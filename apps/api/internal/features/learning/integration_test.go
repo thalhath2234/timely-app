@@ -1098,6 +1098,15 @@ func TestIntegrationLearningSwitchReachesTheWorker(t *testing.T) {
 	if n := len(requestsFor(r.requests("learning.stop"), a)); n != 1 {
 		t.Fatalf("turning learning on sent learning.stop (%d)", n)
 	}
+	// Review round 6: turning "Search my past chats" off reaches a run or
+	// learning pass still going (learning.stop with search_only).
+	if code, _, _ := r.call(a, http.MethodPatch, "/agent/learning/settings", map[string]any{"searchHistory": false}); code != http.StatusOK {
+		t.Fatalf("patch %d", code)
+	}
+	stops = requestsFor(r.requests("learning.stop"), a)
+	if len(stops) != 2 || !strings.Contains(string(stops[1].Raw), `"search_only":true`) || strings.Contains(string(stops[1].Raw), "conversation_id") {
+		t.Fatalf("learning.stop after the search switch %v", stops)
+	}
 }
 
 // A staged change the worker no longer holds (a restore whose agent home

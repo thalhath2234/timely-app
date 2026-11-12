@@ -211,7 +211,11 @@ func TestIntegrationAgentEngineNoLearningChat(t *testing.T) {
 	// The learning pass of that first run may still be going: the worker
 	// is told at once, so it writes nothing more.
 	stopped := make(chan [2]string, 2)
-	h.s.SetStopLearning(func(uid, cid string) { stopped <- [2]string{uid, cid} })
+	h.s.SetStopLearning(func(uid, cid string, searchOnly bool) {
+		if !searchOnly {
+			stopped <- [2]string{uid, cid}
+		}
+	})
 	code, body := serve(t, h.s, "PATCH", "/chats/"+c.ID, `{"noLearning":true}`)
 	var patched map[string]any
 	if code != 200 || json.Unmarshal(body, &patched) != nil || patched["noLearning"] != true {

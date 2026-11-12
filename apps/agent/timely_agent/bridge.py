@@ -171,6 +171,23 @@ def stop_learning(session_id: str = "") -> list[SessionState]:
     return out
 
 
+def stop_search(session_id: str = "") -> list[SessionState]:
+    """Turn past-chat search off now for one conversation (``session_id``) or every one: the
+    person turned "Search my past chats" off while a run or its learning pass may still search.
+    ``timely_learning`` reads ``state.search_history`` at each ``session_search``."""
+    with _sessions_lock:
+        states = [_sessions.get(session_id)] if session_id else list(_sessions.values())
+    out = []
+    for state in states:
+        if state is None:
+            continue
+        flags = dict(state.flags)
+        flags["search_history"] = False
+        state.flags = flags
+        out.append(state)
+    return out
+
+
 def forget_session(session_id: str) -> None:
     with _sessions_lock:
         _sessions.pop(session_id, None)

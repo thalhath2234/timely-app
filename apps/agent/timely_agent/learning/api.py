@@ -109,6 +109,8 @@ def problem(msg: dict[str, Any]) -> Optional[str]:
         elif t == "learning.stop":
             if msg.get("conversation_id") is not None and not isinstance(msg.get("conversation_id"), str):
                 return "learning.stop conversation_id must be a string"
+            if msg.get("search_only") is not None and not isinstance(msg.get("search_only"), bool):
+                return "learning.stop search_only must be a boolean"
         else:
             return f"unknown learning request {t!r}"
     except ApiError as exc:
@@ -116,11 +118,14 @@ def problem(msg: dict[str, Any]) -> Optional[str]:
     return None
 
 
-def stop(conversation_id: str) -> dict[str, Any]:
+def stop(conversation_id: str, search_only: bool = False) -> dict[str, Any]:
     """``learning.stop``: no more memory or skill writes from this conversation's run or learning
     pass (or every conversation's, without an id), and a running pass is cancelled. ADR 0028: a
-    chat marked "Don't learn from this chat", or an account with learning off, learns nothing."""
+    chat marked "Don't learn from this chat", or an account with learning off, learns nothing.
+    ``search_only`` ("Search my past chats" turned off): only past-chat search stops."""
     from timely_agent import bridge
+    if search_only:
+        return {"stopped": len(bridge.stop_search(conversation_id))}
     states = bridge.stop_learning(conversation_id)
     for state in states:
         agent = state.agent
@@ -891,7 +896,7 @@ def handle(msg: dict[str, Any], host: Host) -> dict[str, Any]:
         host.after_settings()
         return {"config_sha256": sha}
     if t == "learning.stop":
-        return stop(str(msg.get("conversation_id") or ""))
+        return stop(str(msg.get("conversation_id") or ""), msg.get("search_only") is True)
     if t == "learning.upstream":
         try:
             from timely_agent import skills_admin  # worker-skills-backup

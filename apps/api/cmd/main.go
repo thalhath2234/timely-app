@@ -259,7 +259,11 @@ func main() {
 	// Backups carry the account's agent state (plan 6.5): memory, learned
 	// skills, staged writes and chat sessions.
 	portabilityService.SetAgentState(agentStack.sup)
-	chatService.SetStopLearning(func(uid, cid string) {
+	chatService.SetStopLearning(func(uid, cid string, searchOnly bool) {
+		if searchOnly {
+			agentStack.learning.StopSearch(context.Background(), uid, cid)
+			return
+		}
 		agentStack.learning.StopLearning(context.Background(), uid, cid)
 	})
 	// A restore replaces every row and drops the search index with them, so
