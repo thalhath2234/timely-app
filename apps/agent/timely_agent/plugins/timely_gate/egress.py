@@ -20,14 +20,15 @@ through the web tools. So, in a tainted session only:
   first): ``PAGE_BLOCKED``. This is Go's ``webRun.mayOpen`` for the ``timely`` backend; here it
   holds for every backend, so a saved search key (Exa, Firecrawl, Parallel), whose page reads Go
   never sees, keeps the same rule.
-- a ``web_search`` whose query carries text from a Timely read, from memory (``MEMORY.md``,
+- a ``web_search`` whose query carries text (as written, or base64, hex or percent encoded) from a Timely read, from memory (``MEMORY.md``,
   ``USER.md``, and every learned or edited skill's files in the account home) or from a tainted tool result other than the web tools' own (public web text going
   back to a search engine leaks nothing) is blocked.
-- a ``web_search`` whose query names a site (a link, ``site:host``, or a bare name with a path,
-  query, fragment or port such as ``evil.example/x``, ``evil.example?d=1``) that is neither one the
-  person typed nor one a search returned is blocked: a provider's own search may open what a query
-  names (``SEARCH_HOST_BLOCKED``). The query is read as a fetcher would: NFKC, the ideographic and
-  full-width dots, and the ``[.]``, ``(.)`` and `` dot `` spellings are a dot.
+- a ``web_search`` whose query names a site (a link, ``site:host``, a bare name with a path,
+  query, fragment or port such as ``evil.example/x``, ``evil.example?d=1``, or a bare name whose
+  last label is a top-level domain, ``evil.com``, ``<data>.evil.com``; ``tlds.py``) that is neither
+  one the person typed nor one a search returned is blocked: a provider's own search may open what
+  a query names (``SEARCH_HOST_BLOCKED``). The query is read as a fetcher would: NFKC, the
+  ideographic and full-width dots, and the ``[.]``, ``(.)`` and `` dot `` spellings are a dot.
 - a ``web_search`` whose query names a page (a site with a path, query or fragment) on an allowed
   site is blocked unless ``web_extract`` could open that page: the front page, a link the person
   typed or their bots read, or a URL a search returned. A provider's own search (Codex's live
@@ -61,12 +62,20 @@ record only; ``timely_gate`` feeds the record from ``post_tool_call`` and the se
    occurs in both. A number written in digit groups also counts as its digits alone, so
    ``5550142`` carries ``555-0142``.
 
+Every document is kept for the run (no count cap: an early turn's read must not age out of a long
+chat). Repeated documents are kept once. Past ``PART_BYTES_MAX`` characters a part is *full*, and
+a tainted session's ``web_search`` is then blocked outright (``SEARCH_TOO_LONG``): the rule cannot
+vouch for a query it can no longer check.
+
 **Hosts**: lowercase, without a trailing dot or a leading ``www.``, matched exactly (a
 subdomain of an allowed host is a different host).
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import json
 import re
 import unicodedata
@@ -74,7 +83,9 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+
+from .tlds import RESERVED as RESERVED_TLDS, TLDS
 
 PASTE_LINK = "Paste the link yourself if you want me to open it."
 EXTRACT_BLOCKED = ("Blocked: this chat has read outside content, and {host} is not a site the person named "
@@ -87,6 +98,8 @@ SEARCH_HOST_BLOCKED = ("Blocked: this search names {host}, which is not a site t
                        "search in this chat returned, and this chat has read outside content. " + PASTE_LINK)
 SEARCH_PAGE_BLOCKED = ("Blocked: this search names a page on {host} that the person did not give and no web "
                        "search in this chat returned, and this chat has read outside content. " + PASTE_LINK)
+SEARCH_TOO_LONG = ("Blocked: this chat is too long for Timely to check what a web search would send, and it "
+                   "has read outside content. Start a new chat to search the web. " + PASTE_LINK)
 CHECK_FAILED = "Blocked: Timely could not check where {tool} would send data ({error}). " + PASTE_LINK
 
 MIN_TOKEN = 4
@@ -98,7 +111,7 @@ RARE_MIN = 6
 
 DOC_CAP = 50_000          # characters of one document piece (a longer text is kept as overlapping pieces)
 DOC_OVERLAP = 400         # characters two pieces share, so a run across the cut still matches
-DOCS_MAX = 64             # documents kept per kind (newest)
+PART_BYTES_MAX = 32_000_000  # characters one part keeps in all; past it the part is full (fails closed)
 SESSIONS_MAX = 256        # remembered sessions (oldest dropped)
 
 WEB_TOOLS = ("web_search", "web_extract")
@@ -129,6 +142,9 @@ _URL = re.compile(r"https?://[^\s\"'<>\\)\]}]+", re.IGNORECASE)
 _NAME = r"((?:[^\W_](?:[\w-]{0,61}[^\W_])?\.)+(?:[^\W\d_]{2,24}|xn--[a-z0-9-]{1,59}))"
 _AFTER_NAME = r"(?=:\d|/|[?#][^\s?#])"
 _HOST_REF = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|//|\bsite:)" + _NAME + r"|\b" + _NAME + _AFTER_NAME)
+# A bare name on its own (``evil.com``, ``<data>.evil.com``): a site when its last label is a
+# top-level domain (``site_name``), a word otherwise (``node.js``).
+_BARE_NAME = re.compile(r"(?<![\w-])" + _NAME + r"(?![\w-])")
 # A page a query names: a link (with any user name in it), or a bare name or IP address with a
 # port, a path, or a query or fragment with something in it.
 _PAGE_REF = re.compile(r"(?i)(?:(?:[a-z][a-z0-9+.-]*:)?//(?:[^\s/?#@\"'<>]*@)?)?(?:(?<![\w.-])"
@@ -333,13 +349,57 @@ def query_text(query: str) -> str:
     return _DOT_WORDS.sub(".", text)
 
 
+def site_name(host: str) -> bool:
+    """Whether a bare name is a site: its last label (IDNA) is a top-level domain or a reserved one."""
+    label = _idna(norm_host(host)).rsplit(".", 1)[-1]
+    return label in TLDS or label in RESERVED_TLDS
+
+
 def query_hosts(query: str) -> list[str]:
-    """The sites a search query names (IP addresses anywhere, links, ``site:`` and bare names),
-    normalised (IDNA for a Unicode name)."""
+    """The sites a search query names (IP addresses anywhere, links, ``site:``, bare names with a
+    path, query, fragment or port, and bare names under a top-level domain), normalised (IDNA for
+    a Unicode name)."""
     query = query_text(query)
     found = [a or b for a, b in _HOST_REF.findall(query)]
+    found += [h for h in _BARE_NAME.findall(query) if site_name(h)]
     hosts = ip_literals(query) + [_idna(norm_host(h)) for h in found]
     return list(dict.fromkeys(h for h in hosts if h))
+
+
+_B64_RUN = re.compile(r"[A-Za-z0-9+/_-]{12,}={0,2}")
+_HEX_RUN = re.compile(r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}){8,}(?![0-9A-Fa-f])")
+
+
+def _readable(raw: bytes) -> str:
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return ""
+    shown = sum(1 for c in text if c.isprintable() or c.isspace())
+    return text if text and shown >= 0.9 * len(text) else ""
+
+
+def decoded_texts(query: str) -> list[str]:
+    """What a query says once its encoded runs are read: percent escapes, and each base64 or hex
+    run that decodes to readable text. A query can carry the person's data encoded (``c?d=<base64>``,
+    ``<base64>.evil.com``); the text matching reads these too."""
+    out = []
+    unquoted = unquote(query or "")
+    if unquoted != query:
+        out.append(unquoted)
+    for run in _HEX_RUN.findall(unquoted):
+        text = _readable(binascii.unhexlify(run))
+        if text:
+            out.append(text)
+    for run in _B64_RUN.findall(unquoted):
+        body = run.rstrip("=").replace("+", "-").replace("/", "_")
+        try:
+            text = _readable(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        except (ValueError, binascii.Error):
+            continue
+        if text:
+            out.append(text)
+    return out
 
 
 def query_pages(query: str) -> list[str]:
@@ -495,6 +555,11 @@ class Part:
     search_urls: set[str] = field(default_factory=set)
     timely_reads: list[str] = field(default_factory=list)
     tainted_results: list[str] = field(default_factory=list)
+    # Every document is kept (an early turn's read must not age out of a long chat), once each; past
+    # PART_BYTES_MAX characters the part is full and a tainted search is refused (``check``).
+    size: int = 0
+    full: bool = False
+    _seen: set[str] = field(default_factory=set, repr=False)
 
     def add_search(self, result: Any) -> None:
         """Keep a search's result rows (``data.web[].url`` as Hermes answers, or ``results[].url``),
@@ -514,11 +579,17 @@ class Part:
                 self.search_hosts.add(host)
                 self.search_urls.add(url)
 
-    @staticmethod
-    def _push(docs: list[str], value: Any) -> None:
+    def _push(self, docs: list[str], value: Any) -> None:
         for piece in pieces(_text(value)):
+            key = hashlib.sha256(piece.encode("utf-8", "surrogatepass")).hexdigest()
+            if key in self._seen:
+                continue
+            if self.size + len(piece) > PART_BYTES_MAX:
+                self.full = True
+                return
+            self._seen.add(key)
+            self.size += len(piece)
             docs.append(piece)
-        del docs[:-DOCS_MAX]
 
     def add_timely(self, result: Any) -> None:
         self._push(self.timely_reads, result)
@@ -562,6 +633,10 @@ class Record:
     @property
     def tainted_results(self) -> list[str]:
         return [d for p in self.parts() for d in p.tainted_results]
+
+    @property
+    def full(self) -> bool:
+        return any(p.full for p in self.parts())
 
 
 def load_transcript(rec: Part, messages: list[dict], *, is_timely: Callable[[str], bool],
@@ -646,6 +721,11 @@ def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], 
     links = [str(link) for link in person_links if isinstance(link, str)]
     if tool == "web_search":
         query = str(args.get("query") or "")
+        # The person's data as written first (the clearest reason), then the sites and pages the
+        # query names, then the data encoded.
+        private_docs = own + rec.tainted_results
+        if carries(query, private_docs):
+            return SEARCH_BLOCKED
         allowed_idna = {_idna(h) for h in allowed}
         for host in query_hosts(query):
             if host not in allowed_idna:
@@ -657,8 +737,10 @@ def check(tool: str, args: dict, *, tainted: bool, person_hosts: Iterable[str], 
                 return SEARCH_PAGE_BLOCKED.format(host=host or "another site")
             if not front_page(page) and not person_page(page, links) and page_key(page) not in searched:
                 return SEARCH_PAGE_BLOCKED.format(host=host)
-        if carries(query, own + rec.tainted_results):
+        if any(carries(text, private_docs) for text in decoded_texts(query)):
             return SEARCH_BLOCKED
+        if rec.full:
+            return SEARCH_TOO_LONG
         return None
     if tool == "web_extract":
         urls = extract_urls(args)
