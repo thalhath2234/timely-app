@@ -89,7 +89,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 
 ## Coverage record
 
-Sync commit: `345ff1e80c13a21df14e5e856243f21040142467` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
+Sync commit: `cae7645fe942380190722e92cbb8223e6bae3ed7` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
 
 - `apps/api/internal/features/chat/runner.go`: `(*Service).work` (claim, engine dispatch, failure checkpoint), `runClassic`, `keepLease`, `apply`, `retrySerializable`, `serializationFailure`
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`

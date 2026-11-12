@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync 345ff1e80c13a21df14e5e856243f21040142467
+sync cae7645fe942380190722e92cbb8223e6bae3ed7
 apps/api/internal/features/chat/runner.go (*Service).work 8e243f4800bf477a
 apps/api/internal/features/chat/runner.go (*Service).runClassic 92f268cf78651921
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
@@ -24,13 +24,13 @@ apps/api/cmd/agent_deps.go chatCatalog e226468207e02575
 apps/api/internal/features/chat/engine.go runEngine d635fd67bf852794
 apps/api/internal/features/chat/engine.go (*Service).startAgentRun 27ed7f35a63a59eb
 apps/api/internal/features/chat/engine.go (*Service).lostAgentRun 5fe42587e88517c3
-apps/api/internal/features/chat/toolcall.go (*Service).toolCall 10e007c38feaef4e
+apps/api/internal/features/chat/toolcall.go (*Service).toolCall a5fe755dcc1c57d8
 apps/api/internal/features/chat/toolcall.go (*Service).finishTurn 2c0479f4d881df86
 apps/api/internal/features/chat/toolcall.go endRun f38d8c57021cd995
 apps/api/internal/features/chat/toolcall.go (*Service).renewLease 72b0c8a49818a3f0
 apps/api/internal/features/chat/permission_mode.go proposalStatus bc0708216054507e
 apps/api/internal/features/chat/permission_mode.go holdReason 8a2a4940ff09cfc3
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Start 2d3ac3e7cca7ce20
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Start 89c555335283e803
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).clearRun 5bee476314429dbc
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Lost 2b982691c52c1806
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Stop 37dcf46f929f2bd1
