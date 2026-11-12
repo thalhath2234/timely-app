@@ -540,12 +540,12 @@ def test_learning_writes_off_blocks_every_skill_manage_write(tagent, tworker, st
     args = json.dumps({"action": "create", "name": "my-notes", "content": content})
     tworker.send(_phase2_start(tagent, stub, "w-learn", f"CALL skill_manage {args}"))
     done, _ = harness.drive(tworker, tagent.account, "w-learn")
-    assert "not saving skills or memory yet" in done["final_response"], done
+    assert "learning is off for this chat" in done["final_response"], done
     assert not list((tagent.home / "skills").rglob("my-notes"))
     tworker.send(_phase2_start(tagent, stub, "w-learn-on", f"CALL skill_manage {args}",
                                flags={"learning_writes": True}))
     done, _ = harness.drive(tworker, tagent.account, "w-learn-on")
-    assert "not saving skills or memory yet" not in done["final_response"], done
+    assert "learning is off for this chat" not in done["final_response"], done
 
 
 def test_permission_and_learning_flag_are_validated(tagent, tworker, stub):

@@ -451,7 +451,7 @@ def test_fork_finds_the_session_by_id(learning_plugin, monkeypatch):
                                session_id="conv-f")
         assert out["message"] == rules.STAGED_MESSAGE and calls[0]["origin"] == "review"
         assert tl.pre_tool_call(tool_name="skill_manage", args={"action": "create", "name": "n"},
-                                session_id="unknown")["message"] == tl.LEARNING_OFF
+                                session_id="unknown")["message"] == tl.NO_LEARNING_RUN
     finally:
         bridge.forget_session("conv-f")
 

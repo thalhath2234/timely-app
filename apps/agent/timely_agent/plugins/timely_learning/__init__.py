@@ -66,8 +66,12 @@ NAME_MESSAGE = ("Blocked: Timely can't keep a skill named {name} ({why}). Use a 
 OFF_NAME_MESSAGE = ("Blocked: a skill named {name} stays turned off in Timely, so it would never be used. "
                     "Save it under another name.")
 READ_ONLY_PATH_MESSAGE = "Blocked: {path} belongs to a skill shipped with Timely and is read-only."
-LEARNING_OFF = ("Blocked: Timely is not saving skills or memory yet. Answer without saving; "
-                "do not retry.")
+# The run's learning is off: the person turned learning off for the account or this chat, or the
+# chat is Sensitive or only answers. Plain words the model can pass on (review round 7).
+LEARNING_OFF = ("Blocked: learning is off for this chat, so Timely saves no skills or memory here. "
+                "Answer without saving; do not retry.")
+# No run or conversation to learn for (outside a Timely chat or bot run).
+NO_LEARNING_RUN = "Blocked: Timely saves skills and memory only inside a chat. Answer without saving; do not retry."
 SEARCH_OFF = "Blocked: searching past chats is off for this chat. Answer without it; do not retry."
 SEARCH_EXCLUDED = "Blocked: that chat is not searchable. Do not retry."
 SEARCH_PROFILE = "Blocked: Timely searches only this account's chats."
@@ -303,7 +307,7 @@ def _learning_write(tool_name: str, args: dict, session_id: str) -> dict | None:
     from timely_agent.learning import rules, staging
     view = _view(session_id)
     if view is None:
-        return {"action": "block", "message": LEARNING_OFF}
+        return {"action": "block", "message": NO_LEARNING_RUN}
     decision = rules.decide(tool_name, args, learning_writes=view.learning_writes, tainted=bool(view.taint),
                             from_bot=view.from_bot, kind=view.kind, unattended=view.fork and _unattended(),
                             threat=_threat)

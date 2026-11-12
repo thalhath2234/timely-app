@@ -595,7 +595,9 @@ def test_learning_writes_off_blocks_skill_manage_and_memory(monkeypatch):
         finally:
             bridge.current_run.reset(token)
     # outside a run: blocked (fail closed)
-    assert timely_learning.pre_tool_call(tool_name="memory", args={})["message"] == timely_learning.LEARNING_OFF
+    assert timely_learning.pre_tool_call(tool_name="memory", args={})["message"] == timely_learning.NO_LEARNING_RUN
+    # the words match the switch, not "not ... yet" (review round 7)
+    assert "learning is off for this chat" in timely_learning.LEARNING_OFF and "yet" not in timely_learning.LEARNING_OFF
 
 
 @pytest.mark.parametrize("name", ["hermes-agent", "release..notes", "notes/../hermes-agent", "Pantry steps", "timely"])
