@@ -135,6 +135,7 @@ function Chip({ chip, onLeave }: { chip: LearningChip; onLeave?: () => void }) {
               <Link
                 href={learnedHref(chip.view)}
                 onClick={onLeave}
+                aria-label={`View: ${chip.label}`}
                 className={textButton}
               >
                 View
