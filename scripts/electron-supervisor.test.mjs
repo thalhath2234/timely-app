@@ -839,6 +839,16 @@ test("paths: a packaged app hands over resources/agent even without boot.py, so 
   }
 });
 
+test("main.ts builds the Supervisor with packaged: app.isPackaged, and SupervisorDeps makes it required", () => {
+  // 024aecc9's fix lives in that one line; with `packaged` optional, deleting it still typechecked.
+  const electron = path.join(import.meta.dirname, "..", "apps", "web", "electron");
+  const main = readFileSync(path.join(electron, "main.ts"), "utf8");
+  const call = main.slice(main.indexOf("new Supervisor({"), main.indexOf("});", main.indexOf("new Supervisor({")));
+  assert.match(call, /\n\s+packaged: app\.isPackaged,\n/);
+  const deps = readFileSync(path.join(electron, "supervisor", "index.ts"), "utf8");
+  assert.match(deps, /export type SupervisorDeps = \{[\s\S]*?\n {2}packaged: boolean;\n/);
+});
+
 // A small staged agent tree: files, a relative interpreter link, an empty folder.
 function stageAgentFixture(root) {
   mkdirSync(path.join(root, "python", "bin"), { recursive: true });
@@ -1163,6 +1173,7 @@ function makeSupervisor(dir, loginItem, extra = {}) {
   return new Supervisor({
     userData: dir,
     resources: { api: path.join(dir, "res-api"), postgres: path.join(dir, "res-pg"), next: path.join(dir, "res-next"), agent: path.join(dir, "res-agent") },
+    packaged: false,
     version: "0.5.0",
     sealer: plainSealer,
     nodeBinary: process.execPath,

@@ -34,8 +34,12 @@ export type Updater = {
 export type SupervisorDeps = {
   userData: string;
   resources: ResourceDirs;
-  /** app.isPackaged: the API always gets resources.agent as its runtime (paths.ts agentRuntime). */
-  packaged?: boolean;
+  /**
+   * app.isPackaged: the API always gets resources.agent as its runtime (paths.ts agentRuntime).
+   * Required, so a Supervisor built without it is a type error rather than a packaged app that
+   * silently falls back to the API's upward dev discovery.
+   */
+  packaged: boolean;
   version: string;
   sealer: Sealer;
   /** Node-compatible binary for the Next server (Electron's execPath + ELECTRON_RUN_AS_NODE). */
