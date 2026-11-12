@@ -43,37 +43,6 @@ func TestOpenRouterSearchIsOptIn(t *testing.T) {
 	}
 }
 
-// A search-only search (a tainted run's) asks OpenRouter for the Exa
-// engine, which only searches; a model's native search may open pages.
-func TestOpenRouterSearchOnlyUsesExa(t *testing.T) {
-	for _, only := range []bool{false, true} {
-		var engine any
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body struct {
-				Plugins []map[string]any `json:"plugins"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if len(body.Plugins) == 1 {
-				engine = body.Plugins[0]["engine"]
-			}
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Ready"},"finish_reason":"stop"}]}`))
-		}))
-		ctx := context.Background()
-		if only {
-			ctx = WithSearchOnly(ctx)
-		}
-		p := OpenRouter{Key: "k", Model: "m", URL: server.URL, Client: server.Client()}
-		_, err := p.Complete(ctx, []WireMessage{{Role: "user", Content: "weather"}}, nil, true)
-		server.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if (engine == "exa") != only {
-			t.Fatalf("search-only %v: engine %v", only, engine)
-		}
-	}
-}
-
 func TestOpenRouterRecoversFromBodyTimeout(t *testing.T) {
 	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

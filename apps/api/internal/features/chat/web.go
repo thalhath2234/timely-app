@@ -14,12 +14,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
-
-	"golang.org/x/net/idna"
-	"golang.org/x/net/publicsuffix"
-	"golang.org/x/text/unicode/norm"
 
 	"timely-api/internal/features/bots/extract"
 	"timely-api/internal/features/bots/fetch"
@@ -33,8 +27,12 @@ import (
 // which asks Go through tool.call. Go searches with the chat provider's own
 // search (the run's Completer, the same path classic's web_search takes) and
 // reads pages through the netguard fetcher. Both results carry third-party
-// text (outside). The worker's gate holds the exfiltration rule; Go repeats
-// its page half here as a second line.
+// text (outside): the chat is tainted, so its next proposal is held for
+// review (ADR 0007). Timely puts no rule of its own on where a tainted chat
+// may search or read (owner decision Q-3.9): Hermes' own handling applies,
+// since the answer reaches the model as Hermes' web_search or web_extract
+// result (wrapped as untrusted data, threat-scanned, a URL carrying a key or
+// token refused before Go is asked).
 
 // webTools are the Hermes tools the chat's web toggle governs.
 var webTools = map[string]bool{"web_search": true, "web_extract": true}
@@ -49,9 +47,6 @@ const (
 	// The key is added on the web or desktop app: the phone's Settings has
 	// no search key row.
 	needsSearchKey = "Web search needs a search key. Add one in Timely on the web or the desktop app, in Settings → Agent → Web search"
-	// pasteLink refuses a page read the exfiltration rule stops (plan 8.1,
-	// 12; block in phases 3 and 4).
-	pasteLink = "Paste the link yourself if you want me to open it"
 	// notPublic refuses an address on this computer or a private network.
 	notPublic = "Timely only reads public web pages; that address is on this computer or a private network"
 )
@@ -174,8 +169,8 @@ func publicURL(u *url.URL) error {
 	return nil
 }
 
-// hostOf is a link's host as the exfiltration rule compares it: lower case,
-// without "www.".
+// hostOf is a link's host as a taint source names it: lower case, without
+// "www.".
 func hostOf(raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -204,12 +199,9 @@ type webPage struct {
 
 // searchResults lists a search answer's sources: the provider's url
 // citations, each address once, at most limit. A link in the answer text is
-// never a result, in a clean run or a tainted one: the text is the search
-// model's own writing from the query and the pages it read, so a page it
-// read could have it write an address that carries the query's words (the
-// person's data). The model still sees those links in the answer; they
-// only never become pages a tainted run may open (plan 8.1, 12). Claude
-// Code and Codex cite nothing, so their searches return no rows.
+// not a result: the text is the search model's own writing, and the model
+// still reads its links there. Claude Code and Codex cite nothing, so their
+// searches return no rows.
 func searchResults(answer WireMessage, limit int) []webResult {
 	if limit <= 0 || limit > maxResults {
 		limit = maxResults
@@ -240,13 +232,8 @@ func searchResults(answer WireMessage, limit int) []webResult {
 
 // webSearch is the timely backend's web_search: the chat provider's own
 // search, within classic's caps (maxSearches a run, maxSearchFailures
-// failures). A clean search's sources (the run and the chat had read no
-// outside text when the model asked for it) become pages the chat may open
-// after taint, in this run and, once kept on the chat (SearchResults), in
-// later ones. A search made after taint may have been asked for by an
-// injected page, which can plant results and have them opened in an order
-// that spells out the person's data (review round 7): its sources stay text.
-func (s *Service) webSearch(ctx context.Context, c *Conversation, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
+// failures).
+func (s *Service) webSearch(ctx context.Context, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
 	if !canSearch(ctx) {
 		return nil, false, errors.New(needsSearchKey)
 	}
@@ -257,31 +244,12 @@ func (s *Service) webSearch(ctx context.Context, c *Conversation, run *toolRun, 
 	if json.Unmarshal(args, &in) != nil || len(strings.TrimSpace(in.Query)) == 0 || len(in.Query) >= 2000 {
 		return nil, false, errors.New("Invalid search query: write the words to search for")
 	}
-	tainted := run.tainted()
-	if tainted {
-		if run.web.searchNamesOtherSite(s.fetchGuard(ctx, c), in.Query) != "" {
-			// Second line of the worker's rule: the query could have the
-			// provider open a page that carries the person's data.
-			return nil, false, errors.New(pasteLink)
-		}
-	}
 	answer, err := s.runSearch(ctx, run, strings.TrimSpace(in.Query))
 	if err != nil {
 		return nil, false, err
 	}
-	// Only the provider's citations are results (pages a tainted run may
-	// open); Claude Code and Codex cite nothing, so their links stay in the
-	// answer text only.
-	results := searchResults(answer, in.Limit)
-	if !tainted {
-		for _, r := range results {
-			run.web.seen(r.URL)
-			run.web.fresh = append(run.web.fresh, r.URL)
-		}
-	}
-	run.web.read = true
 	run.web.taint = append(run.web.taint, TaintSource{Kind: "web", Tool: "web_search"})
-	return map[string]any{"answer": answer.Content, "results": results}, true, nil
+	return map[string]any{"answer": answer.Content, "results": searchResults(answer, in.Limit)}, true, nil
 }
 
 // runSearch makes one provider search, counted against the run's caps; a
@@ -295,16 +263,7 @@ func (s *Service) runSearch(ctx context.Context, run *toolRun, query string) (Wi
 		return WireMessage{}, errors.New("That is as many searches as one request may make. Answer from the results above")
 	}
 	run.searches++
-	prompt := query + "\nInclude source links."
-	if run.tainted() {
-		// Outside text may have written this query: the provider searches
-		// with its words and opens no page (WithSearchOnly: Codex's cached
-		// search, OpenRouter's Exa engine), so an address the gate missed
-		// is never fetched. The prompt line only asks; the setting holds.
-		ctx = WithSearchOnly(ctx)
-		prompt += "\nSearch the web for these words. Do not open, fetch or visit any address written above."
-	}
-	answer, err := s.complete(ctx, []WireMessage{{Role: "user", Content: prompt}}, nil, true)
+	answer, err := s.complete(ctx, []WireMessage{{Role: "user", Content: query + "\nInclude source links."}}, nil, true)
 	if err == nil && strings.TrimSpace(answer.Content) == "" {
 		err = errors.New("The search returned no answer")
 	}
@@ -320,9 +279,9 @@ func (s *Service) runSearch(ctx context.Context, run *toolRun, query string) (Wi
 }
 
 // webExtract is the timely backend's web_extract: each address is checked
-// (public, and after outside text reached the run, one the person typed or
-// a search result) and read through the run's PageFetcher.
-func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
+// (a plain http(s) link on the public internet) and read through the run's
+// PageFetcher, once a run: a page the run already read comes from that read.
+func (s *Service) webExtract(ctx context.Context, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
 	var in struct {
 		URLs []string `json:"urls"`
 		URL  string   `json:"url"`
@@ -341,7 +300,6 @@ func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun,
 	if fetcher == nil {
 		fetcher = NetguardFetcher()
 	}
-	guard := s.fetchGuard(ctx, c)
 	budget := maxExtractText / len(urls)
 	pages := []webPage{}
 	for _, raw := range urls {
@@ -351,14 +309,7 @@ func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun,
 		switch {
 		case err != nil || publicURL(u) != nil:
 			page.Error = notPublic
-		case run.tainted() && !run.web.mayOpen(guard, raw):
-			// Second line of the exfiltration rule (the worker's gate is the
-			// first): outside text could ask for a page whose address
-			// carries the person's data.
-			page.Error = pasteLink
-		case run.tainted() && run.web.pages[pageAddress(raw)].URL != "":
-			// A page this run already read: read again, how often it is
-			// opened could spell out the person's data to its server.
+		case run.web.pages[pageAddress(raw)].URL != "":
 			earlier := run.web.pages[pageAddress(raw)]
 			page.FinalURL, page.Title, page.Content = earlier.FinalURL, earlier.Title, earlier.Content
 			outside = true
@@ -379,7 +330,7 @@ func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun,
 				run.web.pages = map[string]webPage{}
 			}
 			run.web.pages[pageAddress(raw)] = page
-			run.web.read, outside = true, true
+			outside = true
 			run.web.taint = append(run.web.taint, TaintSource{Kind: "web", Tool: "web_extract", Host: hostOf(raw)})
 		}
 		pages = append(pages, page)
@@ -390,8 +341,8 @@ func (s *Service) webExtract(ctx context.Context, c *Conversation, run *toolRun,
 // pageAddress is the key a read page is kept under: the address as asked
 // for, a front page with or without its "/" alike (both send "GET /").
 func pageAddress(raw string) string {
-	if scheme, host, rest, ok := exactURL(raw); ok && rest == "" {
-		return scheme + "://" + host + "/"
+	if u, err := url.Parse(raw); err == nil && u.Host != "" && u.Path == "" && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" {
+		return raw + "/"
 	}
 	return raw
 }
@@ -402,393 +353,11 @@ type webRun struct {
 	// not answer-only.
 	on    bool
 	fetch PageFetcher
-	// results are the addresses the chat's clean searches returned (this
-	// run's, and earlier runs' from Conversation.SearchResults), and hosts
-	// their hosts (spelled: as the results write them, with any "www.");
-	// fresh are this run's not yet kept on the chat.
-	results, hosts, spelled map[string]bool
-	fresh                   []string
-	// pages are the pages this run read, by address: once tainted, a page
-	// read again comes from here, so how often a page is opened reaches no
-	// server.
+	// pages are the pages this run read, by address (pageAddress): a page
+	// read again comes from here.
 	pages map[string]webPage
-	// read is set once a search or page brought outside text into the run;
-	// taint holds the sources not yet handed to the engine.
-	read  bool
+	// taint holds the web sources read and not yet handed to the engine.
 	taint []TaintSource
-}
-
-func (w *webRun) seen(link string) {
-	if w.results == nil {
-		w.results, w.hosts, w.spelled = map[string]bool{}, map[string]bool{}, map[string]bool{}
-	}
-	w.results[link] = true
-	if host := hostOf(link); host != "" {
-		w.hosts[host] = true
-		if u, err := url.Parse(strings.TrimSpace(link)); err == nil {
-			w.spelled[strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")] = true
-		}
-	}
-}
-
-// takeResults hands over this run's clean search results not yet kept.
-func (w *webRun) takeResults() []string {
-	out := w.fresh
-	w.fresh = nil
-	return out
-}
-
-// mayOpen is whether a tainted run may read raw, compared exactly as written
-// (review round 8): a bot's address or a clean search's result word for
-// word, the front page of a site the person typed or a search returned
-// (https://host/ in lower case, without "www." unless that is how the site
-// was given), or a link the person typed as they typed it (its scheme, host
-// and path, any query and fragment), or that link cut at a "/", "?" or "#".
-// Any other path or query could carry the person's data to the site (plan
-// 8.1, 12), and so could another spelling of an allowed address: the
-// letter case of a host or path, a trailing dot, an empty "?", http for
-// https, "www." or a port each reach the server as written and could spell
-// out a bit of the person's data per letter.
-func (w *webRun) mayOpen(guard *fetchGuard, raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if w.results[raw] || guard.known[raw] {
-		return true
-	}
-	scheme, host, rest, ok := exactURL(raw)
-	if !ok {
-		return false
-	}
-	bare := strings.TrimPrefix(host, "www.")
-	if !guard.typedHost(bare) && !w.hosts[bare] {
-		return false
-	}
-	if rest == "" || rest == "/" {
-		return scheme == "https" && (host == bare || w.spelled[host] || guard.typedHost(host))
-	}
-	for _, link := range guard.typedLinks() {
-		if link.opens(scheme, host, rest) {
-			return true
-		}
-	}
-	return false
-}
-
-// exactURL splits raw into its scheme, host and the rest (path, query and
-// fragment as written) when it is written the one way a tainted run opens
-// an address: "http" or "https" in lower case, a lower-case host without a
-// trailing dot, port or user name, and no empty query or fragment.
-func exactURL(raw string) (scheme, host, rest string, ok bool) {
-	for _, s := range []string{"https", "http"} {
-		if strings.HasPrefix(raw, s+"://") {
-			scheme, raw = s, raw[len(s)+3:]
-			break
-		}
-	}
-	if scheme == "" {
-		return "", "", "", false
-	}
-	i := strings.IndexAny(raw, "/?#")
-	if i < 0 {
-		i = len(raw)
-	}
-	host, rest = raw[:i], raw[i:]
-	if host == "" || host != strings.ToLower(host) || strings.HasSuffix(host, ".") ||
-		strings.ContainsAny(host, ":@%\\[] \t") || strings.HasSuffix(rest, "?") ||
-		strings.HasSuffix(rest, "#") || strings.Contains(rest, "?#") {
-		return "", "", "", false
-	}
-	return scheme, host, rest, true
-}
-
-// typedLink is a link the person typed: http only when they wrote it, the
-// host in lower case, the rest as written.
-type typedLink struct{ scheme, host, rest string }
-
-// opens is whether an address (exactURL's parts) is this link, or this link
-// cut just before a "/", "?" or "#" (a folder or the page without its query).
-func (l typedLink) opens(scheme, host, rest string) bool {
-	if scheme != l.scheme || host != l.host || !strings.HasPrefix(l.rest, rest) {
-		return false
-	}
-	return len(rest) == len(l.rest) || strings.ContainsRune("/?#", rune(l.rest[len(rest)]))
-}
-
-// typedLinks are the links the person typed with a path, query or fragment.
-func (g *fetchGuard) typedLinks() []typedLink {
-	out := []typedLink{}
-	for _, m := range linkWord.FindAllStringSubmatch(g.written(), -1) {
-		scheme := "https"
-		if strings.EqualFold(m[1], "http") {
-			scheme = "http"
-		}
-		rest := strings.TrimRight(m[3], ".,;:!?")
-		out = append(out, typedLink{scheme, strings.TrimSuffix(strings.ToLower(m[2]), "."), rest})
-	}
-	return out
-}
-
-// mayName is whether a tainted run's search may name raw as a page: the
-// page rule as it stood before round 8, read loosely (any letter case, http
-// or https, "www."), since a tainted search opens no page (WithSearchOnly)
-// and the worker checks the query too.
-func (w *webRun) mayName(guard *fetchGuard, raw string) bool {
-	raw = strings.TrimSpace(raw)
-	if w.results[raw] || guard.knows(raw) {
-		return true
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Hostname() == "" {
-		return false
-	}
-	host := hostOf(raw)
-	typed := guard.typedHost(host)
-	if !typed && !w.hosts[host] {
-		return false
-	}
-	if u.RawQuery != "" && !(typed && strings.Contains(guard.typed, strings.ToLower(u.RawQuery))) {
-		return false
-	}
-	if p := strings.TrimSuffix(u.EscapedPath(), "/"); p == "" {
-		return true
-	}
-	return typed && (strings.Contains(guard.typed, strings.ToLower(host+u.EscapedPath())) ||
-		strings.Contains(guard.typed, strings.ToLower(host+u.Path)))
-}
-
-// searchNamesOtherSite is the first site a tainted run's search query names
-// (a link, site:host, or a name with a port, path, query or fragment) that
-// the person did not type and no search of this run returned, or that names
-// a page on an allowed site that mayOpen would not open: a provider's own
-// search may open what a query names (Codex searches live), so a query is a
-// page read too. The query is read as a fetcher would (searchText). "" when
-// there is none.
-func (w *webRun) searchNamesOtherSite(guard *fetchGuard, query string) string {
-	query = searchText(query)
-	allowed := func(host string) bool {
-		return host != "" && (guard.typedHost(host) || w.hosts[host] || guard.typedHost(unicodeHost(host)))
-	}
-	for _, ip := range ipLiterals(query) {
-		if !allowed(ip) {
-			return ip
-		}
-	}
-	for _, m := range hostRef.FindAllStringSubmatch(query, -1) {
-		host := asciiHost(m[1] + m[2])
-		if host != "" && !allowed(host) {
-			return host
-		}
-	}
-	for _, name := range bareSites(query) {
-		if host := asciiHost(name); host != "" && !allowed(host) {
-			return host
-		}
-	}
-	for _, page := range queryPages(query) {
-		if host := w.pageBlocked(guard, page); host != "" {
-			return host
-		}
-	}
-	return ""
-}
-
-// pageBlocked is the site of a page a tainted run's query names when the
-// run's page rule would not open it (an address a fetcher could read
-// differently, a site the person did not type and no search returned, or a
-// path or query that is not the front page, a typed link, a bot's page or a
-// search result), else "".
-func (w *webRun) pageBlocked(guard *fetchGuard, page string) string {
-	raw := page
-	switch {
-	case strings.HasPrefix(raw, "//"):
-		raw = "https:" + raw
-	case !strings.Contains(raw, "://"):
-		raw = "https://" + raw
-	}
-	u, err := url.Parse(raw)
-	host := ""
-	if err == nil {
-		host = asciiHost(u.Hostname())
-	}
-	if host == "" {
-		return "another site"
-	}
-	authority, _, _ := strings.Cut(raw[strings.Index(raw, "://")+3:], "/")
-	authority, _, _ = strings.Cut(authority, "?")
-	authority, _, _ = strings.Cut(authority, "#")
-	scheme := strings.ToLower(u.Scheme)
-	if (scheme != "http" && scheme != "https") || strings.ContainsAny(authority, "@%\\") ||
-		(u.Port() != "" && u.Port() != map[string]string{"http": "80", "https": "443"}[scheme]) {
-		return host
-	}
-	if !guard.typedHost(host) && !w.hosts[host] && !guard.typedHost(unicodeHost(host)) {
-		return host
-	}
-	key := pageKey(raw)
-	for result := range w.results {
-		if pageKey(result) == key {
-			return ""
-		}
-	}
-	// mayOpen ignores a fragment (a fetch never sends it); a model reading
-	// the query does not, so a fragment must be typed as written.
-	if u.Fragment == "" && w.mayName(guard, raw) || u.Fragment != "" && strings.Contains(guard.typed, key) {
-		return ""
-	}
-	return host
-}
-
-// pageKey is a page's address as the rule compares it (the worker's
-// egress.page_key): lower case, no scheme or "www.", the path without a
-// trailing "/", then any query and fragment.
-func pageKey(raw string) string {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return ""
-	}
-	out := asciiHost(u.Hostname()) + strings.TrimSuffix(u.EscapedPath(), "/")
-	if u.RawQuery != "" {
-		out += "?" + u.RawQuery
-	}
-	if u.Fragment != "" {
-		out += "#" + u.EscapedFragment()
-	}
-	return strings.ToLower(out)
-}
-
-// asciiHost is a host as the rule compares it: IDNA (an IDN in its xn--
-// form), lower case, without a trailing dot or "www.".
-func asciiHost(host string) string {
-	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
-	if a, err := idna.Lookup.ToASCII(host); err == nil && a != "" {
-		host = a
-	}
-	return strings.TrimPrefix(host, "www.")
-}
-
-// unicodeHost is an xn-- host as the person would type it.
-func unicodeHost(host string) string {
-	if u, err := idna.Lookup.ToUnicode(host); err == nil {
-		return u
-	}
-	return host
-}
-
-// searchText is a search query as a fetcher or a model reads its addresses
-// (the worker's egress.query_text): NFKC, the ideographic and full-width
-// dots, and the "[.]", "(.)" and " dot " spellings people use to hide a
-// link, as a dot.
-func searchText(query string) string {
-	query = strings.NewReplacer("\u3002", ".", "\uff0e", ".", "\uff61", ".").Replace(norm.NFKC.String(query))
-	query = dotMark.ReplaceAllString(query, ".")
-	for range 8 {
-		next := dotWord.ReplaceAllString(query, "${1}.${2}")
-		if next == query {
-			break
-		}
-		query = next
-	}
-	return query
-}
-
-var (
-	dotMark = regexp.MustCompile(`(?i)\s*(?:\[\.\]|\(\.\)|\{\.\}|\[dot\]|\(dot\)|\{dot\})\s*`)
-	dotWord = regexp.MustCompile(`(?i)([\p{L}\p{N}_])\s+dot\s+([\p{L}\p{N}_])`)
-)
-
-// queryPages are the pages a search query names: links (with any user name
-// in them), and bare names or IP addresses with a port, a path, or a query
-// or fragment with something in it, trailing punctuation dropped.
-func queryPages(query string) []string {
-	out := []string{}
-	for _, m := range pageRef.FindAllStringSubmatch(query, -1) {
-		if page := strings.TrimRight(m[1]+m[2], ".,;:!?)]}"); page != "" {
-			out = append(out, page)
-		}
-	}
-	return out
-}
-
-// A name is Unicode (an IDN), compared in its IDNA form. Go's \b knows only
-// ASCII, so a name starts after a character that is not a letter, digit
-// or "_".
-const (
-	nameRE  = `(?:[\p{L}\p{N}](?:[\p{L}\p{N}_-]{0,61}[\p{L}\p{N}])?\.)+(?:\p{L}{2,24}|xn--[a-z0-9-]{1,59})`
-	afterRE = `(?::\d|/|[?#][^\s?#])`
-	tailRE  = `(?::\d+(?:[/?#][^\s"'<>]*)?|/[^\s"'<>]*|[?#][^\s"'<>?#][^\s"'<>]*)`
-)
-
-// hostRef finds the sites a search query names so that a search could open
-// them, as the worker's egress.query_hosts does.
-var hostRef = regexp.MustCompile(`(?i)(?:[a-z][a-z0-9+.-]*://|//|\bsite:)(` + nameRE + `)|(?:^|[^\p{L}\p{N}_])(` + nameRE + `)` + afterRE)
-
-// bareName finds a name written on its own ("evil.com", "<data>.evil.com");
-// bareSites keeps those that are sites.
-var bareName = regexp.MustCompile(`(?:^|[^\p{L}\p{N}_-])(` + nameRE + `)`)
-
-// reservedTLDs are the last labels kept for tests and private networks
-// (RFC 2606, 6761): no public suffix, but a site to a resolver that knows
-// them. The worker's tlds.RESERVED lists the same.
-var reservedTLDs = map[string]bool{"example": true, "test": true, "invalid": true, "localhost": true, "local": true, "onion": true, "internal": true}
-
-// bareSites are the bare names a query writes whose last label is an ICANN
-// top-level domain or a reserved one (the worker's egress.site_name): a
-// provider's own search could open "evil.com" with the person's data
-// written apart from it or in a DNS label. "node.js" and "config.yaml" stay
-// words.
-func bareSites(query string) []string {
-	out := []string{}
-	for _, m := range bareName.FindAllStringSubmatchIndex(query, -1) {
-		name := query[m[2]:m[3]]
-		if next, _ := utf8.DecodeRuneInString(query[m[3]:]); next == '_' || next == '-' || unicode.IsLetter(next) || unicode.IsDigit(next) {
-			continue // part of a longer word
-		}
-		if siteName(name) {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
-// siteName reports whether a bare name's last label (IDNA) is an ICANN
-// top-level domain or a reserved one.
-func siteName(name string) bool {
-	host := asciiHost(name)
-	tld := host[strings.LastIndex(host, ".")+1:]
-	if reservedTLDs[tld] {
-		return true
-	}
-	suffix, icann := publicsuffix.PublicSuffix(tld)
-	return icann && suffix == tld
-}
-
-// pageRef finds the pages a search query names, as the worker's
-// egress.query_pages does: a link, or a bare name or IP address.
-var pageRef = regexp.MustCompile(`(?i)((?:[a-z][a-z0-9+.-]*:)?//[^\s/?#"'<>]+` + tailRE + `?)|(?:^|[^\p{L}\p{N}_.-])((?:` + nameRE + `|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]+\])` + tailRE + `)`)
-
-// ipCandidate finds what could be an IP address in a query: digits and dots,
-// or hex digits and colons, bracketed or not.
-var ipCandidate = regexp.MustCompile(`(?i)\[?[0-9a-f:.]*[.:][0-9a-f:.]*\]?`)
-
-// ipLiterals are the IP addresses a query names anywhere, normalised: an
-// address is a site whether or not a scheme or path goes with it, so a query
-// that splits a link around one ("http:// 203.0.113.5 /c?d=...") still names
-// it.
-func ipLiterals(query string) []string {
-	out := []string{}
-	for _, m := range ipCandidate.FindAllString(query, -1) {
-		bracketed := strings.HasPrefix(m, "[") && strings.HasSuffix(m, "]")
-		m = strings.Trim(strings.Trim(m, "[]"), ".")
-		hex := len(m) - strings.Count(m, ":") - strings.Count(m, ".")
-		ip, err := netip.ParseAddr(m)
-		// "std::vector" holds "d::", an address by syntax only: a bare IPv6
-		// address needs two colons and four digits.
-		if err == nil && (ip.Is4() && strings.Count(m, ".") == 3 || ip.Is6() && (bracketed || strings.Count(m, ":") >= 2 && hex >= 4)) {
-			if s := ip.String(); !slices.Contains(out, s) {
-				out = append(out, s)
-			}
-		}
-	}
-	return out
 }
 
 // takeTaint hands over the web sources read since the last call.
@@ -796,70 +365,4 @@ func (w *webRun) takeTaint() []TaintSource {
 	t := w.taint
 	w.taint = nil
 	return t
-}
-
-// hostWord finds the sites a person's words name: a link's host, or a bare
-// name such as example.com.
-var hostWord = regexp.MustCompile(`(?i)(?:https?://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})\b`)
-
-// linkWord finds the links a person's words name with a path, query or
-// fragment (a front page needs none: the rule allows it on any allowed site).
-var linkWord = regexp.MustCompile(`(?i)(?:(https?)://)?((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24})(?::\d+)?([/?#][^\s"'<>()\[\]{}]*)`)
-
-// links is the guard's list of pages as the worker's exfiltration rule
-// reads them (run.start person_links): the links the person typed in this
-// chat, the host in lower case and the rest as typed, without a scheme
-// ("http://" kept when they wrote it), and the addresses their bots read as
-// written. After taint the worker opens a page with a path or query only
-// when it is one of these as written, a search returned it, or it is a
-// site's front page; this is mayOpen's rule, applied the same way to every
-// web backend.
-func (g *fetchGuard) links() []string {
-	out := []string{}
-	add := func(link string) {
-		if link != "" && !slices.Contains(out, link) {
-			out = append(out, link)
-		}
-	}
-	for _, l := range g.typedLinks() {
-		if l.rest == "" {
-			continue
-		}
-		if l.scheme == "http" {
-			add("http://" + l.host + l.rest)
-		} else {
-			add(l.host + l.rest)
-		}
-	}
-	for link := range g.known {
-		add(link)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// hosts is the guard's list as the worker's exfiltration rule reads it
-// (run.start person_hosts): the sites the person typed in this chat and the
-// sites their bots read.
-func (g *fetchGuard) hosts() []string {
-	out := []string{}
-	add := func(host string) {
-		host = strings.TrimPrefix(strings.TrimSuffix(strings.ToLower(host), "."), "www.")
-		if host != "" && !slices.Contains(out, host) {
-			out = append(out, host)
-		}
-	}
-	for _, m := range hostWord.FindAllStringSubmatch(g.typed, -1) {
-		add(m[1])
-		// The spelling with "www." too: after taint a front page opens only
-		// as the person or a search wrote its site.
-		if host := strings.TrimSuffix(strings.ToLower(m[1]), "."); strings.HasPrefix(host, "www.") && !slices.Contains(out, host) {
-			out = append(out, host)
-		}
-	}
-	for link := range g.known {
-		add(hostOf(link))
-	}
-	slices.Sort(out)
-	return out
 }

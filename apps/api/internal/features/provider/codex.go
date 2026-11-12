@@ -42,12 +42,7 @@ func (p *Codex) Complete(ctx context.Context, messages []chat.WireMessage, tools
 		return chat.WireMessage{}, err
 	}
 	webSearch := "disabled"
-	switch {
-	case search && chat.SearchOnly(ctx):
-		// A query outside text may have written: the cached index only,
-		// so no page the query names is opened.
-		webSearch = "cached"
-	case search:
+	if search {
 		webSearch = "live"
 	}
 	args := []string{"exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "-C", work, "-m", p.Model,

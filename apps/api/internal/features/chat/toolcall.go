@@ -48,18 +48,8 @@ type toolRun struct {
 	searches, searchFailures int
 	// web is the agent engine's timely web backend in this run (web.go).
 	web webRun
-	// taintSeen is set when the chat or the worker reported outside text
-	// in the run (an agent run only); see tainted.
-	taintSeen bool
 	// agentRun is the agent run these tools serve ("" on classic).
 	agentRun string
-}
-
-// tainted reports whether outside text reached this run: the chat's own
-// tainted_sources, the worker's reports, an outside Timely read or a web
-// page or search.
-func (r *toolRun) tainted() bool {
-	return r.taintSeen || r.bots.outside || r.web.read
 }
 
 // RunReads is a run's toolRun as stored in run_reads, for an agent run
@@ -135,9 +125,9 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 	web := run.web.on && webTools[name]
 	if web && name == "web_search" {
 		// The agent engine's timely web backend (web.go).
-		result, outside, err = s.webSearch(ctx, c, run, args)
+		result, outside, err = s.webSearch(ctx, run, args)
 	} else if web {
-		result, outside, err = s.webExtract(ctx, c, run, args)
+		result, outside, err = s.webExtract(ctx, run, args)
 	} else if name == "web_search" && run.searchOn {
 		var in struct {
 			Query string `json:"query"`
@@ -154,7 +144,7 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 				// Search text is outside text, as on the agent engine: the
 				// chat's tainted_sources keep it for a later agent turn
 				// (ADR 0028), which reloads this reply into its session.
-				run.web.read, outside = true, true
+				outside = true
 				run.web.taint = append(run.web.taint, TaintSource{Kind: "web", Tool: "web_search"})
 			}
 		} else {
@@ -168,7 +158,7 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 		if pick != nil {
 			run.picks = append(run.picks, pick)
 		}
-	} else if name == "preview_bot" && !s.runGuard(ctx, c, run).allows(previewWatches(args)) {
+	} else if name == "preview_bot" && !s.fetchGuard(ctx, c).allows(previewWatches(args)) {
 		err = fmt.Errorf("%s", fetchRefusal)
 	} else if name == "ask_bot" && run.bots.asks >= maxAsks {
 		err = fmt.Errorf("That is as many bots as one request may ask (%d). Answer from what they said above", maxAsks)
@@ -230,7 +220,7 @@ func (s *Service) prepareAgentProposal(ctx context.Context, c *Conversation, run
 	}
 	notes := s.reviewNotes(ctx, c, p)
 	s.targetFeedback(c.UserID, run.picks, p.Steps)
-	s.previewSteps(ctx, run.catalog, c.UserID, p.Steps, s.runGuard(ctx, c, run))
+	s.previewSteps(ctx, run.catalog, c.UserID, p.Steps, s.fetchGuard(ctx, c))
 	return &pendingProposal{proposal: p, snapshots: snapshots, notes: notes}, nil
 }
 
@@ -372,41 +362,23 @@ func imageNotice(review *ImageReview) string {
 // the per-turn context classic sends after the stored conversation (the
 // clock, attached context, the current get_context result, a tag notice).
 // The stable Timely block is the system part; this is everything that
-// changes from one message to the next. private are Timely's parts of it
-// but the clock: the person's data the worker's exfiltration rule keeps from
-// leaving a tainted chat (run.start.private_context). The person's own
-// words are not in it: "search for X" stays a search for X.
-func (s *Service) turnInput(ctx context.Context, c *Conversation) (input string, private []string) {
+// changes from one message to the next.
+func (s *Service) turnInput(ctx context.Context, c *Conversation) string {
 	ctx, loc, source := s.zoned(ctx, c)
 	catalog := s.factory(s.db.WithContext(ctx))
-	parts, private := []string{}, []string{}
-	add := func(part string, isPrivate bool) {
-		parts = append(parts, part)
-		if isPrivate {
-			private = append(private, part)
-		}
-	}
+	parts := []string{}
 	if c.ImageReview != nil {
-		add(imageNotice(c.ImageReview), true)
+		parts = append(parts, imageNotice(c.ImageReview))
 	}
-	own := map[string]bool{}
-	for _, m := range c.Messages {
-		if m.Role == "user" {
-			own[m.Content] = true
-		}
-	}
-	for _, part := range sinceLastTurn(c.Messages) {
-		add(part, !own[part])
-	}
-	add(timeNotice(time.Now(), loc, source), false)
-	add(chipsNotice(c.Context, s.unneededChips(ctx, c)), true)
+	parts = append(parts, sinceLastTurn(c.Messages)...)
+	parts = append(parts, timeNotice(time.Now(), loc, source), chipsNotice(c.Context, s.unneededChips(ctx, c)))
 	if current := s.currentContext(ctx, catalog, c.UserID, loc); current != "" {
-		add(current, true)
+		parts = append(parts, current)
 	}
 	if tags := latestTags(c); len(tags) > 0 {
-		add(s.tagNotice(ctx, c.UserID, tags), true)
+		parts = append(parts, s.tagNotice(ctx, c.UserID, tags))
 	}
-	return strings.Join(parts, "\n\n"), private
+	return strings.Join(parts, "\n\n")
 }
 
 // cutNotice introduces a reply Stop cut short.

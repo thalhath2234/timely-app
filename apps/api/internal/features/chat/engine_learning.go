@@ -16,23 +16,13 @@ type runSetup struct {
 	toolsets                      []string
 	// taintedConversations are the account's chats with outside text (a
 	// past-chat search hit from one taints the run), searchExclude its
-	// "Don't learn from this chat" chats (never search hits), personHosts
-	// the sites the person typed here or their bots read (the
-	// exfiltration rule allows them after taint). searchAllow are the
-	// chats a past-chat search may return at all: the account's chats that
-	// are neither Sensitive nor "Don't learn from this chat". The worker
+	// "Don't learn from this chat" chats (never search hits). searchAllow
+	// are the chats a past-chat search may return at all: the account's
+	// chats that are neither Sensitive nor "Don't learn from this chat". The worker
 	// drops a hit from any other session in state.db (a restore brought it
 	// back without its chat, or the chat was deleted and its session.delete
 	// is still pending).
-	taintedConversations, searchExclude, searchAllow, personHosts []string
-	// personLinks are the pages (links with a path or query) the person
-	// typed here or their bots read: after taint only these, a search's
-	// own results and a site's front page may be opened, whichever backend
-	// reads them (a saved search key's included).
-	personLinks []string
-	// searchResults are the chat's clean searches' results
-	// (Conversation.SearchResults): after taint they may be opened.
-	searchResults []string
+	taintedConversations, searchExclude, searchAllow []string
 }
 
 // runSetup decides a run's flags from the account's learning switches and
@@ -60,11 +50,6 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 	out.searchHistory = prefs.SearchHistory && out.learningWrites
 	tools.web.on = c.WebSearch && !c.Sensitive && !tools.answerOnly
 	tools.web.fetch = e.opts.Fetch
-	tools.taintSeen = len(c.TaintedSources) > 0
-	out.searchResults = append([]string{}, c.SearchResults...)
-	for _, link := range c.SearchResults {
-		tools.web.seen(link)
-	}
 
 	if err := e.s.db.WithContext(ctx).Model(&Conversation{}).Where("user_id = ? AND no_learning", c.UserID).
 		Order("updated_at DESC").Limit(5000).Pluck("id", &out.searchExclude).Error; err != nil {
@@ -91,8 +76,6 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 	if out.taintedConversations == nil {
 		out.taintedConversations = []string{}
 	}
-	guard := e.s.fetchGuard(ctx, c)
-	out.personHosts, out.personLinks = guard.hosts(), guard.links()
 	out.toolsets = runToolsets(out.learningWrites, out.searchHistory, tools.web.on)
 	return out
 }
@@ -193,12 +176,11 @@ func gateVerdict(run *toolRun, tool string) (verdict, message string) {
 }
 
 // noteTaint keeps outside sources the run reported for the chat's
-// tainted_sources, and marks the run tainted.
+// tainted_sources.
 func (r *agentRun) noteTaint(sources []TaintSource) {
 	if len(sources) == 0 {
 		return
 	}
 	r.taint = append(r.taint, sources...)
 	r.dirty = true
-	r.tools.taintSeen = true
 }

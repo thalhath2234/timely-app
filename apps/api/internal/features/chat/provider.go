@@ -161,23 +161,6 @@ func WithoutRetries(ctx context.Context) context.Context {
 	return context.WithValue(ctx, noRetryKey{}, true)
 }
 
-type searchOnlyKey struct{}
-
-// WithSearchOnly marks a web search whose query outside text may have
-// written (a tainted run, plan 8.1 and 12): the provider searches with the
-// query's words and never opens or fetches a page the query names. Codex
-// searches its cached index instead of live, OpenRouter uses the Exa
-// engine; the Anthropic API's and Claude Code's searches open no page.
-func WithSearchOnly(ctx context.Context) context.Context {
-	return context.WithValue(ctx, searchOnlyKey{}, true)
-}
-
-// SearchOnly reports whether the call was marked with WithSearchOnly.
-func SearchOnly(ctx context.Context) bool {
-	only, _ := ctx.Value(searchOnlyKey{}).(bool)
-	return only
-}
-
 // RetriesOff reports whether the call was marked with WithoutRetries.
 func RetriesOff(ctx context.Context) bool {
 	off, _ := ctx.Value(noRetryKey{}).(bool)
@@ -394,13 +377,7 @@ func (p *OpenRouter) completeOnce(ctx context.Context, messages []WireMessage, t
 		body["tools"] = tools
 	}
 	if search {
-		plugin := map[string]any{"id": "web", "max_results": 5}
-		if SearchOnly(ctx) {
-			// A model's native search may open a page the query names;
-			// Exa only searches.
-			plugin["engine"] = "exa"
-		}
-		body["plugins"] = []any{plugin}
+		body["plugins"] = []any{map[string]any{"id": "web", "max_results": 5}}
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {

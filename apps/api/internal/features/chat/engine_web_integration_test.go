@@ -63,10 +63,7 @@ type runStartFields struct {
 	TaintedConversations []string `json:"tainted_conversations"`
 	SearchExclude        []string `json:"search_exclude"`
 	SearchAllow          []string `json:"search_allow"`
-	PersonHosts          []string `json:"person_hosts"`
-	PersonLinks          []string `json:"person_links"`
 	UserMessage          string   `json:"user_message"`
-	PrivateContext       []string `json:"private_context"`
 }
 
 func (h *engineHarness) runStart(cid string) runStartFields {
@@ -88,9 +85,9 @@ func learningOn(context.Context, string) (LearningPrefs, error) {
 	return LearningPrefs{Learning: true, SearchHistory: true}, nil
 }
 
-// run.start carries the learning and web flags, the toolsets they open, the
-// account's tainted and "Don't learn" chats and the hosts the person typed;
-// the reply names its run (agentRun).
+// run.start carries the learning and web flags, the toolsets they open and
+// the account's tainted and "Don't learn" chats, and no list for a web rule
+// (Q-3.9); the reply names its run (agentRun).
 func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	h := newEngineHarness(t)
 	h.e.opts.Learning = learningOn
@@ -117,14 +114,6 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	if !slices.Equal(start.SearchExclude, []string{quiet.ID}) {
 		t.Fatalf("search_exclude %v, want %s", start.SearchExclude, quiet.ID)
 	}
-	if !slices.Equal(start.PersonHosts, []string{"news.example.com", "shop.example.org"}) {
-		t.Fatalf("person_hosts %v", start.PersonHosts)
-	}
-	// The pages the person typed: after taint the worker opens these, a
-	// search's results and front pages, on every web backend.
-	if !slices.Equal(start.PersonLinks, []string{"shop.example.org/p"}) {
-		t.Fatalf("person_links %v", start.PersonLinks)
-	}
 	// Past-chat search may return the account's chats only, never a
 	// Sensitive or "Don't learn" one: a session state.db holds without a
 	// chat (restored, deleted) is not on the list, so it is never a hit.
@@ -135,24 +124,21 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	if !slices.Equal(allow, want) || slices.Contains(allow, quiet.ID) || slices.Contains(allow, private.ID) {
 		t.Fatalf("search_allow %v, want %v", start.SearchAllow, want)
 	}
-	// private_context is Timely's part of the message (attached context,
-	// get_context), never the person's own words.
-	if len(start.PrivateContext) == 0 {
-		t.Fatal("run.start has no private_context")
-	}
-	for _, part := range start.PrivateContext {
-		if strings.Contains(part, "Compare https://shop.example.org/p") || strings.HasPrefix(part, "System notice (not written by the user):\nCurrent UTC time") {
-			t.Fatalf("private_context carries %q", part)
-		}
-		if !strings.Contains(start.UserMessage, part) {
-			t.Fatalf("private part %q is not in user_message", part)
-		}
-	}
 	var block struct {
 		SystemText string `json:"system_text"`
 	}
 	for _, r := range h.kit.ReceivedOf("run.start") {
 		_ = r.Decode(&block)
+		var fields map[string]json.RawMessage
+		_ = r.Decode(&fields)
+		for _, gone := range []string{"person_hosts", "person_links", "search_results", "private_context"} {
+			if _, ok := fields[gone]; ok {
+				t.Fatalf("run.start still carries %s", gone)
+			}
+		}
+	}
+	if !strings.Contains(start.UserMessage, "Compare https://shop.example.org/p") {
+		t.Fatalf("user_message %q", start.UserMessage)
 	}
 	if !strings.Contains(block.SystemText, webSearchOn) {
 		t.Fatal("a run with the web lacks the web search line in its Timely block")
@@ -454,10 +440,12 @@ func TestIntegrationAgentEngineWebSearchUsesTheChatProvider(t *testing.T) {
 	}
 }
 
-// After outside text reached a chat, a page read is refused unless the
-// person typed its site or a search of the run returned it; a private
-// address is refused always. Nothing refused reaches the fetcher.
-func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
+// Owner decision Q-3.9: after outside text reached a chat, the timely
+// backend still reads any public page, as Hermes does (the worker refuses a
+// link that carries a key or token before Go is asked); a private address
+// is refused always and never reaches the fetcher. Each page read joins the
+// chat's taint with its host.
+func TestIntegrationAgentEngineWebExtractAfterTaint(t *testing.T) {
 	h := newEngineHarness(t)
 	var mu sync.Mutex
 	var fetched []string
@@ -467,9 +455,8 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		mu.Unlock()
 		return Page{URL: rawURL, Title: "Page", Content: "page text"}, nil
 	}
-	// The run's first search is clean (its results open after taint); only
-	// the citation is a result, not the link the search model wrote in its
-	// text.
+	// Only the citation is a result, not the link the search model wrote
+	// in its text.
 	citation, _ := json.Marshal(obj{"type": "url_citation", "url_citation": obj{"url": "https://found.example.net/a", "title": "Found"}})
 	searching := &fakeSearch{can: true, answer: WireMessage{Role: "assistant", Content: "See https://found.example.net/a and https://written.example.org/x",
 		Annotations: []json.RawMessage{citation}}}
@@ -490,7 +477,7 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		extract("x9", "https://written.example.org/x"),
 		reply("Done.", 0),
 	), func(c *Conversation) { c.WebSearch = true })
-	h.wait(c.ID, "replied", statusIs("idle"))
+	c = h.wait(c.ID, "replied", statusIs("idle"))
 	var pageErrors []string
 	for i, r := range h.toolResults() {
 		if i == 0 {
@@ -505,23 +492,27 @@ func TestIntegrationAgentEngineWebExtractSecondLine(t *testing.T) {
 		}
 		pageErrors = append(pageErrors, body.Pages[0].Error)
 	}
-	// After taint a path no search returned and the person did not type
-	// could carry their data to the site: only front pages and exact
-	// results open.
-	want := []string{notPublic, "", pasteLink, "", pasteLink, pasteLink, "", pasteLink, pasteLink}
+	want := []string{notPublic, "", "", "", "", "", "", "", ""}
 	if !slices.Equal(pageErrors, want) {
 		t.Fatalf("page errors\n%q\nwant\n%q", pageErrors, want)
 	}
-	if !slices.Equal(fetched, []string{"https://typed.example.com/", "https://found.example.net/a", "https://found.example.net/"}) {
+	if want := []string{"https://typed.example.com/", "https://attacker.example/?q=secret", "https://found.example.net/a",
+		"https://found.example.net/b", "https://found.example.net/b?q=secret", "https://found.example.net/",
+		"https://typed.example.com/log/ivf-consult-okonkwo", "https://written.example.org/x"}; !slices.Equal(fetched, want) {
 		t.Fatalf("fetched %q", fetched)
+	}
+	for _, host := range []string{"attacker.example", "found.example.net", "typed.example.com"} {
+		if !slices.Contains(c.TaintedSources, TaintSource{Kind: "web", Tool: "web_extract", Host: host}) {
+			t.Fatalf("tainted_sources %+v lack %s", c.TaintedSources, host)
+		}
 	}
 }
 
 // Taint the worker reports only in a gate.ask (a keyed backend's
 // web_extract, or a past-chat search hit from a chat with outside text:
-// {kind: session}) taints the run at once: a page path on a site the person
-// typed no longer opens, and a later direct proposal in Auto waits for
-// Approve, though neither tool.call carries the taint.
+// {kind: session}) taints the chat: a later direct proposal in Auto waits
+// for Approve, though neither tool.call carries the taint. The page read
+// itself is not restricted (Q-3.9).
 func TestIntegrationAgentEngineGateAskTaintHoldsADirectProposal(t *testing.T) {
 	h := newEngineHarness(t)
 	var fetched []string
@@ -548,14 +539,8 @@ func TestIntegrationAgentEngineGateAskTaintHoldsADirectProposal(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(fetched) != 0 {
-		t.Fatalf("a tainted run opened %q", fetched)
-	}
-	var body struct {
-		Pages []webPage `json:"pages"`
-	}
-	if results := h.toolResults(); len(results) == 0 || json.Unmarshal(results[0].Result, &body) != nil || len(body.Pages) != 1 || body.Pages[0].Error != pasteLink {
-		t.Fatalf("web_extract after gate.ask taint: %+v", body)
+	if !slices.Equal(fetched, []string{"https://typed.example.com/log/what-i-said"}) {
+		t.Fatalf("fetched %q", fetched)
 	}
 }
 
@@ -602,91 +587,5 @@ func TestIntegrationAgentEngineStopAfterTheSendReachesTheRun(t *testing.T) {
 				t.Fatal("no learning.stop after the send")
 			}
 		})
-	}
-}
-
-// queryCiting is a search model that cites the addresses listed for the
-// first word of the query.
-type queryCiting map[string][]string
-
-func (q queryCiting) Complete(_ context.Context, messages []WireMessage, _ []any, _ bool) (WireMessage, error) {
-	answer := WireMessage{Role: "assistant", Content: "Results."}
-	words := strings.Fields(messages[len(messages)-1].Content)
-	for _, link := range q[words[0]] {
-		a, _ := json.Marshal(obj{"type": "url_citation", "url_citation": obj{"url": link}})
-		answer.Annotations = append(answer.Annotations, a)
-	}
-	return answer, nil
-}
-
-func (queryCiting) CanSearch() bool { return true }
-
-// Review round 7: a clean search's results stay openable in the chat's
-// later runs, as the worker allows them (Go kept them on the chat and hands
-// them back in run.start.search_results), and so does a row the worker
-// reports for a keyed backend's clean search. A search made after taint
-// keeps its results text in every run.
-func TestIntegrationAgentEngineSearchResultsOpenInLaterRuns(t *testing.T) {
-	h := newEngineHarness(t)
-	var mu sync.Mutex
-	var fetched []string
-	h.e.opts.Fetch = func(_ context.Context, rawURL string) (Page, error) {
-		mu.Lock()
-		fetched = append(fetched, rawURL)
-		mu.Unlock()
-		return Page{URL: rawURL, Title: "Page", Content: "page text"}, nil
-	}
-	ramen, keyed, planted := "https://ramen.example/top-ten", "https://keyed.example/r", "https://attacker.example/h/4"
-	h.s.SetCompleters(searchCompleters{queryCiting{"best": {ramen}, "zq7": {planted}}})
-	c := h.chatWith("find the best ramen", "supervised", "later-runs", lines(
-		toolCallLine("s1", "web_search", obj{"query": "best ramen"}, 1),
-		toolCallLine("s2", "web_search", obj{"query": "zq7 more"}, 1),
-		reply("Here are some.", 0),
-	), func(c *Conversation) { c.WebSearch = true })
-	c = h.wait(c.ID, "replied", statusIs("idle"))
-	if !slices.Equal(c.SearchResults, SearchResults{ramen}) || len(c.TaintedSources) == 0 {
-		t.Fatalf("after run 1: search_results %q, tainted %+v", c.SearchResults, c.TaintedSources)
-	}
-	h.kit.Fixture("later-runs", lines(
-		obj{"type": "taint", "sources": []TaintSource{}, "search_results": []string{keyed}},
-		toolCallLine("x1", "web_extract", obj{"urls": []string{ramen}}, 1),
-		toolCallLine("s3", "web_search", obj{"query": "site:ramen.example top ten"}, 1),
-		toolCallLine("x2", "web_extract", obj{"urls": []string{planted}}, 1),
-		reply("Opened it.", 0),
-	))
-	if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"open the top ten list"}`); code != 200 {
-		t.Fatalf("send: %d %s", code, body)
-	}
-	c = h.wait(c.ID, "replied again", func(c Conversation) bool { return c.Status == "idle" && len(c.Messages) >= 4 })
-	starts := h.kit.ReceivedOf("run.start")
-	var second struct {
-		SearchResults []string `json:"search_results"`
-	}
-	if len(starts) != 2 || starts[1].Decode(&second) != nil || !slices.Equal(second.SearchResults, []string{ramen}) {
-		t.Fatalf("run 2's run.start search_results %q (%d run.starts)", second.SearchResults, len(starts))
-	}
-	results := h.toolResults()
-	if len(results) != 5 {
-		t.Fatalf("%d tool.results", len(results))
-	}
-	var page struct {
-		Pages []webPage `json:"pages"`
-	}
-	if json.Unmarshal(results[2].Result, &page) != nil || len(page.Pages) != 1 || page.Pages[0].Error != "" {
-		t.Fatalf("run 2 opening run 1's clean result: %s", results[2].Result)
-	}
-	if strings.Contains(string(results[3].Result), pasteLink) {
-		t.Fatalf("run 2's search naming run 1's result host: %s", results[3].Result)
-	}
-	if !strings.Contains(string(results[4].Result), pasteLink) {
-		t.Fatalf("a result of a search after taint: %s", results[4].Result)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if !slices.Equal(fetched, []string{ramen}) {
-		t.Fatalf("fetched %q", fetched)
-	}
-	if !slices.Equal(c.SearchResults, SearchResults{ramen, keyed}) {
-		t.Fatalf("search_results %q, want the clean ones only", c.SearchResults)
 	}
 }

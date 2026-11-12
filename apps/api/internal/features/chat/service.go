@@ -1045,25 +1045,6 @@ func (s *Service) keepTaint(ctx context.Context, uid, cid string, sources []Tain
 	})
 }
 
-// keepSearchResults adds a clean search's result addresses to the chat
-// whatever its status or lease, like keepTaint: they are facts about the
-// chat's transcript, which holds the search whatever happens to the run.
-func (s *Service) keepSearchResults(ctx context.Context, uid, cid string, urls []string) error {
-	if len(urls) == 0 {
-		return nil
-	}
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var latest Conversation
-		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &latest); err != nil {
-			return err
-		}
-		if !mergeSearchResults(&latest, urls) {
-			return nil
-		}
-		return tx.Model(&latest).Select("SearchResults").Updates(&latest).Error
-	})
-}
-
 // A fenced lease prevents a stopped or recovered worker from publishing results.
 func (s *Service) checkpoint(ctx context.Context, c *Conversation, fn func(*gorm.DB, *Conversation) error) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

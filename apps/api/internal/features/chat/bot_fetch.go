@@ -18,20 +18,7 @@ const fetchRefusal = "Timely only reads an address before approval when the pers
 // query strings they typed, and the addresses their bots already read.
 type fetchGuard struct {
 	typed string          // the person's own messages, lower case
-	words string          // the same messages as written (the case of a typed link's path)
 	known map[string]bool // addresses the person's bots read, as written
-	// run, when set, is the run the read is for: once outside text reached
-	// it, only the pages its web rule opens (webRun.mayOpen) are read.
-	run *toolRun
-}
-
-// runGuard is fetchGuard for a read a run makes: preview_bot, or a proposed
-// bot's preview. After taint a page path could carry the person's data as
-// it could in web_extract, so the same rule holds (plan 8.1, 12).
-func (s *Service) runGuard(ctx context.Context, c *Conversation, run *toolRun) *fetchGuard {
-	g := s.fetchGuard(ctx, c)
-	g.run = run
-	return g
 }
 
 func (s *Service) fetchGuard(ctx context.Context, c *Conversation) *fetchGuard {
@@ -42,8 +29,7 @@ func (s *Service) fetchGuard(ctx context.Context, c *Conversation) *fetchGuard {
 			typed = append(typed, m.Content)
 		}
 	}
-	g.words = strings.Join(typed, "\n")
-	g.typed = strings.ToLower(g.words)
+	g.typed = strings.ToLower(strings.Join(typed, "\n"))
 	if s.db != nil {
 		var urls []string
 		// No table yet (a test schema without Bots) only means no bots.
@@ -89,14 +75,10 @@ func (g *fetchGuard) allowsURL(raw string) bool {
 	}
 	// Data rides out in a query string: one the person did not type is
 	// not theirs to send.
-	if u.RawQuery != "" && !strings.Contains(g.typed, strings.ToLower(u.RawQuery)) {
-		return false
-	}
-	return g.run == nil || !g.run.tainted() || g.run.web.mayOpen(g, raw)
+	return u.RawQuery == "" || strings.Contains(g.typed, strings.ToLower(u.RawQuery))
 }
 
-// knows is whether one of the person's bots reads raw, in any letter case
-// (before taint, the case of an address carries nothing of theirs).
+// knows is whether one of the person's bots reads raw, in any letter case.
 func (g *fetchGuard) knows(raw string) bool {
 	for link := range g.known {
 		if strings.EqualFold(link, raw) {
@@ -104,15 +86,6 @@ func (g *fetchGuard) knows(raw string) bool {
 		}
 	}
 	return false
-}
-
-// written is the person's words as written; a guard built without them (a
-// test) has only the lower-case copy.
-func (g *fetchGuard) written() string {
-	if g.words != "" {
-		return g.words
-	}
-	return g.typed
 }
 
 // typedHost is whether host appears in the person's words as a whole name:

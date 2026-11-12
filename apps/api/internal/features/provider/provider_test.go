@@ -229,26 +229,6 @@ func TestCodexCompleteReportsTurnFailure(t *testing.T) {
 	}
 }
 
-// A search whose query outside text may have written (chat.WithSearchOnly)
-// runs on Codex's cached index, which opens no page; any other search is
-// live.
-func TestCodexSearchOnlyIsCached(t *testing.T) {
-	for _, only := range []bool{false, true} {
-		bin, argsFile := fakeCLI(t, "codex", `echo '{"type":"item.completed","item":{"type":"agent_message","text":"an answer"}}'`)
-		ctx := context.Background()
-		want := `web_search="live"`
-		if only {
-			ctx, want = chat.WithSearchOnly(ctx), `web_search="cached"`
-		}
-		if _, err := (&Codex{Bin: bin, Model: "gpt-5.5"}).Complete(ctx, []chat.WireMessage{{Role: "user", Content: "weather"}}, nil, true); err != nil {
-			t.Fatal(err)
-		}
-		if args, _ := os.ReadFile(argsFile); !strings.Contains(string(args), want) {
-			t.Fatalf("search-only %v: want %s in %q", only, want, args)
-		}
-	}
-}
-
 func TestEncryptRoundTripAndHint(t *testing.T) {
 	t.Setenv("JWT_SECRET", "unit-secret")
 	s := New(nil, nil, nil)
