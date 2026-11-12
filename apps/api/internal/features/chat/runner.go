@@ -479,7 +479,9 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 	if answerOnly {
 		messages = append(messages, WireMessage{Role: "user", Content: s.tagNotice(ctx, c.UserID, tags)})
 	}
-	messages = append(messages, c.Transcript...)
+	// A tool result that quotes outside text reaches the model wrapped as
+	// untrusted data, as Hermes wraps it on the agent engine (untrusted.go).
+	messages = append(messages, markUntrusted(c.Transcript)...)
 	// What this run did with the bot tools, a resumed lease included.
 	run := &toolRun{catalog: catalog, loc: loc, tags: tags, answerOnly: answerOnly, searchOn: searchOn, targets: targets, offered: offered, bots: replayBotRun(c.Transcript), reads: map[string]string{}}
 	nudges := 0
@@ -532,7 +534,7 @@ func (s *Service) plan(ctx context.Context, c *Conversation) error {
 		}); err != nil {
 			return err
 		}
-		messages = append(messages, batch[1:]...)
+		messages = append(messages, markUntrusted(batch)[1:]...)
 	}
 	// The same request would run out of steps again: no Try again.
 	return Final("This request needs more steps. Try narrowing it down")
