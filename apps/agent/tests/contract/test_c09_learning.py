@@ -471,3 +471,19 @@ def test_c09_learning_stop_blocks_a_running_pass(lagent, lworker, stub, scope):
     assert len(review_starts(stub, tag)) == 1
     assert not skill_dir(lagent, name).exists()
     assert [e for e in events if e.get("subject") == name] == [], events
+
+
+def test_c09_no_learning_pass_when_learning_is_off(lagent, lworker, stub):
+    """Plan 9b.2: a run with learning_writes false (Sensitive, "Don't learn from this chat", learning
+    off) skips Hermes' learning pass (skip_background_review), so the conversation is not replayed
+    to the provider for a review whose writes would be blocked anyway. The same two turns fire one
+    with learning on (9a)."""
+    conv, tag = "c-c09off", "tag-c09off"
+    off = {"learning_writes": False}
+    turn(lworker, lagent, stub, "c09off-1", conv, text(todo(6, tag), tag), flags=off)
+    review = [{"calls": [create("c09off-skill")]}, {"text": "Saved."}]
+    done, events, _ = turn(lworker, lagent, stub, "c09off-2", conv, text(todo(6, tag), tag + "-2", review), flags=off)
+    assert done["completed"], done
+    events += settle(lworker, lagent)
+    assert review_starts(stub, tag) == []
+    assert not skill_dir(lagent, "c09off-skill").exists() and events == [], events

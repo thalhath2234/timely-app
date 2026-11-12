@@ -454,3 +454,24 @@ def test_long_documents_are_kept_whole_in_pieces():
     tail = "the vault code is ZK99417Q"
     rec = _rec(timely=["x " * 40_000 + tail])
     assert _check("web_search", {"query": "ZK99417Q"}, rec=rec) == egress.SEARCH_BLOCKED
+
+
+def test_gate_guards_this_turns_private_context_when_the_transcript_is_unreadable(monkeypatch):
+    """run.start.private_context is the only guard on this turn's get_context and chips when the
+    state.db transcript cannot be read (or holds the text without a notice prefix): a search that
+    carries it is blocked, and the same search passes when the turn had no such context."""
+    from timely_agent import bridge
+    from timely_agent.plugins import timely_gate
+    monkeypatch.setattr(timely_gate, "_memory_docs", lambda: [])
+    monkeypatch.setattr(timely_gate, "_load_stored", lambda run, rec: setattr(rec, "stored", egress.Part()))
+    query = {"query": "ferritin 412 Okonkwo lab result meaning"}
+    for n, (context, blocked) in enumerate((("Lab result for Okonkwo: ferritin 412 on Tuesday", True), ("", False))):
+        state = bridge.bind_session("conv-pc", flags={"web": True}, tainted_sources=[{"kind": "web", "tool": "web_extract"}],
+                                    private_context=[context] if context else [])
+        run = bridge.RunContext(run_id=f"r-pc-{n}", session_key="k", conversation_id="conv-pc", session=state)
+        try:
+            verdict = timely_gate._egress(run, "web_search", query)
+        finally:
+            egress.forget("conv-pc")
+            bridge.forget_session("conv-pc")
+        assert (verdict == egress.SEARCH_BLOCKED) is blocked, (context, verdict)
