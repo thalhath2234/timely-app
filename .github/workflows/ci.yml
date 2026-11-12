@@ -94,6 +94,7 @@ jobs:
       - run: make test-desktop-instance
       - run: make test-agent-chat
       - run: make test-agent-learning
+      - run: make test-stage-agent
 
   # The agent runtime (apps/agent: vendored Hermes + timely_agent) and the Go
   # supervisor that spawns it. Stub model only: no AI provider is called.
@@ -170,6 +171,117 @@ jobs:
         run: cd apps/api && TIMELY_AGENT_TEST_RUNTIME=dev go test ./internal/agenthost/... -count=1 -v
       - name: Contract test 19 (protocol stays clean when tools and children write to stdout)
         run: cd apps/agent && .venv/Scripts/python.exe -I -m pytest -q tests/contract -k c19
+
+  # Phase 3b (plan 11.4): the runtime every desktop installer ships, staged the
+  # way release.yml stages it, on both release OSes, so Windows staging is
+  # checked on every PR without a tag. The stage scripts use only node:
+  # builtins, so there is no pnpm install. The smoke runs `python -I boot.py`,
+  # prepare and the Go real worker (hello, ready, a run on its stub model, no
+  # AI provider) from a read-only copy, and fails on any write into it. The
+  # runner has no GNU make on Windows, so the steps call the scripts directly
+  # (make stage-agent and make smoke-agent READ_ONLY=1 run the same commands).
+  agent-stage:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/agent/hermes/uv.lock
+      # The python-build-standalone archive, sha256-checked against pm/lock.json
+      # before use. One job per OS keeps runner.os unique; keys cannot hold commas.
+      - name: Cache the interpreter download
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: apps/web/.cache/agent
+          key: agent-python-${{ runner.os }}-${{ hashFiles('apps/agent/hermes/pm/lock.json') }}
+      - name: Stage the agent runtime (host target)
+        run: node apps/web/electron/stage-agent.mjs 2>&1 | tee stage-agent.log
+      - name: Smoke-test it read-only (boot.py, prepare, the Go worker on a stub model)
+        run: node apps/web/electron/smoke-agent.mjs --read-only
+      - name: Size summary
+        if: success() || failure()
+        run: |
+          {
+            echo "### Agent runtime on ${RUNNER_OS}"
+            manifest=$(ls apps/web/.electron-agent/*/MANIFEST.json 2>/dev/null | head -n 1 || true)
+            if [[ -n "$manifest" ]]; then
+              node -e '
+                const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+                const mb = (b) => `${(b / 1048576).toFixed(1)} MB`;
+                const folders = new Map();
+                for (const [rel, size] of m.files) {
+                  const key = rel.split("/").slice(0, 2).join("/");
+                  folders.set(key, (folders.get(key) ?? 0) + size);
+                }
+                console.log("| Target | Python | Hermes | Files | Unpacked |");
+                console.log("| --- | --- | --- | --- | --- |");
+                console.log(`| ${m.target} | ${m.python} | ${m.hermesTag} | ${m.totals.files} | ${mb(m.totals.bytes)} |`);
+                console.log("");
+                console.log("| Folder | Size |");
+                console.log("| --- | --- |");
+                for (const [folder, size] of [...folders].sort((a, b) => b[1] - a[1]).slice(0, 10)) {
+                  console.log(`| ${folder} | ${mb(size)} |`);
+                }
+              ' "$manifest"
+            else
+              echo "No MANIFEST.json: staging did not finish."
+            fi
+            echo ""
+            echo '```'
+            tail -n 40 stage-agent.log 2>/dev/null || echo "no stage log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Plan 11.5: the API image (Debian slim with the staged runtime), checked by
+  # scripts/docker-agent-smoke.sh: the runtime read-only as uid 10001, the Go
+  # real worker inside the image on its stub model, and the API with a
+  # throwaway PostgreSQL. linux/amd64 only; arm64 is not built by any job.
+  # Runs on pushes to dev and on PRs that touch the image or the runtime.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [[ "$EVENT" != pull_request ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "origin/$BASE_REF...HEAD" -- apps/api/Dockerfile .dockerignore apps/agent \
+              apps/web/electron/stage-agent.mjs apps/web/electron/stage-agent-lib.mjs apps/web/electron/targets.mjs \
+              scripts/docker-agent-smoke.sh; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: apps/api/go.mod
+          cache-dependency-path: apps/api/go.sum
+      - if: steps.changed.outputs.run == 'true'
+        run: make docker-agent-smoke
 
   # Plan 10.4 a-e on pull requests that touch the agent or the sync tooling.
   hermes-sync-check:

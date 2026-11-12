@@ -115,6 +115,21 @@ docker compose up db          # Postgres 17 on :5432
 docker compose up --build     # db + api (:8080) + web (:4001)
 ```
 
+The API image (`apps/api/Dockerfile`, `make docker-api`) is `debian:bookworm-slim` with the static
+Go API and the agent runtime that every desktop installer ships: the same
+`apps/web/electron/stage-agent.mjs` stages it inside the build (glibc wheels, hence Debian rather
+than Alpine) into `/app/agent`, owned by root and read-only to the `timely` user (uid 10001), with
+`TIMELY_AGENT_RUNTIME=/app/agent`. Agent state (each account's home, the seed tree and the
+read-only Timely skills copy) lands in `/data/agent`, on the same `apidata` volume as the rest of
+the API's data, so back up that volume. Terminal and file tools the agent is allowed to run act
+inside the container, on its filesystem and network, not on the Docker host (ADR 0026).
+
+The image is about 1.08 GB on disk (259 MB compressed content), against 104 MB for the old Alpine
+image. `make docker-agent-smoke` builds it for linux/amd64 and checks the runtime read-only as uid
+10001, a real worker inside the image on a stub model, and the API against a throwaway PostgreSQL.
+The Dockerfile maps `TARGETARCH=arm64` to the linux-arm64 runtime, but no arm64 image has been built
+or run yet.
+
 ## Notes on the workspace
 
 - pnpm uses isolated `node_modules` (its default). Expo ≥ 54 supports this; if a React Native library ever fails to resolve, set `nodeLinker: hoisted` in `pnpm-workspace.yaml` and reinstall.

@@ -11,13 +11,23 @@ Tracking issue: #61.
   api/timely-api[.exe]        Go API, cross-compiled per target (electron/stage-api.mjs)
   postgres/{bin,lib,share}    PostgreSQL 17 from zonky embedded-postgres (electron/stage-postgres.mjs)
   next-server/                Next.js standalone output (electron/stage-next.mjs), plus timely-guard.cjs (electron/next-guard.cjs)
+  agent/                      the agent runtime (electron/stage-agent.mjs; see Agent staging details), started by the API, never written
+    boot.py                   entry point: python -I agent/boot.py <command> (apps/agent/packaging/boot.py)
+    python/                   CPython 3.14.9 (python-build-standalone, trimmed): bin/python3, python.exe on Windows
+    app/hermes/               the vendored Hermes copy: shipped skills only, English locale only
+    app/timely_agent/         Timely's worker (apps/agent/timely_agent)
+    app/skills/               Timely's own skills, read-only (empty until the timely skill ships)
+    app/site-packages/        Python dependencies from Hermes' uv.lock and .hermes-sync/extras.txt
+    app/.hermes-sync/policy/  reviewed and denied skill lists, the skill-body rules, tools.yaml
+    NOTICE, THIRD_PARTY_LICENSES, MANIFEST.json
 
 <userData>/                   app.getPath("userData"): ~/.config/Timely, ~/Library/Application Support/Timely, %APPDATA%\Timely ("Timely Dev" for local builds, see Local builds)
   config.json                 non-secret settings + sealed secrets (see Config)
   postgres/data               PGDATA (initdb on first run)
   data/backups/<account>/     encrypted account backups written by the API (TIMELY_BACKUP_DIR)
   data/chat-images/           chat uploads (CHAT_IMAGE_DIR)
-  data/agent/                 the agent's folder: accounts/account-<id>/ is each account's home (memory, learned skills, chat sessions)
+  data/agent/                 the agent's folder: accounts/account-<id>/ is each account's home (memory, learned skills, chat sessions);
+                              seed/<hash>/ and the read-only timely-skills/<hash>/ are made from resources/agent at each API start (prepare)
   backups/pre-upgrade-*/      folder copy of PGDATA taken before the first run of a new version (last 3 kept)
   backups/manual-*/           folder copies from "Back up now" (the API and PostgreSQL pause for a moment, so chats and agent runs stop until they are back)
   backups/<name>.agent/       beside each folder copy: the agent homes' kept parts (memories, skills, pending, .timely, state.db with the chat sessions, and the skill ledger's blobs)
@@ -134,6 +144,11 @@ stored with the `plain:` prefix and the file is created with mode 0600.
 | `ALLOW_REGISTRATION` | `allowRegistration` |
 | `PATH`, `HOME` | login-shell PATH on macOS/Linux; process env on Windows |
 | `TIMELY_LIFELINE` | `stdin` (exit when the app's stdin pipe closes; see Boot order). The API unsets it at start so the programs it runs do not inherit it. |
+| `TIMELY_AGENT_RUNTIME` | `<resources>/agent` when `<resources>/agent/boot.py` exists (`paths.ts` `agentRuntime`); otherwise unset, and a value inherited from the shell is dropped, so a packaged app never runs a developer's runtime. The API starts `<agent>/python/bin/python3 -I <agent>/boot.py` (`python\python.exe` on Windows) with `PYTHONDONTWRITEBYTECODE=1`. The `boot: resources` line in `supervisor.log` ends with `agent=<dir>`. |
+
+`TIMELY_SHELL_TOKEN` (plan section 12: the desktop window's proof for `PUT /instance/host-accounts`)
+is not passed yet. It comes with phase 5, together with the host-allowed account setting that
+reads it.
 
 Agent CLIs the API starts (Claude Code, Codex and others) get this environment without the
 server's own settings (`JWT_*`, `DB_*`, `TIMELY_*`, `API_*`, `ALLOW_REGISTRATION`,
@@ -342,8 +357,9 @@ runs again.
 ## Development
 
 `make dev-desktop` is unchanged: it uses the dev servers on 8080/4001 and no sidecars.
-`make build-desktop` / `make dist-desktop` stage the API and Postgres for the host platform
-first. `TIMELY_TARGETS=linux-x64,darwin-arm64` stages several targets for CI.
+`make build-desktop` / `make dist-desktop` stage the API, Postgres and the agent runtime for the
+host platform first. `TIMELY_TARGETS=linux-x64,darwin-arm64` stages several targets of the API
+and Postgres for CI; the agent runtime stages only for the host (see Agent staging details).
 
 ### Local builds ("Timely Dev")
 
@@ -372,17 +388,19 @@ identical to the released one.
 
 `node electron/pack.mjs` (from `apps/web`; `make build-desktop` / `make dist-desktop`)
 runs, in order: `next build` with `ELECTRON_BUILD=1`, esbuild for `main.ts`/`preload.ts`,
-then three staging steps, then electron-builder.
+then four staging steps, then electron-builder, whose `afterPack` hook
+(`electron/verify-pack.cjs`) checks the packed agent runtime before any installer is written.
 
 | Step | Script | Output | Source |
 | --- | --- | --- | --- |
 | Next | `electron/stage-next.mjs` | `.electron-next/` | `.next/standalone` + `.next/static` + `public` |
 | API | `electron/stage-api.mjs` | `.electron-api/<os>-<arch>/timely-api[.exe]` | `go build` of `apps/api/cmd`, `CGO_ENABLED=0 -trimpath -ldflags "-s -w -X main.version=<package.json version>"` |
 | Postgres | `electron/stage-postgres.mjs` | `.electron-postgres/<os>-<arch>/{bin,lib,share}` | zonky `embedded-postgres-binaries-<classifier>-17.11.0.jar` from Maven Central |
+| Agent | `electron/stage-agent.mjs` | `.electron-agent/<os>-<arch>/{boot.py,python,app,...}` | python-build-standalone from `apps/agent/hermes/pm/lock.json`, `uv pip install --target` from Hermes' `uv.lock`, `apps/agent/{hermes,timely_agent,skills,packaging}` |
 
 `<os>-<arch>` is electron-builder's `${os}-${arch}` (`linux-x64`, `linux-arm64`, `mac-x64`,
 `mac-arm64`, `win-x64`), so the static `extraResources` in `electron-builder.yml` copies the right
-staged tree into `resources/api` and `resources/postgres` for whatever platform/arch is being built.
+staged tree into `resources/api`, `resources/postgres` and `resources/agent` for whatever platform/arch is being built.
 
 ### Targets
 
@@ -396,8 +414,12 @@ SHA-256.
 - `node electron/pack.mjs --target darwin-x64,darwin-arm64` stages those targets and adds the matching electron-builder flags (`--mac --x64 --arm64`). One OS per run; electron-builder expands `${os}` once per platform. Every other argument is passed to electron-builder (`--dir`, `--publish never`, ...).
 - `TIMELY_SKIP_NEXT=1` reuses the existing `.next` build while iterating on packaging.
 
-Both stage scripts can be run on their own: `node electron/stage-api.mjs`,
-`node electron/stage-postgres.mjs`.
+The stage scripts can be run on their own: `node electron/stage-api.mjs`,
+`node electron/stage-postgres.mjs`, `node electron/stage-agent.mjs` (`make stage-desktop` runs all three).
+The agent runtime is the exception to cross-staging: its native wheels and interpreter belong to the
+running OS, so `stage-agent.mjs` refuses a target that is not the host ("stage win32-x64 on a Windows
+runner"), and `pack.mjs --target darwin-x64,darwin-arm64` on one Mac fails at the agent step for the
+other arch.
 
 ### Postgres staging details
 
@@ -416,7 +438,89 @@ Both stage scripts can be run on their own: `node electron/stage-api.mjs`,
   `psql` or `pg_isready` in `resources/postgres/bin`.
 - Staged size: about 55 MB (Linux), 85 MB (Windows), 130 MB (macOS), before installer compression.
 
-`.electron-api/`, `.electron-postgres/` and `.cache/` are git-ignored (`apps/web/.gitignore`).
+`.electron-api/`, `.electron-postgres/`, `.electron-agent/` and `.cache/` are git-ignored (`apps/web/.gitignore`).
+
+### Agent staging details
+
+`electron/stage-agent.mjs` (`make stage-agent`) builds `.electron-agent/<os>-<arch>/` for the host
+target. It uses only `node:` builtins, so CI runners and the Docker build run it without `pnpm
+install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on Windows).
+
+- **Pins.** The interpreter is the python-build-standalone `install_only` build Hermes pins in
+  `apps/agent/hermes/pm/lock.json` (`packages.python`, 3.14.9+20261021; the lock's keys are the
+  `targets.mjs` keys). Staging fails when that version does not start with the Makefile's
+  `AGENT_PYTHON_VERSION`. Dependencies come from `uv export --frozen --no-dev` of Hermes' `uv.lock`
+  with the extras in `apps/agent/.hermes-sync/extras.txt` (the list `make agent-install` uses),
+  installed with `uv pip install --target app/site-packages --no-deps --require-hashes --no-build`:
+  a dependency without a wheel for the target fails the stage rather than compiling on a release
+  runner. `site-packages/bin` and `Scripts/` are deleted (their console scripts carry absolute
+  shebangs).
+- **Cache.** The interpreter archive is cached in `apps/web/.cache/agent/` and checked against the
+  lock's sha256 before use; a mismatch deletes it and fails. uv's own cache holds the wheels.
+- **Marker.** `.staged-<hash>` (sha256 of the lock's python entry, `uv.lock`, the extras and the
+  target) skips the download, trim and install on a re-run. The source copy, the seed check,
+  compileall and the checks always run, so a re-stage after a source change takes about 10-15 s.
+  `make clean-agent-stage` deletes every stage and keeps the download cache.
+- **Trims.** `include/`, `share/`, `idlelib`, `tkinter`, `turtledemo`, `ensurepip`, Tcl/Tk, the
+  interpreter's own `pip` and the `pydoc`/`idle`/`-config` scripts (22 MB on linux-x64). The stdlib
+  `test` package is dropped when nothing staged imports it (python-build-standalone 3.14.9 ships
+  none). The CPython licence stays.
+- **What of the source ships.** `app/hermes/skills/` holds only the seed set (reviewed in
+  `skills-reviewed.json`, not in `skills-denied.json`, no symlinks) and `optional-skills/` only the
+  offered ones; `locales/` only `en.yaml` (owner answer Q-1.4); `plugin-catalog/` is kept; no
+  `__pycache__` from the checkout. On linux-x64 at Hermes v0.23.0: 30 bundled skills, 78 optional
+  skills, 66 denied, 12 not offered. `app/skills/` is 0444 files in 0555 folders.
+- **Seed check.** The staged `boot.py prepare` runs once against a scratch folder
+  (`~/.cache/timely-agent-stage`) and must build the seed tree and the read-only Timely skills copy
+  with nothing unreviewed. At API start `prepare` still makes those copies in `data/agent/`: the
+  per-user nsis install folder is writable by the same user, so the read-only copy the agent sees
+  (plan 9.1) lives in the data folder.
+- **Bytecode.** `compileall -j0 --invalidation-mode unchecked-hash` over `app/` and the stdlib.
+  Installers do not keep source mtimes, and the packaged worker never writes bytecode (the
+  `boot.py` shim sets `sys.dont_write_bytecode`, since `-I` ignores `PYTHONDONTWRITEBYTECODE`).
+- **Checks** (any failure lists every problem and writes no `MANIFEST.json`): no symlink with an
+  absolute target or one that resolves outside the root; no path over 150 characters relative to
+  the agent root, counted after compileall; no staged text file containing the absolute stage path
+  (the v0.1.1 class of bug); no browser (`playwright`, `pyppeteer`, Chromium or a Chrome binary:
+  Timely never bundles Chromium and uses the installed Chrome or Edge, ADR 0022); every installed
+  distribution has a licence file or licence metadata; the interpreter starts and reports the
+  expected platform.
+- **Licences.** `THIRD_PARTY_LICENSES` holds CPython's licence, Hermes' MIT licence and
+  `apps/agent/NOTICE`, then each distribution's name, version, licence metadata and licence files
+  (90 distributions on linux-x64).
+- **`MANIFEST.json`** lists every regular file with its size and every symlink. electron-builder's
+  `afterPack` hook (`electron/verify-pack.cjs`) compares the packed `resources/agent` with it (same
+  files, same sizes, nothing extra, no absolute symlink), because electron-builder drops some
+  folders of an `extraResources` tree without a word. Empty folders are not compared:
+  electron-builder drops them, and the runtime does not need them.
+
+Measured on linux-x64 (2026-11-13, Hermes v0.23.0): 21,399 files, 573 MB unpacked (python/ 230 MB,
+app/site-packages/ 210 MB, app/hermes/ 132 MB, app/timely_agent/ 1 MB), about 122 MB as an xz tarball.
+The AppImage of "Timely Dev" grew about 203 MB (about 128 MB under xz) against the 0.3.4 one; plan 11.4
+estimated +105 MB compressed and 420-460 MB unpacked. Most of the difference is the unstripped
+python-build-standalone build: `bin/python3.14` (75 MB) and `lib/libpython3.14.so.1.0` (131 MB, which
+the statically linked interpreter does not load) carry debug info. Windows and macOS sizes are not
+measured yet.
+
+**Smoke test.** `node electron/smoke-agent.mjs [--root <agent dir>] [--read-only]`
+(`make smoke-agent`, `AGENT_ROOT=`, `READ_ONLY=1`) runs `python -I boot.py` (usage, exit 2), `boot.py
+prepare` into a scratch folder, then the Go real-worker test (`TestIntegrationRealWorker` with
+`TIMELY_AGENT_TEST_RUNTIME=<root>`: prepare, render-account, spawn, hello, ready with the self-test, a
+run on the test's stub model, run.done, shutdown). It needs Go on `PATH`; no AI provider is called.
+
+**Read-only install folder, locally.** The packaged runtime must work where the user cannot write
+(a root-owned `/opt/Timely`, a locked-down Windows install):
+
+```bash
+make stage-agent
+make smoke-agent READ_ONLY=1        # chmod a-w on every entry (Windows: an icacls deny-write ACE for Everyone),
+                                    # all three steps, then fails on any file created, removed or changed
+make smoke-agent AGENT_ROOT=$PWD/apps/web/release/linux-unpacked/resources/agent READ_ONLY=1   # the packed copy
+make clean-agent-stage
+```
+
+Permissions are restored afterwards in every case. On this Linux machine the read-only smoke took
+about 4 s (prepare 0.2 s, the Go worker test 3.4 s).
 
 ### Signing and notarization
 
@@ -436,7 +540,20 @@ network client/server). The same file is the inherit entitlements, so the sideca
 ### GitHub Actions
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `dev`: `go vet` / `go test`,
-ESLint, `tsc` for web and mobile, and the Node test scripts behind `make test`. No database.
+ESLint, `tsc` for web and mobile, and the Node test scripts behind `make test` (including
+`make test-stage-agent`). For the agent runtime it adds:
+
+- `agent-stage` (matrix `ubuntu-latest`, `windows-latest`, every PR and push to `dev`, so Windows
+  staging is checked without a tag): `node apps/web/electron/stage-agent.mjs`, then
+  `node apps/web/electron/smoke-agent.mjs --read-only`, and the staged size per folder in the job
+  summary. No `pnpm install`.
+- `docker` (pushes to `dev`, and PRs that touch `apps/api/Dockerfile`, `.dockerignore`, `apps/agent`,
+  the stage scripts or `scripts/docker-agent-smoke.sh`): `make docker-agent-smoke` (linux/amd64).
+
+Both use `astral-sh/setup-uv` (pinned SHA, cache keyed on `apps/agent/hermes/uv.lock`) where they
+stage, and `agent-stage` caches `apps/web/.cache/agent` under
+`agent-python-${{ runner.os }}-${{ hashFiles('apps/agent/hermes/pm/lock.json') }}` (cache keys cannot
+hold commas, so they name `runner.os`, never the target list).
 
 `.github/workflows/release.yml` runs on tags `v*` and on `workflow_dispatch`:
 
@@ -444,7 +561,12 @@ ESLint, `tsc` for web and mobile, and the Node test scripts behind `make test`. 
    GitHub Release (`gh release create --generate-notes`) so the matrix jobs never race to create it.
 2. `desktop` matrix: `ubuntu-latest` → `linux-x64`; `windows-latest` → `win32-x64`. Releases
    do not include macOS; a mac build is still possible locally with `make dist-desktop` on a Mac.
-   Each runs `node electron/pack.mjs --target <targets> --publish always|never` and electron-builder
+   Before packing, each stages the agent runtime for its own target
+   (`node electron/stage-agent.mjs --target <target>`, with setup-uv and the same
+   `agent-python-<runner.os>-<lock hash>` cache as CI) and runs
+   `node electron/smoke-agent.mjs --read-only`, so a broken runtime fails before anything is
+   published. Then `node electron/pack.mjs --target <targets> --publish always|never` reuses the stage
+   (its marker), `verify-pack.cjs` checks the packed copy, and electron-builder
    uploads the installers and `latest*.yml` to the release with `GH_TOKEN`
    (`secrets.GITHUB_TOKEN`). The same files are kept as workflow artifacts.
 3. `android` runs `expo prebuild` and `gradlew app:assembleRelease` (arm64-v8a), attaches

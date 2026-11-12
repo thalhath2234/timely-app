@@ -86,10 +86,36 @@ jobs:
           path: apps/web/.cache/postgres
           # One desktop job per OS keeps runner.os unique.
           key: zonky-postgres-${{ runner.os }}-${{ hashFiles('apps/web/electron/targets.mjs') }}
+      # The agent runtime (plan 11.4): uv installs its site-packages from
+      # Hermes' uv.lock (hashes required), and the interpreter archive is
+      # sha256-checked against pm/lock.json, so a cached copy is checked too.
+      - uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa # v10.3.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/agent/hermes/uv.lock
+      - name: Cache the agent's interpreter download
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: apps/web/.cache/agent
+          key: agent-python-${{ runner.os }}-${{ hashFiles('apps/agent/hermes/pm/lock.json') }}
       - run: pnpm install --frozen-lockfile
       # fpm writes the pacman package's .MTREE with bsdtar.
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+      # Native wheels tie the runtime to its OS, so each target stages on its
+      # own runner. Staging and the read-only smoke run before electron-builder,
+      # so a broken runtime fails here and nothing is published; pack.mjs then
+      # reuses the stage (its .staged-<hash> marker skips download and install)
+      # and electron/verify-pack.cjs checks the packed resources/agent against
+      # MANIFEST.json.
+      - name: Stage the agent runtime (${{ matrix.target }})
+        shell: bash
+        working-directory: apps/web
+        run: node electron/stage-agent.mjs --target "${{ matrix.target }}"
+      - name: Smoke-test the agent runtime read-only (boot.py, prepare, the Go worker on a stub model)
+        shell: bash
+        working-directory: apps/web
+        run: node electron/smoke-agent.mjs --read-only
       - name: Build and package (${{ matrix.target }})
         shell: bash
         working-directory: apps/web

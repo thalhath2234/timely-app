@@ -4,6 +4,7 @@
 - Plan: `docs/plans/2026-11-08-timely-agent-from-hermes.md` ("the plan"), section 13 "Phase 3b: ship the runtime" and what it cites: 4.2 (filter: English locale only, enabled skills), 6.1-6.7 (agent homes, worker lifecycle, folder backups), 9.1 (seed tree, read-only Timely skills copy), 11.1-11.5 (make targets, env, CI, desktop packaging, Docker), 12 (security), and the phase 2/3 status in section 13.
 - Desktop traps that bind every package (memory `timely-desktop-bundle-traps`): electron-builder drops the root `node_modules/` of every `extraResources` folder and ships absolute symlinks as they are; Node `cpSync` without a `filter` aborts on Windows (pass `filter: () => true`); `actions/cache` keys cannot contain commas; stage folders are named `linux-x64`, `win-x64`, `mac-arm64`; the unpacked app is tested with `env -u ELECTRON_RUN_AS_NODE` under `xvfb-run`; the AppImage needs FUSE or `--appimage-extract-and-run`.
 - This document wrote no product code.
+- Status (2026-11-13): all five packages are committed on `feature/hermes-phase3b`, not pushed (`b256315b` go-runtime, `01ef7345` stage-agent, `73c247a7` and `7e9202fd` desktop-pack, `dc66a3db` docker, then ci-release-docs). Staging is blocked on flag 1 below: the 150-character rule fails at 151 on one anthropic `.pyc`, so `make stage-agent`, the desktop builds, the Docker image and the new CI jobs fail at staging until the owner decides. Windows has not run (it needs the owner's push). Results, sizes and open items: the plan's section 13, "Phase 3b status".
 
 ## Binding owner answers used here
 
@@ -196,6 +197,6 @@ agent/
 
 ## Flags for the coordinator
 
-1. The 150-character limit has 7 characters to spare at v0.23.0 before `__pycache__/*.cpython-314.pyc` names and `site-packages` paths are counted. If staging fails it, the choice (exclude Hermes' `plugins/config_backends/remote/vendor/conformance/` data, or raise the limit given Windows' 260-character `MAX_PATH` with a `%LOCALAPPDATA%\Programs\Timely\resources\agent\` prefix of about 60 characters) goes to the owner; `stage-agent` must not change it silently.
+1. **Hit, open (2026-11-13):** staging fails at 151 characters on `app/site-packages/anthropic/types/beta/__pycache__/beta_managed_agents_self_hosted_resources_unsupported_deployment_paused_reason_error.cpython-314.pyc`; the Hermes data files were not the problem. The 150-character limit has 7 characters to spare at v0.23.0 before `__pycache__/*.cpython-314.pyc` names and `site-packages` paths are counted. If staging fails it, the choice (exclude Hermes' `plugins/config_backends/remote/vendor/conformance/` data, or raise the limit given Windows' 260-character `MAX_PATH` with a `%LOCALAPPDATA%\Programs\Timely\resources\agent\` prefix of about 60 characters) goes to the owner; `stage-agent` must not change it silently.
 2. If the read-only smoke shows Hermes writing inside its own package folder, the fix belongs in `timely_agent` (an env or config floor), which no 3b package owns: ask first.
 3. A dependency with no wheel for a target makes `--no-build` fail; building from source on a release runner is a decision, not a default.
