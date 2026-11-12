@@ -65,6 +65,7 @@ import {
   pythonArtifact,
   scratchRootFor,
   selectSkills,
+  sourceHash,
   skillDirs,
   trackedSkillNames,
   stagedManifest,
@@ -348,6 +349,24 @@ function checkInterpreter(target, python) {
 
 // ---------------------------------------------------------------- main
 
+/** What the marker and the manifest record about the checkout: the Python pin, uv.lock, extras and the Hermes tag. */
+function stageInputs() {
+  const makefile = readFileSync(path.join(repoRoot, "Makefile"), "utf8");
+  return {
+    expectedVersion: makefileVar(makefile, "AGENT_PYTHON_VERSION"),
+    lock: JSON.parse(readFileSync(path.join(hermesSrc, "pm", "lock.json"), "utf8")),
+    extras: parseExtras(readFileSync(path.join(agentSrc, ".hermes-sync", "extras.txt"), "utf8")),
+    uvLock: readFileSync(path.join(hermesSrc, "uv.lock")),
+    hermesTag: JSON.parse(readFileSync(path.join(hermesSrc, "HERMES_UPSTREAM.json"), "utf8")).tag ?? "",
+  };
+}
+
+/** The `.staged-<hash>` marker name for `key` from stageInputs(). */
+function stageMarker({ lock, expectedVersion, uvLock, extras }, key) {
+  const artifact = pythonArtifact(lock, key, expectedVersion);
+  return `.staged-${markerHash({ pythonEntry: artifact.entry, uvLock, extras, target: key })}`;
+}
+
 function clean() {
   removeTree(stageRoot);
   removeTree(scratchRoot);
@@ -356,25 +375,22 @@ function clean() {
 
 export async function stageAgent(targets = resolveTargets()) {
   assertHostTargets(targets.map((t) => t.key), hostTargetKey());
-  const makefile = readFileSync(path.join(repoRoot, "Makefile"), "utf8");
-  const expectedVersion = makefileVar(makefile, "AGENT_PYTHON_VERSION");
-  const lock = JSON.parse(readFileSync(path.join(hermesSrc, "pm", "lock.json"), "utf8"));
-  const extras = parseExtras(readFileSync(path.join(agentSrc, ".hermes-sync", "extras.txt"), "utf8"));
-  const uvLock = readFileSync(path.join(hermesSrc, "uv.lock"));
+  const inputs = stageInputs();
+  const { lock, extras, expectedVersion, hermesTag } = inputs;
   const policy = path.join(agentSrc, ".hermes-sync", "policy");
   const reviewed = JSON.parse(readFileSync(path.join(policy, "skills-reviewed.json"), "utf8"));
   const denied = JSON.parse(readFileSync(path.join(policy, "skills-denied.json"), "utf8"));
   // The Docker stage has no .git: tracked is null and every file counts (its build context leaves out .env files).
   const tracked = gitTracked(repoRoot, ["apps/agent"]);
   const overrides = trackedSkillNames(path.join(agentSrc, "skills", "overrides"), { repoRoot, tracked });
-  const hermesTag = JSON.parse(readFileSync(path.join(hermesSrc, "HERMES_UPSTREAM.json"), "utf8")).tag ?? "";
+  const sources = sourceHash(repoRoot, tracked);
 
   const results = [];
   for (const target of targets) {
     const started = Date.now();
     const artifact = pythonArtifact(lock, target.key, expectedVersion);
     const out = path.join(stageRoot, target.stageDir);
-    const marker = `.staged-${markerHash({ pythonEntry: artifact.entry, uvLock, extras, target: target.key })}`;
+    const marker = stageMarker(inputs, target.key);
     const python = stagedPython(out);
     const site = path.join(out, "app", "site-packages");
 
@@ -446,6 +462,7 @@ export async function stageAgent(targets = resolveTargets()) {
       python: artifact.version,
       hermesTag,
       marker,
+      sources,
       files,
       links,
       totals: { files: files.length, bytes },
@@ -478,12 +495,17 @@ function cliTargets(argv) {
  * pack.mjs with TIMELY_AGENT_STAGED=1 (release.yml, after the read-only smoke):
  * packs the stage that was smoked instead of staging again, which would
  * re-copy the source and recompile every module. Each target's stage must
- * have finished (MANIFEST.json for that target, its .staged marker present).
+ * have finished (MANIFEST.json for that target, its .staged marker present)
+ * from the inputs the checkout has now: the same marker (uv.lock, extras,
+ * Python pin), Hermes tag and apps/agent sources. A stage left over from
+ * before a Hermes sync is refused, not packed.
  */
 export function reuseStagedAgent(targets) {
+  const inputs = stageInputs();
+  const sources = sourceHash(repoRoot, gitTracked(repoRoot, ["apps/agent"]));
   return targets.map((target) => {
     const out = path.join(stageRoot, target.stageDir);
-    const manifest = stagedManifest(out, target.key);
+    const manifest = stagedManifest(out, target.key, { marker: stageMarker(inputs, target.key), hermesTag: inputs.hermesTag, sources });
     log(target, `TIMELY_AGENT_STAGED=1: packing the smoked stage (${manifest.totals.files} files, ${mb(manifest.totals.bytes)})`);
     return out;
   });

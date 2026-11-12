@@ -278,8 +278,12 @@ export const STDLIB_TEST = /^(lib\/python3\.\d+|lib)\/test$/i;
 /**
  * MANIFEST.json of a finished stage for `key`; throws when the stage is
  * missing, unfinished (no manifest or no .staged marker) or for another target.
+ * With `expect` ({marker, hermesTag, sources}, each optional) it also throws
+ * when the stage was built from other inputs than the checkout has now: an
+ * older uv.lock, extras or Python pin (marker), another Hermes tag, or other
+ * apps/agent sources (sources, sourceHash), so a stale stage is never packed.
  */
-export function stagedManifest(out, key) {
+export function stagedManifest(out, key, expect = {}) {
   const file = path.join(out, "MANIFEST.json");
   if (!existsSync(file)) throw new Error(`${out} has no MANIFEST.json: stage the agent runtime first (node electron/stage-agent.mjs)`);
   const manifest = JSON.parse(readFileSync(file, "utf8"));
@@ -287,7 +291,38 @@ export function stagedManifest(out, key) {
   if (!manifest.marker || !existsSync(path.join(out, manifest.marker))) {
     throw new Error(`${out} lacks its ${manifest.marker ?? ".staged-<hash>"} marker: the stage did not finish`);
   }
+  const stale = [];
+  if (expect.marker !== undefined && manifest.marker !== expect.marker) {
+    stale.push(`it was installed from other inputs (${manifest.marker}, the checkout's uv.lock, extras and Python pin give ${expect.marker})`);
+  }
+  if (expect.hermesTag !== undefined && manifest.hermesTag !== expect.hermesTag) {
+    stale.push(`it holds Hermes ${manifest.hermesTag || "(none)"}, the checkout has ${expect.hermesTag}`);
+  }
+  if (expect.sources && manifest.sources !== expect.sources) {
+    stale.push(`apps/agent changed since it was staged (sources ${manifest.sources ?? "(not recorded)"}, now ${expect.sources})`);
+  }
+  if (stale.length) throw new Error(`${out} is stale: ${stale.join("; ")}. Stage it again (node electron/stage-agent.mjs).`);
   return manifest;
+}
+
+/**
+ * sha256 (16 hex) of the files git tracks under apps/agent, path and working-tree
+ * bytes, which is what the stage copies from; null without a checkout.
+ */
+export function sourceHash(repoRoot, tracked) {
+  if (!tracked) return null;
+  const h = createHash("sha256");
+  for (const rel of [...tracked].filter((r) => r.startsWith("apps/agent/")).sort()) {
+    const full = path.join(repoRoot, ...rel.split("/"));
+    h.update(rel);
+    h.update("\0");
+    const st = existsSync(full) ? lstatSync(full) : null;
+    if (st?.isSymbolicLink()) h.update(`-> ${readlinkSync(full)}`);
+    else if (st?.isFile()) h.update(readFileSync(full));
+    else h.update("(missing)");
+    h.update("\0");
+  }
+  return h.digest("hex").slice(0, 16);
 }
 
 /** Relative paths under python/ that trimInterpreter removes (top-most only). */

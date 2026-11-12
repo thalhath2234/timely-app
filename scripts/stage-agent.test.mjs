@@ -60,6 +60,7 @@ import {
   scratchRootFor,
   selectSkills,
   snapshot,
+  sourceHash,
   stagedManifest,
   stagedPython,
   trackedSkillNames,
@@ -1028,4 +1029,42 @@ test("stagedManifest accepts only a finished stage for the target", (t) => {
   assert.throws(() => stagedManifest(out, "linux-x64"), /marker/);
   write(out, ".staged-abc");
   assert.equal(stagedManifest(out, "linux-x64").totals.files, 1);
+});
+
+test("a stage left from before a Hermes sync or a source change is refused when packed with TIMELY_AGENT_STAGED=1", (t) => {
+  const out = tmp(t);
+  writeFileSync(
+    path.join(out, "MANIFEST.json"),
+    JSON.stringify({ target: "linux-x64", marker: ".staged-abc", hermesTag: "v0.23.0", sources: "s1", totals: { files: 1, bytes: 2 } }),
+  );
+  write(out, ".staged-abc");
+  const same = { marker: ".staged-abc", hermesTag: "v0.23.0", sources: "s1" };
+  assert.equal(stagedManifest(out, "linux-x64", same).hermesTag, "v0.23.0");
+  assert.throws(() => stagedManifest(out, "linux-x64", { ...same, marker: ".staged-def" }), /stale: it was installed from other inputs.*Stage it again/);
+  assert.throws(() => stagedManifest(out, "linux-x64", { ...same, hermesTag: "v0.99.0" }), /stale: it holds Hermes v0\.23\.0, the checkout has v0\.99\.0/);
+  assert.throws(() => stagedManifest(out, "linux-x64", { ...same, sources: "s2" }), /stale: apps\/agent changed since it was staged/);
+  // No checkout (sources null): only the marker and the tag are compared.
+  assert.equal(stagedManifest(out, "linux-x64", { ...same, sources: null }).target, "linux-x64");
+  // reuseStagedAgent compares all three.
+  const stage = readFileSync(path.join(repo, "apps/web/electron/stage-agent.mjs"), "utf8");
+  const reuse = stage.slice(stage.indexOf("export function reuseStagedAgent"));
+  assert.match(reuse, /stagedManifest\(out, target\.key, \{ marker: stageMarker\(inputs, target\.key\), hermesTag: inputs\.hermesTag, sources \}\)/);
+});
+
+test("sourceHash covers the path and bytes of every tracked file under apps/agent, and is null without a checkout", (t) => {
+  const root = tmp(t);
+  write(root, "apps/agent/a.py", "one");
+  write(root, "apps/agent/hermes/b.py", "two");
+  write(root, "apps/agent/untracked.env", "secret");
+  const tracked = new Set(["apps/agent/a.py", "apps/agent/hermes/b.py", "apps/web/x.ts"]);
+  const first = sourceHash(root, tracked);
+  assert.match(first, /^[0-9a-f]{16}$/);
+  write(root, "apps/agent/untracked.env", "other");
+  write(root, "apps/web/x.ts", "web");
+  assert.equal(sourceHash(root, tracked), first, "untracked files and other apps do not count");
+  write(root, "apps/agent/hermes/b.py", "three");
+  assert.notEqual(sourceHash(root, tracked), first);
+  rmSync(path.join(root, "apps/agent/a.py"));
+  assert.notEqual(sourceHash(root, tracked), first);
+  assert.equal(sourceHash(root, null), null);
 });
