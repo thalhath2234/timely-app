@@ -76,6 +76,18 @@ export function learningFollowed(
   );
 }
 
+/**
+ * Where the About you or Notes entry being edited is now: the form follows
+ * the entry's text, so a refetch that moves or removes entries never turns
+ * Save into a change to another one. -1 once the entry is gone.
+ */
+export function memoryEditIndex(
+  entries: readonly string[] | undefined,
+  old: string,
+): number {
+  return entries ? entries.indexOf(old) : -1;
+}
+
 /** Where View opens a change: the skill, About you or Notes in Settings. */
 export function learnedHref(view: {
   kind: LearningKind;

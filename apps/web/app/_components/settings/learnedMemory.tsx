@@ -17,6 +17,7 @@ import { requestConfirm } from "@/app/_store/confirmStore";
 import { showUndoToast, useToastStore } from "@/app/_store/toastStore";
 import { cn } from "@/app/utils/cn";
 import { useEditMemory, useLearningSettings, useMemory } from "@/app/utils/hooks/learning";
+import { memoryEditIndex } from "../chat/learningView";
 import { EmptyRow, ErrorRow, errorText } from "./learnedShared";
 
 type Target = "user" | "memory";
@@ -100,7 +101,9 @@ function MemoryGroup({
 }) {
   const copy = COPY[target];
   const edit = useEditMemory();
-  const [editing, setEditing] = useState<number | "new" | null>(null);
+  // An entry is edited by its text, not its place: a refetch while the form
+  // is open (another device, a chat) may move or remove entries.
+  const [editing, setEditing] = useState<{ old: string } | "new" | null>(null);
   const [draft, setDraft] = useState("");
   const [formError, setFormError] = useState("");
   const ref = useRef<HTMLElement>(null);
@@ -108,7 +111,9 @@ function MemoryGroup({
     if (focused) ref.current?.scrollIntoView({ block: "start" });
   }, [focused]);
   const meter = store ? budgetMeter(store.used, store.limit) : null;
-  const editingOld = typeof editing === "number" ? (store?.entries[editing] ?? "") : "";
+  const editingOld = editing && editing !== "new" ? editing.old : "";
+  const editingAt = editing && editing !== "new" ? memoryEditIndex(store?.entries, editing.old) : -1;
+  const editingGone = !!editing && editing !== "new" && !!store && editingAt < 0;
   const tooLong = !!store && !!draft.trim() && projectedMemoryUse(store, editingOld, draft) > store.limit;
 
   async function apply(change: MemoryEdit, done: string) {
@@ -136,8 +141,8 @@ function MemoryGroup({
     const content = draft.trim();
     if (!content || !store || tooLong) return;
     if (editing === "new") void apply({ target, action: "add", content }, `Added to ${copy.title}`);
-    else if (typeof editing === "number") {
-      const old = store.entries[editing];
+    else if (editing && editingAt >= 0) {
+      const old = editing.old;
       if (old === content) {
         setEditing(null);
         return;
@@ -153,10 +158,10 @@ function MemoryGroup({
       onConfirm: () => apply({ target, action: "remove", old: entry }, `Deleted from ${copy.title}`),
     });
   }
-  function open(index: number | "new") {
+  function open(entry: string | "new") {
     setFormError("");
-    setEditing(index);
-    setDraft(index === "new" ? "" : (store?.entries[index] ?? ""));
+    setEditing(entry === "new" ? "new" : { old: entry });
+    setDraft(entry === "new" ? "" : entry);
   }
 
   const form = (
@@ -207,7 +212,7 @@ function MemoryGroup({
           [
             ...(store?.entries.length ? [] : [<EmptyRow key="empty">{copy.empty}</EmptyRow>]),
             ...(store?.entries ?? []).map((entry, index) =>
-              editing === index ? (
+              index === editingAt ? (
                 <div key={`e${index}`}>{form}</div>
               ) : (
                 <div key={`e${index}`} className="flex items-start gap-2 px-3.5 py-2">
@@ -217,7 +222,7 @@ function MemoryGroup({
                     size="sm"
                     disabled={edit.isPending}
                     aria-label={`Edit: ${clip(entry)}`}
-                    onClick={() => open(index)}
+                    onClick={() => open(entry)}
                   >
                     Edit
                   </Button>
@@ -233,6 +238,16 @@ function MemoryGroup({
                 </div>
               ),
             ),
+            ...(editingGone
+              ? [
+                  <div key="gone" role="alert" className="flex items-center gap-2 px-3.5 py-2.5 text-[13px] text-muted-foreground">
+                    <span className="min-w-0 flex-1">This entry changed while you were editing it. Open it again to edit it.</span>
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>
+                      Close
+                    </Button>
+                  </div>,
+                ]
+              : []),
             editing === "new" ? (
               <div key="new">{form}</div>
             ) : (

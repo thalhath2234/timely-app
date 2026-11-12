@@ -14,6 +14,7 @@ import {
   learningAnchors,
   learnsInChat,
   looseLearning,
+  memoryEditIndex,
   learningFollowed,
   skillOrigin,
   turnLearning,
@@ -399,6 +400,13 @@ describe("what a chat shows of what the agent learned", () => {
     assert.equal(loose.card.items[0].pendingId, "pend_9");
     assert.deepEqual(looseLearning(events.slice(0, 1), messages), { chip: null, card: null });
     assert.deepEqual(looseLearning(undefined, messages), { chip: null, card: null });
+  });
+
+  test("an About you edit follows its entry's text through a refetch", () => {
+    // Edit opened on B; A was removed elsewhere, so B moved up and C took its old place.
+    assert.equal(memoryEditIndex(["B", "C"], "B"), 0);
+    assert.equal(memoryEditIndex(["A", "C"], "B"), -1);
+    assert.equal(memoryEditIndex(undefined, "B"), -1);
   });
 
   test("a chat on the New engine follows its learning before any reply carries a run", () => {
