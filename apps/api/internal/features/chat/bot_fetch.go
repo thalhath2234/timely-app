@@ -11,11 +11,14 @@ import (
 // give: Timely fetches it the moment it is read, so a page or search result
 // could otherwise steer the model into sending the person's data to a site
 // of its choosing in an address.
-const fetchRefusal = "Timely only reads an address before approval when the person typed its site in this chat or one of their bots already reads it. Do not preview it: propose the bot as it is, and it reads the page once the person approves"
+const fetchRefusal = "Timely only reads an address before approval when the person typed its site in this chat or one of their bots already reads it, and never one that carries what looks like an API key or token. Do not preview it: propose the bot as it is, and it reads the page once the person approves"
 
 // fetchGuard is which addresses a run may have Timely read before the person
 // approves anything: sites the person typed in this conversation, with
-// query strings they typed, and the addresses their bots already read.
+// query strings they typed, and the addresses their bots already read. An
+// address that carries what looks like an API key or token is never read
+// unless a bot already reads it: Hermes refuses it in web_extract
+// (carriesSecret), and preview_bot is a page fetch the model drives too.
 type fetchGuard struct {
 	typed string          // the person's own messages, lower case
 	known map[string]bool // addresses the person's bots read, as written
@@ -64,6 +67,9 @@ func (g *fetchGuard) allowsURL(raw string) bool {
 	raw = strings.TrimSpace(raw)
 	if g.knows(raw) {
 		return true
+	}
+	if carriesSecret(raw) {
+		return false
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Hostname() == "" {
