@@ -20,7 +20,7 @@
 | Q-1.3 | Zero patch points, hard cap five. `apps/agent/hermes/**` stays byte-identical. |
 | Q-1.4 | Keep `plugin-catalog/` and optional skills; English only. |
 | Q-2.x, Q-P1 | Engine switch, permission modes, streaming, CLI gateway, reseed, `pending_steer`, `agent_session_forgets` as built in phase 2. |
-| Exfiltration | The chat exfiltration rule is **block** in phase 3 (no approval path until phase 5): "Paste the link yourself if you want me to open it". |
+| Exfiltration | Superseded by Q-3.9 (2026-11-12): no Timely rule on where `web_search`/`web_extract` go after taint; Hermes' own handling applies on every web path (plan section 13, phase 3 status). The rows below that describe the block rule and `person_hosts` are history. ~~The chat exfiltration rule is **block** in phase 3 (no approval path until phase 5): "Paste the link yourself if you want me to open it".~~ |
 | Release | No build is released before phase 5; every phase is completed first. |
 
 ## Waves
@@ -71,7 +71,7 @@ Shared files have exactly one owner: the root `Makefile`, `apps/api/migrations/*
 - `flags.from_bot` (bool, existing): always false until phase 6; a true value makes every learning write in the conversation stage from the first turn.
 - `tainted_conversations` (`[conversation id]`): the account's chats whose `tainted_sources` is non-empty (later also `from_bot_id` chats). A `session_search` hit from one of them taints the searching session (`{kind: "session", tool: "session_search", session: <id>}`).
 - `search_exclude` (`[conversation id]`): the account's `no_learning` chats. The worker adds them to `session_search`'s `exclude_session_ids` (a `pre_tool_call` args modification), so they never come back as hits.
-- `person_hosts` (`[host]`): hosts the person typed in this chat (Go's `fetchGuard` list). The exfiltration rule allows them after taint.
+- `person_hosts` (`[host]`): hosts the person typed in this chat (Go's `fetchGuard` list). The exfiltration rule allows them after taint. (Removed with the rule by Q-3.9.)
 
 **Worker → Go**
 
@@ -265,6 +265,8 @@ func (s *Supervisor) CommitRestore(ctx context.Context, staged Staged) error // 
 
 ### `worker-web`: `timely_web`, the exfiltration rule, web extras (wave 2; deps `worker-learning`)
 
+> Superseded in part by Q-3.9 (2026-11-12): deliverable 3 (the exfiltration rule) and its tests were replaced by Hermes' own handling; see plan section 13's Q-3.9 status entry.
+
 **Owns:** see the ownership table.
 
 **Deliverables**
@@ -430,7 +432,7 @@ Each row has one owner. "Uses" names packages that only carry a value the owner'
 | Go side of the `timely` backend: provider search, safe page fetch, web gate verdicts | `go-chat-web` | |
 | search key in Settings overrides (store, routes, tool key) | `go-chat-web` | `web-ui` (row), `go-backup` (tool keys) |
 | keyless off, web extras installed | `worker-web` | |
-| chat exfiltration rule as block | `worker-web` | `go-chat-web` (`person_hosts`, second line) |
+| chat exfiltration rule as block (removed by Q-3.9) | `worker-web` | `go-chat-web` (`person_hosts`, second line) |
 | taint source `session_search` (`delegate_task` is phase 4) | `worker-learning` | |
 | taint persistence | `worker-learning` | |
 | skill-body rule | `worker-learning` | |

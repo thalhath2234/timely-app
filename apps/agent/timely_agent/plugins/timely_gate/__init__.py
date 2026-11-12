@@ -14,11 +14,11 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
    sidecar Chromium ignore ``security.allow_private_urls``), so the gate applies Hermes' own
    ``url_safety.is_safe_url`` to every URL literal in the arguments (plan 12; what a literal
    check cannot see, such as URLs built at run time or redirects, is the residual in plan 14).
-   Timely adds no rule of its own on where ``web_search`` or ``web_extract`` may go once the
-   session read outside content (owner decision Q-3.9): Hermes' own handling applies on every
-   backend (results wrapped as untrusted data, the advisory threat scan, a URL carrying a key or
-   token refused, the SSRF floor and website blocklist). Taint still holds the chat's next
-   proposal for review and stages learning.
+1c. ``web_search`` and ``web_extract`` after the session read outside content: no rule of
+   Timely's own (owner decision Q-3.9); they go to Go's ``gate.ask`` like any other call. Hermes'
+   own handling applies on every backend: results wrapped as untrusted data and threat-scanned
+   (the scan reaches Go as ``event tool.output_risk``), a URL carrying a key or token refused, and
+   the SSRF floor. Taint still holds the chat's next proposal for review and stages learning.
 2. A call Go pre-approved for a parked-approval continuation (same tool, same args hash): allow.
 2b. ``propose_changes`` that is not the only call of its assistant message: ``block`` with
    "Call propose_changes alone, after all read tools finish" (plan 3.4 step 8). The batch was

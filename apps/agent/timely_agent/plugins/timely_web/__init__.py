@@ -5,8 +5,9 @@ The model calls Hermes' own ``web_search`` / ``web_extract``; with ``web.search_
 provider, which asks Go over ``tool.call`` (``RunContext.tool_call``) and maps the answer to
 Hermes' result shapes. Go runs the search with the chat provider's own search and fetches pages
 through its netguard; the worker opens no connection for this backend. Hermes' own controls stay
-in front of it (secret-in-URL refusal, the SSRF floor, website policy, truncation, caches).
-See README.md for what Go answers and how the exfiltration rule in ``timely_gate`` matches.
+in front of it (secret-in-URL refusal, the SSRF floor, truncation, caches; the website blocklist
+is Hermes' opt-in list, empty in Timely). See README.md for what Go answers and its section
+"After the chat read outside content (Q-3.9)" for what holds once a chat read outside content.
 """
 
 from __future__ import annotations
