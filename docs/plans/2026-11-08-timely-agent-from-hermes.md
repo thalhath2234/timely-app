@@ -1580,9 +1580,9 @@ Marked by the phase that needs the answer.
 
 **Phase 4**
 
-- Q-4.1 Offer Hermes-native sign-ins (ChatGPT/Codex OAuth, borrowing the Claude Code login, Nous Portal) in addition to API keys and the CLI providers? They carry rotating-token and terms risks.
-- Q-4.2 Sensitive and photo chats: stay on classic until the no-persist path is proven (recommended)?
-- Q-4.3 Clarify questions as an answer card the run waits on, or off (the agent asks in text and ends the turn)?
+- Q-4.1 Offer Hermes-native sign-ins (ChatGPT/Codex OAuth, borrowing the Claude Code login, Nous Portal) in addition to API keys and the CLI providers? They carry rotating-token and terms risks. **Answered 2026-11-13: no. API keys and the CLI providers (through the Go gateway) only.**
+- Q-4.2 Sensitive and photo chats: stay on classic until the no-persist path is proven (recommended)? **Answered 2026-11-13: stay on classic. Phase 4 builds the no-persist path behind a flag and proves it; they move only after that.**
+- Q-4.3 Clarify questions as an answer card the run waits on, or off (the agent asks in text and ends the turn)? **Answered 2026-11-13: an answer card the run waits on (web and phone).**
 
 **Phase 5**
 
