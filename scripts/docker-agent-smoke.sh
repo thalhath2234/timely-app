@@ -4,7 +4,8 @@
 #
 #   make docker-agent-smoke
 #
-# It builds timely-api:phase3b-smoke for linux/amd64 from apps/api/Dockerfile,
+# It builds timely-api:<run id> for linux/amd64 from apps/api/Dockerfile (a tag
+# of its own, so runs from two worktrees never remove each other's image),
 # then checks, all inside that image:
 #
 #   0. the image: user timely (10001), TIMELY_AGENT_RUNTIME=/app/agent,
@@ -29,9 +30,11 @@
 # The image is built in a throwaway BuildKit builder (docker-container
 # driver), so its layers and the uv and Python cache mounts never pile up in
 # the default builder's cache. A trap removes that builder with its state
-# volume, moby/buildkit when this run pulled it, the containers, networks and
-# volumes this run created, the smoke image, and postgres:17 when this run
-# pulled it. Nothing else is touched and nothing is pruned. KEEP_IMAGES=1
+# volume, moby/buildkit when this run pulled it and no other builder's
+# container still uses it, the containers, networks and volumes this run
+# created, the smoke image, and postgres:17 when this run pulled it and no
+# other container uses it (an image left behind is named, never forced out).
+# Nothing else is touched and nothing is pruned. KEEP_IMAGES=1
 # keeps the smoke image and postgres:17.
 # SMOKE_IMAGE=<ref> skips the build and checks that image instead (it is then
 # never removed).
@@ -42,7 +45,7 @@ platform=linux/amd64
 pg_image=postgres:17
 run_id="timely-smoke-$$-$RANDOM"
 build=1
-image="timely-api:phase3b-smoke"
+image="timely-api:$run_id"
 if [[ -n "${SMOKE_IMAGE:-}" ]]; then
   image="$SMOKE_IMAGE"
   build=0
@@ -57,6 +60,19 @@ builder=""
 buildkit_image=moby/buildkit:buildx-stable-1
 remove_buildkit=0
 
+# remove_shared_image <image>: removes an image this run pulled unless another
+# container (a concurrent smoke run's builder or Postgres) still uses it; says
+# what it left behind instead of hiding it.
+remove_shared_image() {
+  local users
+  users="$(docker ps -a --filter "ancestor=$1" --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')"
+  if [[ -n "${users// /}" ]]; then
+    echo "docker-agent-smoke: left $1 in place, still used by: $users" >&2
+  elif ! docker image rm "$1" >/dev/null 2>&1; then
+    echo "docker-agent-smoke: could not remove $1 (docker image rm failed); remove it by hand once nothing uses it" >&2
+  fi
+}
+
 cleanup() {
   local status=$?
   set +e
@@ -64,11 +80,14 @@ cleanup() {
   for n in "${networks[@]}"; do docker network rm "$n" >/dev/null 2>&1; done
   for v in "${volumes[@]}"; do docker volume rm "$v" >/dev/null 2>&1; done
   if [[ "${KEEP_IMAGES:-}" != 1 ]]; then
-    for i in "${remove_images[@]}"; do docker image rm "$i" >/dev/null 2>&1; done
+    for i in "${remove_images[@]}"; do
+      if [[ "$i" == "$image" ]]; then docker image rm "$i" >/dev/null 2>&1; else remove_shared_image "$i"; fi
+    done
   fi
-  # buildx rm stops the BuildKit container and deletes its state volume (the build cache).
+  # buildx rm stops the BuildKit container and deletes its state volume (the build cache);
+  # only then can moby/buildkit go, and only if no other run's builder uses it.
   [[ -n "$builder" ]] && docker buildx rm "$builder" >/dev/null 2>&1
-  [[ $remove_buildkit -eq 1 ]] && docker image rm "$buildkit_image" >/dev/null 2>&1
+  [[ $remove_buildkit -eq 1 ]] && remove_shared_image "$buildkit_image"
   [[ -n "$scratch" ]] && rm -rf "$scratch"
   if [[ $status -eq 0 ]]; then
     echo "docker-agent-smoke: PASS"

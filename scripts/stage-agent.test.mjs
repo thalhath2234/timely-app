@@ -1340,7 +1340,15 @@ test("make docker-agent-smoke builds in a throwaway builder that its trap remove
   assert.doesNotMatch(script, /^\s*(DOCKER_BUILDKIT=1 )?docker build /m, "a plain docker build fills the default builder's cache");
   const cleanup = script.slice(script.indexOf("cleanup() {"), script.indexOf("trap cleanup EXIT"));
   assert.match(cleanup, /docker buildx rm "\$builder"/);
-  assert.match(cleanup, /docker image rm "\$buildkit_image"/);
+  assert.match(cleanup, /remove_shared_image "\$buildkit_image"/);
+  assert.ok(cleanup.indexOf('docker buildx rm "$builder"') < cleanup.indexOf('remove_shared_image "$buildkit_image"'), "the builder goes first");
+  // Two worktrees may smoke at once: each run tags its own image, and a pulled image another
+  // run's container still uses is left in place and named, not removed under it.
+  assert.match(script, /^image="timely-api:\$run_id"$/m);
+  assert.doesNotMatch(script, /phase3b-smoke/);
+  const shared = script.slice(script.indexOf("remove_shared_image() {"), script.indexOf("cleanup() {"));
+  assert.match(shared, /docker ps -a --filter "ancestor=\$1"/);
+  assert.match(shared, /left \$1 in place, still used by/);
 });
 
 test("docker compose pins the image's agent runtime, so the shared root .env cannot point it at a host path", () => {
