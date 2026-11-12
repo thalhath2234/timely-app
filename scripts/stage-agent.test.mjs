@@ -45,6 +45,7 @@ import {
   parseExtras,
   parseMetadata,
   pythonArtifact,
+  scratchRootFor,
   selectSkills,
   snapshot,
   stagedPython,
@@ -158,6 +159,16 @@ test("a change to the trim rules or the install flags restages instead of reusin
   assert.notEqual(markerHash({ ...base, trim: withoutLibpython }), h);
   assert.notEqual(markerHash({ ...base, install: PIP_INSTALL_FLAGS.filter((f) => f !== "--no-build") }), h);
   assert.ok(STAGE_FORMAT >= 2, "the libpython trim needs a format past 1");
+});
+
+test("each checkout gets its own scratch folder, so a clean in one worktree leaves another's run alone", () => {
+  const home = path.join(os.tmpdir(), "home");
+  const main = scratchRootFor("/src/timely", home);
+  const worktree = scratchRootFor("/src/timely/.claude/worktrees/x", home);
+  assert.equal(path.dirname(main), path.join(home, ".cache", "timely-agent-stage"));
+  assert.equal(path.dirname(worktree), path.dirname(main));
+  assert.notEqual(main, worktree);
+  assert.equal(scratchRootFor("/src/timely/", home), main);
 });
 
 // ------------------------------------------------------------ interpreter trim

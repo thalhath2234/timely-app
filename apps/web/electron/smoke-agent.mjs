@@ -16,19 +16,18 @@
 //   node electron/smoke-agent.mjs [--root <agent dir>] [--read-only]
 //
 // Default root: .electron-agent/<host stageDir>. Needs Go on PATH. Scratch
-// folders go under ~/.cache/timely-agent-stage and are removed afterwards.
+// folders go under ~/.cache/timely-agent-stage/<checkout id> and are removed afterwards.
 
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diffSnapshots, importCheckSource, makeWritable, snapshot, stagedPython, walk } from "./stage-agent-lib.mjs";
+import { diffSnapshots, importCheckSource, makeWritable, scratchRootFor, snapshot, stagedPython, walk } from "./stage-agent-lib.mjs";
 import { getTarget, hostTargetKey } from "./targets.mjs";
 
 const webRoot = path.join(import.meta.dirname, "..");
 const apiRoot = path.join(webRoot, "..", "api");
-const scratchRoot = path.join(os.homedir(), ".cache", "timely-agent-stage");
+const scratchRoot = scratchRootFor(path.join(webRoot, "..", ".."));
 const EVERYONE = "*S-1-1-0";
 
 function parseArgs(argv) {

@@ -5,6 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmdirSync, rmSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 /** Longest path allowed relative to the agent root, counted after compileall (plan 11.4). */
@@ -80,6 +81,17 @@ export function parseExtras(text) {
     .split(/\r?\n/)
     .map((line) => line.replace(/#.*/, "").trim())
     .filter(Boolean);
+}
+
+/**
+ * Scratch folder for prepare and smoke runs of one checkout:
+ * ~/.cache/timely-agent-stage/<12 hex of the checkout path>. Never under /tmp
+ * (a small tmpfs on some machines), and per checkout so `--clean` in one
+ * worktree never deletes another worktree's in-flight run.
+ */
+export function scratchRootFor(repoRoot, home = os.homedir()) {
+  const id = createHash("sha256").update(path.resolve(repoRoot)).digest("hex").slice(0, 12);
+  return path.join(home, ".cache", "timely-agent-stage", id);
 }
 
 /** Native modules are installed for the running interpreter, so a target must be the host. */

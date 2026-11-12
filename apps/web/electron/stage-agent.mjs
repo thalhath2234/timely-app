@@ -60,6 +60,7 @@ import {
   parseExtras,
   plainCopyFilter,
   pythonArtifact,
+  scratchRootFor,
   selectSkills,
   skillDirs,
   stagedPython,
@@ -76,8 +77,8 @@ const agentSrc = path.join(repoRoot, "apps", "agent");
 const hermesSrc = path.join(agentSrc, "hermes");
 export const cacheDir = path.join(webRoot, ".cache", "agent");
 export const stageRoot = path.join(webRoot, ".electron-agent");
-/** Scratch folders for prepare runs, never under /tmp (a small tmpfs on some machines). */
-export const scratchRoot = path.join(os.homedir(), ".cache", "timely-agent-stage");
+/** This checkout's scratch folder for prepare runs (scratchRootFor). */
+export const scratchRoot = scratchRootFor(repoRoot);
 
 const MB = 1048576;
 const mb = (bytes) => `${(bytes / MB).toFixed(1)} MB`;

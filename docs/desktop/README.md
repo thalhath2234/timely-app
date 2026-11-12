@@ -473,7 +473,8 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   `__pycache__` from the checkout. On linux-x64 at Hermes v0.23.0: 30 bundled skills, 78 optional
   skills, 66 denied, 12 not offered. `app/skills/` is 0444 files in 0555 folders.
 - **Seed check.** The staged `boot.py prepare` runs once against a scratch folder
-  (`~/.cache/timely-agent-stage`) and must build the seed tree and the read-only Timely skills copy
+  (`~/.cache/timely-agent-stage/<checkout id>`, one per checkout, so `make clean-agent-stage` in one
+  worktree leaves another worktree's run alone) and must build the seed tree and the read-only Timely skills copy
   with nothing unreviewed. At API start `prepare` still makes those copies in `data/agent/`: the
   per-user nsis install folder is writable by the same user, so the read-only copy the agent sees
   (plan 9.1) lives in the data folder.
