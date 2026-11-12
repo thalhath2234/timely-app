@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -554,5 +555,51 @@ func TestIntegrationAgentEngineGateAskTaintHoldsADirectProposal(t *testing.T) {
 	}
 	if results := h.toolResults(); len(results) == 0 || json.Unmarshal(results[0].Result, &body) != nil || len(body.Pages) != 1 || body.Pages[0].Error != pasteLink {
 		t.Fatalf("web_extract after gate.ask taint: %+v", body)
+	}
+}
+
+// Review round 6: a switch that turns off between Start's checkpoint and
+// its run.start send reaches the run: Start reads the switches once more
+// after the send and sends learning.stop (searchOnly for "Search my past
+// chats"). The prefs read flips on its third call, the one after the send
+// (runSetup and narrowLearning read it first).
+func TestIntegrationAgentEngineStopAfterTheSendReachesTheRun(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		flipped    LearningPrefs
+		searchOnly bool
+	}{
+		{"learning off", LearningPrefs{}, false},
+		{"search off", LearningPrefs{Learning: true}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			var reads atomic.Int32
+			h.e.opts.Learning = func(context.Context, string) (LearningPrefs, error) {
+				if reads.Add(1) >= 3 {
+					return tc.flipped, nil
+				}
+				return LearningPrefs{Learning: true, SearchHistory: true}, nil
+			}
+			type stop struct {
+				cid        string
+				searchOnly bool
+			}
+			stopped := make(chan stop, 4)
+			h.s.SetStopLearning(func(_, cid string, searchOnly bool) { stopped <- stop{cid, searchOnly} })
+			c := h.chatWith("Hello", "supervised", "flip-"+strings.ReplaceAll(tc.name, " ", "-"), lines(reply("Hi.", 0)), nil)
+			h.wait(c.ID, "replied", statusIs("idle"))
+			if s := h.runStart(c.ID); !s.Flags.LearningWrites || !s.Flags.SearchHistory {
+				t.Fatalf("run.start flags %+v: the switches were on when it was built", s.Flags)
+			}
+			select {
+			case got := <-stopped:
+				if got != (stop{c.ID, tc.searchOnly}) {
+					t.Fatalf("learning.stop %+v, want chat %s searchOnly %v", got, c.ID, tc.searchOnly)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("no learning.stop after the send")
+			}
+		})
 	}
 }
