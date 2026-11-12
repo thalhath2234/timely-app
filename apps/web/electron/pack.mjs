@@ -10,7 +10,9 @@
 // so a local build runs next to an installed release with its own data.
 //
 // Steps: next build (ELECTRON_BUILD=1) → esbuild main/preload → stage Next
-// standalone → stage API → stage Postgres → electron-builder. Every other
+// standalone → stage API → stage Postgres → stage the agent runtime (host
+// target only) → electron-builder, whose afterPack hook (verify-pack.cjs)
+// checks the packed runtime against the stage. Every other
 // argument is passed to electron-builder unchanged. Set TIMELY_SKIP_NEXT=1 to
 // reuse an existing .next build while iterating on packaging.
 
@@ -75,6 +77,8 @@ const { stageApi } = await load("stage-api.mjs");
 stageApi(targets);
 const { stagePostgres } = await load("stage-postgres.mjs");
 await stagePostgres(targets);
+const { stageAgent } = await load("stage-agent.mjs");
+await stageAgent(targets);
 
 // GitHub Actions passes a missing secret as an empty string, and
 // electron-builder reads an empty CSC_LINK / WIN_CSC_LINK as a certificate

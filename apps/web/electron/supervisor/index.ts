@@ -13,7 +13,7 @@ import { findOrphans, scanWithCap, setprivPath, stopOrphans } from "./lifetime.t
 import { FileLog, createLogger, type Logger } from "./logger.ts";
 import type { LoginItemState } from "./loginItem.ts";
 import { NextManager } from "./next.ts";
-import { userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
+import { agentRuntime, userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
 import { reconcilePorts, type PortSet } from "./ports.ts";
 import { PostgresManager } from "./postgres.ts";
 import { resolveShellEnv } from "./shellEnv.ts";
@@ -264,7 +264,11 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   async boot(): Promise<void> {
     this.syncLoginItem(false);
     this.log.info(`boot: Timely ${this.deps.version} on ${this.platform}/${process.arch}; userData=${this.paths.userData}`);
-    this.log.info(`boot: resources api=${this.deps.resources.api} postgres=${this.deps.resources.postgres} next=${this.deps.resources.next}`);
+    const agent = agentRuntime(this.deps.resources.agent);
+    this.log.info(
+      `boot: resources api=${this.deps.resources.api} postgres=${this.deps.resources.postgres} next=${this.deps.resources.next} ` +
+        `agent=${agent ?? `none (no boot.py in ${this.deps.resources.agent})`}`,
+    );
     this.progress("postgres", "pending");
     this.progress("api", "pending");
     this.progress("web", "pending");
@@ -419,6 +423,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       dataDir: this.paths.dataDir,
       allowRegistration: this.config.allowRegistration,
       shell,
+      agentRuntime: agentRuntime(this.deps.resources.agent),
     });
   }
 

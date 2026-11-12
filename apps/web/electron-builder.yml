@@ -18,12 +18,14 @@ files:
   - "!.electron-api/**"
   - "!.electron-postgres/**"
   - "!.electron-next/**"
+  - "!.electron-agent/**"
 
 # Sidecars live outside the asar. The per-target staging directories are named
 # after electron-builder's ${os}-${arch} macros (linux-x64, mac-arm64, win-x64;
 # see electron/targets.mjs) so one static config serves every target.
 # Binding layout (docs/desktop/README.md): resources/api, resources/postgres,
-# resources/next-server.
+# resources/next-server, resources/agent (the agent runtime: boot.py, python/,
+# app/; plan 11.4, staged by electron/stage-agent.mjs for the host only).
 extraResources:
   - from: .electron-next
     to: next-server
@@ -31,6 +33,13 @@ extraResources:
     to: api
   - from: .electron-postgres/${os}-${arch}
     to: postgres
+  - from: .electron-agent/${os}-${arch}
+    to: agent
+
+# Checks resources/agent against the stage's MANIFEST.json before any
+# installer is written: electron-builder drops files from extraResources and
+# ships absolute symlinks without a word (docs/desktop/README.md).
+afterPack: electron/verify-pack.cjs
 
 extraMetadata:
   name: timely-desktop

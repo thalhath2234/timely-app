@@ -15,7 +15,7 @@
     "electron:compile": "node electron/build.mjs",
     "electron:dev": "node electron/dev.mjs",
     "electron:open": "node electron/wait-and-launch.mjs",
-    "electron:stage": "node electron/stage-api.mjs && node electron/stage-postgres.mjs",
+    "electron:stage": "node electron/stage-api.mjs && node electron/stage-postgres.mjs && node electron/stage-agent.mjs",
     "electron:hosted": "node electron/hosted.mjs",
     "electron:pack": "node electron/pack.mjs --dir",
     "electron:dist": "node electron/pack.mjs",

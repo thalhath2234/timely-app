@@ -26,7 +26,7 @@ import { checkPrivileges } from "../apps/web/electron/supervisor/guards.ts";
 import { installFingerprint, isPackageManaged } from "../apps/web/electron/supervisor/install.ts";
 import { ACTIONS, SETTING_KEYS, Supervisor, pairingPayload, tailscaleUrls } from "../apps/web/electron/supervisor/index.ts";
 import { createElectronUpdater } from "../apps/web/electron/supervisor/updater.ts";
-import { resolveResourceDirs, userPaths } from "../apps/web/electron/supervisor/paths.ts";
+import { agentRuntime, resolveResourceDirs, userPaths } from "../apps/web/electron/supervisor/paths.ts";
 import { findFreePort, isPortFree, listenPort, reconcilePorts } from "../apps/web/electron/supervisor/ports.ts";
 import { classifyPidFile, isPostgresCommand, parsePostmasterPid, probePostgres } from "../apps/web/electron/supervisor/postgres.ts";
 import { fallbackPath, lastLine } from "../apps/web/electron/supervisor/shellEnv.ts";
@@ -44,6 +44,7 @@ import {
   urlFor,
 } from "../apps/web/electron/supervisor/tailscale.ts";
 import { FLAVOR, flavorFor } from "../apps/web/electron/flavor.ts";
+import verifyPack from "../apps/web/electron/verify-pack.cjs";
 
 function tmpdir() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "timely-supervisor-test-"));
@@ -462,6 +463,48 @@ test("api env: contract variables, binds, and no Electron leakage", () => {
   assert.equal(env.ELECTRON_RUN_AS_NODE, undefined);
 });
 
+test("api env: the agent runtime is passed through, and an inherited one never leaks", () => {
+  const input = {
+    apiPort: 48090,
+    bind: ["127.0.0.1"],
+    postgresPort: 54339,
+    secrets: { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" },
+    dataDir: "/data",
+    allowRegistration: false,
+    shell: { PATH: "/login/bin", HOME: "/home/me" },
+    base: { TIMELY_AGENT_RUNTIME: "/home/me/dev/apps/agent", TIMELY_AGENT_PYTHON: "/kept" },
+  };
+  const bundled = buildApiEnv({ ...input, agentRuntime: "/opt/Timely/resources/agent" });
+  assert.equal(bundled.TIMELY_AGENT_RUNTIME, "/opt/Timely/resources/agent", "the bundled runtime replaces the developer shell's");
+  const none = buildApiEnv(input);
+  assert.equal("TIMELY_AGENT_RUNTIME" in none, false, "no bundled runtime: the inherited value is dropped");
+  assert.equal(none.TIMELY_AGENT_PYTHON, "/kept", "other TIMELY_* values still pass through");
+});
+
+test("api env: the supervisor hands the API resources/agent only when it holds boot.py, and logs it at boot", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const sup = makeSupervisor(dir, undefined);
+    sup.secrets = { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" };
+    const shell = { PATH: "/bin", HOME: dir };
+    assert.equal(sup.apiEnv(shell).TIMELY_AGENT_RUNTIME, undefined, "no runtime staged");
+    const agent = path.join(dir, "res-agent");
+    mkdirSync(agent, { recursive: true });
+    writeFileSync(path.join(agent, "boot.py"), "");
+    assert.equal(sup.apiEnv(shell).TIMELY_AGENT_RUNTIME, agent);
+
+    // No Postgres binaries here: boot fails at the database step, after the resources line.
+    await assert.rejects(sup.boot(), (error) => error.step === "postgres");
+    sup.log.close();
+    const logDir = userPaths(dir).logDir;
+    const text = readdirSync(logDir).map((name) => readFileSync(path.join(logDir, name), "utf8")).join("");
+    const line = text.split("\n").find((l) => l.includes("boot: resources "));
+    assert.ok(line?.endsWith(` agent=${agent}`), `boot line names the runtime: ${line}`);
+  } finally {
+    cleanup();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Backups, paths, shell env, guards
 // ---------------------------------------------------------------------------
@@ -651,15 +694,28 @@ test("backup: restoring a folder backup puts the database and the agent homes ba
 
 test("paths: resource resolution for packaged, override and staged dev layouts", () => {
   const packaged = resolveResourceDirs({ isPackaged: true, resourcesPath: "/opt/Timely/resources", appPath: "/opt/Timely/resources/app.asar", platform: "linux", arch: "x64", env: {} });
-  assert.deepEqual(packaged, { api: "/opt/Timely/resources/api", postgres: "/opt/Timely/resources/postgres", next: "/opt/Timely/resources/next-server" });
+  assert.deepEqual(packaged, {
+    api: "/opt/Timely/resources/api",
+    postgres: "/opt/Timely/resources/postgres",
+    next: "/opt/Timely/resources/next-server",
+    agent: "/opt/Timely/resources/agent",
+  });
 
   const staged = resolveResourceDirs({ isPackaged: false, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "darwin", arch: "arm64", env: {} });
-  assert.deepEqual(staged, { api: "/repo/apps/web/.electron-api/mac-arm64", postgres: "/repo/apps/web/.electron-postgres/mac-arm64", next: "/repo/apps/web/.electron-next" });
+  assert.deepEqual(staged, {
+    api: "/repo/apps/web/.electron-api/mac-arm64",
+    postgres: "/repo/apps/web/.electron-postgres/mac-arm64",
+    next: "/repo/apps/web/.electron-next",
+    agent: "/repo/apps/web/.electron-agent/mac-arm64",
+  });
+  const stagedWin = resolveResourceDirs({ isPackaged: false, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "win32", arch: "x64", env: {} });
+  assert.equal(stagedWin.agent, path.join("/repo/apps/web", ".electron-agent", "win-x64"), "stage dirs use electron-builder's ${os} names");
 
   const override = resolveResourceDirs({ isPackaged: true, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "linux", arch: "x64", env: { TIMELY_RESOURCES_DIR: "/tmp/res" } });
   assert.equal(override.api, "/tmp/res/api");
   assert.equal(override.postgres, "/tmp/res/postgres");
   assert.equal(override.next, "/repo/apps/web/.electron-next", "falls back to the staged Next output when the override has none");
+  assert.equal(override.agent, "/repo/apps/web/.electron-agent/linux-x64", "falls back to the staged agent runtime when the override has none");
 
   const paths = userPaths("/home/me/.config/Timely");
   assert.equal(paths.configFile, "/home/me/.config/Timely/config.json");
@@ -667,6 +723,98 @@ test("paths: resource resolution for packaged, override and staged dev layouts",
   assert.equal(paths.dataDir, "/home/me/.config/Timely/data");
   assert.equal(paths.backupDir, "/home/me/.config/Timely/backups");
   assert.equal(paths.logDir, "/home/me/.config/Timely/logs");
+});
+
+test("paths: an override folder holding agent/ wins over the staged runtime", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    mkdirSync(path.join(dir, "agent"));
+    const override = resolveResourceDirs({ isPackaged: false, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "linux", arch: "x64", env: { TIMELY_RESOURCES_DIR: dir } });
+    assert.equal(override.agent, path.join(dir, "agent"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("paths: the agent runtime is handed over only when boot.py is there", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const agent = path.join(dir, "agent");
+    mkdirSync(path.join(agent, "python"), { recursive: true });
+    assert.equal(agentRuntime(agent), undefined, "a folder without boot.py is not a runtime");
+    assert.equal(agentRuntime(path.join(dir, "missing")), undefined);
+    writeFileSync(path.join(agent, "boot.py"), "");
+    assert.equal(agentRuntime(agent), agent);
+  } finally {
+    cleanup();
+  }
+});
+
+// A small staged agent tree: files, a relative interpreter link, an empty folder.
+function stageAgentFixture(root) {
+  mkdirSync(path.join(root, "python", "bin"), { recursive: true });
+  mkdirSync(path.join(root, "app", "skills"), { recursive: true });
+  mkdirSync(path.join(root, "app", "timely_agent"), { recursive: true });
+  writeFileSync(path.join(root, "boot.py"), "import sys\n");
+  writeFileSync(path.join(root, "python", "bin", "python3.14"), "ELF....");
+  symlinkSync("python3.14", path.join(root, "python", "bin", "python3"));
+  writeFileSync(path.join(root, "app", "timely_agent", "boot.py"), "pass\n");
+  const { files, links } = verifyPack.listAgentTree(root);
+  const manifest = { target: "linux-x64", files, links, totals: { files: files.length, bytes: 0 } };
+  writeFileSync(path.join(root, "MANIFEST.json"), JSON.stringify(manifest));
+  return { manifest, dirs: verifyPack.listAgentTree(root).dirs };
+}
+
+test("verify-pack: a packed agent folder identical to the stage passes", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const { manifest, dirs } = stageAgentFixture(path.join(dir, "agent"));
+    assert.ok(manifest.files.some(([rel]) => rel === "python/bin/python3.14"));
+    assert.equal(manifest.files.some(([rel]) => rel === "MANIFEST.json"), false);
+    assert.deepEqual(verifyPack.verifyAgentTree(path.join(dir, "agent"), manifest, dirs), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test("verify-pack: dropped, resized, extra and absolute-linked entries and a lost empty folder are each reported", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const root = path.join(dir, "agent");
+    const { manifest, dirs } = stageAgentFixture(root);
+    rmSync(path.join(root, "app", "timely_agent", "boot.py"));
+    writeFileSync(path.join(root, "boot.py"), "import sys  # longer\n");
+    writeFileSync(path.join(root, "extra.txt"), "x");
+    rmSync(path.join(root, "python", "bin", "python3"));
+    symlinkSync(path.join(root, "python", "bin", "python3.14"), path.join(root, "python", "bin", "python3"));
+    rmSync(path.join(root, "app", "skills"), { recursive: true });
+    const problems = verifyPack.verifyAgentTree(root, manifest, dirs);
+    const has = (prefix, rel) => assert.ok(problems.some((p) => p.startsWith(prefix) && p.includes(rel)), `${prefix} ${rel} in ${JSON.stringify(problems)}`);
+    has("missing:", "app/timely_agent/boot.py");
+    has("size differs:", "boot.py");
+    has("not in the stage:", "extra.txt");
+    has("absolute symlink:", "python/bin/python3");
+    has("symlink differs:", "python/bin/python3");
+    has("missing folder:", "app/skills");
+    assert.equal(problems.length, 6);
+
+    assert.deepEqual(verifyPack.verifyAgentTree(path.join(dir, "nowhere"), manifest), [`the packed app has no agent runtime at ${path.join(dir, "nowhere")}`]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("verify-pack: afterPack refuses a target with no staged runtime (every installer ships the agent)", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    // linux-universal is never staged.
+    await assert.rejects(
+      verifyPack({ appOutDir: dir, electronPlatformName: "linux", arch: 4, packager: {} }),
+      /no staged agent runtime for linux-universal/,
+    );
+  } finally {
+    cleanup();
+  }
 });
 
 test("shell env: fallback PATH gains the usual user directories once; last line wins", () => {
@@ -846,7 +994,7 @@ function fakeLoginItem(state = ON, { throws = false } = {}) {
 function makeSupervisor(dir, loginItem, extra = {}) {
   return new Supervisor({
     userData: dir,
-    resources: { api: path.join(dir, "res-api"), postgres: path.join(dir, "res-pg"), next: path.join(dir, "res-next") },
+    resources: { api: path.join(dir, "res-api"), postgres: path.join(dir, "res-pg"), next: path.join(dir, "res-next"), agent: path.join(dir, "res-agent") },
     version: "0.5.0",
     sealer: plainSealer,
     nodeBinary: process.execPath,
