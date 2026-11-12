@@ -27,19 +27,15 @@ import { createHash } from "node:crypto";
 import {
   copyFileSync,
   cpSync,
-  createWriteStream,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import {
   EXPECTED_PLATFORM,
@@ -51,6 +47,7 @@ import {
   copyInto,
   copyleftReview,
   dropLongBytecode,
+  downloadFile,
   cpythonLicense,
   gitTracked,
   hermesCopyFilter,
@@ -116,13 +113,7 @@ function sha256File(file) {
 
 async function download(url, dest) {
   console.log(`downloading ${url}`);
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok || !res.body) throw new Error(`GET ${url} failed: ${res.status} ${res.statusText}`);
-  mkdirSync(path.dirname(dest), { recursive: true });
-  const tmp = `${dest}.part`;
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(tmp));
-  rmSync(dest, { force: true });
-  renameSync(tmp, dest);
+  await downloadFile(url, dest);
 }
 
 async function fetchPython(artifact) {

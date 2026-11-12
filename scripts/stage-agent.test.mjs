@@ -35,6 +35,7 @@ import {
   copyInto,
   copyleftReview,
   declaresCopyleft,
+  downloadFile,
   fullArchiveName,
   interpreterLicenses,
   pythonLicenseRecord,
@@ -633,6 +634,61 @@ test("the committed licence texts cover every distribution of the dev runtime an
 });
 
 // ------------------------------------------------------------ the interpreter's built-in libraries
+
+test("downloadFile retries a network error, a cut-off body and a 5xx, and names the URL and the cause when it gives up", async (t) => {
+  const dir = tmp(t);
+  const dest = path.join(dir, "a", "python.tar.gz");
+  const body = (text) => new Response(text).body;
+  const cutOff = () =>
+    new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode("par"));
+        c.error(new Error("terminated"));
+      },
+    });
+  const reset = Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
+  const plan = [
+    () => {
+      throw reset;
+    },
+    () => ({ ok: true, status: 200, body: cutOff() }),
+    () => ({ ok: false, status: 503, statusText: "Service Unavailable", body: body("") }),
+    () => ({ ok: true, status: 200, body: body("complete") }),
+  ];
+  const sleeps = [];
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    assert.equal(url, "https://example.test/python.tar.gz");
+    return plan[calls++]();
+  };
+  await downloadFile("https://example.test/python.tar.gz", dest, { attempts: 4, delayMs: 10, fetchImpl, sleep: async (ms) => sleeps.push(ms) });
+  assert.equal(readFileSync(dest, "utf8"), "complete");
+  assert.equal(calls, 4);
+  assert.deepEqual(sleeps, [10, 20, 40]);
+  assert.ok(!existsSync(`${dest}.part`));
+
+  calls = 0;
+  plan.length = 0;
+  plan.push(() => {
+    throw reset;
+  });
+  plan.push(() => {
+    throw reset;
+  });
+  await assert.rejects(
+    downloadFile("https://example.test/python.tar.gz", path.join(dir, "b"), { attempts: 2, delayMs: 1, fetchImpl, sleep: async () => {} }),
+    /GET https:\/\/example\.test\/python\.tar\.gz failed after 2 attempt\(s\): fetch failed: read ECONNRESET.*; fetch failed/,
+  );
+  // A 404 is not retried.
+  calls = 0;
+  plan.length = 0;
+  plan.push(() => ({ ok: false, status: 404, statusText: "Not Found", body: body("") }));
+  await assert.rejects(
+    downloadFile("https://example.test/python.tar.gz", path.join(dir, "c"), { attempts: 3, fetchImpl, sleep: async () => assert.fail("no retry on 404") }),
+    /after 1 attempt\(s\): HTTP 404 Not Found/,
+  );
+  assert.equal(calls, 1);
+});
 
 test("fullArchiveName names the full archive of an install_only build", () => {
   assert.equal(

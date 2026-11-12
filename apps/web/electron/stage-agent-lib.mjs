@@ -5,9 +5,25 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmdirSync, rmSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  createWriteStream,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 /** Longest path allowed relative to the agent root, counted after compileall (plan 11.4). */
 export const MAX_PATH_CHARS = 150;
@@ -101,6 +117,48 @@ export function parseExtras(text) {
     .split(/\r?\n/)
     .map((line) => line.replace(/#.*/, "").trim())
     .filter(Boolean);
+}
+
+/** Why a fetch failed: undici's "fetch failed" with its cause (DNS, reset, timeout) and that cause's code. */
+function fetchFailure(err) {
+  const cause = err?.cause;
+  const detail = cause ? `${cause.message ?? cause}${cause.code && !String(cause.message).includes(cause.code) ? ` (${cause.code})` : ""}` : "";
+  return detail ? `${err.message}: ${detail}` : String(err?.message ?? err);
+}
+
+/**
+ * Download `url` to `dest` (through `dest`.part, renamed once complete). A
+ * network error, a body cut off mid-stream, a 5xx or a 429 is retried
+ * (`attempts` in all, `delayMs` doubling between them); any other status
+ * fails at once. The thrown message names the URL, every attempt's failure
+ * and the network error's cause. Callers check what they download (sha256),
+ * so a retry never changes what is accepted.
+ */
+export async function downloadFile(url, dest, { attempts = 3, delayMs = 2000, fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const failures = [];
+  const tmp = `${dest}.part`;
+  mkdirSync(path.dirname(dest), { recursive: true });
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let retry = true;
+    try {
+      const res = await fetchImpl(url, { redirect: "follow" });
+      if (res.ok && res.body) {
+        await pipeline(Readable.fromWeb(res.body), createWriteStream(tmp));
+        rmSync(dest, { force: true });
+        renameSync(tmp, dest);
+        return;
+      }
+      failures.push(`HTTP ${res.status} ${res.statusText ?? ""}`.trim());
+      retry = res.status >= 500 || res.status === 429;
+      await res.body?.cancel?.().catch(() => {});
+    } catch (err) {
+      failures.push(fetchFailure(err));
+    }
+    rmSync(tmp, { force: true });
+    if (!retry || attempt === attempts) break;
+    await sleep(delayMs * 2 ** (attempt - 1));
+  }
+  throw new Error(`GET ${url} failed after ${failures.length} attempt(s): ${failures.join("; ")}`);
 }
 
 /**

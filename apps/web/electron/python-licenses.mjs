@@ -25,12 +25,10 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { fullArchiveName, pythonLicenseRecord } from "./stage-agent-lib.mjs";
+import { downloadFile, fullArchiveName, pythonLicenseRecord } from "./stage-agent-lib.mjs";
 import { TARGETS } from "./targets.mjs";
 
 const webRoot = path.join(import.meta.dirname, "..");
@@ -39,13 +37,7 @@ const lockFile = path.join(repoRoot, "apps", "agent", "hermes", "pm", "lock.json
 export const pythonLicensesRoot = path.join(repoRoot, "apps", "agent", "packaging", "python-licenses");
 const cache = path.join(webRoot, ".cache", "agent", "full");
 
-async function fetchTo(url, dest) {
-  const res = await fetch(url, { redirect: "follow" });
-  if (!res.ok || !res.body) throw new Error(`GET ${url} failed: ${res.status} ${res.statusText}`);
-  const tmp = `${dest}.part`;
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(tmp));
-  renameSync(tmp, dest);
-}
+const fetchTo = (url, dest) => downloadFile(url, dest);
 
 const sha256 = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
