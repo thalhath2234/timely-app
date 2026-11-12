@@ -198,6 +198,21 @@ export const TRIM = [
 /** The stdlib test package, dropped only when nothing staged imports it. */
 export const STDLIB_TEST = /^(lib\/python3\.\d+|lib)\/test$/i;
 
+/**
+ * MANIFEST.json of a finished stage for `key`; throws when the stage is
+ * missing, unfinished (no manifest or no .staged marker) or for another target.
+ */
+export function stagedManifest(out, key) {
+  const file = path.join(out, "MANIFEST.json");
+  if (!existsSync(file)) throw new Error(`${out} has no MANIFEST.json: stage the agent runtime first (node electron/stage-agent.mjs)`);
+  const manifest = JSON.parse(readFileSync(file, "utf8"));
+  if (manifest.target !== key) throw new Error(`${file} is for ${manifest.target}, not ${key}`);
+  if (!manifest.marker || !existsSync(path.join(out, manifest.marker))) {
+    throw new Error(`${out} lacks its ${manifest.marker ?? ".staged-<hash>"} marker: the stage did not finish`);
+  }
+  return manifest;
+}
+
 /** Relative paths under python/ that trimInterpreter removes (top-most only). */
 export function trimPlan(pythonDir) {
   const drop = [];

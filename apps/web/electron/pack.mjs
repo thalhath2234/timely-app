@@ -3,7 +3,7 @@
 //   node electron/pack.mjs                       # installer(s) for the host OS/arch
 //   node electron/pack.mjs --dir                 # unpacked build only
 //   node electron/pack.mjs --target darwin-arm64 # one target (also sets TIMELY_TARGETS)
-//   node electron/pack.mjs --target darwin-x64,darwin-arm64 --publish always
+//   node electron/pack.mjs --target linux-x64 --publish always # the host target only (the agent runtime stages on its own OS)
 //
 // Without TIMELY_RELEASE=1 (release.yml sets it) the result is "Timely Dev":
 // electron-builder.local.yml and a matching main.js (see electron/flavor.ts),
@@ -11,7 +11,8 @@
 //
 // Steps: next build (ELECTRON_BUILD=1) → esbuild main/preload → stage Next
 // standalone → stage API → stage Postgres → stage the agent runtime (host
-// target only) → electron-builder, whose afterPack hook (verify-pack.cjs)
+// target only; TIMELY_AGENT_STAGED=1 packs the existing, smoked stage instead,
+// as release.yml does) → electron-builder, whose afterPack hook (verify-pack.cjs)
 // checks the packed runtime against the stage. Every other
 // argument is passed to electron-builder unchanged. Set TIMELY_SKIP_NEXT=1 to
 // reuse an existing .next build while iterating on packaging.
@@ -81,8 +82,9 @@ const { stageApi } = await load("stage-api.mjs");
 stageApi(targets);
 const { stagePostgres } = await load("stage-postgres.mjs");
 await stagePostgres(targets);
-const { stageAgent } = await load("stage-agent.mjs");
-await stageAgent(targets);
+const { reuseStagedAgent, stageAgent } = await load("stage-agent.mjs");
+if (process.env.TIMELY_AGENT_STAGED === "1") reuseStagedAgent(targets);
+else await stageAgent(targets);
 
 // GitHub Actions passes a missing secret as an empty string, and
 // electron-builder reads an empty CSC_LINK / WIN_CSC_LINK as a certificate

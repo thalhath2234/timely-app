@@ -168,7 +168,7 @@ dist-desktop: ## Build a "Timely Dev" installer for this OS and architecture (Ap
 stage-desktop: ## Cross-compile the API, fetch Postgres 17 and stage the agent runtime for the desktop bundle (TIMELY_TARGETS=... stages the API and Postgres for those targets; the agent runtime always stages for this host only)
 	@node $(WEB)/electron/stage-api.mjs
 	@node $(WEB)/electron/stage-postgres.mjs
-	@TIMELY_TARGETS= node $(WEB)/electron/stage-agent.mjs
+	@node $(WEB)/electron/stage-agent.mjs --host
 
 .PHONY: dev-desktop-hosted
 dev-desktop-hosted: stage-desktop ## Run the Electron shell in hosted mode (its own Postgres + API) against a throwaway user-data dir

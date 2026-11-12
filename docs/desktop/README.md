@@ -410,9 +410,10 @@ The target table lives in `electron/targets.mjs`, keyed `linux-x64`, `linux-arm6
 SHA-256.
 
 - Default: the host target.
-- `TIMELY_TARGETS=linux-x64,darwin-arm64` stages the API and Postgres for several targets (`stage-api.mjs`, `stage-postgres.mjs`, any OS; Go cross-compiles and the zonky jars are plain downloads). The agent runtime is host-only: `make stage-desktop` stages it for the host whatever `TIMELY_TARGETS` says, and `stage-agent.mjs` refuses a list that names another target before staging anything.
+- `TIMELY_TARGETS=linux-x64,darwin-arm64` stages the API and Postgres for several targets (`stage-api.mjs`, `stage-postgres.mjs`, any OS; Go cross-compiles and the zonky jars are plain downloads). The agent runtime is host-only: `make stage-desktop` and `pnpm electron:stage` stage it for the host whatever `TIMELY_TARGETS` says (`stage-agent.mjs --host`), and `stage-agent.mjs` refuses a list that names another target before staging anything.
 - `node electron/pack.mjs --target <host key>` adds the matching electron-builder flags (`--linux --x64`). Every installer ships the agent runtime, so pack refuses any other target before the Next build: a multi-target mac build (`--target darwin-x64,darwin-arm64`) is no longer possible, and each arch builds on its own runner. Every other argument is passed to electron-builder (`--dir`, `--publish never`, ...).
 - `TIMELY_SKIP_NEXT=1` reuses the existing `.next` build while iterating on packaging.
+- `TIMELY_AGENT_STAGED=1` packs the agent runtime already in `.electron-agent/<os>-<arch>/` instead of staging it again (release.yml sets it, so the installer holds the stage its smoke step checked); the stage must have finished for that target (`MANIFEST.json` and its `.staged-<hash>` marker).
 
 The stage scripts can be run on their own: `node electron/stage-api.mjs`,
 `node electron/stage-postgres.mjs`, `node electron/stage-agent.mjs` (`make stage-desktop` runs all three).
@@ -462,11 +463,15 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   `make clean-agent-stage` deletes every stage and keeps the download cache.
 - **Trims.** `include/`, `share/`, `idlelib`, `tkinter`, `turtledemo`, `ensurepip`, Tcl/Tk, `_dbm` on Linux, the
   interpreter's own `pip` and the `pydoc`/`idle`/`-config` scripts, and on Linux `lib/libpython3*.so*`
-  (131 MB: the interpreter is linked statically and never loads it; the interpreter check below runs
-  the trimmed interpreter), 153 MB on linux-x64 in all. The stdlib
+  (131 MiB: the interpreter is linked statically and never loads it; the interpreter check below runs
+  the trimmed interpreter), and on Windows the debug symbols (`python*.pdb`, `DLLs/*.pdb`, 83 MiB in
+  37 files; electron-builder's own pdb exclusion skips `extraResources`): 155 MiB on linux-x64 in all. The stdlib
   `test` package is dropped when nothing staged imports it (python-build-standalone 3.14.9 ships
   none). The CPython licence stays.
-- **What of the source ships.** `app/hermes/skills/` holds only the seed set (reviewed in
+- **What of the source ships.** In a git checkout only files git tracks are copied
+  (`git ls-files`), so an untracked or ignored `.env`, credential or virtualenv in the working tree
+  never reaches the stage; the log names what was left out. The Docker build has no `.git` and copies
+  the folders as they are (its build context leaves out every `.env`). `app/hermes/skills/` holds only the seed set (reviewed in
   `skills-reviewed.json`, not in `skills-denied.json`, no symlinks) and `optional-skills/` only the
   offered ones; `locales/` only `en.yaml` (owner answer Q-1.4); `plugin-catalog/` is kept; no
   `__pycache__` from the checkout. On linux-x64 at Hermes v0.23.0: 30 bundled skills, 78 optional
@@ -486,8 +491,10 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   absolute target or one that resolves outside the root; no path over 150 characters relative to
   the agent root, counted after compileall (and after over-long bytecode is dropped); no staged text file containing the absolute stage path
   (the v0.1.1 class of bug); no browser (`playwright`, `pyppeteer`, Chromium or a Chrome binary:
-  Timely never bundles Chromium and uses the installed Chrome or Edge, ADR 0022); every installed
-  distribution has a licence file or licence metadata; the interpreter starts and reports the
+  Timely never bundles Chromium and uses the installed Chrome or Edge, ADR 0022); no dotenv file
+  (other than `.env.example`), `.op.env`, `auth.json`, `mcp-tokens/` or virtualenv (`.venv*`) under
+  `app/` outside `site-packages`; every installed distribution has a licence text (a licence file in
+  its wheel, or one recorded in `apps/agent/packaging/licenses/dists.json`); the interpreter starts and reports the
   expected platform; the staged interpreter imports `mcp` and `mcp.client.stdio` through `boot.py`'s
   `sys.path`, and on Windows `pywintypes`, `win32api`, `win32con`, `win32job` and `portalocker` too.
 - **`.pth` files.** `app/site-packages` is a plain folder, not a venv, so site.py under `-I` never
@@ -526,9 +533,10 @@ install`; it needs `uv` on `PATH` and a system `tar` (bsdtar from `System32` on 
   electron-builder drops them, and the runtime does not need them.
 
 Measured on linux-x64 (2026-11-13, Hermes v0.23.0, without `libpython` and `_dbm`): 21,395 files,
-440 MB unpacked (app/ 343 MB: site-packages 210 MB, hermes 132 MB, timely_agent 1 MB; python/ 96 MB),
-106 MB as an xz tarball and 156 MB under gzip. Plan 11.4 estimated 420-460 MB unpacked and +105 MB
-compressed (owner answer Q-11.1: +~105 MB per installer).
+461 MB unpacked (439.5 MiB in the stage log, which counts in MiB; app/
+360 MB: site-packages 220 MB, hermes 138 MB, timely_agent 1 MB; python/ 101 MB), 106 MB as an xz
+tarball and 156 MB under gzip. MB here is 10^6 bytes. Plan 11.4 estimated 420-460 MB unpacked and
++105 MB compressed (owner answer Q-11.1: +~105 MB per installer).
 
 Installer growth, measured on linux-x64 with Timely Dev 0.3.5: the AppImage is 512.8 MB with the
 runtime and 348.4 MB built `--prepackaged` from the same unpacked app without `resources/agent`, so
@@ -623,8 +631,9 @@ hold commas, so they name `runner.os`, never the target list).
    (`node electron/stage-agent.mjs --target <target>`, with setup-uv and the same
    `agent-python-<runner.os>-<lock hash>` cache as CI) and runs
    `node electron/smoke-agent.mjs --read-only`, so a broken runtime fails before anything is
-   published. Then `node electron/pack.mjs --target <targets> --publish always|never` reuses the stage
-   (its marker), `verify-pack.cjs` checks the packed copy, and electron-builder
+   published. Then `node electron/pack.mjs --target <target> --publish always|never` with
+   `TIMELY_AGENT_STAGED=1` packs that same smoked stage without staging again, `verify-pack.cjs`
+   checks the packed copy against its `MANIFEST.json`, and electron-builder
    uploads the installers and `latest*.yml` to the release with `GH_TOKEN`
    (`secrets.GITHUB_TOKEN`). The same files are kept as workflow artifacts.
 3. `android` runs `expo prebuild` and `gradlew app:assembleRelease` (arm64-v8a), attaches

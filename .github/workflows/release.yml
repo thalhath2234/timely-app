@@ -111,9 +111,9 @@ jobs:
       # Native wheels tie the runtime to its OS, so each target stages on its
       # own runner. Staging and the read-only smoke run before electron-builder,
       # so a broken runtime fails here and nothing is published; pack.mjs then
-      # reuses the stage (its .staged-<hash> marker skips download and install)
+      # packs that same smoked stage (TIMELY_AGENT_STAGED=1: no second stage)
       # and electron/verify-pack.cjs checks the packed resources/agent against
-      # MANIFEST.json.
+      # its MANIFEST.json.
       - name: Stage the agent runtime (${{ matrix.target }})
         shell: bash
         working-directory: apps/web
@@ -129,6 +129,8 @@ jobs:
           # The released "Timely" (electron-builder.yml, electron/flavor.ts).
           # Without it pack.mjs builds the side-by-side "Timely Dev".
           TIMELY_RELEASE: "1"
+          # Pack the stage the smoke step checked, byte for byte (pack.mjs reuseStagedAgent).
+          TIMELY_AGENT_STAGED: "1"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # The release is created by the prepare job; let electron-builder
           # upload to it even when a re-run happens hours later.

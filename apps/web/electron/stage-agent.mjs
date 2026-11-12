@@ -14,6 +14,7 @@
 //   node electron/stage-agent.mjs                    # the host target (TIMELY_TARGETS must name only it;
 //                                                    # any other target fails before anything is staged)
 //   node electron/stage-agent.mjs --target linux-x64
+//   node electron/stage-agent.mjs --host             # the host target, whatever TIMELY_TARGETS says
 //   node electron/stage-agent.mjs --clean            # delete every staged runtime
 //
 // Only node: builtins: CI runners and the Docker build stage run it without
@@ -67,6 +68,7 @@ import {
   scratchRootFor,
   selectSkills,
   skillDirs,
+  stagedManifest,
   stagedPython,
   stdlibDir,
   thirdPartyLicenses,
@@ -86,7 +88,7 @@ export const stageRoot = path.join(webRoot, ".electron-agent");
 export const scratchRoot = scratchRootFor(repoRoot);
 
 const MB = 1048576;
-const mb = (bytes) => `${(bytes / MB).toFixed(1)} MB`;
+const mb = (bytes) => `${(bytes / MB).toFixed(1)} MiB`;
 
 function log(target, msg) {
   console.log(`stage-agent ${target.key}: ${msg}`);
@@ -472,9 +474,25 @@ function cliTargets(argv) {
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--target") keys.push(...String(argv[++i] ?? "").split(","));
     else if (argv[i].startsWith("--target=")) keys.push(...argv[i].slice(9).split(","));
-    else throw new Error(`unknown argument ${argv[i]} (use --target <key>, --clean)`);
+    else if (argv[i] === "--host") keys.push(hostTargetKey());
+    else throw new Error(`unknown argument ${argv[i]} (use --target <key>, --host, --clean)`);
   }
   return resolveTargets(keys.length ? keys : undefined);
+}
+
+/**
+ * pack.mjs with TIMELY_AGENT_STAGED=1 (release.yml, after the read-only smoke):
+ * packs the stage that was smoked instead of staging again, which would
+ * re-copy the source and recompile every module. Each target's stage must
+ * have finished (MANIFEST.json for that target, its .staged marker present).
+ */
+export function reuseStagedAgent(targets) {
+  return targets.map((target) => {
+    const out = path.join(stageRoot, target.stageDir);
+    const manifest = stagedManifest(out, target.key);
+    log(target, `TIMELY_AGENT_STAGED=1: packing the smoked stage (${manifest.totals.files} files, ${mb(manifest.totals.bytes)})`);
+    return out;
+  });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

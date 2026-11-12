@@ -238,7 +238,7 @@ jobs:
             if [[ -n "$manifest" ]]; then
               node -e '
                 const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-                const mb = (b) => `${(b / 1048576).toFixed(1)} MB`;
+                const mb = (b) => `${(b / 1048576).toFixed(1)} MiB`;
                 const folders = new Map();
                 for (const [rel, size] of m.files) {
                   const key = rel.split("/").slice(0, 2).join("/");

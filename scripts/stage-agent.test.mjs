@@ -56,6 +56,7 @@ import {
   scratchRootFor,
   selectSkills,
   snapshot,
+  stagedManifest,
   stagedPython,
   stdlibDir,
   thirdPartyLicenses,
@@ -154,10 +155,14 @@ test("a target list naming another OS is refused as a whole, before anything is 
   assert.throws(() => assertHostTargets(["win32-x64", "darwin-x64", "linux-x64"], "linux-x64"), /win32-x64.*\(and darwin-x64\)/s);
 });
 
-test("make stage-desktop stages the agent for the host only, whatever TIMELY_TARGETS says", () => {
+test("make stage-desktop and pnpm electron:stage stage the agent for the host only, whatever TIMELY_TARGETS says", () => {
   const make = readFileSync(path.join(repo, "Makefile"), "utf8");
   const recipe = /^stage-desktop:.*\n((?:\t.*\n)+)/m.exec(make)?.[1] ?? "";
-  assert.match(recipe, /TIMELY_TARGETS= node \$\(WEB\)\/electron\/stage-agent\.mjs/);
+  assert.match(recipe, /node \$\(WEB\)\/electron\/stage-agent\.mjs --host\n/);
+  const scripts = JSON.parse(readFileSync(path.join(repo, "apps/web/package.json"), "utf8")).scripts;
+  assert.match(scripts["electron:stage"], /node electron\/stage-agent\.mjs --host$/);
+  const r = spawnSync(process.execPath, [path.join(repo, "apps/web/electron/stage-agent.mjs"), "--bogus"], { encoding: "utf8" });
+  assert.match(r.stderr, /--host/, "the CLI knows --host");
   const pack = readFileSync(path.join(repo, "apps/web/electron/pack.mjs"), "utf8");
   assert.ok(pack.indexOf("assertHostTargets(") < pack.indexOf('"next", "build"'), "pack refuses before the Next build");
 });
@@ -860,3 +865,36 @@ test("every Windows job turns core.autocrlf off before checking out", () => {
   }
 });
 
+// ------------------------------------------------------------ packaging wiring
+
+test("every installer packs the staged runtime and checks it: the extraResources entry and the afterPack hook", () => {
+  // Deleting either line shipped installers without the agent runtime while every other check passed.
+  const yml = readFileSync(path.join(repo, "apps/web/electron-builder.yml"), "utf8");
+  assert.match(yml, /\n {2}- from: \.electron-agent\/\$\{os\}-\$\{arch\}\n {4}to: agent\n/);
+  assert.match(yml, /^afterPack: electron\/verify-pack\.cjs$/m);
+  const local = readFileSync(path.join(repo, "apps/web/electron-builder.local.yml"), "utf8");
+  assert.match(local, /^extends: electron-builder\.yml$/m);
+  assert.doesNotMatch(local, /^(extraResources|afterPack):/m, "the local build would replace the release wiring");
+});
+
+test("the release packs the stage its smoke step checked, not a second stage", () => {
+  const release = readFileSync(path.join(repo, ".github/workflows/release.yml"), "utf8");
+  const stage = release.indexOf("node electron/stage-agent.mjs");
+  const smoke = release.indexOf("node electron/smoke-agent.mjs --read-only");
+  const pack = release.indexOf("node electron/pack.mjs");
+  assert.ok(stage > 0 && stage < smoke && smoke < pack);
+  const packStep = release.slice(release.lastIndexOf("- name:", pack), pack);
+  assert.match(packStep, /TIMELY_AGENT_STAGED: "1"/);
+  const packJs = readFileSync(path.join(repo, "apps/web/electron/pack.mjs"), "utf8");
+  assert.match(packJs, /process\.env\.TIMELY_AGENT_STAGED === "1"\) reuseStagedAgent\(targets\)/);
+});
+
+test("stagedManifest accepts only a finished stage for the target", (t) => {
+  const out = tmp(t);
+  assert.throws(() => stagedManifest(out, "linux-x64"), /no MANIFEST\.json/);
+  writeFileSync(path.join(out, "MANIFEST.json"), JSON.stringify({ target: "linux-x64", marker: ".staged-abc", totals: { files: 1, bytes: 2 } }));
+  assert.throws(() => stagedManifest(out, "win32-x64"), /not win32-x64/);
+  assert.throws(() => stagedManifest(out, "linux-x64"), /marker/);
+  write(out, ".staged-abc");
+  assert.equal(stagedManifest(out, "linux-x64").totals.files, 1);
+});
