@@ -191,7 +191,7 @@ def config_signature(msg: dict[str, Any]) -> str:
         "api_mode": model.get("api_mode"), "reasoning": model.get("reasoning"),
         "key": hashlib.sha256(str(model.get("api_key") or "").encode()).hexdigest(),
         "toolsets": sorted(msg.get("toolsets") or []), "system": msg.get("system_hash") or "",
-        # memory and the learning pass are constructor choices (skip_memory, skip_background_review)
+        # the learning pass is a constructor choice (skip_background_review)
         "learning": (msg.get("flags") or {}).get("learning_writes") is True,
         # the block itself too: with ephemeral_system_prompt a changed block needs a new agent
         "system_text": hashlib.sha256(str(msg.get("system_text") or "").encode()).hexdigest(),
@@ -321,9 +321,11 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
         session_db=SessionDB(),
         load_soul_identity=True,
         skip_context_files=True,
-        # Phase 3: memory in the prompt and Hermes' learning pass only for learning runs; the
-        # timely_learning policy decides each write (plan 9b.2).
-        skip_memory=not learning,
+        # A chat always reads About you and Notes (plan 9b.3; review round 6): learning off, a
+        # Sensitive or Don't-learn chat or an answer-only turn stops writes and the learning pass
+        # only. Without the memory toolset the model has no memory tool, Hermes ticks no memory
+        # review, and timely_learning blocks any write while learning_writes is not true (9b.2).
+        skip_memory=False,
         skip_background_review=not learning,
         ephemeral_system_prompt=(system_text or None) if SYSTEM_VIA == "ephemeral" else None,
         reasoning_config=reasoning_cfg if isinstance(reasoning_cfg, dict) else None,

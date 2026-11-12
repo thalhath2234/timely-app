@@ -223,7 +223,7 @@ Version stays 1; every field is additive and optional for an older peer. Plan se
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `toolsets` | `[string]` | chat: `["timely", "todo", "skills"]` plus `memory` when `flags.learning_writes`, `session_search` when `flags.search_history`, `web` when `flags.web`. Never-offered toolsets are still refused (`bad_message`) |
-| `flags.learning_writes` | bool | account learning on, chat not Sensitive, not "Don't learn from this chat", not answer-only. True builds the agent with memory and Hermes' learning pass (`skip_memory` and `skip_background_review` are its negation). False: no memory in the prompt, no pass, every `memory` and `skill_manage` call blocked |
+| `flags.learning_writes` | bool | account learning on, chat not Sensitive, not "Don't learn from this chat", not answer-only. True builds the agent with Hermes' learning pass (`skip_background_review` is its negation). About you and Notes are in a chat's prompt either way (`skip_memory=False`, plan 9b.3). False: no pass, no `memory` toolset, every `memory` and `skill_manage` call blocked |
 | `flags.search_history` | bool | "Search my past chats" (Q-3.5, default on) and `learning_writes`. False: `session_search` is refused in the worker |
 | `flags.web` | bool | the chat's web toggle, not Sensitive, not answer-only (Go's gate decides; worker-web) |
 | `flags.from_bot` | bool | the chat was opened from a bot (false until phase 6): every learning write stages from the first turn |

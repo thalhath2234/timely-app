@@ -546,3 +546,29 @@ def test_a_new_worker_reports_what_an_earlier_one_left_unreported(stub):
     finally:
         w.close()
     assert not [m for m in msgs if m.get("type") == "learning"], msgs
+
+
+def test_about_you_and_notes_reach_the_prompt_whatever_learning_says(stub):
+    """Review round 6 (plan 9b.3: a chat has memory in its prompt): with learning off, a Sensitive
+    or Don't-learn chat, or an answer-only turn (``learning_writes`` false), About you and Notes are
+    still read; only writes and the learning pass stop."""
+    a = harness.Agent(harness.new_root("lw-mem"))
+    (a.home / "memories").mkdir(parents=True, exist_ok=True)
+    (a.home / "memories" / "USER.md").write_text("Marker-about-you: prefers metric units.\n", encoding="utf-8")
+    (a.home / "memories" / "MEMORY.md").write_text("Marker-notes: the team meets on Mondays.\n", encoding="utf-8")
+    w, _ready = harness.ready_worker(a)
+    seen = {}
+    try:
+        for n, (flags, toolsets) in enumerate(((LEARN, TOOLSETS), ({"learning_writes": False}, ["timely", "todo", "skills"]),
+                                               ({}, ["timely", "todo", "skills"]))):
+            tag = f"tag-mem-{n}"
+            w.send(harness.run_start(a, stub, run_id=f"mem{n}", conversation=f"c-mem-{n}", text=f"hello {tag}",
+                                     budgets={}, toolsets=toolsets, flags=dict(flags)))
+            done, _ = harness.drive(w, a.account, f"mem{n}", timeout=120)
+            assert done["completed"], done
+            reqs = [r for r in stub.requests if tag in json.dumps((r.get("body") or {}).get("messages") or [])]
+            system = " ".join(_text(m.get("content")) for m in reqs[-1]["body"]["messages"] if m.get("role") == "system")
+            seen[n] = ("Marker-about-you" in system, "Marker-notes" in system)
+    finally:
+        w.close()
+    assert seen == {0: (True, True), 1: (True, True), 2: (True, True)}, seen
