@@ -59,7 +59,12 @@
     },
     "optional-skills/creative/ai-presenter-video": {
       "tree": "8d4d544474c1fa28abf6c7ffdc5704e64869fb81",
-      "offered": true
+      "offered": true,
+      "exec": [
+        "scripts/finalize_delivery.sh",
+        "scripts/init_job.py",
+        "scripts/preflight.py"
+      ]
     },
     "optional-skills/creative/anatomy": {
       "tree": "705fc860c86e7e083ca6a81a8d3d2d37e6d70423",
@@ -96,7 +101,19 @@
     },
     "optional-skills/creative/comfyui": {
       "tree": "b2954063721201969922a8ae7a5942ba06baefc8",
-      "offered": true
+      "offered": true,
+      "exec": [
+        "scripts/auto_fix_deps.py",
+        "scripts/check_deps.py",
+        "scripts/comfyui_setup.sh",
+        "scripts/extract_schema.py",
+        "scripts/fetch_logs.py",
+        "scripts/hardware_check.py",
+        "scripts/health_check.py",
+        "scripts/run_batch.py",
+        "scripts/run_workflow.py",
+        "scripts/ws_monitor.py"
+      ]
     },
     "optional-skills/creative/concept-diagrams": {
       "tree": "d6213d269dc0339f72f307a7fb9d83192cc1ab28",
@@ -129,7 +146,10 @@
     "optional-skills/creative/hyperframes": {
       "tree": "047c7916f7e2729f6dbda336438361555029997c",
       "offered": false,
-      "reason": "points at a literal ~/.hermes path (the host user's home)"
+      "reason": "points at a literal ~/.hermes path (the host user's home)",
+      "exec": [
+        "scripts/setup.sh"
+      ]
     },
     "optional-skills/creative/impeccable": {
       "tree": "19a773ef9fa176cd39e4f7667b2423534f5a8fd8",
@@ -143,7 +163,11 @@
     "optional-skills/creative/kanban-video-orchestrator": {
       "tree": "b53dcbcbc61bdc8a511da8dbcd742b429c45c2fd",
       "offered": false,
-      "reason": "Hermes-self: runs hermes dashboard, kanban, plugins, profile, status, tools"
+      "reason": "Hermes-self: runs hermes dashboard, kanban, plugins, profile, status, tools",
+      "exec": [
+        "scripts/bootstrap_pipeline.py",
+        "scripts/monitor.py"
+      ]
     },
     "optional-skills/creative/meme-generation": {
       "tree": "63530ed5588d269315ccefc780890e5f7ffc08bc",
@@ -201,7 +225,10 @@
     },
     "optional-skills/devops/docker-management": {
       "tree": "dd7cefea79ab8335010e5ea0de4be912cdd19d6e",
-      "offered": true
+      "offered": true,
+      "exec": [
+        "SKILL.md"
+      ]
     },
     "optional-skills/devops/hermes-s6-container-supervision": {
       "tree": "88567306c09782fe0fd64588487c3eb947443547",
@@ -224,7 +251,13 @@
     "optional-skills/devops/watchers": {
       "tree": "591302c9165e41005b9ce13d87941098f5db4524",
       "offered": false,
-      "reason": "Hermes-self: runs hermes cron"
+      "reason": "Hermes-self: runs hermes cron",
+      "exec": [
+        "scripts/_watermark.py",
+        "scripts/watch_github.py",
+        "scripts/watch_http_json.py",
+        "scripts/watch_rss.py"
+      ]
     },
     "optional-skills/dogfood/adversarial-ux-test": {
       "tree": "4f2f0726ad0d51d76c9d738d6ad3f94c000610d7",
@@ -245,7 +278,10 @@
     },
     "optional-skills/finance/dcf-model": {
       "tree": "b4908fdb0b8d7bdd8fd8309928548329c8fc8aca",
-      "offered": true
+      "offered": true,
+      "exec": [
+        "scripts/validate_dcf.py"
+      ]
     },
     "optional-skills/finance/excel-author": {
       "tree": "32a5186b2c2bc28a97d342b1962a953746eea6fb",
@@ -272,7 +308,10 @@
     "optional-skills/finance/stocks": {
       "tree": "508111cd6df4846d2b21b0f92e063751c7efd711",
       "offered": false,
-      "reason": "points at a literal ~/.hermes path (the host user's home)"
+      "reason": "points at a literal ~/.hermes path (the host user's home)",
+      "exec": [
+        "scripts/stocks_client.py"
+      ]
     },
     "optional-skills/gaming/minecraft-modpack-server": {
       "tree": "a2202c4a33f1da8a5a8a63d570e470be88ff9846",
@@ -434,7 +473,11 @@
     },
     "optional-skills/productivity/here-now": {
       "tree": "5a0031eeba9d9b8a64e11a3c78e87dd3028efde1",
-      "offered": true
+      "offered": true,
+      "exec": [
+        "scripts/drive.sh",
+        "scripts/publish.sh"
+      ]
     },
     "optional-skills/productivity/live-dashboard": {
       "tree": "9b5f8b3fe8e94efe2dabdc57eda0a2c0bc9a428d",
@@ -551,7 +594,10 @@
     "optional-skills/security/web-pentest": {
       "tree": "2be5e9b30535f0bd518e881d6b74b135a9603cfd",
       "offered": false,
-      "reason": "runs exploits"
+      "reason": "runs exploits",
+      "exec": [
+        "scripts/recon-scan.sh"
+      ]
     },
     "optional-skills/smart-home/openhue": {
       "tree": "970b7ec88bc9fe57e4d64fcd4a4b7f7388a52456",
@@ -566,7 +612,12 @@
     "optional-skills/software-development/ast-grep": {
       "tree": "b10e5db082c151a7370f722a27c86e9219b869b7",
       "offered": false,
-      "reason": "points at a literal ~/.hermes path (the host user's home)"
+      "reason": "points at a literal ~/.hermes path (the host user's home)",
+      "exec": [
+        "install.sh",
+        "scripts/ast_grep_helper.py",
+        "tests/smoke.sh"
+      ]
     },
     "optional-skills/software-development/code-wiki": {
       "tree": "aa5a294e3c84570a6d6d72b076d4ecb58d09895c",
@@ -704,12 +755,21 @@
     "skills/creative/manim-video": {
       "tree": "c1731c688bd68440ee45a6f29cc49322c8a5a143",
       "default": "off",
-      "reason": "renders with Manim, LaTeX and ffmpeg in the terminal (pip install manim); revisit when terminal and file tools ship (phase 5, approve in chat)"
+      "reason": "renders with Manim, LaTeX and ffmpeg in the terminal (pip install manim); revisit when terminal and file tools ship (phase 5, approve in chat)",
+      "exec": [
+        "scripts/setup.sh"
+      ]
     },
     "skills/creative/p5js": {
       "tree": "532cf8f04ae4b9ecd23766563c3dd59b71456563",
       "default": "on",
-      "reason": "the deliverable is one self-contained HTML sketch that can come back in the reply; preview servers and headless export are terminal steps that wait for phase 5 approval"
+      "reason": "the deliverable is one self-contained HTML sketch that can come back in the reply; preview servers and headless export are terminal steps that wait for phase 5 approval",
+      "exec": [
+        "scripts/export-frames.js",
+        "scripts/render.sh",
+        "scripts/serve.sh",
+        "scripts/setup.sh"
+      ]
     },
     "skills/creative/popular-web-designs": {
       "tree": "b5d08979b8af4e32d2871502f7f7f4c96636a3fd",
@@ -754,7 +814,10 @@
     "skills/productivity/google-workspace": {
       "tree": "e8a6df26c31a06e05904a3b0666f8505449f8382",
       "default": "off",
-      "reason": "denied (hermes-cli:setup, home-path): Hermes-managed OAuth with tokens in ~/.hermes; asks the person for OAuth client secrets in chat; Gmail sending is messaging"
+      "reason": "denied (hermes-cli:setup, home-path): Hermes-managed OAuth with tokens in ~/.hermes; asks the person for OAuth client secrets in chat; Gmail sending is messaging",
+      "exec": [
+        "scripts/gws_bridge.py"
+      ]
     },
     "skills/productivity/maps": {
       "tree": "b3be9fd19dba964893cd4c654c627d72dd8b040a",
@@ -824,7 +887,10 @@
     "skills/software-development/github": {
       "tree": "ad99744f9a9c0be810818c180e629fb1ef3f48e4",
       "default": "off",
-      "reason": "denied (home-path): references write to ~/.hermes paths and read tokens from the Hermes .env; gh CLI through the terminal (phase 5)"
+      "reason": "denied (home-path): references write to ~/.hermes paths and read tokens from the Hermes .env; gh CLI through the terminal (phase 5)",
+      "exec": [
+        "scripts/gh-env.sh"
+      ]
     },
     "skills/software-development/requesting-code-review": {
       "tree": "730409acf6d9911f4621f682849a78702fa49afc",

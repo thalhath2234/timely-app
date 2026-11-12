@@ -40,19 +40,26 @@ def _blob_id(data: bytes) -> bytes:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).digest()
 
 
-def _is_executable(path: Path, data: bytes) -> bool:
-    if sys.platform == "win32":
-        # Windows has no exec bit; every executable file in the copy starts with a shebang.
-        return data.startswith(b"#!")
-    return os.access(path, os.X_OK)
-
-
-def git_tree_id(directory: os.PathLike | str) -> str:
+def git_tree_id(directory: os.PathLike | str, executables: Iterable[str] | None = None) -> str:
     """The git tree id of ``directory`` as committed (``git rev-parse <commit>:<dir>``).
 
     Files are ``100644`` or ``100755``, folders ``40000``; entries are ordered the way git
     orders them (a folder sorts as ``name/``). Empty folders do not exist in git.
+
+    A file's mode comes from its exec bit. Windows has none, so there the mode comes from
+    ``executables`` (paths relative to ``directory``, ``/``-separated): a listed file is
+    ``100755``, any other ``100644``. A shebang says nothing: Hermes commits scripts that start
+    with ``#!`` as ``100644`` (pdf, microsoft-office, arxiv).
     """
+    root = Path(directory)
+    on_windows = sys.platform == "win32"
+    listed = frozenset(executables or ())
+
+    def executable(path: Path) -> bool:
+        if on_windows:
+            return path.relative_to(root).as_posix() in listed
+        return os.access(path, os.X_OK)
+
     def tree(d: Path) -> bytes | None:
         entries = []
         for child in d.iterdir():
@@ -66,17 +73,22 @@ def git_tree_id(directory: os.PathLike | str) -> str:
                 if sub is not None:
                     entries.append((child.name.encode() + b"/", b"40000", sub))
             else:
-                data = child.read_bytes()
-                mode = b"100755" if _is_executable(child, data) else b"100644"
-                entries.append((child.name.encode(), mode, _blob_id(data)))
+                mode = b"100755" if executable(child) else b"100644"
+                entries.append((child.name.encode(), mode, _blob_id(child.read_bytes())))
         if not entries:
             return None
         entries.sort(key=lambda e: e[0])
         body = b"".join(mode + b" " + name.rstrip(b"/") + b"\0" + sha for name, mode, sha in entries)
         return hashlib.sha1(b"tree %d\0" % len(body) + body).digest()
 
-    result = tree(Path(directory))
+    result = tree(root)
     return (result or hashlib.sha1(b"tree 0\0").digest()).hex()
+
+
+def reviewed_tree_id(directory: os.PathLike | str, entry: dict) -> str:
+    """:func:`git_tree_id` of a skill folder, with the file modes of its skills-reviewed.json
+    entry on Windows (``exec``: the folder's ``100755`` files, from git)."""
+    return git_tree_id(directory, entry.get("exec") or ())
 
 
 def content_hash(paths: Iterable[tuple[str, Path]]) -> str:
@@ -330,9 +342,8 @@ def build_seed_tree(layout, *, upstream: os.PathLike | str, overrides: os.PathLi
         if symlinks_in(d):  # never seeded, reviewed or not (symlinks_in)
             report["symlinked"].append(key)
             continue
-        tree = git_tree_id(d)
         entry = (reviewed or {}).get(key) or {}
-        if reviewed is None or entry.get("tree") != tree:
+        if reviewed is None or entry.get("tree") != reviewed_tree_id(d, entry):
             report["unreviewed"].append(key)
             continue
         if str(entry.get("default", "on")).lower() == "off":

@@ -526,6 +526,22 @@ class Skills(unittest.TestCase):
         with self.assertRaises(SystemExit):
             check_policy.review_skills(r, trees, ["missing"])
 
+    def test_review_records_exec_and_check_wants_it(self):
+        """Windows takes a reviewed tree's file modes from `exec` (seed.reviewed_tree_id), so an entry
+        must list exactly the folder's executable files whenever its tree matches."""
+        r = self.reviewed()
+        execs = {"skills/p/one": ["scripts/run.sh"], "optional-skills/c/two": [], "optional-skills/c/three": []}
+        msgs = self.check(reviewed=r) + check_policy.check_skills(r, self.trees, None, execs)
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("skills/p/one: `exec` must list", msgs[0])
+        check_policy.review_skills(r, self.trees, ["one"], execs=execs)
+        self.assertEqual(r["skills"]["skills/p/one"], {"tree": TREE1, "default": "on", "exec": ["scripts/run.sh"]})
+        self.assertEqual(check_policy.check_skills(r, self.trees, None, execs), [])
+        r["skills"]["optional-skills/c/two"]["exec"] = ["x.sh"]
+        self.assertIn("optional-skills/c/two: `exec` must list", check_policy.check_skills(r, self.trees, None, execs)[0])
+        check_policy.review_skills(r, self.trees, ["two"], execs=execs)
+        self.assertNotIn("exec", r["skills"]["optional-skills/c/two"])
+
     def test_signals(self):
         d = tempfile.mkdtemp(prefix="skill.")
         self.addCleanup(__import__("shutil").rmtree, d)
@@ -648,8 +664,16 @@ class ReviewedGate(unittest.TestCase):
     a changed or new skill without an entry fails, and a newly recorded bundled skill starts off."""
 
     def test_committed_reviewed_file_covers_the_copy(self):
+        trees = check_policy.skill_trees()
         self.assertEqual(check_policy.check_skills(check_lib.read_json(check_policy.SKILLS_REVIEWED),
-                                                   check_policy.skill_trees()), [])
+                                                   trees, None, check_policy.skill_execs(trees)), [])
+
+    def test_skill_execs_lists_the_committed_100755_files(self):
+        trees = check_policy.skill_trees()
+        execs = check_policy.skill_execs(trees)
+        self.assertEqual(set(execs), set(trees))
+        self.assertIn("scripts/ast_grep_helper.py", execs["optional-skills/software-development/ast-grep"])
+        self.assertNotIn("scripts/search_arxiv.py", execs["skills/research/arxiv"])  # #! but 100644
 
     def test_changed_or_new_upstream_skill_fails_until_reviewed_and_starts_off(self):
         reviewed = check_lib.read_json(check_policy.SKILLS_REVIEWED)
