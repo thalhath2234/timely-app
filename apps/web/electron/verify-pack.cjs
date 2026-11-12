@@ -8,9 +8,11 @@
 //
 // The reference is the stage's MANIFEST.json (stage-agent.mjs): the same
 // regular files with the same sizes, the same relative symlinks, nothing
-// extra, no absolute symlink; plus every staged folder, so an empty one such
-// as app/skills is not lost either. CommonJS and node: builtins only, because
-// electron-builder require()s it.
+// extra, no absolute symlink. Empty folders are not compared: electron-builder
+// drops them on Linux (app/skills, Hermes category folders whose skills were
+// all left out), and the runtime does not need them (prepare treats a missing
+// app/skills as empty; make smoke-agent on the packed folder shows it).
+// CommonJS and node: builtins only, because electron-builder require()s it.
 "use strict";
 
 /* eslint-disable @typescript-eslint/no-require-imports -- electron-builder require()s this CommonJS hook */
@@ -25,32 +27,26 @@ const OS = { linux: "linux", darwin: "mac", mas: "mac", win32: "win" };
 
 const webRoot = path.join(__dirname, "..");
 
-/** Regular files [rel, size], symlinks [rel, target] and folders under root, POSIX-relative. */
+/** Regular files [rel, size] and symlinks [rel, target] under root, POSIX-relative. */
 function listAgentTree(root) {
   const files = [];
   const links = [];
-  const dirs = [];
   const visit = (rel) => {
     for (const entry of readdirSync(path.join(root, rel), { withFileTypes: true })) {
       const childRel = rel ? `${rel}/${entry.name}` : entry.name;
       const full = path.join(root, childRel);
       if (entry.isSymbolicLink()) links.push([childRel, readlinkSync(full)]);
-      else if (entry.isDirectory()) {
-        dirs.push(childRel);
-        visit(childRel);
-      } else if (entry.isFile()) files.push([childRel, lstatSync(full).size]);
+      else if (entry.isDirectory()) visit(childRel);
+      else if (entry.isFile()) files.push([childRel, lstatSync(full).size]);
       else files.push([childRel, -1]);
     }
   };
   visit("");
-  return { files, links, dirs };
+  return { files, links };
 }
 
-/**
- * Problems with a packed agent folder, empty when it matches. `manifest` is the
- * parsed MANIFEST.json; `stagedDirs` the folders of the staged tree (optional).
- */
-function verifyAgentTree(packedDir, manifest, stagedDirs = null) {
+/** Problems with a packed agent folder, empty when it matches. `manifest` is the parsed MANIFEST.json. */
+function verifyAgentTree(packedDir, manifest) {
   if (!existsSync(packedDir)) return [`the packed app has no agent runtime at ${packedDir}`];
   const packed = listAgentTree(packedDir);
   const problems = [];
@@ -76,10 +72,6 @@ function verifyAgentTree(packedDir, manifest, stagedDirs = null) {
     if (!gotLinks.has(rel)) problems.push(`missing symlink: ${rel} -> ${target}`);
   }
 
-  if (stagedDirs) {
-    const gotDirs = new Set(packed.dirs);
-    for (const rel of stagedDirs) if (!gotDirs.has(rel)) problems.push(`missing folder: ${rel}`);
-  }
   if (!existsSync(path.join(packedDir, "MANIFEST.json"))) problems.push("missing: MANIFEST.json");
   return problems;
 }
@@ -104,7 +96,7 @@ async function afterPack(context) {
   }
   const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
   const packedDir = path.join(resourcesDir(context), "agent");
-  const problems = verifyAgentTree(packedDir, manifest, listAgentTree(stageDir).dirs);
+  const problems = verifyAgentTree(packedDir, manifest);
   if (problems.length) {
     throw new Error(
       `verify-pack: ${packedDir} does not match the staged runtime (${problems.length} problems):\n  ${problems.slice(0, 40).join("\n  ")}`,

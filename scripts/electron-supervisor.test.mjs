@@ -762,40 +762,44 @@ function stageAgentFixture(root) {
   const { files, links } = verifyPack.listAgentTree(root);
   const manifest = { target: "linux-x64", files, links, totals: { files: files.length, bytes: 0 } };
   writeFileSync(path.join(root, "MANIFEST.json"), JSON.stringify(manifest));
-  return { manifest, dirs: verifyPack.listAgentTree(root).dirs };
+  return manifest;
 }
 
 test("verify-pack: a packed agent folder identical to the stage passes", () => {
   const { dir, cleanup } = tmpdir();
   try {
-    const { manifest, dirs } = stageAgentFixture(path.join(dir, "agent"));
+    const root = path.join(dir, "agent");
+    const manifest = stageAgentFixture(root);
     assert.ok(manifest.files.some(([rel]) => rel === "python/bin/python3.14"));
     assert.equal(manifest.files.some(([rel]) => rel === "MANIFEST.json"), false);
-    assert.deepEqual(verifyPack.verifyAgentTree(path.join(dir, "agent"), manifest, dirs), []);
+    assert.deepEqual(verifyPack.verifyAgentTree(root, manifest), []);
+    // electron-builder drops empty folders on Linux; the runtime does not need them.
+    rmSync(path.join(root, "app", "skills"), { recursive: true });
+    assert.deepEqual(verifyPack.verifyAgentTree(root, manifest), []);
   } finally {
     cleanup();
   }
 });
 
-test("verify-pack: dropped, resized, extra and absolute-linked entries and a lost empty folder are each reported", () => {
+test("verify-pack: dropped, resized, extra and absolute-linked entries and a missing manifest are each reported", () => {
   const { dir, cleanup } = tmpdir();
   try {
     const root = path.join(dir, "agent");
-    const { manifest, dirs } = stageAgentFixture(root);
+    const manifest = stageAgentFixture(root);
     rmSync(path.join(root, "app", "timely_agent", "boot.py"));
     writeFileSync(path.join(root, "boot.py"), "import sys  # longer\n");
     writeFileSync(path.join(root, "extra.txt"), "x");
     rmSync(path.join(root, "python", "bin", "python3"));
     symlinkSync(path.join(root, "python", "bin", "python3.14"), path.join(root, "python", "bin", "python3"));
-    rmSync(path.join(root, "app", "skills"), { recursive: true });
-    const problems = verifyPack.verifyAgentTree(root, manifest, dirs);
+    rmSync(path.join(root, "MANIFEST.json"));
+    const problems = verifyPack.verifyAgentTree(root, manifest);
     const has = (prefix, rel) => assert.ok(problems.some((p) => p.startsWith(prefix) && p.includes(rel)), `${prefix} ${rel} in ${JSON.stringify(problems)}`);
     has("missing:", "app/timely_agent/boot.py");
     has("size differs:", "boot.py");
     has("not in the stage:", "extra.txt");
     has("absolute symlink:", "python/bin/python3");
     has("symlink differs:", "python/bin/python3");
-    has("missing folder:", "app/skills");
+    has("missing:", "MANIFEST.json");
     assert.equal(problems.length, 6);
 
     assert.deepEqual(verifyPack.verifyAgentTree(path.join(dir, "nowhere"), manifest), [`the packed app has no agent runtime at ${path.join(dir, "nowhere")}`]);
