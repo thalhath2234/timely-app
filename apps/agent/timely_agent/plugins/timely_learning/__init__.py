@@ -174,11 +174,12 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
     try:
         if tool_name == "skill_manage":
             for name in _skill_targets(args):
-                if why := seed.learned_name_problem(Path(name).name):
-                    # Go could not store it or keep it turned off (hermes-agent never turns off).
-                    return {"action": "block", "message": NAME_MESSAGE.format(name=name, why=why)}
-                if external_skill(name):
+                if external_skill(name):  # first: a shipped Timely skill reads as read-only, not as a bad name
                     return {"action": "block", "message": READ_ONLY_MESSAGE.format(name=name)}
+                if why := seed.learned_name_problem(Path(name).name):
+                    # Go could not store it or keep it turned off (hermes-agent never turns off), or the
+                    # name is kept for Timely's own skill (``timely``, not shipped yet).
+                    return {"action": "block", "message": NAME_MESSAGE.format(name=name, why=why)}
             created = _created_names(args)
             if created:
                 # A name Timely keeps off (a denied bundled skill, whatever skills_enabled says) would
