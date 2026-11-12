@@ -40,7 +40,7 @@ def _live(layout: paths.AgentLayout, account: str = UID, text: str = "live") -> 
     return home
 
 
-def test_committed_restore_is_swapped_in_and_the_old_home_goes_to_trash(tmp_path):
+def test_committed_restore_is_swapped_in_and_the_old_home_is_deleted(tmp_path):
     layout = _layout(tmp_path)
     home = _live(layout)
     staged = _stage(layout, committed=True)
@@ -49,8 +49,8 @@ def test_committed_restore_is_swapped_in_and_the_old_home_goes_to_trash(tmp_path
     assert (home / "memories" / "USER.md").read_text(encoding="utf-8") == "staged"
     assert not (home / backup.COMMITTED).exists() and not (home / backup.RESTORE_META).exists()
     assert not staged.exists()
-    trashed = list(layout.trash_dir.iterdir())
-    assert len(trashed) == 1 and (trashed[0] / "memories" / "USER.md").read_text(encoding="utf-8") == "live"
+    # the replaced home held sign-ins and secrets: it does not stay in .trash
+    assert not layout.trash_dir.exists() or list(layout.trash_dir.iterdir()) == []
 
 
 def test_uncommitted_restore_is_dropped_and_the_live_home_kept(tmp_path):

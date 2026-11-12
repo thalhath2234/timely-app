@@ -902,6 +902,16 @@ func (s *Supervisor) RemoveAccount(ctx context.Context, account string) error {
 	if err := s.Stop(ctx, account, "removed"); err != nil {
 		return err
 	}
+	// A restore staged for the account (a COMMITTED one would be swapped in
+	// by the next prepare) and a replaced home left in the trash go too:
+	// they hold its memory, skills and transcripts.
+	leftovers, _ := filepath.Glob(filepath.Join(s.layout.Accounts(), ".restore-"+AccountDirName(account)+"-*"))
+	old, _ := filepath.Glob(filepath.Join(s.layout.Trash(), AccountDirName(account)+"-*"))
+	for _, dir := range append(leftovers, old...) {
+		if err := retry(ctx, func() error { return os.RemoveAll(dir) }); err != nil {
+			return fmt.Errorf("agenthost: delete %s: %w", dir, err)
+		}
+	}
 	home := s.layout.Home(account)
 	if _, err := os.Stat(home); errors.Is(err, os.ErrNotExist) {
 		return nil

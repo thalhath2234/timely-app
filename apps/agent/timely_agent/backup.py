@@ -22,7 +22,8 @@ Three helpers that ``boot.py`` runs for Go, each printing one JSON object:
   Undo of one brings its skill back disabled and marked the same way).
 - :func:`reconcile` (``agent-reconcile``, also run by ``prepare``): a ``.restore-*`` folder that
   holds a ``COMMITTED`` marker (Go writes it after the Postgres restore commits) is swapped in, the
-  old home going to ``.trash``; one without the marker is deleted. A folder staged for another
+  old home moved to ``.trash`` and then deleted (it held sign-ins and secrets, as Go's
+  ``CommitRestore`` deletes it); one without the marker is deleted. A folder staged for another
   agent folder (``instance.json`` ``id``) is never swapped in.
 """
 
@@ -530,7 +531,12 @@ def reconcile(layout: paths.AgentLayout) -> dict[str, Any]:
         target = layout.accounts_dir / m.group(1)
         if target.exists():
             layout.trash_dir.mkdir(parents=True, exist_ok=True)
-            os.replace(target, layout.trash_dir / f"{target.name}-{m.group(2)}-replaced")
+            trashed = layout.trash_dir / f"{target.name}-{m.group(2)}-replaced"
+            os.replace(target, trashed)
+            try:
+                _remove(trashed)  # the old home held sign-ins and secrets: nothing keeps it
+            except OSError as exc:
+                out.setdefault("warnings", []).append(f"could not delete the replaced home {trashed.name}: {exc}")
         (staged / COMMITTED).unlink()
         (staged / RESTORE_META).unlink()
         os.replace(staged, target)
