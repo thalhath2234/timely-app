@@ -4,7 +4,7 @@
 // as arguments so scripts/stage-agent.test.mjs can drive it on a fixture.
 
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmdirSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** Longest path allowed relative to the agent root, counted after compileall (plan 11.4). */
@@ -139,6 +139,9 @@ const TRIM = [
   /^lib\/pkgconfig$/i,
   /^lib\/(tcl|tk|itcl|thread)[0-9][^/]*$/i, // Tcl/Tk script libraries
   /^lib\/lib(tcl|tk)[^/]*$/i, // libtcl9.0.so, libtcl9tk9.0.so
+  // Linux: the interpreter is linked statically and never loads libpython (it is
+  // for embedding); checkInterpreter runs the trimmed interpreter afterwards.
+  /^lib\/libpython3[^/]*\.so(\.[0-9.]+)?$/i,
   /^bin\/(pip|idle|pydoc)[^/]*$/i, // launchers of trimmed modules
   /^bin\/python[^/]*-config$/i,
   /^(lib\/python3\.\d+|lib)\/(idlelib|tkinter|turtledemo|ensurepip|turtle\.py)$/i,
@@ -356,6 +359,33 @@ export function makeWritable(dir) {
 
 const BROWSER_DIST = /^(playwright|pyppeteer|ms-playwright|chromium|undetected[-_]chromedriver)([-_.][^/]*)?$/i;
 const BROWSER_FILE = /^(chrome|chromium|chromium-browser|headless_shell|chrome-headless-shell)(\.exe)?$/i;
+
+/**
+ * Deletes compiled bytecode whose path relative to `root` is longer than
+ * `maxChars`, and the `__pycache__` folders this empties. The module's source
+ * stays, so it imports from source; the packaged worker never writes bytecode
+ * (the boot.py shim sets sys.dont_write_bytecode, and the install may be
+ * read-only), so nothing appears later either. Only a `.pyc` inside
+ * `__pycache__` is dropped: a longer source file still fails checkTree.
+ * Returns the dropped paths.
+ */
+export function dropLongBytecode(root, maxChars = MAX_PATH_CHARS) {
+  const dropped = [];
+  const caches = new Set();
+  walk(root, (full, rel, entry) => {
+    if (entry.isSymbolicLink()) return false;
+    if (entry.isFile() && rel.length > maxChars && rel.endsWith(".pyc") && path.basename(path.dirname(full)) === "__pycache__") {
+      rmSync(full);
+      dropped.push(rel);
+      caches.add(path.dirname(full));
+    }
+    return true;
+  });
+  for (const dir of caches) {
+    if (readdirSync(dir).length === 0) rmdirSync(dir);
+  }
+  return dropped;
+}
 
 /**
  * Whole-tree checks (plan 11.4, work packages step 8). Returns a list of

@@ -29,6 +29,7 @@ import {
   collectLicenses,
   cpythonLicense,
   diffSnapshots,
+  dropLongBytecode,
   hermesCopyFilter,
   importsStdlibTest,
   largestFolders,
@@ -149,7 +150,7 @@ test("trimPlan drops headers, Tcl/Tk, idle, pip and the test package on a Linux 
   const py = path.join(tmp(t), "python");
   for (const rel of [
     "bin/python3.14", "bin/pip3", "bin/idle3.14", "bin/pydoc3.14", "bin/python3.14-config", "include/python3.14/Python.h",
-    "share/man/man1/python3.1", "lib/libpython3.14.so.1.0", "lib/libtcl9.0.so", "lib/libtcl9tk9.0.so", "lib/tcl9.0/init.tcl",
+    "share/man/man1/python3.1", "lib/libpython3.14.so.1.0", "lib/libpython3.14.so", "lib/libpython3.so", "lib/libtcl9.0.so", "lib/libtcl9tk9.0.so", "lib/tcl9.0/init.tcl",
     "lib/tk9.0/tk.tcl", "lib/itcl4.3.8/itcl.tcl", "lib/thread3.0.6/t.tcl", "lib/pkgconfig/python3.pc",
     "lib/python3.14/os.py", "lib/python3.14/LICENSE.txt", "lib/python3.14/idlelib/x.py", "lib/python3.14/tkinter/__init__.py",
     "lib/python3.14/turtledemo/x.py", "lib/python3.14/turtle.py", "lib/python3.14/ensurepip/__init__.py",
@@ -161,7 +162,7 @@ test("trimPlan drops headers, Tcl/Tk, idle, pip and the test package on a Linux 
   const { drop, tests } = trimPlan(py);
   assert.deepEqual(tests, ["lib/python3.14/test"]);
   assert.deepEqual(new Set(drop), new Set([
-    "bin/pip3", "bin/idle3.14", "bin/pydoc3.14", "bin/python3.14-config", "include", "share", "lib/libtcl9.0.so",
+    "bin/pip3", "bin/idle3.14", "bin/pydoc3.14", "bin/python3.14-config", "include", "share", "lib/libpython3.14.so.1.0", "lib/libpython3.14.so", "lib/libpython3.so", "lib/libtcl9.0.so",
     "lib/libtcl9tk9.0.so", "lib/tcl9.0", "lib/tk9.0", "lib/itcl4.3.8", "lib/thread3.0.6", "lib/pkgconfig",
     "lib/python3.14/idlelib", "lib/python3.14/tkinter", "lib/python3.14/turtledemo", "lib/python3.14/turtle.py",
     "lib/python3.14/ensurepip", "lib/python3.14/site-packages/pip", "lib/python3.14/site-packages/pip-26.2.2.dist-info",
@@ -309,6 +310,29 @@ test("checkTree fails a path of 151 characters", (t) => {
   const { problems } = checkTree(root, { stagePath: root });
   assert.equal(problems.length, 1);
   assert.match(problems[0], /longer than 150 characters \(151\)/);
+});
+
+test("dropLongBytecode drops only bytecode over the limit, so the tree check passes and the source stays", (t) => {
+  const root = tmp(t);
+  const dir = "app/site-packages/pkg";
+  const long = "m".repeat(MAX_PATH_CHARS - `${dir}/__pycache__/.cpython-314.pyc`.length + 1);
+  write(root, `${dir}/${long}.py`, "x = 1\n");
+  write(root, `${dir}/__pycache__/${long}.cpython-314.pyc`);
+  write(root, `${dir}/short.py`, "y = 2\n");
+  write(root, `${dir}/__pycache__/short.cpython-314.pyc`);
+  assert.equal(checkTree(root, { stagePath: root }).problems.length, 1);
+
+  assert.deepEqual(dropLongBytecode(root, MAX_PATH_CHARS), [`${dir}/__pycache__/${long}.cpython-314.pyc`]);
+  assert.deepEqual(checkTree(root, { stagePath: root }).problems, []);
+  assert.deepEqual(files(root).sort(), [`${dir}/${long}.py`, `${dir}/__pycache__/short.cpython-314.pyc`, `${dir}/short.py`].sort());
+
+  // An emptied __pycache__ goes too; a long source file is never dropped.
+  const other = tmp(t);
+  write(other, `${dir}/__pycache__/${long}.cpython-314.pyc`);
+  write(other, `app/${"s".repeat(MAX_PATH_CHARS)}.py`);
+  assert.equal(dropLongBytecode(other, MAX_PATH_CHARS).length, 1);
+  assert.equal(existsSync(path.join(other, dir, "__pycache__")), false);
+  assert.equal(checkTree(other, { stagePath: other }).problems.length, 1);
 });
 
 test("checkTree fails absolute symlinks and relative ones that leave the root", { skip: !posix && "symlinks need privileges on Windows" }, (t) => {

@@ -45,6 +45,7 @@ import {
   assertHostTarget,
   checkTree,
   collectLicenses,
+  dropLongBytecode,
   cpythonLicense,
   hermesCopyFilter,
   importsStdlibTest,
@@ -305,6 +306,11 @@ function compileAll(target, out, python) {
   const r = run(python, args, { cwd: out, env: cleanEnv(os.homedir()) });
   if (r.status !== 0) throw new Error(`compileall failed (exit ${r.status}):\n${(r.stdout + r.stderr).split("\n").slice(-40).join("\n")}`);
   log(target, `compiled bytecode (unchecked-hash) in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  // A .pyc over the path limit (plan 11.4) is dropped and its module imports from source.
+  const dropped = dropLongBytecode(out, MAX_PATH_CHARS);
+  if (dropped.length) {
+    log(target, `left ${dropped.length} module(s) uncompiled, their bytecode path is over ${MAX_PATH_CHARS} characters: ${dropped.join(", ")}`);
+  }
 }
 
 function checkInterpreter(target, python) {
