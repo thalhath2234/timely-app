@@ -1099,6 +1099,310 @@
       "signature": "def _safe_copy_db(src: Path, dst: Path, *, timeout_seconds: float=10.0) -> bool",
       "sha256": "15b760a33ef432e2de73759ef3f0f14f1156b8845609ba1128738dce2aa743f0"
     },
+    "clarify: tool and callback contract": {
+      "file": "tools/clarify_tool.py",
+      "qualname": "clarify_tool",
+      "line": 115,
+      "end_line": 151,
+      "signature": "def clarify_tool(questions, callback: Optional[Callable]=None) -> str",
+      "sha256": "27966c49b4472d062f40263675d8f66fa565332514e2df53d0e4fe1837bbd0a1"
+    },
+    "clarify: result shape (responses, outcome, notice)": {
+      "file": "tools/clarify_tool.py",
+      "qualname": "_result",
+      "line": 95,
+      "end_line": 112,
+      "signature": "def _result(normalized: list[dict], reply: dict, shown: list[dict] | None=None) -> str",
+      "sha256": "70eef1f9bb1cd8ac41b42f9f752f20ae7b4d07e5c5f1a06fa3b0de31160fab44"
+    },
+    "clarify: question normalisation (qid, choices_offered)": {
+      "file": "tools/clarify_tool.py",
+      "qualname": "_normalize_questions",
+      "line": 50,
+      "end_line": 84,
+      "signature": "def _normalize_questions(questions) -> tuple",
+      "sha256": "2474527a30019cfab6bb29e1842b7d3677ed9e48a6eea0ba6df87c3403c7ef03"
+    },
+    "clarify: recommended label": {
+      "file": "tools/clarify_tool.py",
+      "qualname": "mark_recommended",
+      "line": 19,
+      "end_line": 25,
+      "signature": "def mark_recommended(choices: list[str]) -> list[str]",
+      "sha256": "949710ace7d2103218ccd702250f30d8d47bad1f9395c2b281de04e770c775ba"
+    },
+    "inline executors (clarify -> agent.clarify_callback)": {
+      "file": "agent/inline_tool_executors.py",
+      "qualname": "module:_RAW_INLINE_TOOL_EXECUTORS",
+      "line": 253,
+      "end_line": 304,
+      "signature": "_RAW_INLINE_TOOL_EXECUTORS: dict[str, InlineToolExecutor] = {\n    \"todo_list\": _tool(\n        \"tools.todo_tool\", \"todo_tool\", (\"todos\", \"todos\"), (\"merge\", \"merge\", False),\n        store=lambda agent, ctx: agent._todo_store,\n    ),\n    # Bot Mode teammate DM is injected, not registered: only a canonical Bot\n    # Chat session carries the schema, and the tool re-gates on the title.\n    \"message_agent\": _tool(\n        \"tools.bot_mode_dm\", \"message_agent_tool\", (\"target\", \"target\", \"\"), (\"message\", \"message\", \"\"),\n        (\"expects_reply\", \"expects_reply\", True), (\"cancel\", \"cancel\", \"\"),\n        (\"constraints\", \"constraints\", \"\"), (\"expecting\", \"expecting\", \"\"),\n        task_id=lambda agent, ctx: ctx.effective_task_id, agent=lambda agent, ctx: agent,\n    ),\n    \"session_search\": _session_search,\n    \"memory\": _memory,\n    \"clarify\": _tool(\n        \"tools.clarify_tool\", \"clarify_tool\", (\"questions\", \"questions\"),\n        callback=lambda agent, ctx: agent.clarify_callback,\n    ),\n    \"read_terminal\": _callback_tool(\n        \"tools.read_terminal_tool\", \"read_terminal_tool\", \"read_terminal_callback\",\n        (\"start_line\", \"start_line\"), (\"count\", \"count\"),\n    ),\n    \"desktop_preview\": _desktop_preview,\n    \"drive_preview\": _callback_tool(\n        \"tools.drive_preview_tool\", \"drive_preview_tool\", \"drive_preview_callback\",\n        (\"action\", \"action\", \"\"), (\"ref\", \"ref\"), (\"selector\", \"selector\"), (\"text\", \"text\"),\n        (\"key\", \"key\"), (\"submit\", \"submit\"), (\"amount\", \"amount\"), (\"to\", \"to\"), (\"limit\", \"max\"),\n    ),\n    \"annotate_preview\": _callback_tool(\n        \"tools.annotate_preview_tool\", \"annotate_preview_tool\", \"drive_preview_callback\",\n        (\"action\", \"action\", \"add\"), (\"ref\", \"ref\"), (\"selector\", \"selector\"), (\"label\", \"label\"),\n    ),\n    \"read_window_below\": _callback_tool(\n        \"tools.read_window_tool\", \"read_window_below_tool\", \"read_window_below_callback\",\n    ),\n    \"gui_tour\": _callback_tool(\n        \"tools.tour_tool\", \"tour_tool\", \"tour_callback\",\n        (\"action\", \"action\", \"\"), (\"surface\", \"surface\"), (\"selector\", \"selector\"), (\"title\", \"title\"),\n        (\"text\", \"text\"), (\"side\", \"side\"), (\"steps\", \"steps\"), (\"step_index\", \"step_index\"),\n        (\"preset\", \"preset\"),\n    ),\n    \"set_theme\": _callback_tool(\n        \"tools.set_theme_tool\", \"set_theme_tool\", \"theme_callback\",\n        (\"accent\", \"accent\"), (\"mode\", \"mode\"), (\"layout\", \"layout\"), (\"picker\", \"picker\"),\n    ),\n    \"setup_beat\": _setup_beat,\n    \"manage_connections\": _manage_connections,\n    \"manage_catalog\": _manage_catalog,\n    \"setup_mcp\": _setup_mcp_shim,\n    \"delegate_task\": lambda agent, args, ctx: agent._dispatch_delegate_task(args),\n}",
+      "sha256": "01a33fdb0a816cf33aeb84b7b1b8edff44c72e4f18a1e49048df0e8fc56fc85d"
+    },
+    "never-parallel tools (clarify)": {
+      "file": "agent/tool_dispatch_helpers.py",
+      "qualname": "module:_NEVER_PARALLEL_TOOLS",
+      "line": 30,
+      "end_line": 30,
+      "signature": "_NEVER_PARALLEL_TOOLS = frozenset({\"clarify\", \"manage_connections\", \"manage_catalog\", \"setup_beat\", \"set_theme\"})",
+      "sha256": "f38e81f3a0ccbd77b091acf4f75c34c4bd1c62c20548055e7be54491dca03829"
+    },
+    "sequential tool deadline (inline tools run before it is armed)": {
+      "file": "agent/tool_executor.py",
+      "qualname": "_run_sequential_tool_execution_middleware",
+      "line": 894,
+      "end_line": 994,
+      "signature": "def _run_sequential_tool_execution_middleware(agent, *, function_name: str, function_args: dict, effective_task_id: str, tool_call_id: str, execute, scope_block: str | None=None, display_index: int | None=None, middleware_trace: list[dict[str, Any]] | None=None) -> _ManagedToolResult",
+      "sha256": "eea1fe480992cef82c3b459cb04fc496eda9e8edace8c1ed7d2e8df56e466c9f"
+    },
+    "human-wait window (batch deadline exclusion)": {
+      "file": "tools/approval_human_wait.py",
+      "qualname": "human_wait_window",
+      "line": 109,
+      "end_line": 141,
+      "signature": "def human_wait_window(session_key: str | None=None)",
+      "sha256": "b774fb869b875e7c602cf85b6d68e28ce4a06ea0ec0f4807b310a47c66a9e649"
+    },
+    "joined delegation scope": {
+      "file": "tools/delegate_tool_config.py",
+      "qualname": "gateway_delegation_inline_scope",
+      "line": 148,
+      "end_line": 155,
+      "signature": "def gateway_delegation_inline_scope(inline: bool) -> Iterator[None]",
+      "sha256": "784509f1d4daed36aaa04f39770a7649005983e87f1d93b6a39661dba7fe8024"
+    },
+    "joined delegation frozen on the agent": {
+      "file": "tools/delegate_tool_config.py",
+      "qualname": "agent_joins_delegation",
+      "line": 157,
+      "end_line": 166,
+      "signature": "def agent_joins_delegation(agent: Any) -> bool",
+      "sha256": "722d664d2561aeab17a1358de5beeb9b7763a3d640217436fe342fd58bd1eab4"
+    },
+    "delegate_task joins when the session carries the joined schema": {
+      "file": "tools/delegate_tool.py",
+      "qualname": "session_joins_delegation",
+      "line": 876,
+      "end_line": 887,
+      "signature": "def session_joins_delegation(agent: Any) -> bool",
+      "sha256": "02e8559942124e81eb2b7552f0cf4e6053a89d13398591b22749e44b952ce1c9"
+    },
+    "delegate_task: background or joined": {
+      "file": "tools/delegate_tool_dispatch.py",
+      "qualname": "_run_batch",
+      "line": 511,
+      "end_line": 520,
+      "signature": "def _run_batch(batch: _Batch, background: bool) -> str",
+      "sha256": "68f8435b754a94b4232fc52be8e2f36949ac85ea14066ce9c9959090c154b035"
+    },
+    "delegate_task model dispatch (model background ignored)": {
+      "file": "run_agent.py",
+      "qualname": "AIAgent._dispatch_delegate_task",
+      "line": 1344,
+      "end_line": 1358,
+      "signature": "def _dispatch_delegate_task(self, function_args: dict) -> str",
+      "sha256": "6ab8b9d87b3cd14c8ae04196cff84e9b106598d98d73d5ceeb155618e67f27c4"
+    },
+    "delegate_task: depth, caps, task list": {
+      "file": "tools/delegate_tool.py",
+      "qualname": "delegate_task",
+      "line": 552,
+      "end_line": 665,
+      "signature": "def delegate_task(goal: Optional[str]=None, context: Optional[str]=None, tasks: Optional[list[dict[str, Any]]]=None, max_iterations: Optional[int]=None, role: Optional[str]=None, background: Optional[bool]=None, output_schema: Optional[dict[str, Any]]=None, images: Optional[list[str]]=None, action: Optional[str]=None, subagent_id: Optional[str]=None, message: Optional[str]=None, parent_agent=None, credentials_cfg: Optional[dict[str, Any]]=None) -> str",
+      "sha256": "328b87ddc71182248132eb2a75d36a01f6f1372a11ca6656d0e80a16fd967ffb"
+    },
+    "delegation: max_async_children deprecated (not a floor)": {
+      "file": "tools/delegate_tool_config.py",
+      "qualname": "_get_max_async_children",
+      "line": 174,
+      "end_line": 185,
+      "signature": "def _get_max_async_children() -> int",
+      "sha256": "d348bec35bcbdebcace4b6ccbdbfa50e71e0f650c41a4a23e0a57adde0f61419"
+    },
+    "delegation: max_spawn_depth floor": {
+      "file": "tools/delegate_tool_config.py",
+      "qualname": "_get_max_spawn_depth",
+      "line": 204,
+      "end_line": 216,
+      "signature": "def _get_max_spawn_depth() -> int",
+      "sha256": "2bf597394eb797716590acee6e5185d84f7143ab02546ea8edb04d7767ae7217"
+    },
+    "delegation: child inactivity timeout": {
+      "file": "tools/delegate_tool_config.py",
+      "qualname": "_get_child_timeout",
+      "line": 192,
+      "end_line": 202,
+      "signature": "def _get_child_timeout() -> Optional[float]",
+      "sha256": "c6625cce570f114819db32682f17533e543c56595e6193782174a36ae26afa42"
+    },
+    "delegation: config section reader": {
+      "file": "tools/delegate_tool_config.py",
+      "qualname": "_load_config",
+      "line": 499,
+      "end_line": 517,
+      "signature": "def _load_config() -> dict",
+      "sha256": "ed53f21ddbfc0135a074c920d46d5aa04e350b0789450b9cd7f4598a219d58a8"
+    },
+    "delegate child blocked tools": {
+      "file": "tools/delegate_tool_toolsets.py",
+      "qualname": "module:DELEGATE_BLOCKED_TOOLS",
+      "line": 14,
+      "end_line": 22,
+      "signature": "DELEGATE_BLOCKED_TOOLS = frozenset(\n    [\n        \"delegate_task\",  # no recursive delegation\n        \"clarify\",  # no user interaction\n        \"memory\",  # no writes to shared MEMORY.md\n        \"send_message\",  # no cross-platform side effects\n        \"cronjob_manage\",  # no scheduling more work in the parent's name\n    ]\n)",
+      "sha256": "276bba0aaf23e93949948370d1f87c719d5da52ec65c6dc6bef2d67b0dbc5ecd"
+    },
+    "delegate child toolsets (inherit the parent's)": {
+      "file": "tools/delegate_tool_toolsets.py",
+      "qualname": "_resolve_child_toolsets",
+      "line": 77,
+      "end_line": 123,
+      "signature": "def _resolve_child_toolsets(parent_agent, toolsets: Optional[list[str]], effective_role: str) -> tuple[list[str], list[str]]",
+      "sha256": "61de2f114e42354f4bf3964184247c002c51c177988514e5614189cd0f1267f1"
+    },
+    "delegate child run (copied context, child context)": {
+      "file": "tools/delegate_tool_child_run.py",
+      "qualname": "_ChildRun.await_child",
+      "line": 902,
+      "end_line": 1044,
+      "signature": "def await_child(self) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]], bool]",
+      "sha256": "32f7a982fcc14b02f01f73d066ef4061db5de7870d92c21b5926e277cd15d3d7"
+    },
+    "subagent_stop hook": {
+      "file": "tools/delegate_tool_results.py",
+      "qualname": "_fire_subagent_stop_hooks",
+      "line": 361,
+      "end_line": 392,
+      "signature": "def _fire_subagent_stop_hooks(results, child_by_index, parent_agent) -> float",
+      "sha256": "417979b35b21588f69fc7dd5d39519a5cfea6193e769170568c5611f649b299e"
+    },
+    "delegated child context": {
+      "file": "agent/delegation_context.py",
+      "qualname": "delegated_child_context",
+      "line": 29,
+      "end_line": 40,
+      "signature": "def delegated_child_context(session_id: str | None=None) -> Iterator[None]",
+      "sha256": "17eef0a39e334b7687b72f9cf7612ea1fe2c4b36c915b339f7867736b86b39e4"
+    },
+    "delegated child context flag": {
+      "file": "agent/delegation_context.py",
+      "qualname": "is_delegated_child_context",
+      "line": 43,
+      "end_line": 45,
+      "signature": "def is_delegated_child_context() -> bool",
+      "sha256": "b081f19d2323fc2c1f2dbbec32d1b0094fedea4570cfd33988f073a4d48620ab"
+    },
+    "task-local session id": {
+      "file": "gateway/session_context.py",
+      "qualname": "scoped_current_session_id",
+      "line": 94,
+      "end_line": 103,
+      "signature": "def scoped_current_session_id(session_id: str | None=None) -> Iterator[None]",
+      "sha256": "603cf777f05c225c2442a0e753258e90e511298eaa210abb08cb49a5c1e871e0"
+    },
+    "session env reader": {
+      "file": "gateway/session_context.py",
+      "qualname": "get_session_env",
+      "line": 188,
+      "end_line": 194,
+      "signature": "def get_session_env(name: str, default: str='') -> str",
+      "sha256": "4739d400614e119c4f63c3b6bae2688dc03a44072db370d2e36041d6b8e7ee66"
+    },
+    "delete_session cascades delegate children": {
+      "file": "hermes_state_sessions.py",
+      "qualname": "SessionSessionsMixin.delete_session",
+      "line": 1702,
+      "end_line": 1771,
+      "signature": "def delete_session(self, session_id: str, sessions_dir: Optional[Path]=None, expected_delete_ids: Optional[list[str]]=None, expected_display_messages: Optional[dict[str, list[dict[str, Any]]]]=None, exclude_active_write_guards: bool=False, include_compression_chain: bool=False) -> bool",
+      "sha256": "0ac87901eb501ea7f731897d2e653d1433b074c0e11b5e8a133a56d969e7a09d"
+    },
+    "delegation live transcripts root": {
+      "file": "tools/delegation_live_log.py",
+      "qualname": "live_transcript_root",
+      "line": 40,
+      "end_line": 51,
+      "signature": "def live_transcript_root(home: Optional[Path]=None) -> Path",
+      "sha256": "4a5aa4b24ab53dac9be3f5a846ac3b2dc62f09ca0da6bfd43094fbf082a3b286"
+    },
+    "delegation live transcripts per call": {
+      "file": "tools/delegation_live_log.py",
+      "qualname": "create_live_transcripts",
+      "line": 235,
+      "end_line": 265,
+      "signature": "def create_live_transcripts(task_list: list[dict[str, Any]], context: Optional[str]=None, delegation_id: Optional[str]=None, model: Optional[str]=None, provider: Optional[str]=None, home: Optional[Path]=None) -> tuple[Optional[str], list[Optional[LiveTranscriptWriter]], list[str]]",
+      "sha256": "c17df3ab0edeab5afd822fb8808628c60e881ef8bd9932cc84b5262ac448d641"
+    },
+    "session logs dir and session_db handle": {
+      "file": "agent/agent_init.py",
+      "qualname": "_init_session_state",
+      "line": 1096,
+      "end_line": 1131,
+      "signature": "def _init_session_state(agent, session_id, session_db, parent_session_id, reasoning_config, max_tokens, checkpoints_enabled, checkpoint_max_snapshots, checkpoint_max_total_size_mb, checkpoint_max_file_size_mb)",
+      "sha256": "c1a20ab185e2c91ffcc7b8344f34180fe323ef9599d6889de5c44fa7bdb91a3d"
+    },
+    "request dump on a refused request": {
+      "file": "agent/agent_runtime_helpers.py",
+      "qualname": "dump_api_request_debug",
+      "line": 1518,
+      "end_line": 1567,
+      "signature": "def dump_api_request_debug(agent, api_kwargs: dict[str, Any], *, reason: str, error: Optional[Exception]=None) -> Optional[Path]",
+      "sha256": "9b0401a91813a40e4dde107d6ff28db69caa146848545275c22bef23ef2ecc16"
+    },
+    "hermes logging setup": {
+      "file": "hermes_logging.py",
+      "qualname": "setup_logging",
+      "line": 351,
+      "end_line": 429,
+      "signature": "def setup_logging(*, hermes_home: Optional[Path]=None, log_level: Optional[str]=None, max_size_mb: Optional[int]=None, backup_count: Optional[int]=None, mode: Optional[str]=None, force: bool=False) -> Path",
+      "sha256": "864cedf73bb35bb9f1da1b28d8b19706b36ec1740b3d55d8ae760d8cb03e62ef"
+    },
+    "file logs through one queue handler on root": {
+      "file": "hermes_logging.py",
+      "qualname": "_register_queued_handler",
+      "line": 838,
+      "end_line": 858,
+      "signature": "def _register_queued_handler(handler: logging.Handler) -> None",
+      "sha256": "4e036c41f5fa245707bd30a2b4af99d546f2948844a7f7af7da99c4721d16fdf"
+    },
+    "context length cache (endpoint metadata)": {
+      "file": "agent/model_metadata.py",
+      "qualname": "save_context_length",
+      "line": 1134,
+      "end_line": 1159,
+      "signature": "def save_context_length(model: str, base_url: str, length: int, *, source: str='') -> None",
+      "sha256": "153a6ddf5effb643edda1f3736645d2c68435cf5dd5740cc9c621b95e0a9daa6"
+    },
+    "local endpoint probe cache": {
+      "file": "agent/model_metadata.py",
+      "qualname": "_local_probe_disk_put",
+      "line": 202,
+      "end_line": 204,
+      "signature": "def _local_probe_disk_put(kind: str, key: str, value: Any) -> None",
+      "sha256": "ddffd50e14f770c69f8115f5e71a93a9f24029a754b91c73db9518d5e5154e87"
+    },
+    "Claude Code login reader (adopt_external_logins)": {
+      "file": "agent/anthropic_credentials.py",
+      "qualname": "read_claude_code_credentials",
+      "line": 359,
+      "end_line": 376,
+      "signature": "def read_claude_code_credentials() -> Optional[dict[str, Any]]",
+      "sha256": "41df360ffd05900837b174e8fa9c9d67eb48e796a41342ed7d54a25343e23527"
+    },
+    "Anthropic token resolution order": {
+      "file": "agent/anthropic_credentials.py",
+      "qualname": "resolve_anthropic_token",
+      "line": 700,
+      "end_line": 718,
+      "signature": "def resolve_anthropic_token(*, model: Optional[str]=None) -> Optional[str]",
+      "sha256": "a04477332d6c9a6596013e604a9cb5b8bfbf82a1b94cdf6692892ccc78a9554e"
+    },
+    "provider overlays (auth types)": {
+      "file": "hermes_cli/providers.py",
+      "qualname": "module:HERMES_OVERLAYS",
+      "line": 28,
+      "end_line": 93,
+      "signature": "HERMES_OVERLAYS: dict[str, HermesOverlay] = {\n    \"moa\": HermesOverlay(auth_type=\"virtual\", base_url_override=\"moa://local\"),\n    \"openrouter\": HermesOverlay(is_aggregator=True, base_url_env_var=\"OPENROUTER_BASE_URL\"),\n    \"nous\": HermesOverlay(auth_type=\"oauth_device_code\", base_url_override=\"https://inference-api.nousresearch.com/v1\"),\n    \"openai-codex\": HermesOverlay(transport=\"codex_responses\", auth_type=\"oauth_external\",\n                                  base_url_override=\"https://chatgpt.com/backend-api/codex\"),\n    \"openai-api\": HermesOverlay(transport=\"codex_responses\", base_url_override=\"https://api.openai.com/v1\",\n                                base_url_env_var=\"OPENAI_BASE_URL\"),\n    \"xai-oauth\": HermesOverlay(transport=\"codex_responses\", auth_type=\"oauth_external\",\n                               base_url_override=\"https://api.x.ai/v1\", base_url_env_var=\"XAI_BASE_URL\"),\n    \"qwen-oauth\": HermesOverlay(auth_type=\"oauth_external\", base_url_override=\"https://portal.qwen.ai/v1\",\n                                base_url_env_var=\"HERMES_QWEN_BASE_URL\"),\n    \"lmstudio\": HermesOverlay(extra_env_vars=(\"LM_API_KEY\",), base_url_override=\"http://127.0.0.1:1234/v1\",\n                              base_url_env_var=\"LM_BASE_URL\"),\n    \"anthropic\": HermesOverlay(transport=\"anthropic_messages\", extra_env_vars=(\"ANTHROPIC_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN\")),\n    \"zai\": HermesOverlay(extra_env_vars=(\"GLM_API_KEY\", \"ZAI_API_KEY\", \"Z_AI_API_KEY\"), base_url_env_var=\"GLM_BASE_URL\"),\n    \"kimi-for-coding\": HermesOverlay(base_url_env_var=\"KIMI_BASE_URL\"),\n    \"stepfun\": HermesOverlay(extra_env_vars=(\"STEPFUN_API_KEY\",),\n                             base_url_override=\"https://api.stepfun.ai/step_plan/v1\",\n                             base_url_env_var=\"STEPFUN_BASE_URL\"),\n    \"minimax\": HermesOverlay(transport=\"anthropic_messages\", base_url_env_var=\"MINIMAX_BASE_URL\"),\n    \"minimax-oauth\": HermesOverlay(transport=\"anthropic_messages\", auth_type=\"oauth_external\",\n                                   base_url_override=\"https://api.minimax.io/anthropic\"),\n    \"minimax-cn\": HermesOverlay(transport=\"anthropic_messages\", base_url_env_var=\"MINIMAX_CN_BASE_URL\"),\n    \"deepseek\": HermesOverlay(base_url_env_var=\"DEEPSEEK_BASE_URL\"),\n    \"alibaba\": HermesOverlay(base_url_env_var=\"DASHSCOPE_BASE_URL\"),\n    \"alibaba-coding-plan\": HermesOverlay(base_url_env_var=\"ALIBABA_CODING_PLAN_BASE_URL\"),\n    \"vercel\": HermesOverlay(is_aggregator=True),\n    \"opencode\": HermesOverlay(is_aggregator=True, base_url_env_var=\"OPENCODE_ZEN_BASE_URL\"),\n    \"opencode-go\": HermesOverlay(is_aggregator=True, base_url_env_var=\"OPENCODE_GO_BASE_URL\"),\n    \"kilo\": HermesOverlay(is_aggregator=True, base_url_env_var=\"KILOCODE_BASE_URL\"),\n    \"huggingface\": HermesOverlay(is_aggregator=True, base_url_env_var=\"HF_BASE_URL\"),\n    \"novita\": HermesOverlay(is_aggregator=True, base_url_env_var=\"NOVITA_BASE_URL\"),\n    \"xai\": HermesOverlay(transport=\"codex_responses\", base_url_override=\"https://api.x.ai/v1\", base_url_env_var=\"XAI_BASE_URL\"),\n    \"nvidia\": HermesOverlay(base_url_override=\"https://integrate.api.nvidia.com/v1\", base_url_env_var=\"NVIDIA_BASE_URL\"),\n    \"xiaomi\": HermesOverlay(base_url_env_var=\"XIAOMI_BASE_URL\"),\n    \"tencent-tokenhub\": HermesOverlay(base_url_env_var=\"TOKENHUB_BASE_URL\"),\n    \"tencent-tokenplan\": HermesOverlay(transport=\"anthropic_messages\",\n                                       base_url_override=\"https://api.lkeap.cloud.tencent.com/plan/anthropic\",\n                                       base_url_env_var=\"TOKENPLAN_BASE_URL\"),\n    \"arcee\": HermesOverlay(base_url_override=\"https://api.arcee.ai/api/v1\", base_url_env_var=\"ARCEE_BASE_URL\"),\n    # models.dev lists CommandCode under CMD_API_KEY; the plugin profile and docs use COMMANDCODE_API_KEY.\n    \"commandcode\": HermesOverlay(extra_env_vars=(\"COMMANDCODE_API_KEY\",),\n                                 base_url_override=\"https://api.commandcode.ai/provider/v1\",\n                                 base_url_env_var=\"COMMANDCODE_BASE_URL\"),\n    \"gmi\": HermesOverlay(extra_env_vars=(\"GMI_API_KEY\",), base_url_override=\"https://api.gmi-serving.com/v1\",\n                         base_url_env_var=\"GMI_BASE_URL\"),\n    \"fireworks\": HermesOverlay(extra_env_vars=(\"FIREWORKS_API_KEY\",),\n                               base_url_override=\"https://api.fireworks.ai/inference/v1\"),\n    \"actual\": HermesOverlay(transport=\"chat_completions\", extra_env_vars=(\"ACTUAL_API_KEY\",),\n                            base_url_override=\"https://api.actual.inc/v1\", base_url_env_var=\"ACTUAL_BASE_URL\"),\n    \"upstage\": HermesOverlay(extra_env_vars=(\"UPSTAGE_API_KEY\",), base_url_override=\"https://api.upstage.ai/v1\",\n                             base_url_env_var=\"UPSTAGE_BASE_URL\"),\n    \"nebius-token-factory\": HermesOverlay(extra_env_vars=(\"NEBIUS_API_KEY\", \"NEBIUS_TOKEN_FACTORY_API_KEY\"),\n                                          base_url_override=\"https://api.tokenfactory.nebius.com/v1\",\n                                          base_url_env_var=\"NEBIUS_BASE_URL\"),\n    \"ollama-cloud\": HermesOverlay(base_url_override=\"https://ollama.com/v1\", base_url_env_var=\"OLLAMA_BASE_URL\"),\n    # Azure Foundry serves OpenAI- and Anthropic-style endpoints; transport comes from model.api_mode.\n    \"azure-foundry\": HermesOverlay(base_url_env_var=\"AZURE_FOUNDRY_BASE_URL\"),\n    \"bedrock\": HermesOverlay(transport=\"bedrock_converse\", auth_type=\"aws_sdk\"),\n    # Vertex is OAuth2 (service-account JSON / ADC), resolved by agent/vertex_adapter.py. Without an\n    # overlay get_provider(\"vertex\") is None and auxiliary_client._preserve_provider_with_base_url\n    # would treat a Vertex MoA slot as an unknown custom endpoint, losing the identity\n    # _refresh_provider_credentials() needs to re-mint an expired token on 401.\n    \"vertex\": HermesOverlay(auth_type=\"vertex\"),\n}",
+      "sha256": "37a439e442c4443536be95035a21f32401c827d4b5ca21c50b481c16f8fa5417"
+    },
     "_iters_since_skill reset sites": {
       "file": "",
       "qualname": "",

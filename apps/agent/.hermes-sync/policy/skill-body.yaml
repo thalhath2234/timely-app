@@ -24,7 +24,6 @@ tool_tokens:
   - browser_dialog
   - browser_exec
   - browser_vault
-  - clarify
   - close_terminal
   - computer_use
   - cronjob_manage
