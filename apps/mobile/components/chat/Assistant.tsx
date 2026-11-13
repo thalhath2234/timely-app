@@ -2,6 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import { PROVIDER_LABELS, type ProviderId } from "../../lib/api/agentProviders";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -81,7 +82,13 @@ import { getLearningEvents } from "../../lib/api/learning";
 import { ApiError } from "../../lib/api/client";
 import { chipUndoAlso } from "@timely/contract/agentLearning";
 import { ChatMenuSheet } from "./LearningCards";
-import { questionWaiting, type PermissionMode, type QuestionAnswer } from "@timely/contract/agentChat";
+import {
+  QUESTION_CARD_TITLES,
+  questionCardState,
+  questionWaiting,
+  type PermissionMode,
+  type QuestionAnswer,
+} from "@timely/contract/agentChat";
 import { QUESTION_PLACEHOLDER, QUESTION_WAITING_LINE } from "../../lib/chat/question";
 import QuestionCard from "./QuestionCard";
 import {
@@ -380,6 +387,20 @@ export default function Assistant() {
     else scroll.current?.scrollToEnd({ animated: false });
   };
   const questionId = asking ? chat?.question?.requestId : undefined;
+  // The card closed (time limit, Stop on another device, an answer from the web) while the screen
+  // reader had it: the card unmounts under the person, so say how it closed, as the web does with a
+  // polite status. The newest question message holds the outcome.
+  const shownQuestion = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const was = shownQuestion.current;
+    shownQuestion.current = questionId;
+    if (!was || was === questionId) return;
+    const closed = [...(chat?.messages ?? [])].reverse().find((m) => m.kind === "question");
+    if (closed?.question?.requestId !== was) return;
+    AccessibilityInfo.announceForAccessibility(
+      `Question closed: ${QUESTION_CARD_TITLES[questionCardState(closed.question.outcome)]}`,
+    );
+  }, [questionId, chat?.messages]);
   useEffect(() => {
     cardBox.current = null;
     if (questionId) followCardUntil.current = Date.now() + 1500;
