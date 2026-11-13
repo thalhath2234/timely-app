@@ -1,14 +1,12 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { ENGINE_COPY, type AccountEngine, type AgentChatSettings } from "@timely/contract/agentChat";
+import { CLI_ON_NEW, ENGINE_COPY, type AccountEngine, type AgentChatSettings } from "@timely/contract/agentChat";
 import { createThemedStyleSheet } from "../../lib/theme";
 import { usePatchAgentChatSettings } from "../../lib/hooks";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { GroupHint, GroupLabel, ListGroup, ListRow } from "./SettingsList";
 
 const ENGINES: AccountEngine[] = ["classic", "agent"];
-/** Claude Code and Codex are not Classic-only: New runs them through the server's own CLI. */
-const CLI_ON_NEW = "Claude Code and Codex also work on New, through the server’s CLI; their replies arrive in one piece.";
 
 /**
  * Settings → Agent → Engine (Q-2.2): Classic or New for this account's chats,

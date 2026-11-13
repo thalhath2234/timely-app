@@ -876,6 +876,8 @@ for (const [app, q] of [
   test(`${app}: Send answer needs one answer the server would take`, () => {
     assert.equal(q.sendProblem(card.questions, {}), "Answer at least one question, or skip.");
     assert.equal(q.sendProblem([day], {}), "Pick or type an answer, or skip.");
+    assert.equal(q.sendProblem([open], {}), "Type an answer, or skip.", "nothing to pick on an open question");
+    assert.equal(q.sendProblem([open, open], {}), "Answer at least one question, or skip.");
     assert.equal(q.sendProblem([day], q.toggleOther({}, day)), "Pick or type an answer, or skip.", "an empty Other is no answer");
     assert.equal(q.sendProblem(card.questions, q.pickChoice({}, day, "Tue")), null, "other questions may stay unanswered");
     assert.match(q.sendProblem([open], q.typeOther({}, open, "x".repeat(2001))), /2,000/);

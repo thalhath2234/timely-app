@@ -143,6 +143,19 @@ export const ENGINE_COPY: Record<AccountEngine, { name: string; description: str
   agent: { name: "New", description: "The new agent engine: replies stream in as they are written." },
 };
 
+/** Claude Code and Codex are not Classic-only: New runs them through the
+ * server's own CLI and its sign-in (phase 2 gateway, Q-4.1). Both apps say it
+ * only when New can run: when it cannot, the reason row says why. */
+export const CLI_ON_NEW = "Claude Code and Codex also work on New, through the server’s CLI; their replies arrive in one piece.";
+
+/** The Claude Code and Codex cards' line in Settings › Agent; host is where
+ * the CLI runs ("the server", or "this computer" in the desktop app). */
+export function cliProviderDescription(id: "claude" | "codex", host: string): string {
+  return id === "claude"
+    ? `Uses the Claude Code CLI and its sign-in on ${host}. Works on Classic and New, with every built-in tool disabled.`
+    : `Uses the Codex CLI and its sign-in on ${host}. Works on Classic and New, in a read-only sandbox with the shell disabled.`;
+}
+
 /** What Timely learned and About you while chats run on Classic: learning, About you and
  * past-chat search happen only on the agent engine (plan 9b; Classic never reads them). */
 export const LEARNS_ON_AGENT_ONLY = `Timely learns only in chats on the ${ENGINE_COPY.agent.name} engine.`;

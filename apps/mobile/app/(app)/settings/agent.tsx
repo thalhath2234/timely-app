@@ -59,6 +59,7 @@ import {
   type ModelOption,
   type ProviderId,
 } from "../../../lib/api/agentProviders";
+import { cliProviderDescription } from "@timely/contract/agentChat";
 import { providerAfterRemoval } from "@timely/contract/providerFallback";
 import type { SourceKeyView } from "@timely/contract/bots";
 import { BOT_KEYS_SECTION } from "../../../components/bots/useBotActions";
@@ -1409,11 +1410,7 @@ function CliCard({
       id={id}
       data={data}
       ready={view.ready}
-      description={
-        id === "claude"
-          ? "Uses the Claude Code CLI and its sign-in on the server, on Classic and New. Runs with every built-in tool disabled."
-          : "Uses the Codex CLI and its sign-in on the server, on Classic and New. Runs in a read-only sandbox with the shell disabled."
-      }
+      description={cliProviderDescription(id, "the server")}
     >
       <View style={[styles.row, { flexWrap: "wrap" }]}>
         {status.found ? (

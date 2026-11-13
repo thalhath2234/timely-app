@@ -15,14 +15,16 @@ const SUBTASK = "Sub-task:";
 /** Lines shown before the rest fold into "N earlier". */
 const SHOWN_LINES = 5;
 
-function LineIcon({ state }: { state: ActivityLine["state"] }) {
+function LineIcon({ state, waiting }: { state: ActivityLine["state"]; waiting: boolean }) {
+  // The run waits on the person's answer: a running line does not spin.
+  if (state === "running" && waiting) return <MessageCircleQuestionMark size={13} color={colors.mutedForeground} />;
   if (state === "running") return <LogoSpinner size={13} color={colors.primary} />;
   if (state === "failed") return <X size={13} color={colors.destructive} strokeWidth={2.5} />;
   return <Check size={13} color={colors.successText} strokeWidth={2.5} />;
 }
 
 /** A live run's activity lines: what it looked at and did, newest last. */
-export function ActivityLines({ lines }: { lines: ActivityLine[] }) {
+export function ActivityLines({ lines, waiting = false }: { lines: ActivityLine[]; waiting?: boolean }) {
   if (!lines.length) return null;
   const hidden = Math.max(0, lines.length - SHOWN_LINES);
   return (
@@ -31,7 +33,7 @@ export function ActivityLines({ lines }: { lines: ActivityLine[] }) {
       {lines.slice(hidden).map((line) => (
         <View key={line.id} style={styles.line} testID={line.kind === "subagent" ? "activity-subagent" : undefined}>
           <View style={styles.lineIcon}>
-            <LineIcon state={line.state} />
+            <LineIcon state={line.state} waiting={waiting} />
           </View>
           {line.kind === "subagent" && line.label.startsWith(SUBTASK) ? (
             // A sub-task the run handed work to: the goal reads as the line.
@@ -73,7 +75,7 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
           )}
           <Text style={styles.time}>{asking ? QUESTION_WAITING_LINE : draft ? "Writing" : phaseLabel(chat.phase)}</Text>
         </View>
-        <ActivityLines lines={lines} />
+        <ActivityLines lines={lines} waiting={asking} />
         {draft ? (
           <View testID="live-reply">
             <ChatText text={draft.trimStart()} onLink={onLink} />

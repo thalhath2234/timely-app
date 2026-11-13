@@ -37,7 +37,21 @@ const eyebrow =
 /** How many of a run's newest lines show; earlier ones fold into a count. */
 const SHOWN_LINES = 6;
 
-function LineIcon({ state }: { state: ActivityLine["state"] }) {
+function LineIcon({
+  state,
+  waiting = false,
+}: {
+  state: ActivityLine["state"];
+  /** The run waits on the person's answer: a running line does not spin. */
+  waiting?: boolean;
+}) {
+  if (state === "running" && waiting)
+    return (
+      <MessageCircleQuestionMark
+        aria-hidden
+        className="size-3.5 shrink-0 text-muted-foreground"
+      />
+    );
   if (state === "running")
     return <LogoSpinner size={14} tone="mono" label="Running" />;
   if (state === "failed")
@@ -45,13 +59,14 @@ function LineIcon({ state }: { state: ActivityLine["state"] }) {
   return <Check aria-hidden className="size-3.5 shrink-0 text-success-text" />;
 }
 
-/** "Sub-task: <goal>": the prefix muted, the goal as the line's text. */
+/** "Sub-task: <goal>": the prefix muted, the goal as the line's text, up to
+ * two lines (a touch screen has no tooltip to read the rest). */
 function LineLabel({ line }: { line: ActivityLine }) {
   const prefix = "Sub-task:";
   if (line.kind !== "subagent" || !line.label.startsWith(prefix))
     return <span className="min-w-0 truncate">{line.label}</span>;
   return (
-    <span className="min-w-0 truncate" title={line.label}>
+    <span className="min-w-0 line-clamp-2 break-words" title={line.label}>
       <span className="text-muted-foreground">{prefix}</span>
       {line.label.slice(prefix.length)}
     </span>
@@ -118,7 +133,7 @@ export function RunActivity({ chat }: { chat: Chat }) {
               )}
             >
               <span className="flex w-3.5 shrink-0 justify-center">
-                <LineIcon state={line.state} />
+                <LineIcon state={line.state} waiting={asking} />
               </span>
               <LineLabel line={line} />
             </li>

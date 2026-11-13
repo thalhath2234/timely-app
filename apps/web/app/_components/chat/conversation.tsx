@@ -962,7 +962,14 @@ export default function Conversation({
         answering={asking}
         pending={mutation.isPending}
         onSend={send}
-        onStop={() => act("/stop")}
+        onStop={() =>
+          // Stop unmounts as the run ends, and Stop is how a person ends a
+          // question card's wait: the keyboard stays in the chat.
+          mutation.mutate(
+            { action: "/stop" },
+            { onSettled: () => input.current?.focus() },
+          )
+        }
         hint={bar && !uploads.images.length ? "" : hint}
         variant={bar ? "bar" : "panel"}
       />

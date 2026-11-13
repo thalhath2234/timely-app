@@ -2,6 +2,7 @@
 
 import { CircleAlert } from "lucide-react";
 import {
+  CLI_ON_NEW,
   ENGINE_COPY,
   type AccountEngine,
   type AgentChatSettings,
@@ -9,12 +10,6 @@ import {
 import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { GroupHint, GroupLabel, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import { usePatchChatSettings } from "@/app/utils/hooks/chat";
-
-/** Claude Code and Codex are not Classic-only: New runs them through this
- * server's own CLI and its sign-in (phase 2 gateway, Q-4.1). Said only when New
- * can run here: when it cannot, the warning row above gives the reason and
- * this line would contradict it (the gateway being down is such a reason). */
-const CLI_ON_NEW = "Claude Code and Codex also work on New, through this server’s CLI; their replies arrive in one piece.";
 
 /**
  * Settings → Agent → Engine (Q-2.2): which engine new runs use, Classic

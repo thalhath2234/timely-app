@@ -1,6 +1,7 @@
 "use client";
 
 import { requestConfirm } from "@/app/_store/confirmStore";
+import { cliProviderDescription } from "@timely/contract/agentChat";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
@@ -987,11 +988,7 @@ function CliCard({
     <ProviderCard
       id={id}
       title={PROVIDER_LABELS[id]}
-      description={
-        id === "claude"
-          ? `Uses the Claude Code CLI and its sign-in on ${host}. Runs with every built-in tool disabled.`
-          : `Uses the Codex CLI and its sign-in on ${host}. Runs in a read-only sandbox with the shell disabled.`
-      }
+      description={cliProviderDescription(id, host)}
       isDefault={isDefault}
       ready={view.ready}
       onMakeDefault={() => patch.mutate({ defaultProvider: id })}

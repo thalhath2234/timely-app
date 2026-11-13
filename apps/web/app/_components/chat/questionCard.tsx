@@ -154,11 +154,19 @@ function QuestionBlock({
                   onChange={() => setDraft(pickChoice(draft, item, choice))}
                 />
                 <Mark multi={multi} on={on} />
-                <span className="min-w-0 flex-1 whitespace-pre-wrap break-words">
+                {/* The input's aria-label already names the choice and says
+                    it is recommended; the visible text is not read again. */}
+                <span
+                  aria-hidden
+                  className="min-w-0 flex-1 whitespace-pre-wrap break-words"
+                >
                   {choice}
                 </span>
                 {item.recommended === i && (
-                  <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  <span
+                    aria-hidden
+                    className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+                  >
                     Recommended
                   </span>
                 )}

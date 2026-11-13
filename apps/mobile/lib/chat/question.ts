@@ -110,7 +110,9 @@ export function sendProblem(
   if (!answeredCount(questions, draft))
     return questions.length > 1
       ? "Answer at least one question, or skip."
-      : "Pick or type an answer, or skip.";
+      : questions.every(isOpen)
+        ? "Type an answer, or skip."
+        : "Pick or type an answer, or skip.";
   return answerProblem(questions, draftAnswers(questions, draft));
 }
 
