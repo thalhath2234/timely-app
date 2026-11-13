@@ -43,6 +43,9 @@ Phase 4 (``timely_agent.delegation``):
 ``web_extract`` that ran named (any backend), so the chat's taint names the sites it read; in a
 sub-task the source also says ``via: "subagent"`` and names the child. After a ``delegate_task``
 it records the children's live transcript folders under the chat, so deleting the chat removes them.
+``transform_tool_result`` marks a ``delegate_task`` result as untrusted data when a child of that call
+read outside content (the child's summary may quote the page; Q-3.9) and drops the host's transcript
+paths from what the model reads (``delegation.transform_result``).
 ``subagent_start`` / ``subagent_stop`` map each child to the run and send ``event subagent``.
 
 An ``approve`` verdict becomes Hermes' human-approval gate with ``rule_key
@@ -208,5 +211,6 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", pre_tool_call)
     ctx.register_hook("post_tool_call", post_tool_call)
+    ctx.register_hook("transform_tool_result", delegation.transform_result)
     ctx.register_hook("subagent_start", delegation.subagent_start)
     ctx.register_hook("subagent_stop", delegation.subagent_stop)

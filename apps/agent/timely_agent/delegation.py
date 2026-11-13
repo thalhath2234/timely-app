@@ -17,6 +17,11 @@ lifecycle hooks it registers (phase 4, decisions 5-8 of ``docs/plans/2026-11-13-
   ``skill_manage``, ``memory``, ``clarify`` and ``delegate_task`` in a child (``policy.CHILD_BLOCKED``).
 - **Taint.** A child's outside read reaches the parent's run at once with ``via: "subagent"`` and
   ``child`` (``bridge.report_taint``); ``delegate_task`` itself is no taint source.
+- **Untrusted summaries.** The child's summary is in the ``delegate_task`` result, which Hermes does
+  not wrap (it wraps only ``web_*``, ``browser_*`` and ``mcp_*``), and may quote the page or bot
+  answer the child read. ``transform_result`` (``timely_gate``'s ``transform_tool_result``) wraps the
+  result as untrusted data (Q-3.9) when a child of that call added taint, and in every result drops
+  the host's transcript paths (``live_transcript``), which the model has no use for.
 - **Events.** ``subagent_start`` / ``subagent_stop`` (Hermes' lifecycle hooks, fired on the parent's
   tool thread) record the child on the run and send ``event subagent`` ``{phase, subagent_id,
   child_session_id, goal, status?, tool_calls?}``.
@@ -116,13 +121,22 @@ def _emit(run: bridge.RunContext, payload: dict) -> None:
         logger.exception("sending a subagent event failed")
 
 
+def _current_call_id(run: bridge.RunContext) -> str:
+    """The ``delegate_task`` call a child starts under: the one call holding children against the cap
+    (``verdict`` reserved them). With none or several in flight it is unknown ("") and the child
+    counts for every call (``_call_tainted``)."""
+    with run._lock:
+        keys = list(run.children_held)
+    return keys[0] if len(keys) == 1 else ""
+
+
 def subagent_start(parent_session_id: Any = None, child_session_id: Any = None, child_subagent_id: Any = None,
                    child_goal: Any = None, **_: Any) -> None:
     run = bridge.current_run.get()
     if run is None or not child_session_id:
         return
     goal = str(child_goal or "")[:policy.CHILD_GOAL_CHARS]
-    bridge.child_started(run, str(child_session_id), str(child_subagent_id or ""), goal)
+    bridge.child_started(run, str(child_session_id), str(child_subagent_id or ""), goal, _current_call_id(run))
     _emit(run, {"phase": "start", "subagent_id": str(child_subagent_id or ""),
                 "child_session_id": str(child_session_id), "goal": goal})
 
@@ -139,6 +153,61 @@ def subagent_stop(parent_session_id: Any = None, child_session_id: Any = None, c
     _emit(run, {"phase": "stop", "subagent_id": state.subagent_id if state else "",
                 "child_session_id": str(child_session_id), "goal": state.goal if state else "",
                 "status": str(child_status or ""), "tool_calls": calls})
+
+
+# ---------------------------------------------------------------- the result the parent reads
+
+def _call_tainted(run: bridge.RunContext, call_id: str) -> bool:
+    """Whether a child of the call ``call_id`` added taint. A child with no call recorded, or a call
+    with no id, counts for every call: when unsure, the result is wrapped."""
+    with run._lock:
+        tainted = {s.get("child") for s in run.tainted_sources
+                   if isinstance(s, dict) and s.get("via") == "subagent"}
+        tainted.discard(None)
+        return any(sid in tainted and (not call_id or not st.call_id or st.call_id == call_id)
+                   for sid, st in run.children.items())
+
+
+def _without_paths(result: Any) -> Any:
+    """``result`` as JSON text without ``live_transcript`` / ``live_transcripts``; None when it is
+    not a JSON object or holds none."""
+    try:
+        data = json.loads(result) if isinstance(result, str) else None
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    changed = data.pop("live_transcripts", None) is not None
+    for entry in data.get("results") or []:
+        if isinstance(entry, dict) and entry.pop("live_transcript", None) is not None:
+            changed = True
+    return json.dumps(data, ensure_ascii=False) if changed else None
+
+
+def transform_result(tool_name: str = "", result: Any = None, tool_call_id: str = "", **_: Any):
+    """``transform_tool_result`` for ``delegate_task``: remember the transcript folders under the chat,
+    drop their paths from what the model reads, and mark the result as untrusted data when a child of
+    this call read outside content. None leaves the result as it is."""
+    if tool_name != policy.DELEGATE_TOOL or not isinstance(result, str):
+        return None
+    run = bridge.current_run.get()
+    if run is None:
+        return None
+    try:
+        record_live(run.conversation_id, result)
+    except Exception:
+        logger.exception("recording the sub-task transcripts failed")
+    out = _without_paths(result)
+    text = result if out is None else out
+    try:
+        wrap = _call_tainted(run, str(tool_call_id or ""))
+    except Exception:
+        logger.exception("checking whether a sub-task read outside content failed")
+        wrap = True  # fail closed: Hermes passes the raw result on when a hook fails
+    if wrap:
+        from timely_agent import untrusted
+        return untrusted.mark(run, tool_name, tool_call_id, text)
+    return out
 
 
 # ---------------------------------------------------------------- live transcripts per chat

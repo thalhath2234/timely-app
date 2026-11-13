@@ -209,6 +209,9 @@ class ChildState:
     goal: str = ""
     tool_calls: int = 0
     done: bool = False
+    # The ``delegate_task`` call that started it ("" when Hermes did not say): which call's
+    # result may carry what this child read.
+    call_id: str = ""
 
 
 @dataclass
@@ -557,8 +560,9 @@ def current_child(run: Optional[RunContext], session_id: str = "") -> str:
     return ""
 
 
-def child_started(run: RunContext, session_id: str, subagent_id: str = "", goal: str = "") -> ChildState:
-    state = ChildState(session_id=session_id, subagent_id=subagent_id, goal=goal)
+def child_started(run: RunContext, session_id: str, subagent_id: str = "", goal: str = "",
+                  call_id: str = "") -> ChildState:
+    state = ChildState(session_id=session_id, subagent_id=subagent_id, goal=goal, call_id=call_id)
     with run._lock:
         run.children[session_id] = state
         run.children_started += 1
