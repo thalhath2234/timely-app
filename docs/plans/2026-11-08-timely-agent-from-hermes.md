@@ -1694,6 +1694,7 @@ Every phase keeps a working agent: the classic engine stays the default until ph
   - **MINOR, docs:** the per-child time cap is Hermes' inactivity timeout (300 s without progress, restarting on each sign of progress), not a wall-clock limit; the status, the work packages and `delegation.py` say so.
   - **TLA+.** The model did not change: the new branches only rewrite a message in the thread (no card, run, lease or step) or give a 409 earlier. Two anchors follow the code (`answerQuestion`'s stale-answer guard, `closeCard`'s card check), SKILL.md says so.
   - **Minors left:** none.
+  - *Verification, after the last code commit (`e5d192ee`):* `make verify-agent-runs` (AgentRunApply 1,008,944 and AgentRunTurn 11,384,534 distinct states pass; two anchors updated; resynced at `82bea995`) and `--mutants` (exit 0, all nine guards caught); `go test` with `CHAT_TEST_ENV` over `./internal/features/chat` (`-run TestIntegration`, ok), `./internal/features/provider` and `./cmd` (ok); `make agent-go-realworker` (ok); `make agent-contract` (131 passed), `make agent-test` (296 passed, 1 skipped), `make agent-lint`, `make hermes-sync-check` (183 seams unchanged), `make test-api`, `make typecheck`, `make test-mobile-assistant` (60). Not rerun: parity (still open from round 4), and the phone screenshot of the Engine hint (see above).
 
 ### Phase 5: host tools and browser
 
