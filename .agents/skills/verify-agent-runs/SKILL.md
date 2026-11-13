@@ -68,7 +68,8 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 | `Steer` | `service.go` `steer`: adds a message to a live agent run; changes nothing modelled (a stutter). A steer or a send while a card waits is `Answer` |
 | `Ask` | `engine_agent.go` `ask` -> `flush`: the worker's `clarify.request`; the card (`question`) goes on the row in the follower's fenced save, with one push |
 | `CloseQuestion` | `engine_agent.go` `closeAsked`: the worker's `clarify.closed` (timed out, cancelled); a card still on the row closes in the follower's fenced save |
-| `Answer` | `question.go` `answerQuestion` (`POST /chats/:id/answer`, and `send`/`steer` while a card waits): the fenced commit that closes the card, then `clarify.answer` |
+| `Answer` | `question.go` `answerQuestion` (`POST /chats/:id/answer`, and `send`/`steer` while a card waits): the fenced commit that closes the card, then `clarify.answer` (sent with `context.WithoutCancel`, so a dropped connection cannot lose it) |
+| `ReopenQuestion` | `question.go` `restoreQuestion`: an answer the worker never acknowledged puts its card back, only while the row still names the same running run and holds no card |
 | `DiscardReview` | `receipts.go` `discardReview` (no busy check, so it can land mid-apply) |
 | `Claim` (`ClaimRead`+`ClaimWrite` when unlocked) | the claim transaction in `runner.go` `work`, which also picks the engine (`runEngine`) for a fresh plan turn |
 | `Expire` / `Renew` | `lease_until` passing / `keepLease` renewing (classic lanes) |
@@ -102,7 +103,7 @@ Sync commit: `40e32933f1d3aed61cf2f8e7b580b66c0dfe84f9` (the model was last conf
 - `apps/api/internal/features/chat/engine_agent.go`: `(*WorkerEngine).Start`, `clearRun`, `Lost`, `Stop`, `loop`, `save`, `renew`, `done`, `stopped`, `fail`, `failWith`
 - `apps/api/internal/features/chat/toolcall.go`: `(*Service).toolCall` (reads only), `finishTurn`, `endRun`, `renewLease`
 - `apps/api/internal/features/chat/permission_mode.go`: `proposalStatus`, `holdReason`
-- `apps/api/internal/features/chat/question.go`: `questionOpen`, `closeQuestion`, `(*Service).answerQuestion`; `engine_agent.go` also `flush`, `closeAsked`, `Answer`; `service.go` also `sendMessage`
+- `apps/api/internal/features/chat/question.go`: `questionOpen`, `closeQuestion`, `(*Service).answerQuestion`, `(*Service).restoreQuestion`; `engine_agent.go` also `flush`, `closeAsked`, `Answer`; `service.go` also `sendMessage`
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
 
 Model changed 2026-11-13 (phase 4, Q-4.3): a question card. The row gains `question` (the run whose card waits), the person's screen `seen`; actions Ask and CloseQuestion (the follower's fenced saves) and Answer (the person's fenced commit); Stop, Retry, Lost's `clearRun`, a turn's end and a failed or stopped run close the card; the property NoAnswerAfterEnd and the guard `AnswerFenced` (its mutant: Ask, Stop, then an answer to the stopped run). `send` moved its transaction into `sendMessage` (the anchors followed), and `runEngine` keeps photo chats classic and lets Sensitive chats follow the chat's engine only with the test-only no-persist switch (`Start` then sends a no-persist run: no claim, lease or checkpoint changes). Bounds: the turn check allows one card (`MaxAsks = 1`), the apply check none.
