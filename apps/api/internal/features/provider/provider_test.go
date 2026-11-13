@@ -72,6 +72,43 @@ func TestParseResponseUnwrapsNestedProtocolObject(t *testing.T) {
 	}
 }
 
+// Seen from Sonnet in phase 4 parity (tasks-06): the calls as a bare JSON
+// array inside "content", which reached the chat as raw JSON before the card.
+func TestParseResponseUnwrapsBareArrayOfCalls(t *testing.T) {
+	calls := `[{"name":"clarify","arguments":"{\"question\":\"What time on Sunday?\",\"choices\":[\"09:00\",\"10:00\"]}"}]`
+	objectArgs := `[{"name":"get_task","arguments":{"id":"t1"}},{"name":"list_tasks"}]`
+	for _, content := range []string{calls, "```json\n" + calls + "\n```"} {
+		raw, _ := json.Marshal(map[string]any{"content": content, "toolCalls": []any{}})
+		got, err := parseResponse(string(raw))
+		if err != nil || got.Content != "" || len(got.ToolCalls) != 1 || got.ToolCalls[0].Function.Name != "clarify" ||
+			got.ToolCalls[0].Function.Arguments != `{"question":"What time on Sunday?","choices":["09:00","10:00"]}` {
+			t.Fatalf("bare array %q not unwrapped: %+v %v", content, got, err)
+		}
+	}
+	raw, _ := json.Marshal(map[string]any{"content": objectArgs, "toolCalls": []any{}})
+	got, err := parseResponse(string(raw))
+	if err != nil || len(got.ToolCalls) != 2 || got.ToolCalls[0].Function.Arguments != `{"id":"t1"}` || got.ToolCalls[1].Function.Arguments != "{}" {
+		t.Fatalf("object arguments not kept: %+v %v", got, err)
+	}
+
+	// Arrays the person asked for stay content: other keys, no name, a blank
+	// name, non-objects, or empty.
+	for _, content := range []string{
+		`[{"name":"Ada","age":36}]`,
+		`[{"name":"get_task","arguments":"{}","id":1}]`,
+		`[{"arguments":"{}"}]`,
+		`[{"name":"  ","arguments":"{}"}]`,
+		`[{"name":"get_task"},"x"]`,
+		`[]`,
+		`["a","b"]`,
+	} {
+		raw, _ := json.Marshal(map[string]any{"content": content, "toolCalls": []any{}})
+		if got, _ := parseResponse(string(raw)); got.Content != content || len(got.ToolCalls) != 0 {
+			t.Fatalf("content %s was rewritten to %+v", content, got)
+		}
+	}
+}
+
 func TestRenderKeepsSystemAndToolsOutOfTranscript(t *testing.T) {
 	messages := []chat.WireMessage{
 		{Role: "system", Content: "SYSTEM RULES"},

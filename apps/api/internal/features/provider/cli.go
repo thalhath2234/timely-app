@@ -108,6 +108,9 @@ func parseResponse(text string) (chat.WireMessage, error) {
 // person asked for doesn't have that shape and is left alone.
 func nestedResponse(content string) (cliResponse, bool) {
 	content = stripFence(content)
+	if strings.HasPrefix(content, "[") {
+		return bareCalls(content)
+	}
 	if !strings.HasPrefix(content, "{") {
 		return cliResponse{}, false
 	}
@@ -120,6 +123,32 @@ func nestedResponse(content string) (cliResponse, bool) {
 		return cliResponse{}, false
 	}
 	return inner, true
+}
+
+// bareCalls reports whether content is the toolCalls list on its own (seen from
+// Sonnet): a non-empty array whose every item is an object with a non-blank
+// "name" and at most an "arguments" key besides. Any other array is content.
+func bareCalls(content string) (cliResponse, bool) {
+	var items []map[string]json.RawMessage
+	if json.Unmarshal([]byte(content), &items) != nil || len(items) == 0 {
+		return cliResponse{}, false
+	}
+	for _, item := range items {
+		var name string
+		if item == nil || json.Unmarshal(item["name"], &name) != nil || strings.TrimSpace(name) == "" {
+			return cliResponse{}, false
+		}
+		for key := range item {
+			if key != "name" && key != "arguments" {
+				return cliResponse{}, false
+			}
+		}
+	}
+	var out cliResponse
+	if json.Unmarshal([]byte(`{"toolCalls":`+content+`}`), &out) != nil {
+		return cliResponse{}, false
+	}
+	return out, true
 }
 
 // turnHeader finds a line in message text that would read as one of render's
