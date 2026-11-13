@@ -27,6 +27,15 @@ than it still completes (phase 4).
 ``--tool-search off|on`` makes Hermes read ``tools.tool_search.enabled`` as given, whatever the
 managed floor says (the tool_search measurement in ``tests/measure_prompt.py``; never a product path).
 
+``--exec-trap LOG`` installs ``tests/exec_trap.py`` before anything else: every process the worker
+starts is recorded in LOG and a destructive command line is replaced by a harmless stand-in (phase
+5, decision 20). The harness passes it for every host-allowed agent.
+
+``--slow-fence S`` makes the dispatch fence (runtime override R6) wait S seconds before it checks
+whether the run was stopped: the "Stop right after Run once" test lands its Stop in that window.
+
+``--maintenance-s S`` sets the worker's maintenance tick (MCP token read-back) to S seconds.
+
 Everything else is the real boot path: the wrapper loads ``boot.py`` from its own file and
 calls ``boot.main``, so the descriptor move and ``sys.path`` fix run exactly as in production.
 """
@@ -211,6 +220,25 @@ def _install_slow_ledger(action: str, seconds: float) -> None:
     skill_ledger.record_mutation = record_mutation
 
 
+def _install_exec_trap(log: str) -> None:
+    sys.path.insert(0, os.path.dirname(HERE))  # tests/
+    try:
+        import exec_trap
+    finally:
+        sys.path.pop(0)
+    exec_trap.install(log)
+
+
+def _install_slow_fence(seconds: float) -> None:
+    from timely_agent import host
+    host.FENCE_DELAY_S = seconds
+
+
+def _install_maintenance(seconds: float) -> None:
+    from timely_agent import worker
+    worker.MAINTENANCE_S = seconds
+
+
 def main(argv: list[str]) -> int:
     net_log, patches = None, []
     while argv and argv[0].startswith("--"):
@@ -235,6 +263,17 @@ def main(argv: list[str]) -> int:
             patches.append(lambda seconds=seconds: _install_batch_deadline(seconds))
         elif flag == "--sleep-tool":
             patches.append(_install_sleep_tool)
+        elif flag == "--dump-after":  # debugging: every thread's stack to stderr after S seconds
+            import faulthandler
+            faulthandler.dump_traceback_later(float(argv.pop(0)), repeat=False)
+        elif flag == "--exec-trap":
+            _install_exec_trap(argv.pop(0))
+        elif flag == "--slow-fence":
+            seconds = float(argv.pop(0))
+            patches.append(lambda seconds=seconds: _install_slow_fence(seconds))
+        elif flag == "--maintenance-s":
+            seconds = float(argv.pop(0))
+            patches.append(lambda seconds=seconds: _install_maintenance(seconds))
         elif flag == "--tool-search":
             mode = argv.pop(0)
             patches.append(lambda mode=mode: _install_tool_search(mode))

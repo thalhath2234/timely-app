@@ -28,6 +28,12 @@ try:
 except ValueError:
     TIMEOUT_SCALE = 1.0
 TEST_ROOT = TEST_BASE / f"run-{os.getpid()}"  # removed at the end of the session (conftest)
+# Decision 20 (phase 5): the "real" home, working folder and browser profile a worker sees live in a
+# throwaway sandbox, never the owner's own home; removed at the end of the session (conftest).
+SANDBOX_BASE = Path.home() / ".cache" / "p5-sandbox"
+SANDBOX = SANDBOX_BASE / f"pytest-{os.getpid()}"
+PROBE_BOOT = Path(__file__).resolve().parent / "contract" / "probe_boot.py"
+HOST_TOOLSETS = ("terminal", "file", "code_execution", "browser-use", "browser-cdp")
 
 if str(AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(AGENT_DIR))
@@ -65,18 +71,55 @@ def run_cli(command: str, agent_dir: Path, stdin: dict | None = None, *extra: st
     return out
 
 
+def sandbox(name: str) -> Path:
+    """A throwaway sandbox under ``$HOME/.cache/p5-sandbox/pytest-<pid>/<name>``: ``home`` (the
+    worker's "real" home, with empty dotfiles), ``work`` (a working folder)."""
+    root = SANDBOX / name
+    for sub in ("home", "work"):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+    for dotfile in (".gitconfig", ".bashrc"):
+        (root / "home" / dotfile).touch()
+    return root
+
+
+def host_settings(box: Path, **over: Any) -> dict:
+    """What Go sends for a host-allowed account whose folders are the sandbox's."""
+    settings = {"host_allowed": True, "terminal_home_mode": "real", "working_dir": str(box / "work"),
+                "checkpoints": True, "browser": {"use_real_profile": False}}
+    settings.update(over)
+    return settings
+
+
 class Agent:
-    """A prepared agent folder with one rendered account."""
+    """A prepared agent folder with one rendered account. ``host=True`` renders it host-allowed
+    (real home and working folder in the sandbox, checkpoints on) and starts its workers under
+    the exec trap."""
 
     def __init__(self, root: Path, account: str = "user-1", settings: dict | None = None,
-                 prepare_opts: dict | None = None):
+                 prepare_opts: dict | None = None, host: bool = False):
         self.root = root
         self.dir = root / "agent"
         self.account = account
         self.layout = paths.AgentLayout.at(self.dir)
+        self.box = sandbox(root.name)
+        self.host = host
+        self.trap_log = root / "exec-trap.jsonl"
         self.prepared = run_cli("prepare", self.dir, prepare_opts or {})
         assert self.prepared.get("ok"), self.prepared
-        self.render(settings or {})
+        self.render({**host_settings(self.box), **(settings or {})} if host else (settings or {}))
+
+    @property
+    def real_home(self) -> Path:
+        return self.box / "home"
+
+    @property
+    def work(self) -> Path:
+        """The terminal's folder: the sandbox working folder (host agents), else the workspace."""
+        return self.box / "work" if self.host else self.home / "workspace"
+
+    def argv(self, *flags: str) -> list[str]:
+        """The worker command line: under the exec trap (and any probe_boot flags)."""
+        return [python(), "-I", str(PROBE_BOOT), "--exec-trap", str(self.trap_log), *flags, "worker"]
 
     def render(self, settings: dict) -> dict:
         # what Go passes from prepare's answer (PrepareResult), never runtime/prepared.json
@@ -98,7 +141,7 @@ class Agent:
         env.update(self.rendered["env"])
         env["TMPDIR"] = str(self.root / "tmp")
         (self.root / "tmp").mkdir(exist_ok=True)
-        env["HERMES_REAL_HOME"] = str(self.root / "real-home")
+        env["HERMES_REAL_HOME"] = str(self.real_home)
         if os.name == "nt":
             # What Go's BuildEnv adds on Windows: CPython finds the home folder
             # through USERPROFILE (not HOME), and Hermes' Windows bootstrap would
@@ -227,6 +270,8 @@ def timely_tools(names: list[str] | None = None) -> dict:
 
 def ready_worker(agent: Agent, argv: list[str] | None = None, hello: dict | None = None,
                  **env_extra: str) -> tuple[Worker, dict]:
+    if argv is None and agent.host:
+        argv = agent.argv()
     w = Worker(agent.env(**env_extra), argv)
     w.send(agent.hello(**(hello or {})))
     ready, _ = w.until("ready", timeout=120)
@@ -278,9 +323,11 @@ def run_start(agent: Agent, stub, run_id: str = "r1", text: str = "hello", conve
            "conversation_id": conversation, "session_key": f"timely:{agent.account}:{conversation}",
            "user_message": text, "model": model_cfg(stub), "toolsets": toolsets if toolsets is not None else [],
            "flags": {}, "budgets": {"max_iterations": 6}, "tainted_sources": []}
+    if any(t in HOST_TOOLSETS for t in msg["toolsets"]):
+        msg["flags"] = {"host_allowed": True}  # what Go sends with host toolsets
     msg.update(extra)
     return msg
 
 
-__all__ = ["Agent", "Worker", "ready_worker", "run_start", "new_root", "run_cli", "python", "env_check",
+__all__ = ["Agent", "sandbox", "host_settings", "SANDBOX", "Worker", "ready_worker", "run_start", "new_root", "run_cli", "python", "env_check",
            "timely_tools", "drive", "go_answer"]

@@ -82,6 +82,7 @@ def scenarios() -> list[dict]:
          "steer_on_tool_call": "STEER also add eggs",
          "description": "run.steer while a tool.call waits on Go: ack ok, the reply follows the steer."},
         {"name": "blocked_non_timely_tool", "toolsets": harness.PHASE2_TOOLSETS + ["file"],
+         "flags": {"learning_writes": False, "host_allowed": True},  # phase 5: host toolsets need it
          "text": 'CALL read_file {"path": "notes.txt"}',
          "description": "A Hermes tool outside the local allow list and the timely toolset (read_file, "
                         "offered here only to reach the gate; phase 3 decides session_search and phase 4 "
@@ -112,7 +113,7 @@ def scenarios() -> list[dict]:
 def record(out: Path, only: set[str] | None = None) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     stub = StubServer().start()
-    agent = harness.Agent(harness.new_root("fixtures"), account=ACCOUNT)
+    agent = harness.Agent(harness.new_root("fixtures"), account=ACCOUNT, host=True)
     worker, ready = harness.ready_worker(agent, hello={"timely_tools": harness.timely_tools()})
     manifest: dict = {"account": ACCOUNT, "catalog_version": ready.get("timely_tools", {}).get("catalog_version"),
                       "hermes_tag": ready.get("hermes_tag"), "scenarios": {}}

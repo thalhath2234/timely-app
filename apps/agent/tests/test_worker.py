@@ -285,7 +285,7 @@ def test_shutdown_grace_lets_a_run_waiting_on_go_finish(stub):
     verdict and finishes its turn. The worker used to handle shutdown on its only reader thread,
     so the verdict sat unread for the whole grace and the run ended interrupted."""
     import time
-    a = harness.Agent(harness.new_root("grace"))
+    a = harness.Agent(harness.new_root("grace"), host=True)
     w, ready = harness.ready_worker(a)
     try:
         assert ready["self_test"]["ok"], ready["self_test"]
