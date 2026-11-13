@@ -7,6 +7,7 @@ import type {
 } from "@timely/contract/agentChat";
 import {
   chatRequest,
+  isChatGone,
   deleteChat,
   getChatSettings,
   patchChatSettings,
@@ -53,6 +54,8 @@ export function useChat(id?: string | null) {
       return chat;
     },
     enabled: !!id,
+    // A deleted chat answers 404 for good: show it at once, do not retry.
+    retry: (count, error) => !isChatGone(error) && count < 3,
     refetchInterval: (q) =>
       !streaming && isBusy(q.state.data?.status) ? 1500 : IDLE_POLL,
     refetchOnWindowFocus: true,

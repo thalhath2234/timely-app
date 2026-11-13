@@ -169,6 +169,12 @@ function withTimezone(path: string, method: string, body: unknown) {
     : body;
 }
 
+/** A chat request that answered 404: the conversation is gone (deleted elsewhere). */
+export const isChatGone = (error: unknown): boolean =>
+  !!error &&
+  typeof error === "object" &&
+  (error as { status?: unknown }).status === 404;
+
 export async function chatRequest<T>(
   path: string,
   method = "GET",
@@ -182,8 +188,12 @@ export async function chatRequest<T>(
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({}));
-    throw new Error(
-      error.message || "Couldn't update this conversation. Try again.",
+    // The status travels with the error: a 404 on a chat means it was deleted.
+    throw Object.assign(
+      new Error(
+        error.message || "Couldn't update this conversation. Try again.",
+      ),
+      { status: res.status },
     );
   }
   return res.status === 204 ? (undefined as T) : res.json();

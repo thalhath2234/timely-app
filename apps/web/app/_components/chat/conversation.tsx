@@ -26,6 +26,7 @@ import TimelyLogo, {
 import {
   answerQuestion,
   chatRequest,
+  isChatGone,
   type BotTag,
   type Chat,
   type ChatContext,
@@ -98,20 +99,22 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium",
+        "inline-flex min-w-0 shrink items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium",
         toneClass[meta.tone],
       )}
     >
       {meta.spin ? (
         <LogoSpinner size={12} tone="mono" label={meta.label} />
       ) : (
-        <Icon className="size-3" />
+        <Icon className="size-3 shrink-0" />
       )}
-      {status === "running" &&
-      phase === "apply" &&
-      !questionWaiting({ status, question })
-        ? "Applying"
-        : meta.label}
+      <span className="truncate">
+        {status === "running" &&
+        phase === "apply" &&
+        !questionWaiting({ status, question })
+          ? "Applying"
+          : meta.label}
+      </span>
     </span>
   );
 }
@@ -170,7 +173,8 @@ export default function Conversation({
     Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const router = useRouter();
-  const chat = query.data;
+  // Deleted on another device: the cached copy is stale; the screen says it cannot load.
+  const chat = isChatGone(query.error) ? undefined : query.data;
   const settings = useChatSettings().data;
   const defaultMode: PermissionMode = settings?.chatPermission ?? "supervised";
   // A new chat's own mode; unset starts it on the account default.
@@ -573,7 +577,7 @@ export default function Conversation({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-sm font-semibold tracking-tight">
+              <h1 className="min-w-[6rem] truncate text-sm font-semibold tracking-tight">
                 {title || (
                   <span className="text-muted-foreground">Loading…</span>
                 )}
