@@ -37,7 +37,10 @@ type Result struct {
 	AfterApprove string `json:"afterApprove,omitempty"`
 	// Trace is the tool calls seen while the run was live: the agent
 	// engine's activity lines, and with -dsn classic's transcript.
-	Trace   []string `json:"trace,omitempty"`
+	Trace []string `json:"trace,omitempty"`
+	// Asked is what the agent engine's question cards asked; the harness
+	// stops a run at its card, which then counts as the turn's reply.
+	Asked   []string `json:"asked,omitempty"`
 	Seconds float64  `json:"seconds"`
 	Pass    bool     `json:"pass"`
 	Why     []string `json:"why,omitempty"`
@@ -256,6 +259,10 @@ func Markdown(runs []EngineRun, scenarios []Scenario) string {
 				mark = "FAIL"
 			}
 			text := mark + " " + outcome(res)
+			if len(res.Asked) > 0 {
+				// The same ending as a question reply, asked on a card.
+				text += " (question card)"
+			}
 			if !res.Pass {
 				text += ": " + strings.Join(res.Why, "; ")
 			}
