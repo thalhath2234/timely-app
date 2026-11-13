@@ -78,6 +78,7 @@ import {
 } from "../../lib/hooks";
 import { offersDontLearn } from "../../lib/chat/learning";
 import { getLearningEvents } from "../../lib/api/learning";
+import { ApiError } from "../../lib/api/client";
 import { chipUndoAlso } from "@timely/contract/agentLearning";
 import { ChatMenuSheet } from "./LearningCards";
 import { questionWaiting, type PermissionMode, type QuestionAnswer } from "@timely/contract/agentChat";
@@ -107,6 +108,9 @@ import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
 
 type Page = "chat" | "history" | "proposal" | "receipt";
+
+/** A chat deleted on another device: its detail answers 404 for good. */
+const isChatGone = (reason: unknown) => reason instanceof ApiError && reason.status === 404;
 
 export default function Assistant() {
   const assistant = useAssistant();
@@ -153,6 +157,8 @@ export default function Assistant() {
     refetchOnMount: "always",
     queryKey: detailKey,
     queryFn: () => chatRequest<Chat>(`/${encodeURIComponent(id ?? "")}`),
+    // A chat deleted on another device answers 404 for good.
+    retry: (count, reason) => !isChatGone(reason) && count < 3,
     enabled: !!id && assistant.visible && assistant.foreground && !offline,
     initialData: id ? assistant.cache.conversations[id] : undefined,
     refetchInterval: (q) =>
@@ -172,7 +178,9 @@ export default function Assistant() {
     refetchInterval:
       assistant.foreground && !offline && page === "history" ? 5000 : 15000,
   });
-  const chat = id ? query.data : undefined;
+  // Deleted elsewhere: the cached copy is stale, the screen shows its not-found card.
+  const gone = isChatGone(query.error);
+  const chat = id && !gone ? query.data : undefined;
   const busy = isBusy(chat?.status);
   // The live run waits on a question card; a message sent now answers it.
   const asking = questionWaiting(chat);
@@ -534,8 +542,9 @@ export default function Assistant() {
       void queryClient.invalidateQueries({ queryKey: listKey });
       setError("");
     },
-    onError: (reason) => {
-      setError(reason.message);
+    // The reason shows on the card it was for (QuestionCard's error), not
+    // screen-wide: a card that closed meanwhile says how in the thread.
+    onError: () => {
       void query.refetch();
     },
   });
@@ -1061,13 +1070,13 @@ export default function Assistant() {
           : chat?.title || "New conversation";
   const subtitle = offline
     ? "Offline · drafts and cached history"
-    : asking && page === "chat"
+    : page === "history"
+      ? `${list.data?.length ?? 0} ${list.data?.length === 1 ? "conversation" : "conversations"}`
+      : asking && page === "chat"
       ? QUESTION_WAITING_LINE
       : busy
       ? phaseLabel(chat?.phase)
-      : page === "history"
-        ? `${list.data?.length ?? 0} ${list.data?.length === 1 ? "conversation" : "conversations"}`
-        : page === "receipt"
+      : page === "receipt"
           ? "Step 1 of 2 · Check details"
           : receiptConfirmation
             ? "Step 2 of 2 · Confirm and save"
@@ -1389,6 +1398,11 @@ export default function Assistant() {
                       key={chat.question.requestId}
                       question={chat.question}
                       sending={answerMutation.isPending ? (answerMutation.variables?.skip ? "skip" : "answer") : null}
+                      error={
+                        answerMutation.isError && answerMutation.variables?.requestId === chat.question.requestId
+                          ? answerMutation.error.message
+                          : undefined
+                      }
                       onAnswer={
                         offline ? undefined : (answers) => answerMutation.mutate({ requestId: chat.question!.requestId!, answers })
                       }

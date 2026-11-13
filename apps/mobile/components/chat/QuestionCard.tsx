@@ -532,7 +532,8 @@ const styles = createThemedStyleSheet((colors) => ({
     borderColor: `${colors.primary}99`,
     backgroundColor: `${colors.primary}12`,
   },
-  rowText: { flex: 1, color: colors.foreground, fontSize: 14, lineHeight: 19 },
+  // minWidth 0: a long unbroken choice wraps inside its row (flex items keep min-width:auto on web).
+  rowText: { flex: 1, flexShrink: 1, minWidth: 0, color: colors.foreground, fontSize: 14, lineHeight: 19 },
   placeholder: { color: colors.mutedForeground },
   mark: {
     width: 18,

@@ -75,6 +75,7 @@ export const SheetOption=({children,onSelect,leading})=><Pressable accessibility
 stub(
   "lib/api/chat",
   `
+import {ApiError} from "./client";
 const now=Date.now();
 const iso=(minutesAgo)=>new Date(now-minutesAgo*60000).toISOString();
 const plan=()=>[
@@ -130,6 +131,8 @@ const chats={
  asking:asking("asking","Team offsite","req-q",questions3),
  // A long thread, so the tall card below it has to be scrolled to.
  asktall:{...asking("asktall","Plan the offsite in detail","req-tall",questions3),messages:Array.from({length:10},(_,i)=>({id:"tall"+i,role:i%2?"assistant":"user",content:i%2?"Here is what I found for that part of the plan. The hall seats sixty, the garden is free on Tuesday and the library needs a day's notice before anyone can use it.":"Please check the next part of the plan for the offsite and tell me what is left open.",createdAt:iso(60-i)}))},
+ asklong:asking("asklong","Name the colour","req-long",[{qid:"q0",question:"Which one?",choices:["supercalifragilisticexpialidocioussupercalifragilisticexpialidociousword","Plain"],recommended:null,multiSelect:false}]),
+ askdel:asking("askdel","Sort out the garage","req-del",[questions3[0]]),
  askskip:asking("askskip","Dentist visit","req-s",[questions3[0]]),
  asktype:asking("asktype","Book the flights","req-t",[questions3[2]]),
  asklate:{...asking("asklate","Pick a caterer","req-late",[questions3[0]]),question:{requestId:"req-late",run:"run_asklate",questions:[questions3[0]],askedAt:iso(9),expiresAt:new Date(now+40000).toISOString()}},
@@ -174,7 +177,7 @@ async function answer(path,method,body){
  const action=match?match[2]:"";
  if(method==="POST"&&path===""){const id="new"+Date.now();chats[id]={id,title:body.content.slice(0,70),status:"queued",phase:"plan",webSearch:body.webSearch,context:body.context||[],revision:1,unread:false,error:"",createdAt:iso(0),updatedAt:iso(0),plan:[],messages:[{id:"u",role:"user",content:body.content,createdAt:iso(0)}]};return structuredClone(chats[id]);}
  if(!path)return Object.values(chats).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).map(summary);
- if(!chat)throw new Error("Conversation not found");
+ if(!chat||window.auditGone?.includes(chat.id))throw new ApiError("Conversation not found",404);
  if(method==="DELETE"){delete chats[chat.id];return;}
  if(method!=="GET")await new Promise(r=>setTimeout(r,window.auditLatency||0));
  if(method==="PATCH"&&window.auditFailPatch)throw new Error("Wait or stop before changing context");
@@ -774,9 +777,37 @@ else {
     await late.getByText(/^\d+ s left$/).waitFor();
     await late.getByLabel("Mon").click();
     await page.getByTestId("question-send").click();
-    await page.getByText("This question was already closed").waitFor();
     await page.getByTestId("question-closed-expired").waitFor();
+    // The reason belongs to the card it was for: it goes with the card.
+    assert.equal(
+      await page.getByText("This question was already closed").count(),
+      0,
+      "a stale answer's alert stayed under the thread after its card closed",
+    );
     await page.evaluate(() => (window.auditStaleAnswer = false));
+    // The history header counts conversations while a card waits; it does not claim the run is thinking.
+    await page.goto(`${origin}/?chat=asking`);
+    await page.getByTestId("question-card").waitFor();
+    await page.getByLabel(/Chat history/).click();
+    await page.getByText(/^\d+ conversations?$/).waitFor();
+    assert.equal(await page.getByText("Thinking it through…").count(), 0, "the history header says the run is thinking");
+    // A long unbroken choice wraps inside its row.
+    await page.goto(`${origin}/?chat=asklong`);
+    const longChoice = page.getByTestId("question-card").getByText(/^supercalifragilistic/);
+    await longChoice.waitFor();
+    const longBox = await longChoice.boundingBox();
+    const longCard = await page.getByTestId("question-card").boundingBox();
+    assert.ok(
+      longBox.x + longBox.width <= longCard.x + longCard.width + 1,
+      `a long choice runs past its card (${longBox.x + longBox.width} > ${longCard.x + longCard.width})`,
+    );
+    // A chat deleted on another device while its card waits: the card goes, the screen says it is gone.
+    await page.goto(`${origin}/?chat=askdel`);
+    await page.getByTestId("question-card").waitFor();
+    await page.evaluate(() => (window.auditGone = ["askdel"]));
+    await page.getByText("Couldn't load this conversation").waitFor({ timeout: 8000 });
+    await expect(page.getByTestId("question-card")).toHaveCount(0);
+    await page.evaluate(() => (window.auditGone = []));
     // Every closed state, light and dark, at 390 wide.
     for (const scheme of ["dark", "light"]) {
       await page.setViewportSize({ width: 390, height: 844 });
@@ -793,6 +824,9 @@ else {
       await page.getByTestId("question-card").screenshot({ path: `/tmp/timely-mobile-question-sending-${scheme}.png` });
       await page.evaluate(() => (window.auditLatency = 0));
       await page.getByTestId("question-closed-answered").last().waitFor();
+      await page.goto(`${origin}/?chat=asklong`);
+      await page.getByTestId("question-card").waitFor();
+      await page.screenshot({ path: `/tmp/timely-mobile-question-long-${scheme}.png` });
       await page.goto(`${origin}/?chat=asked`);
       for (const state of ["answered", "skipped", "expired", "stopped"]) await page.getByTestId(`question-closed-${state}`).waitFor();
       await page.screenshot({ path: `/tmp/timely-mobile-question-closed-${scheme}.png`, fullPage: true });
@@ -801,7 +835,7 @@ else {
       await page.getByText("Needs you", { exact: true }).waitFor();
       await page.screenshot({ path: `/tmp/timely-mobile-question-history-${scheme}.png` });
       questionShots.push(
-        ...["waiting", "sending", "closed", "history"].map((n) => `/tmp/timely-mobile-question-${n}-${scheme}.png`),
+        ...["waiting", "sending", "long", "closed", "history"].map((n) => `/tmp/timely-mobile-question-${n}-${scheme}.png`),
       );
     }
     await page.emulateMedia({ colorScheme: "dark" });
