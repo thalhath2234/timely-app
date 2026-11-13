@@ -183,6 +183,11 @@ describe("question cards", () => {
     assert.equal(questionSecondsLeft(card, Date.parse("2026-11-13T09:00:00Z")), 600);
     assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:00:00Z")), "10 min left");
     assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:09:15Z")), "45 s left");
+    // Minutes round down: 61 s left is "1 min", never "2 min" (the card would expire a minute early).
+    assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:08:59Z")), "1 min left");
+    assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:08:00Z")), "2 min left");
+    assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:00:01Z")), "9 min left");
+    assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:09:01Z")), "59 s left");
     assert.equal(questionSecondsLeft(card, new Date("2026-11-13T09:20:00Z")), 0);
     assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:20:00Z")), "");
     assert.equal(questionSecondsLeft({}, Date.now()), null);

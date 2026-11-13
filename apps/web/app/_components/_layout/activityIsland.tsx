@@ -174,12 +174,15 @@ export default function ActivityIsland() {
     pomodoros.length +
     (scheduling ? 1 : 0);
   const expanded = open && count > 0;
-  const anyBusy = chatItems.some((c) => isBusy(c.status));
+  // A chat waiting on a question card is not working: the pill does not spin
+  // for it, and its arrival counts as the run "stopping" for the bounce.
+  const working = (c: ChatItem) => isBusy(c.status) && !questionWaiting(c);
+  const anyBusy = chatItems.some(working);
 
   // An Agent run that stops working (or a sent chat first seen already done)
   // gets the person's attention. The first poll only records what is there.
   const busyKey = chatItems
-    .map((c) => `${c.id}:${isBusy(c.status) ? 1 : 0}`)
+    .map((c) => `${c.id}:${working(c) ? 1 : 0}`)
     .join(",");
   const [lastBusyKey, setLastBusyKey] = useState<string | null>(null);
   if (chats && busyKey !== lastBusyKey) {
@@ -196,7 +199,7 @@ export default function ActivityIsland() {
       );
       const finished = chatItems.some(
         (c) =>
-          !isBusy(c.status) &&
+          !working(c) &&
           (previous.get(c.id) ??
             (tracked.includes(c.id) && !previous.has(c.id))),
       );

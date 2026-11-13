@@ -295,11 +295,12 @@ export function questionSecondsLeft(question: ChatQuestion | null | undefined, n
   return Math.max(0, Math.ceil((expires - at) / 1000));
 }
 
-/** "9 min left", "45 s left", or "" once it passed (the card then waits for the worker to close it). */
+/** "9 min left", "45 s left", or "" once it passed (the card then waits for the worker to close it).
+ * Minutes round down: the label never promises more time than is left. */
 export function questionTimeLeft(question: ChatQuestion | null | undefined, now: Date | number = Date.now()): string {
   const left = questionSecondsLeft(question, now);
   if (left === null || left <= 0) return "";
-  return left >= 60 ? `${Math.ceil(left / 60)} min left` : `${left} s left`;
+  return left >= 60 ? `${Math.floor(left / 60)} min left` : `${left} s left`;
 }
 
 /** The answers to send, cleaned the way the server takes them: text trimmed,
