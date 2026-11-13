@@ -128,6 +128,8 @@ const chats={
  learned:{id:"learned",title:"Import my bank CSV",status:"idle",phase:"plan",webSearch:false,engine:"",runEngine:"agent",context:[],revision:3,unread:false,error:"",createdAt:iso(12),updatedAt:iso(11),plan:[],messages:[{id:"lr1",role:"user",content:"Import this month's bank CSV into my budget sheet",createdAt:iso(12)},{id:"lr2",role:"assistant",engine:"agent",agentRun:"run_l1",content:"Imported 42 rows into Budget. I noted how your bank lays out its CSV, so next time is quicker.",createdAt:iso(11)}]},
  running:{id:"running",title:"Plan my week",status:"running",phase:"plan",webSearch:false,context:[],revision:1,unread:false,error:"",createdAt:iso(1),updatedAt:iso(1),plan:[],messages:[{id:"r1",role:"user",content:"Help me plan this week.",createdAt:iso(1)}]},
  asking:asking("asking","Team offsite","req-q",questions3),
+ // A long thread, so the tall card below it has to be scrolled to.
+ asktall:{...asking("asktall","Plan the offsite in detail","req-tall",questions3),messages:Array.from({length:10},(_,i)=>({id:"tall"+i,role:i%2?"assistant":"user",content:i%2?"Here is what I found for that part of the plan. The hall seats sixty, the garden is free on Tuesday and the library needs a day's notice before anyone can use it.":"Please check the next part of the plan for the offsite and tell me what is left open.",createdAt:iso(60-i)}))},
  askskip:asking("askskip","Dentist visit","req-s",[questions3[0]]),
  asktype:asking("asktype","Book the flights","req-t",[questions3[2]]),
  asklate:{...asking("asklate","Pick a caterer","req-late",[questions3[0]]),question:{requestId:"req-late",run:"run_asklate",questions:[questions3[0]],askedAt:iso(9),expiresAt:new Date(now+40000).toISOString()}},
@@ -268,7 +270,7 @@ const server = createServer(async (req, res) => {
   }
   res.setHeader("content-type", "text/html");
   res.end(
-    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mobile assistant audit</title><style>html,body,#root{margin:0;height:100%;background:#111319}#root{max-width:430px;height:100%;margin:auto}</style><div id="root"></div><script src="/app.js"></script>',
+    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mobile assistant audit</title><style>html,body,#root{margin:0;height:100%;background:#111319}#root{max-width:430px;height:100%;margin:auto;display:flex;flex-direction:column}#root>*{flex:1;min-height:0}</style><div id="root"></div><script src="/app.js"></script>',
   );
 }).listen(port, "0.0.0.0");
 console.log(
@@ -688,6 +690,23 @@ else {
     await askingRow.getByText("Needs your answer").waitFor();
     await askingRow.click();
     const card = page.getByTestId("question-card");
+    await card.waitFor();
+    // A card taller than most of the screen arrives with its top in view (title,
+    // time left, first question), not scrolled to its last options.
+    await page.goto(`${origin}/?chat=asktall`);
+    const tall = page.getByTestId("question-card");
+    await tall.waitFor();
+    await page.waitForTimeout(2200);
+    const tallTop = await tall.getByText("Timely needs an answer").boundingBox();
+    assert(
+      tallTop && tallTop.y >= 0 && tallTop.y < 200,
+      `a tall card did not show its top first: ${JSON.stringify(tallTop)}`,
+    );
+    await tall.getByText("Which day works for the offsite?").waitFor();
+    await page.screenshot({ path: "/tmp/timely-mobile-tall-card.png" });
+    await page.goto(`${origin}/`);
+    await page.getByLabel(/Chat history/).click();
+    await page.getByLabel("Open Team offsite").click();
     await card.waitFor();
     await page.getByText("Needs your answer", { exact: true }).first().waitFor();
     await page.getByText("Waiting for your answer").first().waitFor();

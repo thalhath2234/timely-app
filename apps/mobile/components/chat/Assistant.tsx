@@ -357,19 +357,27 @@ export default function Assistant() {
     scroll.current?.scrollTo({ y: 0, animated: false });
   }, [page]);
   // A question card arrives with the run still "running" and no new message,
-  // and it lays out after the effect runs: keep the thread at its end for a
-  // moment so the card, and its buttons, end up in view.
+  // and it lays out after the effect runs: for a moment keep the thread at its
+  // end so the card, and its buttons, end up in view. A card taller than most
+  // of the screen shows its top first (its title, the time left and the first
+  // question), as on the web.
   const followCardUntil = useRef(0);
+  const viewportHeight = useRef(0);
+  const cardBox = useRef<{ y: number; height: number } | null>(null);
   const followCard = () => {
-    if (page === "chat" && Date.now() < followCardUntil.current)
-      scroll.current?.scrollToEnd({ animated: false });
+    if (page !== "chat" || Date.now() >= followCardUntil.current) return;
+    const box = cardBox.current;
+    if (box && viewportHeight.current > 0 && box.height > viewportHeight.current * 0.6)
+      scroll.current?.scrollTo({ y: Math.max(0, box.y - 8), animated: false });
+    else scroll.current?.scrollToEnd({ animated: false });
   };
   const questionId = asking ? chat?.question?.requestId : undefined;
   useEffect(() => {
+    cardBox.current = null;
     if (questionId) followCardUntil.current = Date.now() + 1500;
   }, [questionId]);
   useEffect(() => {
-    if (page === "chat") scroll.current?.scrollToEnd({ animated: true });
+    if (page === "chat" && !questionId) scroll.current?.scrollToEnd({ animated: true });
   }, [chat?.messages?.length, chat?.status, questionId]);
 
   const scope = { id: `chat:${id}` };
@@ -1180,7 +1188,10 @@ export default function Assistant() {
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.content}
               onContentSizeChange={followCard}
-              onLayout={followCard}
+              onLayout={(e) => {
+                viewportHeight.current = e.nativeEvent.layout.height;
+                followCard();
+              }}
             >
               {page === "receipt" && chat && review?.receipt ? (
                 <ReceiptReview
@@ -1367,6 +1378,13 @@ export default function Assistant() {
                     <RunStatus chat={chat} />
                   ) : null}
                   {asking && chat?.question?.requestId ? (
+                    <View
+                      onLayout={(e) => {
+                        const { y, height } = e.nativeEvent.layout;
+                        cardBox.current = { y, height };
+                        followCard();
+                      }}
+                    >
                     <QuestionCard
                       key={chat.question.requestId}
                       question={chat.question}
@@ -1376,6 +1394,7 @@ export default function Assistant() {
                       }
                       onSkip={offline ? undefined : () => answerMutation.mutate({ requestId: chat.question!.requestId!, skip: true })}
                     />
+                    </View>
                   ) : null}
                   {chat ? (
                     <FailureCard
