@@ -10,6 +10,10 @@ import SegmentedControl from "@/app/_components/_ui/segmentedControl";
 import { GroupHint, GroupLabel, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
 import { usePatchChatSettings } from "@/app/utils/hooks/chat";
 
+/** Claude Code and Codex are not Classic-only: New runs them through this
+ * server's own CLI and its sign-in (phase 2 gateway, Q-4.1). */
+const CLI_ON_NEW = "Claude Code and Codex work on both, through this server’s CLI.";
+
 /**
  * Settings → Agent → Engine (Q-2.2): which engine new runs use, Classic
  * until the person picks New. When New cannot run here, a row says why;
@@ -54,7 +58,7 @@ export default function EngineGroup({ settings }: { settings: AgentChatSettings 
           ? patch.error.message
           : engine === "agent" && !settings.engineAvailable
             ? "Chats on New stop with “Use classic for this chat” until it can run."
-            : `${ENGINE_COPY[engine].description} Private photo chats and applying changes always run on Classic.`}
+            : `${ENGINE_COPY[engine].description} ${CLI_ON_NEW} Private photo chats and applying changes always run on Classic.`}
       </GroupHint>
     </div>
   );

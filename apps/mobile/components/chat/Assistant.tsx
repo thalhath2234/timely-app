@@ -34,6 +34,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FS from "expo-file-system/legacy";
 import { useAuth } from "../../lib/auth/AuthProvider";
 import {
+  answerQuestion,
   chatRequest,
   configureChatAgent,
   deleteChat,
@@ -79,7 +80,9 @@ import { offersDontLearn } from "../../lib/chat/learning";
 import { getLearningEvents } from "../../lib/api/learning";
 import { chipUndoAlso } from "@timely/contract/agentLearning";
 import { ChatMenuSheet } from "./LearningCards";
-import type { PermissionMode } from "@timely/contract/agentChat";
+import { questionWaiting, type PermissionMode, type QuestionAnswer } from "@timely/contract/agentChat";
+import { QUESTION_PLACEHOLDER, QUESTION_WAITING_LINE } from "../../lib/chat/question";
+import QuestionCard from "./QuestionCard";
 import {
   agentRunLive,
   composerMode,
@@ -171,6 +174,8 @@ export default function Assistant() {
   });
   const chat = id ? query.data : undefined;
   const busy = isBusy(chat?.status);
+  // The live run waits on a question card; a message sent now answers it.
+  const asking = questionWaiting(chat);
   // What the agent learned in this chat (plan 9b.4): an older server
   // without /agent/learning answers 404 and no chip or card shows.
   const learningSettings = useLearningSettingsQuery(
@@ -491,6 +496,22 @@ export default function Assistant() {
       undoChatChange(id ?? "", chat?.revision ?? 0, message.id),
     onSuccess: (next) => {
       queryClient.setQueryData(detailKey, next);
+      setError("");
+    },
+    onError: (reason) => {
+      setError(reason.message);
+      void query.refetch();
+    },
+  });
+  // The question card's Send answer and Skip; a card that closed meanwhile
+  // (409) refetches, so the thread shows how it closed.
+  const answerMutation = useMutation({
+    scope,
+    mutationFn: (input: { requestId: string; answers?: Record<string, QuestionAnswer>; skip?: boolean }) =>
+      answerQuestion(id ?? "", input),
+    onSuccess: (next) => {
+      queryClient.setQueryData(detailKey, next);
+      void queryClient.invalidateQueries({ queryKey: listKey });
       setError("");
     },
     onError: (reason) => {
@@ -1020,7 +1041,9 @@ export default function Assistant() {
           : chat?.title || "New conversation";
   const subtitle = offline
     ? "Offline · drafts and cached history"
-    : busy
+    : asking && page === "chat"
+      ? QUESTION_WAITING_LINE
+      : busy
       ? phaseLabel(chat?.phase)
       : page === "history"
         ? `${list.data?.length ?? 0} ${list.data?.length === 1 ? "conversation" : "conversations"}`
@@ -1047,6 +1070,7 @@ export default function Assistant() {
           subtitle={subtitle}
           status={page === "chat" && !preview ? chat?.status : undefined}
           phase={chat?.phase}
+          question={chat?.question}
           back={page !== "chat" || !!preview}
           onBack={close}
           onTitlePress={
@@ -1328,6 +1352,17 @@ export default function Assistant() {
                   ) : chat ? (
                     <RunStatus chat={chat} />
                   ) : null}
+                  {asking && chat?.question?.requestId ? (
+                    <QuestionCard
+                      key={chat.question.requestId}
+                      question={chat.question}
+                      sending={answerMutation.isPending ? (answerMutation.variables?.skip ? "skip" : "answer") : null}
+                      onAnswer={
+                        offline ? undefined : (answers) => answerMutation.mutate({ requestId: chat.question!.requestId!, answers })
+                      }
+                      onSkip={offline ? undefined : () => answerMutation.mutate({ requestId: chat.question!.requestId!, skip: true })}
+                    />
+                  ) : null}
                   {chat ? (
                     <FailureCard
                       chat={chat}
@@ -1356,7 +1391,9 @@ export default function Assistant() {
                 placeholder={
                   draft.images.length
                     ? "Add a note (optional)…"
-                    : steering
+                    : asking
+                      ? QUESTION_PLACEHOLDER
+                      : steering
                       ? "Add something while it works…"
                       : chat?.status === "approval"
                         ? isBotPlan(chat.plan)
@@ -1389,6 +1426,7 @@ export default function Assistant() {
                 onSend={() => void send()}
                 onStop={() => act("/stop")}
                 steering={steering}
+                answering={asking}
                 permissionHint={permissionHint(permission)}
                 hasDraft={hasDraft}
                 onDiscardDraft={() => setConfirmDiscard(true)}

@@ -3,8 +3,11 @@ import { GENUI_CAPABILITY } from "@timely/contract/genui";
 import type {
   AgentChatSettings,
   AgentChatSettingsPatch,
+  AnsweredQuestion,
+  AnswerQuestionInput,
   ChatActivity,
   ChatEngine,
+  ChatQuestion,
   PermissionMode,
 } from "@timely/contract/agentChat";
 import { apiFetch } from "./client";
@@ -34,10 +37,17 @@ export type ChatStatus =
   | "stopped";
 /**
  * "" is a turn, "notice" a run event, "archive" a superseded or discarded
- * plan, "similar" a pointer to an earlier chat about the same request, and
- * "steer" what the person said to a live agent run while it worked.
+ * plan, "similar" a pointer to an earlier chat about the same request,
+ * "steer" what the person said to a live agent run while it worked, and
+ * "question" a question card the agent asked, with what came back.
  */
-export type ChatMessageKind = "" | "notice" | "archive" | "similar" | "steer";
+export type ChatMessageKind =
+  | ""
+  | "notice"
+  | "archive"
+  | "similar"
+  | "steer"
+  | "question";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -70,6 +80,8 @@ export type ChatMessage = {
   /** When its Undo was asked for, and the notice that records it. */
   undoneAt?: string;
   undoMessageId?: string;
+  /** A "question" message's card: what was asked and answered, and how its wait ended. */
+  question?: AnsweredQuestion;
 };
 /** A bot picked in the composer's @-picker, sent as `botTags` with one message. */
 export type BotTag = { id: string; name: string };
@@ -85,6 +97,8 @@ export type ChatSummary = {
   error: string;
   /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
   errorCode?: string;
+  /** The question card the live run waits on; `{}` when none waits. */
+  question?: ChatQuestion;
   updatedAt: string;
   createdAt: string;
 };
@@ -127,6 +141,8 @@ export type Chat = {
   noLearning?: boolean;
   /** A live agent run's lines and the reply streamed so far. */
   activity?: ChatActivity;
+  /** The question card the live run waits on (status stays running); `{}` when none waits. */
+  question?: ChatQuestion;
   /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
   errorCode?: string;
   updatedAt: string;
@@ -183,6 +199,13 @@ export const deleteChat = (id: string) =>
 /** Says something to a live agent run; it reads it before its next step. */
 export const steerChat = (id: string, text: string) =>
   chatRequest<Chat>(`/${encodeURIComponent(id)}/steer`, "POST", { text });
+
+/**
+ * Answers the question card the live run waits on, or skips it. 409 "This
+ * question was already closed" once the card no longer waits.
+ */
+export const answerQuestion = (id: string, input: AnswerQuestionInput) =>
+  chatRequest<Chat>(`/${encodeURIComponent(id)}/answer`, "POST", input);
 
 /** Puts back what an auto-applied proposal changed (messageId is its summary). */
 export const undoChange = (id: string, revision: number, messageId: string) =>

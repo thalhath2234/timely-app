@@ -42,6 +42,7 @@ import { LogoSpinner } from "../ui/TimelyLogo";
 import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from "../../lib/hooks";
 import { readyProviders } from "./ModelSheet";
 import { AutoAppliedCard } from "./AgentRun";
+import { ClosedQuestionCard } from "./QuestionCard";
 import { KeepCard, LearningChip, NotLearningLine } from "./LearningCards";
 import { autoCardArchives, offersUseClassic } from "../../lib/chat/agentRun";
 import {
@@ -394,6 +395,19 @@ export default function Thread({
               shownByCards.has(message.id) ? null : (
                 <Archive message={message} onReview={onReviewArchive} />
               )
+            ) : message.kind === "question" && message.question ? (
+              // A question card whose wait ended: what was asked and answered.
+              <View style={styles.assistantRow}>
+                <View style={styles.avatar}>
+                  <Sparkles size={14} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
+                  <ClosedQuestionCard card={message.question} at={message.createdAt} />
+                  {learning && anchors.has(message.id) ? (
+                    <TurnLearningView turn={turnLearning(learning.events, message)} learning={learning} />
+                  ) : null}
+                </View>
+              </View>
             ) : isUser ? (
               <View style={styles.userWrap}>
                 <View style={styles.userBubble}>

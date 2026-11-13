@@ -15,6 +15,7 @@ import {
   ListFilter,
   LoaderCircle,
   MapPin,
+  MessageCircleQuestionMark,
   MousePointerSquareDashed,
   Search,
   Sun,
@@ -25,6 +26,11 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react";
+import {
+  QUESTION_STATUS_WORD,
+  questionWaiting,
+  type ChatQuestion,
+} from "@timely/contract/agentChat";
 import type { Chat, ChatStep, ChatSummary } from "@/app/utils/api/chat";
 import { fileHref } from "@/app/utils/fileRoutes";
 
@@ -50,12 +56,25 @@ export function isBusy(status?: string) {
   return !!status && busyStatuses.includes(status);
 }
 
-export function statusMeta(status: string): {
+/**
+ * A chat's status word, tone and icon. A running chat whose run waits on a
+ * question card reads "Needs your answer" (pass its `question`).
+ */
+export function statusMeta(
+  status: string,
+  question?: ChatQuestion | null,
+): {
   label: string;
   tone: "primary" | "warning" | "destructive" | "muted";
   icon: LucideIcon;
   spin?: boolean;
 } {
+  if (questionWaiting({ status, question }))
+    return {
+      label: QUESTION_STATUS_WORD,
+      tone: "warning",
+      icon: MessageCircleQuestionMark,
+    };
   switch (status) {
     case "queued":
       return { label: "Queued", tone: "primary", icon: Clock };
@@ -336,7 +355,10 @@ export function groupChats(chats: ChatSummary[], now = new Date()): Group[] {
     { label: "Earlier", items: [] },
   ];
   for (const chat of chats) {
-    if (["approval", "choose", "failed"].includes(chat.status)) {
+    if (
+      ["approval", "choose", "failed"].includes(chat.status) ||
+      questionWaiting(chat)
+    ) {
       groups[0].items.push(chat);
       continue;
     }

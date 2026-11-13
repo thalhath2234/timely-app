@@ -64,7 +64,7 @@ function HistoryRow({
   const [title, setTitle] = useState(chat.title);
   const input = useRef<HTMLInputElement>(null);
   const openMenu = useContextMenu();
-  const meta = statusMeta(chat.status);
+  const meta = statusMeta(chat.status, chat.question);
   const Icon = meta.icon;
   useEffect(() => {
     if (editing) {

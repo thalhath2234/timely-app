@@ -5,6 +5,7 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import TimelyLogo from "../ui/TimelyLogo";
 import { IconButton, Pill } from "./shared";
+import type { ChatQuestion } from "@timely/contract/agentChat";
 import { statusMeta } from "./chatMeta";
 
 export default function AssistantHeader({
@@ -12,6 +13,7 @@ export default function AssistantHeader({
   subtitle,
   status,
   phase,
+  question,
   back,
   onBack,
   actions,
@@ -22,6 +24,8 @@ export default function AssistantHeader({
   subtitle: string;
   status?: string;
   phase?: string;
+  /** The card the live run waits on: the pill reads "Needs your answer". */
+  question?: ChatQuestion | null;
   /** Sub-pages show a back arrow; the root chat shows close. */
   back: boolean;
   onBack: () => void;
@@ -31,8 +35,8 @@ export default function AssistantHeader({
   /** Opens the chat menu ("Don't learn from this chat"); the title shows a small chevron. */
   onTitlePress?: () => void;
 }) {
-  const meta = status && status !== "idle" ? statusMeta(status) : null;
-  const pillLabel = !meta ? "" : status === "running" && phase === "apply" ? "Applying" : meta.label;
+  const meta = status && status !== "idle" ? statusMeta(status, question) : null;
+  const pillLabel = !meta ? "" : status === "running" && phase === "apply" && meta.tone === "primary" ? "Applying" : meta.label;
   return (
     <View style={styles.wrap}>
       <IconButton

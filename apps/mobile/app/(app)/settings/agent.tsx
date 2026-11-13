@@ -1411,8 +1411,8 @@ function CliCard({
       ready={view.ready}
       description={
         id === "claude"
-          ? "Uses the Claude Code CLI and its sign-in on the server. Runs with every built-in tool disabled."
-          : "Uses the Codex CLI and its sign-in on the server. Runs in a read-only sandbox with the shell disabled."
+          ? "Uses the Claude Code CLI and its sign-in on the server, on Classic and New. Runs with every built-in tool disabled."
+          : "Uses the Codex CLI and its sign-in on the server, on Classic and New. Runs in a read-only sandbox with the shell disabled."
       }
     >
       <View style={[styles.row, { flexWrap: "wrap" }]}>

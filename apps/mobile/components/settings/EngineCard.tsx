@@ -7,6 +7,8 @@ import BottomSheet, { SheetOption } from "../ui/BottomSheet";
 import { GroupHint, GroupLabel, ListGroup, ListRow } from "./SettingsList";
 
 const ENGINES: AccountEngine[] = ["classic", "agent"];
+/** Claude Code and Codex are not Classic-only: New runs them through the server's own CLI. */
+const CLI_ON_NEW = "Claude Code and Codex work on both, through the server’s CLI.";
 
 /**
  * Settings → Agent → Engine (Q-2.2): Classic or New for this account's chats,
@@ -36,7 +38,7 @@ export default function EngineCard({ settings }: { settings: AgentChatSettings }
         <GroupHint>
           {unavailable && settings.engineReason
             ? `New isn’t available here: ${settings.engineReason}`
-            : ENGINE_COPY[current].description}
+            : `${ENGINE_COPY[current].description} ${CLI_ON_NEW}`}
         </GroupHint>
       )}
       <BottomSheet open={open} onClose={() => setOpen(false)} title="Engine" subtitle="New runs use it; a run already going finishes where it started">

@@ -1,7 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ENGINE_COPY, type PermissionMode } from "@timely/contract/agentChat";
+import {
+  ENGINE_COPY,
+  questionWaiting,
+  type ChatQuestion,
+  type PermissionMode,
+  type QuestionAnswer,
+} from "@timely/contract/agentChat";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { isBotPlan } from "@timely/contract/changeReview";
 import {
@@ -18,6 +24,7 @@ import TimelyLogo, {
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
 import {
+  answerQuestion,
   chatRequest,
   type BotTag,
   type Chat,
@@ -59,6 +66,12 @@ import {
 import ChatMenu from "./chatMenu";
 import { NO_LEARNING_NOTE } from "@timely/contract/agentLearning";
 import { learningFollowed, learnsInChat } from "./learningView";
+import QuestionCard from "./questionCard";
+import {
+  QUESTION_HINT,
+  QUESTION_PLACEHOLDER,
+  QUESTION_WAITING_LINE,
+} from "./questionDraft";
 
 const iconButton =
   "rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
@@ -73,11 +86,14 @@ const toneClass = {
 export function StatusPill({
   status,
   phase,
+  question,
 }: {
   status: string;
   phase?: string;
+  /** A run waiting on a question card reads "Needs your answer". */
+  question?: ChatQuestion | null;
 }) {
-  const meta = statusMeta(status);
+  const meta = statusMeta(status, question);
   const Icon = meta.icon;
   return (
     <span
@@ -91,7 +107,11 @@ export function StatusPill({
       ) : (
         <Icon className="size-3" />
       )}
-      {status === "running" && phase === "apply" ? "Applying" : meta.label}
+      {status === "running" &&
+      phase === "apply" &&
+      !questionWaiting({ status, question })
+        ? "Applying"
+        : meta.label}
     </span>
   );
 }
@@ -205,6 +225,8 @@ export default function Conversation({
     return pending.current.id;
   };
   const busy = isBusy(chat?.status);
+  // The live run waits on a question card: what is sent now answers it.
+  const asking = questionWaiting(chat);
   // What is sent while an agent run works steers it (POST /chats/:id/steer).
   const steering =
     chat?.status === "running" &&
@@ -383,6 +405,22 @@ export default function Conversation({
   }
   const act = (action: string, body?: unknown) =>
     mutation.mutate({ action, body });
+  // The question card's Send answer and Skip. A card that closed meanwhile
+  // (409) refetches, so the thread shows how it closed.
+  const answer = useMutation({
+    mutationFn: (input: {
+      requestId: string;
+      answers?: Record<string, QuestionAnswer>;
+      skip?: boolean;
+    }) => answerQuestion(id ?? "", input),
+    onSuccess: (next) => {
+      cache.setQueryData(chatKey(next.id), next);
+      void cache.invalidateQueries({ queryKey: chatsKey });
+    },
+    onError: () => {
+      if (id) void cache.invalidateQueries({ queryKey: chatKey(id) });
+    },
+  });
   // Applies from the next tool call; a looser mode approves nothing waiting.
   function choosePermission(next: PermissionMode) {
     if (id) mutation.mutate({ action: "", body: { permission: next } });
@@ -418,7 +456,11 @@ export default function Conversation({
       },
     );
   }
-  const error = uploads.error || mutation.error?.message;
+  // An answer whose card closed meanwhile says so here; the card is gone.
+  const error =
+    uploads.error ||
+    mutation.error?.message ||
+    (!asking ? answer.error?.message : undefined);
   const title = chat?.title || (id ? "" : "New conversation");
   // The engine shows beside the model once a person uses more than one.
   const engineShown =
@@ -432,20 +474,24 @@ export default function Conversation({
   const providerLabel = chat?.provider
     ? `${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}${engineLabel ? ` · ${engineLabel}` : ""}`
     : "";
-  const subtitle = busy
-    ? phaseLabel(chat?.phase)
-    : chat?.status === "approval"
-      ? "Waiting for your decision"
-      : providerLabel || (compact ? "Chat in context" : "Timely assistant");
+  const subtitle = asking
+    ? QUESTION_WAITING_LINE
+    : busy
+      ? phaseLabel(chat?.phase)
+      : chat?.status === "approval"
+        ? "Waiting for your decision"
+        : providerLabel || (compact ? "Chat in context" : "Timely assistant");
   const hint = uploads.images.length
     ? "One receipt per message · up to 5 photos · images removed after confirmation or 24 hours"
     : chat?.sensitive
       ? "Image-based changes always need your review."
-      : steering
-        ? "It reads what you send now before its next step."
-        : permission === "supervised"
-          ? "Every change waits for your review."
-          : "Everyday changes apply on their own, with Undo. Deleting and other big changes wait for you.";
+      : asking
+        ? QUESTION_HINT
+        : steering
+          ? "It reads what you send now before its next step."
+          : permission === "supervised"
+            ? "Every change waits for your review."
+            : "Everyday changes apply on their own, with Undo. Deleting and other big changes wait for you.";
   return (
     <div
       className={cn(
@@ -510,7 +556,11 @@ export default function Conversation({
                 )}
               </h1>
               {chat && chat.status !== "idle" && (
-                <StatusPill status={chat.status} phase={chat.phase} />
+                <StatusPill
+                  status={chat.status}
+                  phase={chat.phase}
+                  question={chat.question}
+                />
               )}
             </div>
             <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
@@ -700,6 +750,44 @@ export default function Conversation({
               <RunActivity chat={chat} />
             )}
             {liveReply && <LiveReply draft={liveReply} />}
+            {asking && chat?.question?.requestId && (
+              <div className="mt-5 flex gap-3" data-testid="question-row">
+                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-foreground">
+                  <TimelyLogo size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <QuestionCard
+                    key={chat.question.requestId}
+                    question={chat.question}
+                    sending={
+                      answer.isPending
+                        ? answer.variables?.skip
+                          ? "skip"
+                          : "answer"
+                        : null
+                    }
+                    error={
+                      answer.error &&
+                      answer.variables?.requestId === chat.question.requestId
+                        ? answer.error.message
+                        : undefined
+                    }
+                    onAnswer={(answers) =>
+                      answer.mutate({
+                        requestId: chat.question!.requestId!,
+                        answers,
+                      })
+                    }
+                    onSkip={() =>
+                      answer.mutate({
+                        requestId: chat.question!.requestId!,
+                        skip: true,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            )}
             {busy && chat?.phase !== "apply" && chat?.runEngine !== "agent" && (
               <div
                 role="status"
@@ -760,13 +848,15 @@ export default function Conversation({
         botTags={botTags}
         setBotTags={setBotTags}
         placeholder={
-          steering
-            ? "Tell it something while it works…"
-            : chat?.status === "approval"
-              ? isBotPlan(chat.plan)
-                ? "Reply, or ask for changes to the bot"
-                : "Tell me what to change…"
-              : "Ask Timely to create, plan, or update…"
+          asking
+            ? QUESTION_PLACEHOLDER
+            : steering
+              ? "Tell it something while it works…"
+              : chat?.status === "approval"
+                ? isBotPlan(chat.plan)
+                  ? "Reply, or ask for changes to the bot"
+                  : "Tell me what to change…"
+                : "Ask Timely to create, plan, or update…"
         }
         chips={chips}
         onRemoveChip={(i) =>
@@ -792,6 +882,7 @@ export default function Conversation({
         }}
         busy={busy}
         steering={steering}
+        answering={asking}
         pending={mutation.isPending}
         onSend={send}
         onStop={() => act("/stop")}

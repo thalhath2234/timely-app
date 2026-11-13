@@ -16,6 +16,7 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import { BotTagChips, useBotMention } from "./BotMentionPicker";
 import { chipIcon } from "./chatMeta";
 import { Action, IconButton, styles as common } from "./shared";
+import { QUESTION_HINT } from "../../lib/chat/question";
 
 export function ContextChips({
   chips,
@@ -88,6 +89,7 @@ export default function Composer({
   onSend,
   onStop,
   steering = false,
+  answering = false,
   permissionHint,
   hasDraft,
   onDiscardDraft,
@@ -130,6 +132,8 @@ export default function Composer({
    * to that run (steer) while Stop stays beside it.
    */
   steering?: boolean;
+  /** The run waits on a question card: what is sent answers it. */
+  answering?: boolean;
   /** The line under the box for the chat's permission mode. */
   permissionHint?: string;
   hasDraft: boolean;
@@ -349,10 +353,18 @@ export default function Composer({
               <AnimatedPressable
                 testID="steer-send"
                 accessibilityRole="button"
-                accessibilityLabel="Send to the running reply"
+                accessibilityLabel={
+                  answering
+                    ? "Send as your answer"
+                    : "Send to the running reply"
+                }
                 disabled={!canSteer}
                 onPress={onSend}
-                style={[styles.send, { marginRight: 6 }, !canSteer && { opacity: 0.35 }]}
+                style={[
+                  styles.send,
+                  { marginRight: 6 },
+                  !canSteer && { opacity: 0.35 },
+                ]}
               >
                 <ArrowUp
                   size={20}
@@ -410,10 +422,12 @@ export default function Composer({
               ? "One receipt per message · up to 5 photos · removed after saving or 24 hours"
               : privateImages
                 ? "Image-based changes always need your review."
-                : steering
-                  ? "It reads your message at its next step."
-                  : (permissionHint ??
-                    "Simple changes happen directly. Larger changes are yours to review.")}
+                : answering
+                  ? QUESTION_HINT
+                  : steering
+                    ? "It reads your message at its next step."
+                    : (permissionHint ??
+                      "Simple changes happen directly. Larger changes are yours to review.")}
       </Text>
     </View>
   );

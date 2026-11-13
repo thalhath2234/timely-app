@@ -7,6 +7,7 @@ import type { Chat, ChatImage, PendingImage } from "../chat/types";
 import type {
   AgentChatSettings,
   AgentChatSettingsPatch,
+  AnswerQuestionInput,
   ChatEngine,
   PermissionMode,
 } from "@timely/contract/agentChat";
@@ -70,6 +71,9 @@ export const setChatNoLearning = (id: string, noLearning: boolean) =>
 /** Adds text to the agent run that is live in this chat (409 once it ended). */
 export const steerChat = (id: string, text: string) =>
   chatRequest(`/${encodeURIComponent(id)}/steer`, "POST", { text });
+/** Answers the question card the live run waits on, or skips it (409 once the card closed). */
+export const answerQuestion = (id: string, input: AnswerQuestionInput) =>
+  chatRequest(`/${encodeURIComponent(id)}/answer`, "POST", input);
 /** Puts back what an auto-applied proposal changed; messageId is that proposal's message. */
 export const undoChatChange = (id: string, revision: number, messageId: string) =>
   chatRequest(`/${encodeURIComponent(id)}/undo`, "POST", { revision, messageId });

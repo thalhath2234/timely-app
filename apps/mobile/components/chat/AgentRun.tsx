@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
-import { Check, Sparkles, Undo2, X } from "lucide-react-native";
-import { PERMISSION_COPY, type ActivityLine } from "@timely/contract/agentChat";
+import { Check, MessageCircleQuestionMark, Sparkles, Undo2, X } from "lucide-react-native";
+import { PERMISSION_COPY, questionWaiting, type ActivityLine } from "@timely/contract/agentChat";
 import type { Chat, ChatMessage } from "../../lib/chat/types";
 import { appliedSteps, autoAppliedState, chatPermission } from "../../lib/chat/agentRun";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -8,6 +8,9 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import { LogoSpinner } from "../ui/TimelyLogo";
 import { ChatText } from "./shared";
 import { phaseLabel } from "./chatMeta";
+import { QUESTION_WAITING_BODY, QUESTION_WAITING_LINE } from "../../lib/chat/question";
+
+const SUBTASK = "Sub-task:";
 
 /** Lines shown before the rest fold into "N earlier". */
 const SHOWN_LINES = 5;
@@ -26,13 +29,21 @@ export function ActivityLines({ lines }: { lines: ActivityLine[] }) {
     <View style={styles.lines} testID="activity-lines" accessibilityLiveRegion="polite">
       {hidden ? <Text style={styles.earlier}>{hidden === 1 ? "1 earlier step" : `${hidden} earlier steps`}</Text> : null}
       {lines.slice(hidden).map((line) => (
-        <View key={line.id} style={styles.line}>
+        <View key={line.id} style={styles.line} testID={line.kind === "subagent" ? "activity-subagent" : undefined}>
           <View style={styles.lineIcon}>
             <LineIcon state={line.state} />
           </View>
-          <Text numberOfLines={2} style={[styles.lineText, line.state === "failed" && { color: colors.destructive }]}>
-            {line.label}
-          </Text>
+          {line.kind === "subagent" && line.label.startsWith(SUBTASK) ? (
+            // A sub-task the run handed work to: the goal reads as the line.
+            <Text numberOfLines={2} style={[styles.lineText, styles.subtask, line.state === "failed" && { color: colors.destructive }]}>
+              <Text style={styles.subtaskPrefix}>{SUBTASK}</Text>
+              {line.label.slice(SUBTASK.length)}
+            </Text>
+          ) : (
+            <Text numberOfLines={2} style={[styles.lineText, line.state === "failed" && { color: colors.destructive }]}>
+              {line.label}
+            </Text>
+          )}
         </View>
       ))}
     </View>
@@ -45,6 +56,8 @@ export function ActivityLines({ lines }: { lines: ActivityLine[] }) {
  */
 export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; onLink: (href: string) => void }) {
   const lines = chat.activity?.lines ?? [];
+  // The run waits on a question card: it says so instead of spinning.
+  const asking = questionWaiting(chat);
   return (
     <View style={styles.row} testID="live-run">
       <View style={styles.avatar}>
@@ -53,8 +66,12 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
       <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
         <View style={styles.speakerRow}>
           <Text style={styles.speaker}>Timely</Text>
-          <LogoSpinner size={12} color={colors.mutedForeground} />
-          <Text style={styles.time}>{draft ? "Writing" : phaseLabel(chat.phase)}</Text>
+          {asking ? (
+            <MessageCircleQuestionMark size={12} color={colors.warningText} />
+          ) : (
+            <LogoSpinner size={12} color={colors.mutedForeground} />
+          )}
+          <Text style={styles.time}>{asking ? QUESTION_WAITING_LINE : draft ? "Writing" : phaseLabel(chat.phase)}</Text>
         </View>
         <ActivityLines lines={lines} />
         {draft ? (
@@ -62,7 +79,9 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
             <ChatText text={draft.trimStart()} onLink={onLink} />
           </View>
         ) : null}
-        <Text style={styles.hint}>This keeps running on the server. Send a message to steer it, or Stop.</Text>
+        <Text style={styles.hint}>
+          {asking ? QUESTION_WAITING_BODY : "This keeps running on the server. Send a message to steer it, or Stop."}
+        </Text>
       </View>
     </View>
   );
@@ -151,6 +170,8 @@ const styles = createThemedStyleSheet((colors) => ({
   line: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   lineIcon: { width: 16, height: 18, alignItems: "center", justifyContent: "center" },
   lineText: { flex: 1, color: colors.mutedForeground, fontSize: 13, lineHeight: 18 },
+  subtask: { color: colors.foreground },
+  subtaskPrefix: { color: colors.mutedForeground },
   earlier: { color: colors.mutedForeground, fontSize: 12, paddingLeft: 24 },
   hint: { color: colors.mutedForeground, fontSize: 12, lineHeight: 16 },
   card: {

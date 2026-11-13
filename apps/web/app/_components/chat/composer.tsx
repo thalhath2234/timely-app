@@ -81,6 +81,7 @@ export default function Composer({
   permission,
   busy,
   steering = false,
+  answering = false,
   pending,
   onSend,
   onStop,
@@ -109,6 +110,8 @@ export default function Composer({
   busy: boolean;
   /** A live agent run takes what is sent now as steering (Send beside Stop). */
   steering?: boolean;
+  /** The run waits on a question card: what is sent answers it. */
+  answering?: boolean;
   pending: boolean;
   onSend: () => void;
   onStop: () => void;
@@ -284,7 +287,13 @@ export default function Composer({
               {(!busy || steering) && (
                 <button
                   type="button"
-                  aria-label={steering ? "Send to the run" : "Send message"}
+                  aria-label={
+                    answering
+                      ? "Send as your answer"
+                      : steering
+                        ? "Send to the run"
+                        : "Send message"
+                  }
                   disabled={!canSend || (steering && images.length > 0)}
                   onClick={onSend}
                   className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-opacity hover:bg-primary/90 disabled:opacity-30"
