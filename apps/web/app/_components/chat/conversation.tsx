@@ -345,6 +345,7 @@ export default function Conversation({
     return () => window.removeEventListener("focus", markRead);
   }, [chat, cache]);
   function send() {
+    answer.reset();
     if (steering) {
       if (!draft.trim() || uploads.images.length || mutation.isPending) return;
       mutation.mutate({ action: "/steer", body: { text: draft.trim() } });
@@ -437,6 +438,12 @@ export default function Conversation({
       if (id) void cache.invalidateQueries({ queryKey: chatKey(id) });
     },
   });
+  // A stale answer's error belongs to the card it was for: it goes when that
+  // card does (the thread then shows how it closed) and when a message is sent.
+  const resetAnswer = answer.reset;
+  useEffect(() => {
+    resetAnswer();
+  }, [id, questionId, resetAnswer]);
   // Applies from the next tool call; a looser mode approves nothing waiting.
   function choosePermission(next: PermissionMode) {
     if (id) mutation.mutate({ action: "", body: { permission: next } });
