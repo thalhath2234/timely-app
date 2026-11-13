@@ -25,6 +25,7 @@ import { chatKey, chatsKey, useChats } from "@/app/utils/hooks/chat";
 import { useToday } from "@/app/utils/hooks/calendar";
 import { useStopFocus } from "@/app/utils/hooks/tasks";
 import { prefersReducedMotion } from "@/app/utils/viewTransition";
+import { questionWaiting } from "@timely/contract/agentChat";
 import {
   isBusy,
   phaseLabel,
@@ -77,7 +78,7 @@ export function morphIntoIsland(from: HTMLElement | null, update: () => void) {
 
 type ChatItem = Pick<
   ChatSummary,
-  "id" | "title" | "status" | "phase" | "revision"
+  "id" | "title" | "status" | "phase" | "revision" | "question"
 >;
 
 function elapsedLabel(seconds: number) {
@@ -383,8 +384,10 @@ export default function ActivityIsland() {
                   </div>
                   <ul className="space-y-0.5">
                     {chatItems.map((c) => {
-                      const busy = isBusy(c.status);
-                      const meta = statusMeta(c.status);
+                      // A run waiting on a question card needs the person,
+                      // so it reads "Needs your answer", not a phase.
+                      const busy = isBusy(c.status) && !questionWaiting(c);
+                      const meta = statusMeta(c.status, c.question);
                       const Icon = meta.icon;
                       return (
                         <li
