@@ -188,10 +188,11 @@ function QuestionBlock({
                 name={`${group}-${item.qid}`}
                 className="sr-only"
                 checked={now.otherOn}
+                aria-label="Other"
                 onChange={() => setDraft(toggleOther(draft, item))}
               />
               <Mark multi={multi} on={now.otherOn} />
-              <span>Other</span>
+              <span aria-hidden>Other</span>
             </label>
             <Input
               size="sm"
