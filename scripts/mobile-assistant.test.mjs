@@ -916,6 +916,13 @@ for (const [app, q] of [
     const typed = closed("submitted", { q0: "Mon and Fri", q1: "Mon and Fri", q2: "Mon and Fri" });
     assert.equal(typed.reply, "Mon and Fri");
     assert.equal(closed("submitted", { q0: "Mon", q1: "Mon", q2: null }).reply, "");
+    // The same pick on two questions is not a typed reply: each question keeps its answer.
+    const yes = { qid: "q0", question: "Add it on Monday?", choices: ["Yes", "No"], multi_select: false };
+    const picks = q.closedCard({ requestId: "r", questions: [yes, { ...yes, qid: "q1", question: "Add a reminder?" }], answers: { q0: "Yes", q1: "Yes" }, outcome: "submitted" });
+    assert.equal(picks.reply, "");
+    assert.deepEqual(picks.lines.map((l) => l.answer), ["Yes", "Yes"]);
+    const typedYes = q.closedCard({ requestId: "r", questions: [yes, { ...yes, qid: "q1" }], answers: { q0: "Friday works", q1: "Friday works" }, outcome: "submitted" });
+    assert.equal(typedYes.reply, "Friday works");
     assert.equal(
       q.closedCard({ requestId: "r", questions: [day], answers: { q0: "Tue" }, outcome: "submitted" }).reply,
       "",

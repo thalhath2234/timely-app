@@ -155,9 +155,19 @@ export function closedCard(card: AnsweredQuestion): {
       empty: !answer,
     };
   });
+  // A message typed in the composer answers every question with the same
+  // text. Two questions answered with the same pick are not that: the text
+  // collapses only when it is no question's choice, and never for a multi-pick.
+  const questions = card.questions ?? [];
+  const first = card.answers?.[questions[0]?.qid ?? ""];
   const same =
-    lines.length > 1 &&
-    lines.every((l) => !l.empty && l.answer === lines[0].answer);
+    questions.length > 1 &&
+    typeof first === "string" &&
+    first !== "" &&
+    questions.every(
+      (q) =>
+        card.answers?.[q.qid] === first && !(q.choices ?? []).includes(first),
+    );
   return {
     state,
     title: QUESTION_CARD_TITLES[state],
