@@ -34,7 +34,7 @@ jobs:
   # Chat runs, approvals, permission modes and the agent engine against the Go
   # fake worker (plan phase 2), each test in its own schema of a throwaway
   # PostgreSQL. No AI provider and no Python runtime: the real-worker test
-  # skips without TIMELY_AGENT_TEST_RUNTIME.
+  # skips without TIMELY_AGENT_TEST_RUNTIME (the agent job runs them).
   chat-integration:
     runs-on: ubuntu-latest
     services:
@@ -137,6 +137,11 @@ jobs:
       # and the agent-state backup round trip (fails, not skips, without the database)
       - run: cp .env.example .env
       - run: make agent-go-integration AGENT_REQUIRE_DB=1
+      # Phase 4 through the real worker: the gateway's tool-call translation with
+      # the fake Claude Code and Codex CLIs, question cards, sub-task taint and
+      # the Sensitive no-persist run. They skip without the runtime, so only this
+      # job (which builds it) runs them.
+      - run: make agent-go-realworker
 
   # Phase 1 proves the Windows spawn path (stdin/stdout pipes, Job Object)
   # before anything ships. The steps mirror `make agent-install` and

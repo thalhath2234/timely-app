@@ -615,6 +615,11 @@ agent-go-integration: ## Go supervisor end to end with the real worker: spawn, h
 	@test -x "$(AGENT_PY)" || { echo "agent-go-integration: run make agent-install first"; exit 1; }
 	@cd $(API) && TIMELY_AGENT_TEST_RUNTIME=dev CHAT_TEST_ENV="$(CURDIR)/.env" TIMELY_AGENT_TEST_REQUIRE_DB="$(AGENT_REQUIRE_DB)" go test ./internal/agenthost -run TestIntegrationRealWorker -count=1 -v
 
+.PHONY: agent-go-realworker
+agent-go-realworker: ## Phase 4 through the real worker (stub model, fake CLIs, PostgreSQL schema per test): the gateway's tool-call translation for Claude Code and Codex, question cards, sub-task taint, the Sensitive no-persist run
+	@test -x "$(AGENT_PY)" || { echo "agent-go-realworker: run make agent-install first"; exit 1; }
+	@cd $(API) && TIMELY_AGENT_TEST_RUNTIME=dev CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/provider ./internal/features/chat -run 'TestIntegrationGatewayRealWorker|TestIntegrationAgentEngineRealWorker' -count=1 -timeout 20m
+
 agent-go-vet-windows: ## go vet the agent supervisor for Windows (Job Object, process spawning) from any OS
 	@cd $(API) && GOOS=windows GOARCH=amd64 go vet ./internal/agenthost/...
 
