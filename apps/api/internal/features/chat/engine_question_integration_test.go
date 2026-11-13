@@ -659,6 +659,97 @@ func TestIntegrationAgentEngineClarifyUnsentAnswerRestoresTheCard(t *testing.T) 
 	}
 }
 
+// lostAck delivers the answer to the worker for real, then reports that no
+// ack came (after wait): the worker took the answer, Go does not know it.
+type lostAck struct {
+	e    *WorkerEngine
+	wait time.Duration
+}
+
+func (l *lostAck) Available(ctx context.Context, uid string, c *Conversation) error {
+	return l.e.Available(ctx, uid, c)
+}
+func (l *lostAck) Start(ctx context.Context, c *Conversation) error { return l.e.Start(ctx, c) }
+func (l *lostAck) Lost(ctx context.Context, c *Conversation) error  { return l.e.Lost(ctx, c) }
+func (l *lostAck) Stop(uid, cid, runID string)                      { l.e.Stop(uid, cid, runID) }
+func (l *lostAck) Steer(ctx context.Context, uid, cid, runID, text string) error {
+	return l.e.Steer(ctx, uid, cid, runID, text)
+}
+func (l *lostAck) Forget(uid, cid string) { l.e.Forget(uid, cid) }
+func (l *lostAck) Closed(runID, requestID string) string {
+	return l.e.Closed(runID, requestID)
+}
+func (l *lostAck) Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	if err := l.e.Answer(ctx, uid, cid, runID, requestID, answers, outcome); err != nil {
+		return err
+	}
+	time.Sleep(l.wait)
+	return context.DeadlineExceeded
+}
+
+// The worker took the answer but its ack missed the timeout: the card does
+// not come back (the run goes on with the first answer), the thread keeps the
+// answer the run used, and a second answer is refused. Both orders of the
+// worker's clarify.closed against the failed Answer end the same way.
+func TestIntegrationAgentEngineClarifyLostAckKeepsTheAnswerTheRunUsed(t *testing.T) {
+	for name, wait := range map[string]time.Duration{"closed first": 500 * time.Millisecond, "closed after": 0} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			c := h.chat("Book my haircut", "supervised", "ask-lost-"+strings.ReplaceAll(name, " ", "-"), lines(ask("req-l", 600_000), pause(1500), reply("Ok {{last_answers}}", 0)))
+			h.waiting(c.ID, "req-l")
+			h.s.SetAgentEngine(&lostAck{e: h.e, wait: wait})
+			if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-l","answers":{"q0":"Monday"}}`); code != 200 && code != 503 {
+				t.Fatalf("a lost ack: %d", code)
+			}
+			h.s.SetAgentEngine(h.e)
+			c = h.wait(c.ID, "answer kept, card gone", func(c Conversation) bool {
+				return len(questionMessages(c)) == 1 && !c.Question.pending()
+			})
+			if asked := questionMessages(c); asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" {
+				t.Fatalf("the thread's answer: %+v", asked[0].Question)
+			}
+			if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-l","answers":{"q0":"Tuesday"}}`); code != 409 {
+				t.Fatalf("a second answer: %d, want 409", code)
+			}
+			c = h.wait(c.ID, "replied", statusIs("idle"))
+			asked := questionMessages(c)
+			if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) {
+				t.Fatalf("final thread: %+v, reply %q", asked, lastMessage(c).Content)
+			}
+		})
+	}
+}
+
+// An answer for a run this process does not follow (another API process on
+// the same tables runs it) asked no worker: the card goes back, 503, and the
+// run's own process can still take the answer.
+func TestIntegrationAgentEngineClarifyAnswerForARunElsewhereRestoresTheCard(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-elsewhere", lines(ask("req-e", 600_000), reply("Ok {{last_answers}}", 0)))
+	c = h.waiting(c.ID, "req-e")
+	h.e.mu.Lock()
+	r := h.e.runs[c.AgentRunID]
+	delete(h.e.runs, c.AgentRunID)
+	h.e.mu.Unlock()
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-e","answers":{"q0":"Monday"}}`); code != 503 {
+		t.Fatalf("an answer for a run followed elsewhere: %d, want 503", code)
+	}
+	c = h.wait(c.ID, "card back", func(c Conversation) bool { return c.Question.RequestID == "req-e" })
+	if len(questionMessages(c)) != 0 || c.Status != "running" {
+		t.Fatalf("%d question messages, status %s", len(questionMessages(c)), c.Status)
+	}
+	h.e.mu.Lock()
+	h.e.runs[c.AgentRunID] = r
+	h.e.mu.Unlock()
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-e","answers":{"q0":"Tuesday"}}`); code != 200 {
+		t.Fatalf("answering again: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if !strings.Contains(lastMessage(c).Content, `"q0":"Tuesday"`) {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+}
+
 // The worker ends a wait the same way for a Stop (and for the API's shutdown)
 // as for a Skip. When Timely stopped the run, the card closes "stopped", not
 // as something the person skipped.

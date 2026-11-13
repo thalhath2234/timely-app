@@ -343,24 +343,44 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 	case err == nil:
 		return row, nil
 	case answerRefused(err):
-		// The worker said the card no longer waits (or the run is gone).
-		if uerr := s.markUndelivered(uid, cid, messageID); uerr != nil && !errors.Is(uerr, gorm.ErrRecordNotFound) {
-			log.Printf("chat answer: marking an undelivered answer: %v", uerr)
-		}
-		return row, errAnswerUndelivered
-	default:
-		// No reply from the worker: it may still wait. The card goes back
-		// so the person can answer again; if the worker did get the answer,
-		// its clarify.closed ends the card as it ends any other.
-		if rerr := s.restoreQuestion(uid, cid, runID, messageID, asked); rerr != nil && !errors.Is(rerr, gorm.ErrRecordNotFound) {
-			log.Printf("chat answer: putting a card back: %v", rerr)
-		}
-		return row, errAnswerNotSent
+		// The worker said the card no longer waits.
+		return row, s.undeliver(uid, cid, messageID)
 	}
+	// No reply from the worker (it may still have taken the answer), or no
+	// worker asked at all (another API process may run this chat, or the run
+	// ended here meanwhile). The card goes back so the person can answer
+	// again, unless the worker's clarify.closed already ended the wait.
+	restored, closed, rerr := s.restoreQuestion(uid, cid, runID, requestID, messageID, asked)
+	if rerr != nil && !errors.Is(rerr, gorm.ErrRecordNotFound) {
+		log.Printf("chat answer: putting a card back: %v", rerr)
+	}
+	switch {
+	case closed == outcomeSubmitted:
+		return row, nil // the worker took the answer; it stays in the thread
+	case closed != "":
+		return row, s.undeliver(uid, cid, messageID)
+	case !restored && errors.Is(err, errRunElsewhere) && rerr == nil:
+		return row, s.undeliver(uid, cid, messageID) // the run ended here: nothing will read it
+	}
+	return row, errAnswerNotSent
+}
+
+// questionCloser is an engine that remembers how a question's wait ended in
+// its worker (WorkerEngine), so an answer whose ack was lost can be settled.
+type questionCloser interface {
+	Closed(runID, requestID string) string
+}
+
+// undeliver marks the answer's message undelivered and gives the 409 error.
+func (s *Service) undeliver(uid, cid, messageID string) error {
+	if uerr := s.markUndelivered(uid, cid, messageID); uerr != nil && !errors.Is(uerr, gorm.ErrRecordNotFound) {
+		log.Printf("chat answer: marking an undelivered answer: %v", uerr)
+	}
+	return errAnswerUndelivered
 }
 
 // answerRefused is an Answer error that says the worker saw the answer and
-// refused it: the card no longer waits there, or the run is not live here.
+// refused it: the card no longer waits there.
 func answerRefused(err error) bool {
 	var reply *agenthost.ReplyError
 	return errors.Is(err, errNotFollowing) || errors.As(err, &reply)
@@ -368,12 +388,21 @@ func answerRefused(err error) bool {
 
 // restoreQuestion puts a card back on the row after its answer could not be
 // sent, when the same run still owns the row and nothing took the card's
-// place: the answer message leaves the thread.
-func (s *Service) restoreQuestion(uid, cid, runID, messageID string, asked ChatQuestion) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
+// place: the answer message leaves the thread. closed is how the worker
+// ended the wait when its clarify.closed was already handled (checked under
+// the row lock, so it cannot slip between the check and the save: the
+// follower's close of that card then finds the restored card and closes it
+// with the answer Answer sent); the card is not restored then.
+func (s *Service) restoreQuestion(uid, cid, runID, requestID, messageID string, asked ChatQuestion) (restored bool, closed string, err error) {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var row Conversation
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
+		}
+		if ck, ok := s.engine.(questionCloser); ok {
+			if closed = ck.Closed(runID, requestID); closed != "" {
+				return nil
+			}
 		}
 		if row.Status != "running" || row.AgentRunID != runID || row.Question.pending() {
 			return nil
@@ -385,8 +414,13 @@ func (s *Service) restoreQuestion(uid, cid, runID, messageID string, asked ChatQ
 		row.Messages = slices.Delete(row.Messages, i, i+1)
 		row.Question = asked
 		row.Revision++
-		return tx.Save(&row).Error
+		if err := tx.Save(&row).Error; err != nil {
+			return err
+		}
+		restored = true
+		return nil
 	})
+	return restored && err == nil, closed, err
 }
 
 // markUndelivered records that an answer never reached the run.

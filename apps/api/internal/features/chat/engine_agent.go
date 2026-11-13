@@ -202,6 +202,13 @@ type agentRun struct {
 	taint     []TaintSource
 	// asking is a question card (clarify.request) the next flush writes.
 	asking *ChatQuestion
+
+	// Guarded by mu. closedAsks is how each question's wait ended in the
+	// worker (clarify.closed, by request id); sentAnswers is what Answer
+	// last sent for it. Together they settle an answer whose ack was lost:
+	// the worker either took it (closed "submitted") or did not.
+	closedAsks  map[string]string
+	sentAnswers map[string]map[string]any
 }
 
 // runItem is one thing a follower handles: a worker message, or the end of
@@ -607,8 +614,14 @@ func (e *WorkerEngine) stopWorkerRun(r *agentRun, reason string) {
 	}
 }
 
-// errNotFollowing is a steer for a run this process does not follow.
+// errNotFollowing is a steer for a run this process does not follow, and
+// the worker's refusal of a clarify.answer (the card no longer waits there).
 var errNotFollowing = errors.New("the run is not live here")
+
+// errRunElsewhere is an answer for a run this process does not follow (it
+// ended, or another API process on the same tables runs it): no worker was
+// asked, so the card may still wait.
+var errRunElsewhere = errors.New("the run is not followed by this process")
 
 // Steer implements AgentEngine.
 func (e *WorkerEngine) Steer(ctx context.Context, uid, cid, runID, text string) error {
@@ -640,24 +653,59 @@ func (e *WorkerEngine) Answer(ctx context.Context, uid, cid, runID, requestID st
 	r := e.runs[runID]
 	e.mu.Unlock()
 	if r == nil || r.uid != uid || r.cid != cid {
-		return errNotFollowing
+		return errRunElsewhere
 	}
 	if answers == nil {
 		answers = map[string]any{}
+	}
+	r.mu.Lock()
+	prev, hadPrev := r.sentAnswers[requestID]
+	if r.sentAnswers == nil {
+		r.sentAnswers = map[string]map[string]any{}
+	}
+	r.sentAnswers[requestID] = answers
+	r.mu.Unlock()
+	refused := func() {
+		r.mu.Lock()
+		if hadPrev {
+			r.sentAnswers[requestID] = prev
+		} else {
+			delete(r.sentAnswers, requestID)
+		}
+		r.mu.Unlock()
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	reply, err := r.worker.Request(ctx, agenthost.TypeClarifyAnswer, map[string]any{"run": runID, "request_id": requestID, "answers": answers, "outcome": outcome})
 	if err != nil {
+		var refusal *agenthost.ReplyError
+		if errors.As(err, &refusal) {
+			refused()
+		}
 		return err
 	}
 	var ack struct {
 		OK bool `json:"ok"`
 	}
 	if err := reply.Decode(&ack); err != nil || !ack.OK {
+		refused()
 		return errNotFollowing
 	}
 	return nil
+}
+
+// Closed implements questionCloser: how the wait for requestID ended in the
+// worker, once its clarify.closed was handled ("" before).
+func (e *WorkerEngine) Closed(runID, requestID string) string {
+	e.mu.Lock()
+	r := e.runs[runID]
+	e.mu.Unlock()
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closedAsks[requestID]
 }
 
 // ask keeps a clarify.request's card for the next flush, which runs at once:
@@ -691,6 +739,13 @@ func (e *WorkerEngine) closeAsked(r *agentRun, ev workerEvent) {
 	}
 	r.mu.Lock()
 	stopped := !r.stopSent.IsZero()
+	if requestID != "" {
+		if r.closedAsks == nil {
+			r.closedAsks = map[string]string{}
+		}
+		r.closedAsks[requestID] = outcome
+	}
+	sent := r.sentAnswers[requestID]
 	r.mu.Unlock()
 	if outcome == outcomeCancelled && (stopped || e.isClosing()) {
 		// The worker ends a wait the same way for a Stop and for the API's
@@ -701,7 +756,13 @@ func (e *WorkerEngine) closeAsked(r *agentRun, ev workerEvent) {
 		if requestID == "" || row.Question.RequestID != requestID {
 			return errUnchanged
 		}
-		closeQuestion(row, nil, outcome)
+		// A card put back after an answer whose ack was lost still shows,
+		// and the worker did take that answer: it closes with it.
+		var answers map[string]any
+		if outcome == outcomeSubmitted {
+			answers = sent
+		}
+		closeQuestion(row, answers, outcome)
 		return nil
 	})
 	if err != nil && !fenced(err) && !errors.Is(err, errUnchanged) {
