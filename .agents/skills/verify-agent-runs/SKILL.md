@@ -69,7 +69,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 | `Ask` | `engine_agent.go` `ask` -> `flush`: the worker's `clarify.request`; the card (`question`) goes on the row in the follower's fenced save, with one push |
 | `CloseQuestion` | `engine_agent.go` `closeAsked`: the worker's `clarify.closed` (timed out, cancelled); a card still on the row closes in the follower's fenced save |
 | `Answer` | `question.go` `answerQuestion` (`POST /chats/:id/answer`, and `send`/`steer` while a card waits): the fenced commit that closes the card, then `clarify.answer` (sent with `context.WithoutCancel`, so a dropped connection cannot lose it) |
-| `ReopenQuestion` | `question.go` `restoreQuestion`: an answer the worker never acknowledged puts its card back, only while the row still names the same running run and holds no card |
+| `ReopenQuestion` | `question.go` `restoreQuestion`: an answer the worker never acknowledged puts its card back, only while the row still names the same running run and holds no card, and not once the worker's `clarify.closed` ended the wait (`WorkerEngine.Closed`, checked under the row lock). The model reopens in more states than the code, which covers the code. A `clarify.closed` `submitted` that arrives after a reopen closes the card with the answer `Answer` sent (`sentAnswers`); answer content is not modelled |
 | `DiscardReview` | `receipts.go` `discardReview` (no busy check, so it can land mid-apply) |
 | `Claim` (`ClaimRead`+`ClaimWrite` when unlocked) | the claim transaction in `runner.go` `work`, which also picks the engine (`runEngine`) for a fresh plan turn |
 | `Expire` / `Renew` | `lease_until` passing / `keepLease` renewing (classic lanes) |
@@ -94,7 +94,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 
 ## Coverage record
 
-Sync commit: `40e32933f1d3aed61cf2f8e7b580b66c0dfe84f9` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
+Sync commit: `ffbf0e84e7d2e6c94bece7857a1ae72cdd58d11f` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
 
 - `apps/api/internal/features/chat/runner.go`: `(*Service).work` (claim, engine dispatch, failure checkpoint), `runClassic`, `keepLease`, `apply`, `retrySerializable`, `serializationFailure`
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`
