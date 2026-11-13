@@ -3,7 +3,7 @@
 - Date: 2026-11-13. Branch `feature/hermes-phase4`, stacked on `feature/hermes-phase3b` (PR #294), which is stacked on `feature/hermes-phase3` (PR #293). Phases 1 and 2 are merged into `dev`.
 - Plan: `docs/plans/2026-11-08-timely-agent-from-hermes.md` ("the plan"), section 13 "Phase 4" and what it cites: 3.4 and 3.5 (a chat turn, an approval wait), 5.1 (host protocol), 5.4 (storage, lost runs), 5.5 and 5.5b (cards, permission modes), 5.6 (Sensitive and photos), 5.7 (providers, the CLI gateway as built in phase 2), 8.1 (tool table: `clarify` block → card, `delegate_task` allow, capped), 9b.5 (taint and learning staging), 12 (security), and the phase 2, 3 and 3b status notes.
 - This document wrote no product code.
-- Status (2026-11-13): all five packages are committed on `feature/hermes-phase4`: `gateway` `1fcc6e80`, `worker` `89268ebc` (with `25e8e632`), `go-engine` `46fd718f` and `7d5e2a81`, `ui` `dc9569a1`, `verify-docs` `8c01997d` and its docs commit. The results, findings and open items are under "Phase 4 status" in the plan's section 13. Not pushed.
+- Status (2026-11-13): all five packages are committed on `feature/hermes-phase4`: `gateway` `1fcc6e80`, `worker` `89268ebc` (with `25e8e632`), `go-engine` `46fd718f` and `7d5e2a81`, `ui` `dc9569a1`, `verify-docs` `8c01997d` and its docs commit. The results, findings and open items are under "Phase 4 status" in the plan's section 13, and the exit check (integration fixes, the live Claude Code + Sonnet run, parity 71 and 72 of 84) under "Phase 4 exit check" right after it. Not pushed.
 
 ## Binding owner answers used here
 
