@@ -325,6 +325,21 @@ def test_sign_in_problems(tmp_path):
     assert any(".anthropic_oauth.json" in p for p in selftest.sign_in_problems(tmp_path, ok, oauth))
 
 
+def test_sign_in_problems_reads_the_fallback_chain(tmp_path):
+    oauth = set(policy.OAUTH_PROVIDERS)
+    ok = {"auth": {"adopt_external_logins": False}, "model": {"provider": "auto"},
+          "fallback_providers": [{"provider": "openrouter", "model": "x"}]}
+    assert selftest.sign_in_problems(tmp_path, ok, oauth) == []
+    for cfg in ({"fallback_model": {"provider": "openai-codex", "model": "x"}},
+                {"fallback_model": [{"provider": "Nous"}]},
+                {"fallback_providers": [{"provider": "nous", "model": "x"}]},
+                {"fallback_providers": ["openai-codex"]}):
+        problems = selftest.sign_in_problems(tmp_path, {**ok, **cfg}, oauth)
+        assert any("fallback[" in p and "a sign-in provider" in p for p in problems), (cfg, problems)
+    problems = selftest.sign_in_problems(tmp_path, {**ok, "fallback_providers": [{"provider": "bedrock"}]}, oauth)
+    assert any("fallback[0].provider is 'bedrock', a provider Timely does not run" in p for p in problems), problems
+
+
 def test_claude_tokens_are_forbidden_in_the_worker_environment():
     for name in ("ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"):
         assert env_check._is_forbidden(name), name

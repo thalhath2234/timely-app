@@ -299,9 +299,19 @@ def sign_in_problems(home: Path, cfg: Any, oauth_ids: set[str]) -> list[str]:
     for task, entry in (aux.items() if isinstance(aux, dict) else []):
         if isinstance(entry, dict):
             keys.append((f"auxiliary.{task}.provider", entry.get("provider")))
+    # Hermes' main fallback chain (fallback_providers, and the legacy fallback_model that
+    # get_fallback_chain still reads) also names providers an auxiliary call or a failed
+    # run would try next.
+    chain: list[Any] = []
+    for name in ("fallback_providers", "fallback_model"):
+        raw = cfg.get(name)
+        chain.extend(raw if isinstance(raw, list) else [raw] if raw else [])
+    for i, entry in enumerate(chain):
+        keys.append((f"fallback[{i}].provider", entry.get("provider") if isinstance(entry, dict) else entry))
     for key, value in keys:
         if not isinstance(value, str) or value.strip().lower() in ("", "auto"):
             continue
+        value = value.strip().lower()
         if value in oauth_ids:
             problems.append(f"{key} is {value!r}, a sign-in provider")
         elif value not in policy.ALLOWED_PROVIDERS:
