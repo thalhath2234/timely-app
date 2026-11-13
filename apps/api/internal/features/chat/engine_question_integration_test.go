@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -780,5 +781,62 @@ func TestIntegrationAgentEngineAccountRunCapNamesTheOtherChats(t *testing.T) {
 	c = h.wait(c.ID, "refused", statusIs("failed"))
 	if c.Error != engineBusy {
 		t.Fatalf("error %q", c.Error)
+	}
+}
+
+// failSavesOf makes the database refuse the first n updates of the chat table
+// that match when (a SQL condition on OLD and NEW), then let every later one
+// through: a blip of a second or so. The counter is a sequence, which an
+// aborted statement does not roll back; it is read only inside the match,
+// because Postgres may evaluate the operands of one AND in any order.
+func failSavesOf(t *testing.T, h *engineHarness, name, when string, n int) {
+	t.Helper()
+	for _, q := range []string{
+		"CREATE SEQUENCE " + name + "_seq",
+		"CREATE FUNCTION " + name + "_fn() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN " +
+			"IF " + when + " THEN IF nextval('" + name + "_seq') <= " + strconv.Itoa(n) + " THEN RAISE EXCEPTION 'blip: database unavailable'; END IF; END IF; RETURN NEW; END $f$",
+		"CREATE TRIGGER " + name + "_trg BEFORE UPDATE ON agent_conversations FOR EACH ROW EXECUTE FUNCTION " + name + "_fn()",
+	} {
+		if err := h.db.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The card's save fails twice in a row (a blip). The worker sends nothing
+// while it waits on the card, so nothing else wakes the follower: it must
+// retry the save by itself, or the person never sees a card the run waits on
+// (Q-4.3) until the wait times out.
+func TestIntegrationAgentEngineClarifyCardSaveRetriesThroughABlip(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.ActivityEvery = 100 * time.Millisecond
+	failSavesOf(t, h, "blip_card", "NEW.question->>'requestId' = 'req-p' AND COALESCE(OLD.question->>'requestId', '') <> 'req-p'", 2)
+	c := h.chat("Book my haircut", "supervised", "ask-blip", lines(ask("req-p", 20_000), reply("Booked {{last_answers}}", 0)))
+	c = h.wait(c.ID, "the card reached the row while the worker waited on it", func(c Conversation) bool {
+		return c.Status == "running" && c.Question.RequestID == "req-p"
+	})
+	code, body := serve(t, h.s, "POST", "/chats/"+c.ID+"/answer", `{"requestId":"req-p","answers":{"q0":"Monday","q1":"no"}}`)
+	if code != 200 {
+		t.Fatalf("answer: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if got := h.questionPushes(c.ID); got != 1 {
+		t.Fatalf("%d pushes for the card, want 1", got)
+	}
+}
+
+// The close's save (clarify.closed, the wait timed out) fails once. The card
+// must still leave the row, with the worker's outcome, while the run goes on.
+func TestIntegrationAgentEngineClarifyCloseSaveRetriesThroughABlip(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.ActivityEvery = 100 * time.Millisecond
+	failSavesOf(t, h, "blip_close", "OLD.question->>'requestId' = 'req-q' AND COALESCE(NEW.question->>'requestId', '') <> 'req-q'", 1)
+	c := h.chat("Book my haircut", "supervised", "ask-blip-close", lines(ask("req-q", 500), pause(6000), reply("I went with Monday.", 0)))
+	h.waiting(c.ID, "req-q")
+	c = h.wait(c.ID, "the card closed as timed out while the run still goes on", func(c Conversation) bool {
+		return c.Status == "running" && c.Question.RequestID == "" && len(questionMessages(c)) == 1
+	})
+	if asked := questionMessages(c); asked[0].Question.Outcome != outcomeTimedOut {
+		t.Fatalf("the card closed as %+v", asked[0].Question)
 	}
 }

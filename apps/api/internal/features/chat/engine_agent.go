@@ -202,6 +202,9 @@ type agentRun struct {
 	taint     []TaintSource
 	// asking is a question card (clarify.request) the next flush writes.
 	asking *ChatQuestion
+	// closing are card closes (clarify.closed) whose save failed; the next
+	// flush tries them again.
+	closing []cardClose
 
 	// Guarded by mu. closedAsks is how each question's wait ended in the
 	// worker (clarify.closed, by request id); sentAnswers is what Answer
@@ -752,22 +755,54 @@ func (e *WorkerEngine) closeAsked(r *agentRun, ev workerEvent) {
 		// shutdown as for a Skip; the person did not skip this one.
 		outcome = outcomeStopped
 	}
+	e.closeCard(r, cardClose{requestID: requestID, outcome: outcome, answers: sent})
+}
+
+// cardClose is a card's close waiting to be saved: the worker's outcome and,
+// for a submitted one, the answer it took.
+type cardClose struct {
+	requestID string
+	outcome   string
+	answers   map[string]any
+}
+
+// closeCard moves the card for c.requestID from the row into the thread. A
+// save the database refuses (a blip) is kept in r.closing and tried again by
+// the next flush: while the worker runs on, nothing else would close the
+// card, and it would stay "Needs your answer" for a run that no longer waits.
+func (e *WorkerEngine) closeCard(r *agentRun, c cardClose) {
 	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
-		if requestID == "" || row.Question.RequestID != requestID {
+		if c.requestID == "" || row.Question.RequestID != c.requestID {
 			return errUnchanged
 		}
 		// A card put back after an answer whose ack was lost still shows,
 		// and the worker did take that answer: it closes with it.
 		var answers map[string]any
-		if outcome == outcomeSubmitted {
-			answers = sent
+		if c.outcome == outcomeSubmitted {
+			answers = c.answers
 		}
-		closeQuestion(row, answers, outcome)
+		closeQuestion(row, answers, c.outcome)
 		return nil
 	})
 	if err != nil && !fenced(err) && !errors.Is(err, errUnchanged) {
 		e.opts.Logf("agent engine: closing run %s's question: %v", r.id, err)
+		r.closing = append(r.closing, c)
 	}
+}
+
+// retryCloses saves the card closes that failed before.
+func (e *WorkerEngine) retryCloses(r *agentRun) {
+	pending := r.closing
+	r.closing = nil
+	for _, c := range pending {
+		e.closeCard(r, c)
+	}
+}
+
+// unsaved is whether the follower holds something a save refused or has not
+// written yet: activity, a card, or a card's close.
+func (r *agentRun) unsaved() bool {
+	return r.dirty || r.asking != nil || len(r.closing) > 0
 }
 
 // errUnchanged rolls back a follower save that has nothing to write.
@@ -953,6 +988,24 @@ func (e *WorkerEngine) loop(r *agentRun) {
 			flushTimer.Stop()
 		}
 	}()
+	// arm flushes what is unsaved at the activity throttle: now when the
+	// last flush is old enough (and then once more if that one failed), else
+	// by the timer.
+	arm := func() {
+		if !r.unsaved() || flushC != nil {
+			return
+		}
+		wait := e.opts.ActivityEvery - time.Since(r.lastFlush)
+		if wait <= 0 {
+			e.flush(r)
+			if !r.unsaved() {
+				return
+			}
+			wait = e.opts.ActivityEvery
+		}
+		flushTimer = time.NewTimer(wait)
+		flushC = flushTimer.C
+	}
 	for {
 		select {
 		case <-r.queue.signal:
@@ -966,19 +1019,16 @@ func (e *WorkerEngine) loop(r *agentRun) {
 					return
 				}
 			}
-			if r.dirty && flushC == nil {
-				if wait := e.opts.ActivityEvery - time.Since(r.lastFlush); wait <= 0 {
-					e.flush(r)
-				} else {
-					flushTimer = time.NewTimer(wait)
-					flushC = flushTimer.C
-				}
-			}
+			arm()
 		case <-flushC:
 			flushC = nil
-			if r.dirty {
+			if r.unsaved() {
 				e.flush(r)
 			}
+			// A flush the database refused leaves its work behind, and the
+			// worker may send nothing more (it waits on a card): try again
+			// by the clock, not by the next message.
+			arm()
 		case <-renew.C:
 			r.mu.Lock()
 			sent := r.stopSent
@@ -1046,6 +1096,7 @@ func fenced(err error) bool {
 // flush writes the run's activity, tool state and new taint: the throttled
 // activity checkpoint.
 func (e *WorkerEngine) flush(r *agentRun) {
+	e.retryCloses(r)
 	r.dirty = false
 	r.lastFlush = time.Now()
 	taint := r.taint
