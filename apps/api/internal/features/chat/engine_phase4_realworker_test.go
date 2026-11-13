@@ -69,6 +69,10 @@ type modelRecorder struct {
 	mu    sync.Mutex
 	calls []modelCall
 	url   string // the base URL the worker is given (…/v1)
+	// sensitiveURL, when set, is the base URL a Sensitive run is given: the
+	// same recorder under another name, so Hermes sees an endpoint it has not
+	// served (the gateway's loopback port is new at every API start).
+	sensitiveURL string
 }
 
 func recordModel(t *testing.T, stub string) *modelRecorder {
@@ -146,11 +150,14 @@ func (c modelCall) toolTexts() []string {
 // gateway's AgentModelFor does: one endpoint, a grant per kind of run).
 func stubModelAt(rec *modelRecorder) func(context.Context, string, string, string, RunModelOptions) (any, error) {
 	return func(_ context.Context, _, _, _ string, opts RunModelOptions) (any, error) {
-		key := grantPlain
+		key, base := grantPlain, rec.url
 		if opts.Sensitive {
 			key = grantSensitive
+			if rec.sensitiveURL != "" {
+				base = rec.sensitiveURL
+			}
 		}
-		return map[string]any{"provider": "custom", "model": "stub-model", "base_url": rec.url, "api_key": key, "api_mode": "chat_completions"}, nil
+		return map[string]any{"provider": "custom", "model": "stub-model", "base_url": base, "api_key": key, "api_mode": "chat_completions"}, nil
 	}
 }
 
@@ -556,9 +563,11 @@ func TestIntegrationAgentEngineRealWorkerSensitiveNoPersist(t *testing.T) {
 	h, rec := realHarness(t, rt, rt)
 	const secret = "zebrafinch-np-4471"
 
-	// An ordinary chat first: the home has served the model endpoint (as
-	// every real Sensitive turn's home has; a cold home records endpoint
-	// metadata, apps/agent/tests/contract/test_c_no_persist.py).
+	// An ordinary chat first, on the same model endpoint, so the home holds
+	// Hermes' notes about it already and this test can assert that nothing at
+	// all changes. A Sensitive run's endpoint is the gateway's loopback URL,
+	// which is new after every API start, so in production the first Sensitive
+	// turn is on a cold endpoint: ...ColdEndpoint below covers that case.
 	warm := h.realChat("hello there", "supervised", nil)
 	h.waitLong(warm.ID, "replied", statusIs("idle"))
 	time.Sleep(time.Second) // the worker's end-of-turn writes settle
@@ -639,4 +648,67 @@ func TestIntegrationAgentEngineRealWorkerSensitiveNoPersist(t *testing.T) {
 	if diff := changedPaths(before, homeSnapshot(t, home)); len(diff) != 0 {
 		t.Fatalf("the classic Sensitive chat changed the home: %v", diff)
 	}
+}
+
+// endpointMetadata is what Hermes writes about a model endpoint it has not
+// served before (apps/agent/tests/contract/test_c_no_persist.py ENDPOINT_METADATA).
+// None of it holds a chat's text. "." is the home directory's own mtime.
+var endpointMetadata = []string{".", "cache", "cache/local_endpoint_probes.json", "cache/scratch", "cache/scratch/.last_prune",
+	"context_length_cache.yaml", "context_length_cache.yaml.lock"}
+
+// The first Sensitive turn after an API start is on a cold endpoint (the
+// gateway's loopback port changes at every start, and Hermes keys its notes
+// on model and base URL): the only paths that change are those notes, and
+// no file holds the chat's text. Q-4.2 holds: no state.db row, learning or
+// search entry.
+func TestIntegrationAgentEngineRealWorkerSensitiveNoPersistColdEndpoint(t *testing.T) {
+	rt := realRuntime(t)
+	h, rec := realHarness(t, rt, rt)
+	const secret = "zebrafinch-cold-8830"
+
+	// The home is seeded by an ordinary chat, and the Sensitive chat's
+	// endpoint is the same recorder under another host name: one the home has
+	// not served.
+	rec.sensitiveURL = strings.Replace(rec.url, "127.0.0.1", "localhost", 1)
+	if rec.sensitiveURL == rec.url {
+		t.Fatalf("the recorder's URL %q has no 127.0.0.1 to rename", rec.url)
+	}
+	warm := h.realChat("hello there", "supervised", nil)
+	h.waitLong(warm.ID, "replied", statusIs("idle"))
+	time.Sleep(time.Second)
+	home := h.e.sup.Layout().Home("user-a")
+	before := homeSnapshot(t, home)
+	plain := len(rec.completions())
+
+	h.s.SetSensitiveNoPersist(true)
+	todo := obj{"todos": []obj{{"id": "1", "content": secret + " list", "status": "in_progress"}}}
+	script := stubScript("tag-cold", stubCalls("todo_list", todo), obj{"text": "Listed."})
+	c := h.realChat(script, "supervised", func(c *Conversation) { c.Sensitive = true })
+	c = h.waitLong(c.ID, "replied", statusIs("idle"))
+	if c.RunEngine != engineAgent {
+		t.Fatalf("run engine %q with the switch on", c.RunEngine)
+	}
+	time.Sleep(time.Second)
+	for _, call := range rec.completions()[plain:] {
+		if call.Auth != "Bearer "+grantSensitive {
+			t.Fatalf("the Sensitive chat used %q", call.Auth)
+		}
+	}
+	diff := changedPaths(before, homeSnapshot(t, home))
+	if len(diff) == 0 {
+		t.Fatal("the endpoint was not cold: nothing changed, so this test proves nothing the warm one does not")
+	}
+	for _, rel := range diff {
+		if !slices.Contains(endpointMetadata, rel) {
+			t.Errorf("a cold-endpoint Sensitive turn changed %s, which is not endpoint metadata (changed: %v)", rel, diff)
+		}
+	}
+	_ = filepath.WalkDir(home, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if b, err := os.ReadFile(path); err == nil && bytes.Contains(b, []byte(secret)) {
+				t.Errorf("%s holds the Sensitive chat's text", path)
+			}
+		}
+		return nil
+	})
 }

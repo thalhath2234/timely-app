@@ -202,7 +202,11 @@ recommended answer to Q-5.2.
   Claude Code token variables and never reads the CLI's credentials file.
 - **Q-4.2** Sensitive and photo chats stay on Classic. The no-persist run they
   would need is built and proved behind a test-only switch:
-  - nothing is written to the agent home;
+  - no chat text, `state.db` row, learning or search entry is written to the
+    agent home. Hermes does note the model endpoint it has not served
+    (`context_length_cache.yaml` and its lock, `cache/local_endpoint_probes.json`,
+    `cache/scratch/.last_prune`). The gateway's loopback port is new at every API
+    start, so the first Sensitive turn after a start writes them;
   - no learning, past-chat search, web, sub-tasks or questions;
   - Go sends the whole conversation each turn;
   - the Go model endpoint gives the run a zero-data-retention grant.
