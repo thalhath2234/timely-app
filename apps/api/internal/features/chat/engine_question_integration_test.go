@@ -840,3 +840,34 @@ func TestIntegrationAgentEngineClarifyCloseSaveRetriesThroughABlip(t *testing.T)
 		t.Fatalf("the card closed as %+v", asked[0].Question)
 	}
 }
+
+// A message typed on a screen that has not shown the card yet (or that shows
+// another card) is not the answer to it: the person has not read the question
+// (send and steer both). A message that names the card it read answers it.
+func TestIntegrationAgentEngineClarifyMessageAnswersOnlyTheCardItsSenderRead(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-seen", lines(ask("req-s", 600_000), reply("Ok {{last_answers}}", 0)))
+	c = h.waiting(c.ID, "req-s")
+	before := len(c.Messages)
+	for _, tc := range []struct{ path, body string }{
+		{"/messages", `{"content":"make it 30 minutes","requestId":"m-1","questionRequestId":""}`},
+		{"/messages", `{"content":"make it 30 minutes","requestId":"m-2","questionRequestId":"req-old"}`},
+		{"/steer", `{"text":"make it 30 minutes","questionRequestId":""}`},
+		{"/steer", `{"text":"make it 30 minutes","questionRequestId":"req-old"}`},
+	} {
+		if code, body := h.post("/chats/"+c.ID+tc.path, tc.body); code != 409 {
+			t.Fatalf("%s %s: %d %s, want 409", tc.path, tc.body, code, body)
+		}
+	}
+	c = h.waiting(c.ID, "req-s")
+	if len(c.Messages) != before || len(h.clarifyAnswers()) != 0 || len(h.kit.ReceivedOf("run.steer")) != 0 {
+		t.Fatalf("a message nobody read answered the card: %d messages (%d before), answers %+v", len(c.Messages), before, h.clarifyAnswers())
+	}
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"Monday","questionRequestId":"req-s"}`); code != 200 {
+		t.Fatalf("steer naming the card: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if lastMessage(c).Content != `Ok {"q0":"Monday","q1":"Monday"}` {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+}

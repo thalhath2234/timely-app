@@ -68,9 +68,13 @@ export const configureChatAgent = (
 /** "Don't learn from this chat" (PATCH /chats/:id {noLearning}); the answer is the whole chat. */
 export const setChatNoLearning = (id: string, noLearning: boolean) =>
   chatRequest(`/${encodeURIComponent(id)}`, "PATCH", { noLearning });
-/** Adds text to the agent run that is live in this chat (409 once it ended). */
-export const steerChat = (id: string, text: string) =>
-  chatRequest(`/${encodeURIComponent(id)}/steer`, "POST", { text });
+/**
+ * Adds text to the agent run that is live in this chat (409 once it ended).
+ * questionRequestId is the card this screen shows ("" for none): the text
+ * answers a waiting card only when the sender read that card.
+ */
+export const steerChat = (id: string, text: string, questionRequestId = "") =>
+  chatRequest(`/${encodeURIComponent(id)}/steer`, "POST", { text, questionRequestId });
 /** Answers the question card the live run waits on, or skips it (409 once the card closed). */
 export const answerQuestion = (id: string, input: AnswerQuestionInput) =>
   chatRequest(`/${encodeURIComponent(id)}/answer`, "POST", input);

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ENGINE_COPY,
+  QUESTION_CARD_TITLES,
+  questionCardState,
   questionWaiting,
   type ChatQuestion,
   type PermissionMode,
@@ -212,6 +214,10 @@ export default function Conversation({
   const input = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const questionRow = useRef<HTMLDivElement>(null);
+  // Focus was inside the question card (the row below sets it), and the card
+  // the screen showed last.
+  const cardFocus = useRef(false);
+  const shownQuestion = useRef<string | undefined>(undefined);
   const receiptAnchor = useRef<HTMLDivElement>(null);
   // The receipt form as the person left it, sent with a message typed
   // during the review so unsaved edits are revised, not lost.
@@ -312,6 +318,27 @@ export default function Conversation({
   // the scroll above does not run: bring the card into view, its top first
   // when it is taller than the thread.
   const questionId = asking ? chat?.question?.requestId : undefined;
+  // The card closed from the server (time limit, Stop or an answer on another
+  // device) while focus was inside it: the focused element is gone and focus
+  // fell to <body>, so it goes back to the composer. Send answer and Skip
+  // already do that themselves.
+  useEffect(() => {
+    const was = shownQuestion.current;
+    shownQuestion.current = questionId;
+    if (!was || was === questionId) return;
+    const active = document.activeElement;
+    if (cardFocus.current && (!active || active === document.body))
+      input.current?.focus();
+    cardFocus.current = false;
+  }, [questionId]);
+  // Tells screen readers how the card closed (the thread then holds it).
+  const lastQuestion = [...(chat?.messages ?? [])]
+    .reverse()
+    .find((m) => m.kind === "question");
+  const questionClosedNote =
+    lastQuestion && !asking
+      ? `Question closed: ${QUESTION_CARD_TITLES[questionCardState(lastQuestion.question?.outcome)]}`
+      : "";
   useEffect(() => {
     const row = questionRow.current;
     if (!questionId || !row) return;
@@ -352,7 +379,10 @@ export default function Conversation({
     answer.reset();
     if (steering) {
       if (!draft.trim() || uploads.images.length || mutation.isPending) return;
-      mutation.mutate({ action: "/steer", body: { text: draft.trim() } });
+      mutation.mutate({
+        action: "/steer",
+        body: { text: draft.trim(), questionRequestId: questionId ?? "" },
+      });
       return;
     }
     if (
@@ -372,6 +402,9 @@ export default function Conversation({
           `${draft.trim()}\n${imageIds.join(",")}\n${tagIds.join(",")}`,
         ),
         botTags: tagIds,
+        // The card this screen shows: a message answers only a card its
+        // sender read (409 when another one waits).
+        questionRequestId: questionId ?? "",
         ...unsavedReceipt(),
       },
     });
@@ -777,11 +810,24 @@ export default function Conversation({
               <RunActivity chat={chat} />
             )}
             {liveReply && <LiveReply draft={liveReply} />}
+            <p
+              role="status"
+              aria-live="polite"
+              className="sr-only"
+              data-testid="question-closed-note"
+            >
+              {questionClosedNote}
+            </p>
             {asking && chat?.question?.requestId && (
               <div
                 ref={questionRow}
                 className="mt-5 flex gap-3"
                 data-testid="question-row"
+                onFocus={() => (cardFocus.current = true)}
+                onBlur={(event) => {
+                  // Focus moved to another element; a removed card sends none.
+                  if (event.relatedTarget) cardFocus.current = false;
+                }}
               >
                 <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-foreground">
                   <TimelyLogo size={16} />

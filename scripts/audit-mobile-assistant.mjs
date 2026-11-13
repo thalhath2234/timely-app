@@ -161,7 +161,7 @@ export const uploadChatImage=async()=>({id:"photo",expiresAt:"2099-01-01"});
 export const renameChat=(id,title)=>chatRequest("/"+id,"PATCH",{title});
 export const deleteChat=(id)=>chatRequest("/"+id,"DELETE");
 export const configureChatAgent=(id,patch)=>chatRequest("/"+id,"PATCH",patch);
-export const steerChat=(id,text)=>chatRequest("/"+id+"/steer","POST",{text});
+export const steerChat=(id,text,questionRequestId="")=>chatRequest("/"+id+"/steer","POST",{text,questionRequestId});
 export const setChatNoLearning=(id,noLearning)=>chatRequest("/"+id,"PATCH",{noLearning});
 export const answerQuestion=(id,input)=>chatRequest("/"+id+"/answer","POST",input);
 export const undoChatChange=(id,revision,messageId)=>chatRequest("/"+id+"/undo","POST",{revision,messageId});
@@ -769,7 +769,7 @@ else {
     await page.getByText("What you send now answers Timely’s question.").waitFor();
     await page.getByLabel("Send as your answer").click();
     await page.getByTestId("question-closed-answered").getByText("Window seats").waitFor();
-    assert.deepEqual((await actions()).find((a) => a.path === "/asktype/steer").body, { text: "Window seats" });
+    assert.deepEqual((await actions()).find((a) => a.path === "/asktype/steer").body, { text: "Window seats", questionRequestId: "req-t" });
     // An answer to a card that closed meanwhile says so, and the thread shows how it closed.
     await page.goto(`${origin}/?chat=asklate`);
     await page.evaluate(() => (window.auditStaleAnswer = true));

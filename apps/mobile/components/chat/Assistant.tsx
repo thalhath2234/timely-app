@@ -673,7 +673,7 @@ export default function Assistant() {
     runningAction.current = true;
     setError("");
     try {
-      const next = await steerChat(id, text);
+      const next = await steerChat(id, text, questionId ?? "");
       queryClient.setQueryData(detailKey, next);
       assistant.updateCache((cache) => ({
         ...cache,
@@ -748,6 +748,9 @@ export default function Assistant() {
           content: draft.text.trim(),
           imageIds,
           requestId,
+          // The card this screen shows: a message answers only a card its
+          // sender read (409 when another one waits).
+          ...(id ? { questionRequestId: questionId ?? "" } : {}),
           botTags: liveBotTags(draft.text, draft.botTags, bots).map(
             (tag) => tag.id,
           ),

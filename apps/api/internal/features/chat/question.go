@@ -269,6 +269,15 @@ func textAnswers(text string) func(ChatQuestion) (map[string]any, error) {
 // is its answer (answerByMessage).
 var errAnswerByMessage = errors.New("a question card waits for this message")
 
+// noCardSeen is the question request id of a message whose screen shows no
+// card (questionRequestId ""): it answers nothing.
+const noCardSeen = "\x00no card"
+
+// errNewQuestion is the 409 for a message typed before the person's screen
+// showed the card that waits: it is not an answer to a question they have not
+// read. The apps refetch and show the card.
+var errNewQuestion = echo.NewHTTPError(409, "Timely just asked you a question. Read it first.")
+
 // answer is POST /chats/:id/answer {requestId, answers, skip}: the person's
 // answer to the card the run waits on. 409 when the card no longer waits.
 func (s *Service) answer(c *echo.Context) error {
@@ -297,7 +306,7 @@ func (s *Service) answer(c *echo.Context) error {
 
 // answerQuestion is the fenced answer (decision 2): under the row lock it
 // checks the card still waits on the run that asked (requestID "" takes
-// the card that waits), keeps the answer in the thread and clears the card
+// the card that waits; noCardSeen refuses one that does), keeps the answer in the thread and clears the card
 // in one transaction; only then does clarify.answer go to the worker. A
 // worker that no longer waits (the card timed out, the run ended meanwhile)
 // leaves the message marked undelivered and answers 409.
@@ -315,6 +324,12 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
+		}
+		if requestID == noCardSeen {
+			if questionOpen(&row, row.Question.RequestID) {
+				return errNewQuestion
+			}
+			return errCardClosed
 		}
 		if requestID == "" {
 			requestID = row.Question.RequestID
@@ -445,9 +460,19 @@ func (s *Service) markUndelivered(uid, cid, messageID string) error {
 // answerByMessage answers the waiting card with a message the person typed
 // (send or steer while a card waits, decision 4). stale is true when the
 // card closed before the answer committed: the caller then handles the
-// message as it would without a card.
-func (s *Service) answerByMessage(c *echo.Context, text, messageRequest string) (row Conversation, stale bool, err error) {
-	row, err = s.answerQuestion(c.Request().Context(), user(c), c.Param("id"), "", textAnswers(strings.TrimSpace(text)), outcomeSubmitted, messageRequest)
+// message as it would without a card. seen is the card the person's screen
+// showed (questionRequestId): nil from a client that does not send it (the
+// card that waits), "" for none; a message answers only the card its sender
+// read.
+func (s *Service) answerByMessage(c *echo.Context, text, messageRequest string, seen *string) (row Conversation, stale bool, err error) {
+	card := ""
+	if seen != nil {
+		card = *seen
+		if card == "" {
+			card = noCardSeen
+		}
+	}
+	row, err = s.answerQuestion(c.Request().Context(), user(c), c.Param("id"), card, textAnswers(strings.TrimSpace(text)), outcomeSubmitted, messageRequest)
 	return row, errors.Is(err, errCardClosed), err
 }
 

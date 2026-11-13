@@ -127,11 +127,15 @@ func (s *Service) get(c *echo.Context) error {
 }
 
 type sendInput struct {
-	RequestID string        `json:"requestId"`
-	ImageIDs  []string      `json:"imageIds"`
-	Content   string        `json:"content"`
-	Context   []ContextChip `json:"context"`
-	WebSearch bool          `json:"webSearch"`
+	RequestID string `json:"requestId"`
+	// QuestionRequestID is the question card the sender's screen shows ("" for
+	// none; absent from clients that do not say): a message typed while a
+	// card waits answers it only when the sender read that card.
+	QuestionRequestID *string       `json:"questionRequestId"`
+	ImageIDs          []string      `json:"imageIds"`
+	Content           string        `json:"content"`
+	Context           []ContextChip `json:"context"`
+	WebSearch         bool          `json:"webSearch"`
 	// Device IANA timezone. The agent uses it when no timezone is saved in
 	// Working hours; invalid values are ignored.
 	Timezone string `json:"timezone"`
@@ -376,7 +380,7 @@ func (s *Service) send(c *echo.Context) error {
 		if !errors.Is(err, errAnswerByMessage) {
 			return err
 		}
-		row, stale, err := s.answerByMessage(c, in.Content, in.RequestID)
+		row, stale, err := s.answerByMessage(c, in.Content, in.RequestID, in.QuestionRequestID)
 		if stale {
 			continue
 		}
@@ -891,6 +895,8 @@ func (s *Service) newChatPermission(uid, asked string) (string, error) {
 func (s *Service) steer(c *echo.Context) error {
 	var in struct {
 		Text string `json:"text"`
+		// The card the sender's screen shows (see sendInput).
+		QuestionRequestID *string `json:"questionRequestId"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid message")
@@ -924,7 +930,7 @@ func (s *Service) steer(c *echo.Context) error {
 		return tx.Save(&row).Error
 	})
 	if errors.Is(err, errAnswerByMessage) {
-		answered, _, err := s.answerByMessage(c, in.Text, "")
+		answered, _, err := s.answerByMessage(c, in.Text, "", in.QuestionRequestID)
 		if err != nil {
 			return err
 		}
