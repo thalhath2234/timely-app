@@ -103,7 +103,7 @@ export default function ModelMenu({
         : "Default model";
 
   return (
-    <div ref={wrap} className="relative">
+    <div ref={wrap} className="relative min-w-9">
       <button
         type="button"
         aria-haspopup="dialog"
@@ -120,16 +120,18 @@ export default function ModelMenu({
             : "Uses the default model from Settings → Agent"
         }
         className={cn(
-          "inline-flex max-w-[14rem] items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors disabled:opacity-50",
+          "inline-flex max-w-[min(14rem,100%)] items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors disabled:opacity-50",
           value.provider
             ? "bg-primary/10 text-primary"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
       >
         <Cpu className="size-4 shrink-0" />
-        {/* Icon only on a phone-width window; the title still names the model. */}
-        <span className="hidden truncate sm:inline">{current}</span>
-        <ChevronDown className="hidden size-3 shrink-0 sm:block" />
+        {/* Icon only while the composer's tool row is narrow; the label still names the model. */}
+        <span className="hidden min-w-0 truncate @lg/tools:inline">
+          {current}
+        </span>
+        <ChevronDown className="hidden size-3 shrink-0 @lg/tools:block" />
       </button>
       {open && (
         <div

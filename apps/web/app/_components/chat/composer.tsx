@@ -208,8 +208,9 @@ export default function Composer({
             }}
             className="max-h-48 min-h-14 w-full resize-none bg-transparent px-1.5 py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-0.5">
+          <div className="@container/tools flex items-center justify-between gap-2">
+            {/* The tool row wraps instead of painting over Stop and Send when it is narrower than its buttons. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-0.5">
               {permission && (
                 <ChatPermissionMenu
                   value={permission.value}
@@ -260,8 +261,10 @@ export default function Composer({
                 )}
               >
                 <Globe2 className="size-4" />
-                {/* Icon only on a phone-width window, so the row fits beside the permission chip. */}
-                <span className={permission ? "hidden sm:inline" : undefined}>
+                {/* Icon only while the row is narrow (its own width, not the window's), so it fits beside the permission chip and the Stop and Send buttons. */}
+                <span
+                  className={permission ? "hidden @md/tools:inline" : undefined}
+                >
                   {privateImages ? "Private image chat" : "Web search"}
                 </span>
                 {searchOn && <Check className="size-3" />}
