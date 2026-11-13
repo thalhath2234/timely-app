@@ -32,7 +32,8 @@
 #   session-taint         a hit from a tainted or bot-started conversation taints the session
 #   delegate-cap          at most 3 children per run in total, 60 child tool calls shared, joined in the
 #                         call (no background), no grandchildren; children cannot propose, search past
-#                         chats or save; a child's taint taints the parent (via: subagent)
+#                         chats or save; no `images` argument (a file or URL the child would read
+#                         with no taint); a child's taint taints the parent (via: subagent)
 #   web-toggle            blocked when the chat's web toggle is off, in Sensitive and in answer-only runs
 #   bot-egress            bot egress policy (7.5); Reads hosts go through the polite fetcher
 #   xai-key               offered only when the account has an xAI key

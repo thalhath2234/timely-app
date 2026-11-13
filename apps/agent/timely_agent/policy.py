@@ -162,6 +162,8 @@ CHILD_CAP = ("Blocked: this reply already used its {n} sub-tasks. Finish with wh
              "rest yourself.")
 CHILD_POOL_USED = "The sub-task budget for this reply is used up. Finish with what you have."
 CHILD_BACKGROUND = "Blocked: sub-tasks cannot run in the background in Timely. Call delegate_task without background."
+CHILD_IMAGES = ("Blocked: sub-tasks cannot be given images in Timely. Describe what they should read "
+                "instead.")
 CHILD_NOT_HERE = "Blocked: sub-tasks are not available here. Do the work yourself."
 # Children read; only the main assistant proposes, searches past chats or saves skills and memory.
 CHILD_BLOCKED: dict[str, str] = {

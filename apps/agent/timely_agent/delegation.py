@@ -4,6 +4,8 @@ lifecycle hooks it registers (phase 4, decisions 5-8 of ``docs/plans/2026-11-13-
 - **Where.** Only a chat run that is not from a bot and not no-persist may start sub-tasks
   (``verdict``); bots never get ``delegate_task`` (recursion guard). Go adds the ``delegation``
   toolset only to such runs; this is the second line.
+- **No images.** A sub-task is never given ``images`` (top level or per task): Hermes would read a
+  local file or send a URL to the provider, which is outside content with no taint source.
 - **Caps.** At most ``policy.CHILDREN_PER_RUN`` children per run in total, across every call; no
   background children (Hermes ignores the model's ``background`` and Timely builds the agent so its
   delegations join inside the call, ``run_chat.build_agent``); ``max_spawn_depth: 1`` and
@@ -48,12 +50,24 @@ def _no_subtasks(run: Optional[bridge.RunContext]) -> bool:
     return run.kind != "chat" or flags.get("from_bot") is True or flags.get("no_persist") is True
 
 
+def _has_images(args: dict) -> bool:
+    """``delegate_task`` takes ``images`` (URLs or local paths) at the top level and per task: Hermes
+    reads a local file into the child's first message and hands a URL to the provider, outside
+    content with no taint source and a way past the chat's web setting."""
+    if args.get("images"):
+        return True
+    tasks = args.get("tasks")
+    return isinstance(tasks, list) and any(isinstance(t, dict) and t.get("images") for t in tasks)
+
+
 def verdict(run: Optional[bridge.RunContext], args: dict) -> Optional[dict]:
     """``timely_gate``'s answer for a ``delegate_task`` call of the run itself (None = allow)."""
     if _no_subtasks(run):
         return {"action": "block", "message": policy.CHILD_NOT_HERE}
     if "background" in args and policy.truthy(args.get("background")):
         return {"action": "block", "message": policy.CHILD_BACKGROUND}
+    if _has_images(args):
+        return {"action": "block", "message": policy.CHILD_IMAGES}
     action = str(args.get("action") or "").strip().lower()
     if action and action != "spawn":
         return None  # list/steer/stop start nothing
