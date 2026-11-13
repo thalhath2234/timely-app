@@ -643,6 +643,46 @@
       "signature": "def _load_mcp_config() -> dict[str, dict]",
       "sha256": "883e458a47c2f6ae6520e6a3021866d14499c8a26d6665baa2172ceb1522f68d"
     },
+    "auxiliary Nous auth read (sign-in guard R5)": {
+      "file": "agent/auxiliary_client.py",
+      "qualname": "_read_nous_auth",
+      "line": 1948,
+      "end_line": 1979,
+      "signature": "def _read_nous_auth() -> Optional[dict]",
+      "sha256": "ec990d9f9a6ad97b87268e3f61bc6df04cedd41e738eefd4c22fe36dda0f1341"
+    },
+    "auxiliary Nous token refresh (sign-in guard R5)": {
+      "file": "agent/auxiliary_client.py",
+      "qualname": "_resolve_nous_runtime_api",
+      "line": 2032,
+      "end_line": 2054,
+      "signature": "def _resolve_nous_runtime_api(*, force_refresh: bool=False, stale_access_token: Optional[str]=None) -> Optional[tuple[str, str]]",
+      "sha256": "2ef4db056e72e66953235ea9fe3754f4093fc5b3f68fa2662f904ca0e8f2dee1"
+    },
+    "auxiliary Nous client (sign-in guard R5)": {
+      "file": "agent/auxiliary_client.py",
+      "qualname": "_try_nous",
+      "line": 2355,
+      "end_line": 2420,
+      "signature": "def _try_nous(vision: bool=False) -> tuple[Optional[OpenAI], Optional[str]]",
+      "sha256": "6169f8027c871bccc442ead4993d8d33988201685c7ed03daf6caeb18a631857"
+    },
+    "auxiliary discovery chain (sign-in guard R5)": {
+      "file": "agent/auxiliary_client.py",
+      "qualname": "_get_provider_chain",
+      "line": 3080,
+      "end_line": 3088,
+      "signature": "def _get_provider_chain() -> list[tuple]",
+      "sha256": "d90a44f96dd8b4c7ce78278b6e334e4ac3ea477034b06fe99fdb28f888a35447"
+    },
+    "auxiliary vision auto route (sign-in guard R5)": {
+      "file": "agent/auxiliary_client.py",
+      "qualname": "_vision_auto_route",
+      "line": 5541,
+      "end_line": 5567,
+      "signature": "def _vision_auto_route(runtime: dict[str, Any], resolved_model: Optional[str], resolved_api_mode: Optional[str], async_mode: bool) -> tuple[Optional[str], Optional[Any], Optional[str]]",
+      "sha256": "ad47df16ef9f33d0af3df67b88640692b3e46608cac8b8b6ce1d1566c6d16018"
+    },
     "browser URL policy (local backend skips the private floor)": {
       "file": "tools/browser_url_policy.py",
       "qualname": "_url_policy_error",

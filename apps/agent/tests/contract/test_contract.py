@@ -385,6 +385,12 @@ SYMBOLS: dict[str, list[str] | None] = {
     # dotenv guard (runtime override R2) and the run-time reload it stops
     "hermes_cli.env_loader:load_hermes_dotenv": [],
     "tools.mcp_tool_config:_load_mcp_config": [],
+    # sign-in guard (runtime override R5, Q-4.1): Hermes' auxiliary resolver never tries Nous
+    "agent.auxiliary_client:_read_nous_auth": [],
+    "agent.auxiliary_client:_resolve_nous_runtime_api": [],
+    "agent.auxiliary_client:_try_nous": ["vision"],
+    "agent.auxiliary_client:_get_provider_chain": [],
+    "agent.auxiliary_client:_VISION_AUTO_PROVIDER_ORDER": None,
     # phase 3 learning (timely_agent/learning): staging, ledger actor, skill states, memory store
     "tools.write_approval:stage_write": ["summary", "origin"],
     "tools.write_approval:skill_gist": ["content", "file_path", "old_string", "new_string"],

@@ -35,6 +35,15 @@ def sworker(sagent):
     w.close()
 
 
+def test_c_sign_in_worker_start_never_tries_nous(sagent, sworker):
+    """Runtime override R5: the tool registry's vision check at worker start asks Hermes'
+    auxiliary resolver for ``provider: "auto"``, whose discovery chain would read the Nous Portal
+    credential pool and auth store. With the override nothing tries Nous, so nothing logs it."""
+    sworker.send({"type": "ping", "id": "csi-ping", "account": sagent.account})
+    sworker.until("pong")
+    assert "Nous" not in sworker.stderr and "nous requested" not in sworker.stderr, sworker.stderr[-3000:]
+
+
 @pytest.mark.parametrize("provider", ["openai-codex", "nous", "copilot", "xai-oauth", "qwen-oauth", ""])
 def test_sign_in_providers_are_refused(sagent, sworker, stub, provider):
     msg = harness.run_start(sagent, stub, run_id=f"csi-{provider or 'none'}", conversation="c-csi")

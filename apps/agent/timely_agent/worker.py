@@ -280,6 +280,8 @@ class Worker:
         import run_agent  # noqa: F401  (the agent loop; also loads model_tools)
         from timely_agent import dotenv_guard
         dotenv_guard.install()  # R2: no dotenv reload after this point (MCP config loads call it)
+        from timely_agent import sign_in_guard
+        sign_in_guard.install()  # R5: Hermes' auxiliary resolver never tries the Nous sign-in (Q-4.1)
         from timely_agent.learning import counters as learning_counters
         learning_counters.install()  # a stored review counter survives Hermes' first-turn hydration
         from timely_agent.learning import passes as learning_passes

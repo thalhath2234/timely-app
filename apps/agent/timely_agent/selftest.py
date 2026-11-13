@@ -28,7 +28,8 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``no_sign_in``    Q-4.1: no Hermes sign-in in the home (``auth.json``, ``.anthropic_oauth.json``),
                     borrowing another app's login is off, and no ``model``, ``delegation`` or
                     ``auxiliary.*`` provider in the effective config is a sign-in provider or one
-                    Timely does not run (``policy.ALLOWED_PROVIDERS``, ``auto`` or empty)
+                    Timely does not run (``policy.ALLOWED_PROVIDERS``, ``auto`` or empty), and
+                    runtime override R5 keeps Hermes' auxiliary resolver off the Nous sign-in
 
 If any check fails the worker answers ``ready`` with ``self_test.ok = false`` and refuses runs.
 """
@@ -255,6 +256,9 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
     try:
         from hermes_cli.config import load_config
         problems = sign_in_problems(want_home, load_config(), oauth_provider_ids())
+        from timely_agent import sign_in_guard
+        if not sign_in_guard.active():
+            problems.append("Hermes' auxiliary resolver can still try the Nous sign-in (override R5 missing)")
         checks.append(_check("no_sign_in", not problems, "; ".join(problems)))
     except Exception as exc:
         checks.append(_check("no_sign_in", False, f"{type(exc).__name__}: {exc}"))
