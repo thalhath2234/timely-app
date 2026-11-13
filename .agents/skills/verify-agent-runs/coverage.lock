@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync 833dc79a73f7db1f8d2fd4e47d70cfc54111ce20
+sync 82bea9956cc5157c6802299d6f8584303c29d702
 apps/api/internal/features/chat/runner.go (*Service).work 4714f507de496d33
 apps/api/internal/features/chat/runner.go (*Service).runClassic 92f268cf78651921
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
@@ -43,10 +43,10 @@ apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).stopped b870317f
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).fail a17c026654fa2b5d
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).failWith 7ea5b75aebb57b4d
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).flush eb185164ee35df32
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).closeAsked e499a85d0cb3a15b
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).closeCard 3190a71b7fca3ea8
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).closeAsked df0ce41f977eedba
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).closeCard 5c5a370c4036c8f7
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Answer ea438e9d75fc4205
 apps/api/internal/features/chat/question.go questionOpen 54f6644575357cd2
 apps/api/internal/features/chat/question.go closeQuestion 0dfab76c7d628ce2
-apps/api/internal/features/chat/question.go (*Service).answerQuestion 7b4b145e1c332ef4
+apps/api/internal/features/chat/question.go (*Service).answerQuestion 5f8593136d029aa9
 apps/api/internal/features/chat/question.go (*Service).restoreQuestion 5f1ea23f6d3439cb
