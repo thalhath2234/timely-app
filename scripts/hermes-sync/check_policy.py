@@ -238,6 +238,29 @@ def skill_trees(rev="HEAD", repo=None):
     return {f: trees[f] for f in sorted(folders) if f in trees}
 
 
+def skill_execs(trees, rev="HEAD", repo=None):
+    """{skill folder: sorted paths (relative to the folder) of its 100755 files} for the folders in
+    ``trees``. skills-reviewed.json records them as ``exec``: Windows has no exec bit, so seed.py
+    takes the modes of a reviewed skill's tree id from this list there (plan 9.3)."""
+    out = check_lib.git("ls-tree", "-r", "-z", rev, "--",
+                        *(f"{check_lib.PREFIX}/{r}" for r in SKILL_ROOTS), repo=repo)
+    execs = {rel: [] for rel in trees}
+    for row in out.split("\0"):
+        if not row:
+            continue
+        meta, rel = row.split("\t", 1)
+        if meta.split()[0] != "100755":
+            continue
+        rel = rel[len(check_lib.PREFIX) + 1:]
+        parts = rel.split("/")
+        for i in range(len(parts) - 1, 0, -1):
+            folder = "/".join(parts[:i])
+            if folder in execs:
+                execs[folder].append("/".join(parts[i:]))
+                break
+    return {rel: sorted(paths) for rel, paths in execs.items()}
+
+
 def frontmatter_name(text, fallback):
     if text.startswith("---"):
         end = text.find("\n---", 3)
@@ -415,8 +438,58 @@ def check_denied(reviewed, denied):
     return msgs
 
 
-def check_skills(reviewed, trees, runtime_skills=None):
-    """Every bundled skill and every offered optional skill matches its reviewed tree (9.3)."""
+CHECKOUT_ATTRS = ("text", "eol", "working-tree-encoding", "ident", "filter")
+
+
+def converted_on_checkout(attrs):
+    """Can a checkout write bytes other than the blob's for a file with these git attributes
+    ({name: value} from ``git check-attr``)? ``eol=crlf`` does on every OS (vendored
+    hermes/.gitattributes sets it for ``*.ps1``, overriding apps/agent's ``* -text``); ``text`` or
+    ``text=auto`` without ``eol=lf`` does on Windows (core.eol native); an encoding, ``ident``
+    or a filter rewrite the file anywhere."""
+    eol = attrs.get("eol", "unspecified")
+    text = attrs.get("text", "unspecified")
+    if eol == "crlf":
+        return True
+    if text in ("set", "auto") and eol != "lf":
+        return True
+    return any(attrs.get(a, "unspecified") not in ("unspecified", "unset") for a in ("working-tree-encoding", "ident", "filter"))
+
+
+def skill_converted(trees, rev="HEAD", repo=None):
+    """{skill folder: sorted paths (relative to the folder) whose checkout can differ from the
+    committed blob} for the folders in ``trees``. seed.git_tree_id hashes the bytes on disk, so
+    such a skill never matches its reviewed tree id and prepare drops it as unreviewed."""
+    out = check_lib.git("ls-tree", "-r", "-z", "--name-only", rev, "--",
+                        *(f"{check_lib.PREFIX}/{r}" for r in SKILL_ROOTS), repo=repo)
+    paths = [p for p in out.split("\0") if p]
+    attrs = {}
+    for i in range(0, len(paths), 500):
+        res = check_lib.git("check-attr", "-z", *CHECKOUT_ATTRS, "--", *paths[i:i + 500], repo=repo)
+        fields = res.split("\0")
+        for j in range(0, len(fields) - 2, 3):
+            attrs.setdefault(fields[j], {})[fields[j + 1]] = fields[j + 2]
+    converted = {rel: [] for rel in trees}
+    for path, a in attrs.items():
+        if not converted_on_checkout(a):
+            continue
+        rel = path[len(check_lib.PREFIX) + 1:]
+        parts = rel.split("/")
+        for i in range(len(parts) - 1, 0, -1):
+            folder = "/".join(parts[:i])
+            if folder in converted:
+                converted[folder].append("/".join(parts[i:]))
+                break
+    return {rel: sorted(p) for rel, p in converted.items()}
+
+
+def check_skills(reviewed, trees, runtime_skills=None, execs=None, converted=None):
+    """Every bundled skill and every offered optional skill matches its reviewed tree (9.3), and
+    every entry whose tree matches lists the folder's executable files (``skill_execs``) in
+    ``exec``, which Windows needs to compute the same tree id. With ``converted``
+    (``skill_converted``), a bundled or offered skill holding a file whose checkout rewrites
+    its bytes fails: its tree id on disk would never match the reviewed one, so prepare would
+    drop it as unreviewed without saying so."""
     msgs = []
     entries = reviewed.get("skills") if isinstance(reviewed, dict) else None
     if not isinstance(reviewed, dict) or reviewed.get("version") != 1:
@@ -447,6 +520,16 @@ def check_skills(reviewed, trees, runtime_skills=None):
             elif e["offered"] and e.get("tree") != tree:
                 msgs.append(f"optional skill {rel} (offered in Settings) changed upstream ({e.get('tree')} -> {tree}): "
                             f"read the diff, then {hint}")
+        ships = bundled or e.get("offered") is True
+        if converted is not None and ships and converted.get(rel):
+            msgs.append(f"{'bundled' if bundled else 'offered optional'} skill {rel}: git rewrites "
+                        f"{', '.join(converted[rel])} on checkout (hermes/.gitattributes: text/eol), so the "
+                        f"tree id seed.py computes on disk never matches {SKILLS_REVIEWED} and prepare would "
+                        f"drop the skill as unreviewed; leave it unoffered, or make seed.git_tree_id hash "
+                        f"those files as git stores them")
+        if execs is not None and e.get("tree") == tree and sorted(e.get("exec") or []) != execs.get(rel, []):
+            msgs.append(f"{SKILLS_REVIEWED} {rel}: `exec` must list the folder's executable files "
+                        f"{execs.get(rel, [])} (Windows computes the tree id from it): {hint}")
     for rel in sorted(set(entries) - set(trees)):
         msgs.append(f"{SKILLS_REVIEWED} lists {rel}, which is not a skill in the copy any more: remove it")
     if runtime_skills is not None:
@@ -460,8 +543,9 @@ def check_skills(reviewed, trees, runtime_skills=None):
     return msgs
 
 
-def review_skills(reviewed, trees, targets, everything=False):
-    """Record the current tree for the named skill folders (or all); new entries start off/unoffered."""
+def review_skills(reviewed, trees, targets, everything=False, execs=None):
+    """Record the current tree (and, from ``execs``, its executable files) for the named skill
+    folders (or all); new entries start off/unoffered."""
     entries = reviewed.setdefault("skills", {})
     reviewed.setdefault("version", 1)
     chosen = sorted(trees) if everything else []
@@ -473,6 +557,10 @@ def review_skills(reviewed, trees, targets, everything=False):
     for rel in sorted(set(chosen)):
         e = entries.setdefault(rel, {})
         e["tree"] = trees[rel]
+        if execs is not None:
+            e.pop("exec", None)
+            if execs.get(rel):
+                e["exec"] = list(execs[rel])
         if rel.startswith("skills/"):
             e.setdefault("default", "off")
         else:

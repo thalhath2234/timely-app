@@ -14,7 +14,7 @@
 // failed request's whole body, nothing a restore needs) are rebuilt or left
 // out.
 // restoreDataDir puts both back together. Electron-free.
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Logger } from "./logger.ts";
 import { silentLogger } from "./logger.ts";
@@ -42,6 +42,44 @@ function isAgentHomePart(name: string): boolean {
 
 /** Files that belong to a running server, not to its data. */
 const SKIP_ENTRIES = new Set(["postmaster.pid", "postmaster.opts"]);
+
+/**
+ * Adds the owner's read and write bits (and search on folders) to every entry
+ * under `root`, keeping the other bits. An account home can hold read-only
+ * folders (a skill seeded from a read-only install keeps its modes), and a
+ * copy keeps them too, so without this a backup could not be renamed into
+ * place, pruned or restored over.
+ */
+export function makeOwnerWritable(root: string): void {
+  if (!existsSync(root)) return;
+  const stack = [root];
+  while (stack.length > 0) {
+    const entry = stack.pop()!;
+    const info = lstatSync(entry);
+    if (info.isSymbolicLink()) continue;
+    if (info.isDirectory()) {
+      chmodSync(entry, (info.mode & 0o7777) | 0o700);
+      for (const name of readdirSync(entry)) stack.push(path.join(entry, name));
+    } else {
+      chmodSync(entry, (info.mode & 0o7777) | 0o600);
+    }
+  }
+}
+
+/** rmSync that also removes trees holding read-only folders. */
+export function removeTree(target: string): void {
+  try {
+    rmSync(target, { recursive: true, force: true });
+  } catch (error) {
+    if (!existsSync(target)) return;
+    try {
+      makeOwnerWritable(target);
+    } catch {
+      throw error;
+    }
+    rmSync(target, { recursive: true, force: true });
+  }
+}
 
 export function timestamp(date = new Date()): string {
   return date.toISOString().replace(/[:.]/g, "-").replace("T", "_").replace(/Z$/, "");
@@ -74,7 +112,7 @@ export function pruneBackups(dir: string, prefix: string, keep: number): string[
   const removed: string[] = [];
   for (const entry of entries.slice(keep)) {
     rmSync(path.join(dir, entry.name), { recursive: true, force: true });
-    rmSync(path.join(dir, entry.name + AGENT_SUFFIX), { recursive: true, force: true });
+    removeTree(path.join(dir, entry.name + AGENT_SUFFIX));
     removed.push(entry.name);
   }
   return removed;
@@ -166,7 +204,7 @@ export function copyDataDir(options: CopyOptions): string {
   const agentPartial = `${agentTarget}.partial`;
   const withAgent = options.agentAccounts !== undefined && existsSync(options.agentAccounts);
   rmSync(partial, { recursive: true, force: true });
-  rmSync(agentPartial, { recursive: true, force: true });
+  removeTree(agentPartial);
   log.info(`backup: copying ${options.pgData} → ${target}`);
   try {
     cpSync(options.pgData, partial, {
@@ -176,20 +214,17 @@ export function copyDataDir(options: CopyOptions): string {
     });
     if (withAgent) {
       const homes = copyAgentHomes(options.agentAccounts!, agentPartial);
+      makeOwnerWritable(agentPartial);
       log.info(`backup: copied ${homes} agent home(s) → ${agentTarget}`);
     }
     rmSync(target, { recursive: true, force: true });
-    rmSync(agentTarget, { recursive: true, force: true });
+    removeTree(agentTarget);
     // Rename instead of a second copy; same filesystem by construction.
-    cpSync(partial, target, { recursive: true, preserveTimestamps: true });
-    rmSync(partial, { recursive: true, force: true });
-    if (withAgent) {
-      cpSync(agentPartial, agentTarget, { recursive: true, preserveTimestamps: true });
-      rmSync(agentPartial, { recursive: true, force: true });
-    }
+    renameSync(partial, target);
+    if (withAgent) renameSync(agentPartial, agentTarget);
   } catch (error) {
     rmSync(partial, { recursive: true, force: true });
-    rmSync(agentPartial, { recursive: true, force: true });
+    removeTree(agentPartial);
     throw error;
   }
   return target;
@@ -255,9 +290,9 @@ export function restoreDataDir(options: RestoreOptions): RestoreResult {
     const live = path.join(accounts, home);
     mkdirSync(live, { recursive: true });
     for (const part of readdirSync(live)) {
-      if (isAgentHomePart(part)) rmSync(path.join(live, part), { recursive: true, force: true });
+      if (isAgentHomePart(part)) removeTree(path.join(live, part));
     }
-    rmSync(path.join(live, LEDGER_BLOBS), { recursive: true, force: true });
+    removeTree(path.join(live, LEDGER_BLOBS));
     const saved = path.join(agentSource, home);
     if (!existsSync(saved)) continue;
     for (const part of readdirSync(saved)) {

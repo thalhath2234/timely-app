@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, utimesSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, utimesSync, existsSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +26,7 @@ import { checkPrivileges } from "../apps/web/electron/supervisor/guards.ts";
 import { installFingerprint, isPackageManaged } from "../apps/web/electron/supervisor/install.ts";
 import { ACTIONS, SETTING_KEYS, Supervisor, pairingPayload, tailscaleUrls } from "../apps/web/electron/supervisor/index.ts";
 import { createElectronUpdater } from "../apps/web/electron/supervisor/updater.ts";
-import { resolveResourceDirs, userPaths } from "../apps/web/electron/supervisor/paths.ts";
+import { agentRuntime, resolveResourceDirs, userPaths } from "../apps/web/electron/supervisor/paths.ts";
 import { findFreePort, isPortFree, listenPort, reconcilePorts } from "../apps/web/electron/supervisor/ports.ts";
 import { classifyPidFile, isPostgresCommand, parsePostmasterPid, probePostgres } from "../apps/web/electron/supervisor/postgres.ts";
 import { fallbackPath, lastLine } from "../apps/web/electron/supervisor/shellEnv.ts";
@@ -44,6 +44,7 @@ import {
   urlFor,
 } from "../apps/web/electron/supervisor/tailscale.ts";
 import { FLAVOR, flavorFor } from "../apps/web/electron/flavor.ts";
+import verifyPack from "../apps/web/electron/verify-pack.cjs";
 
 function tmpdir() {
   const dir = mkdtempSync(path.join(os.tmpdir(), "timely-supervisor-test-"));
@@ -462,6 +463,66 @@ test("api env: contract variables, binds, and no Electron leakage", () => {
   assert.equal(env.ELECTRON_RUN_AS_NODE, undefined);
 });
 
+test("api env: the agent runtime is passed through, and an inherited one never leaks", () => {
+  const input = {
+    apiPort: 48090,
+    bind: ["127.0.0.1"],
+    postgresPort: 54339,
+    secrets: { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" },
+    dataDir: "/data",
+    allowRegistration: false,
+    shell: { PATH: "/login/bin", HOME: "/home/me" },
+    base: { TIMELY_AGENT_RUNTIME: "/home/me/dev/apps/agent", TIMELY_AGENT_PYTHON: "/kept" },
+  };
+  const bundled = buildApiEnv({ ...input, agentRuntime: "/opt/Timely/resources/agent" });
+  assert.equal(bundled.TIMELY_AGENT_RUNTIME, "/opt/Timely/resources/agent", "the bundled runtime replaces the developer shell's");
+  const none = buildApiEnv(input);
+  assert.equal("TIMELY_AGENT_RUNTIME" in none, false, "no bundled runtime: the inherited value is dropped");
+  assert.equal(none.TIMELY_AGENT_PYTHON, "/kept", "other TIMELY_* values still pass through");
+});
+
+test("api env: the supervisor hands the API resources/agent only when it holds boot.py, and logs it at boot", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const sup = makeSupervisor(dir, undefined);
+    sup.secrets = { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" };
+    const shell = { PATH: "/bin", HOME: dir };
+    assert.equal(sup.apiEnv(shell).TIMELY_AGENT_RUNTIME, undefined, "no runtime staged");
+    const agent = path.join(dir, "res-agent");
+    mkdirSync(agent, { recursive: true });
+    writeFileSync(path.join(agent, "boot.py"), "");
+    assert.equal(sup.apiEnv(shell).TIMELY_AGENT_RUNTIME, agent);
+
+    // No Postgres binaries here: boot fails at the database step, after the resources line.
+    await assert.rejects(sup.boot(), (error) => error.step === "postgres");
+    sup.log.close();
+    const logDir = userPaths(dir).logDir;
+    const text = readdirSync(logDir).map((name) => readFileSync(path.join(logDir, name), "utf8")).join("");
+    const line = text.split("\n").find((l) => l.includes("boot: resources "));
+    assert.ok(line?.endsWith(` agent=${agent}`), `boot line names the runtime: ${line}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test("api env: a packaged supervisor sets TIMELY_AGENT_RUNTIME even when resources/agent has no boot.py", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const sup = makeSupervisor(dir, undefined, { packaged: true });
+    sup.secrets = { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" };
+    const agent = path.join(dir, "res-agent");
+    assert.equal(sup.apiEnv({ PATH: "/bin", HOME: dir }).TIMELY_AGENT_RUNTIME, agent);
+    await assert.rejects(sup.boot(), (error) => error.step === "postgres");
+    sup.log.close();
+    const logDir = userPaths(dir).logDir;
+    const text = readdirSync(logDir).map((name) => readFileSync(path.join(logDir, name), "utf8")).join("");
+    const line = text.split("\n").find((l) => l.includes("boot: resources "));
+    assert.ok(line?.endsWith(` agent=${agent} (no boot.py: the agent engine is unavailable)`), `boot line: ${line}`);
+  } finally {
+    cleanup();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Backups, paths, shell env, guards
 // ---------------------------------------------------------------------------
@@ -602,6 +663,64 @@ test("backup: copies the agent homes beside the database folder, only what the a
   }
 });
 
+test("backup: a home with read-only skill folders backs up, prunes and restores (a read-only install)", { skip: process.platform === "win32" || process.getuid?.() === 0 }, () => {
+  const { dir, cleanup } = tmpdir();
+  const lock = (root) => {
+    for (const name of readdirSync(root, { recursive: true })) {
+      const p = path.join(root, name);
+      if (statSync(p).isFile()) chmodSync(p, 0o444);
+    }
+    for (const name of readdirSync(root, { recursive: true }).reverse()) {
+      const p = path.join(root, name);
+      if (statSync(p).isDirectory()) chmodSync(p, 0o555);
+    }
+    chmodSync(root, 0o555);
+  };
+  try {
+    const pgData = stoppedDatabase(dir, "rows");
+    const accounts = agentAccountsDir(path.join(dir, "data"));
+    const a = "account-" + "a".repeat(24);
+    plantAgentHome(accounts, a, "one");
+    // A skill seeded from a read-only install folder keeps its modes.
+    const seeded = path.join(accounts, a, "skills", "media", "youtube-content");
+    mkdirSync(seeded, { recursive: true });
+    writeFileSync(path.join(seeded, "SKILL.md"), "seeded");
+    lock(path.join(accounts, a, "skills", "media"));
+    const backupDir = path.join(dir, "backups");
+
+    const target = copyDataDir({ pgData, backupDir, name: "manual-ro", agentAccounts: accounts });
+    assert.equal(readFileSync(path.join(`${target}.agent`, a, "skills", "media", "youtube-content", "SKILL.md"), "utf8"), "seeded");
+    assert.equal(existsSync(`${target}.agent.partial`), false, "no partial copy is left behind");
+    assert.equal(existsSync(`${target}.partial`), false);
+    // A second backup of the same name replaces the first.
+    copyDataDir({ pgData, backupDir, name: "manual-ro", agentAccounts: accounts });
+
+    // Restoring replaces the live home's read-only folders.
+    restoreDataDir({ pgData, backupDir, name: "manual-ro", agentAccounts: accounts });
+    assert.equal(readFileSync(path.join(accounts, a, "skills", "media", "youtube-content", "SKILL.md"), "utf8"), "seeded");
+
+    // An older backup that still holds read-only folders prunes.
+    lock(path.join(`${target}.agent`, a, "skills", "media"));
+    const later = copyDataDir({ pgData, backupDir, name: "manual-ro-later", agentAccounts: accounts });
+    const when = new Date(2027, 0, 1);
+    utimesSync(later, when, when);
+    utimesSync(target, new Date(2026, 0, 1), new Date(2026, 0, 1));
+    assert.deepEqual(pruneBackups(backupDir, "manual-ro", 1), ["manual-ro"]);
+    assert.equal(existsSync(`${target}.agent`), false);
+  } finally {
+    for (const root of [path.join(dir, "data"), path.join(dir, "backups")]) {
+      if (!existsSync(root)) continue;
+      for (const name of readdirSync(root, { recursive: true })) {
+        const p = path.join(root, name);
+        try {
+          if (statSync(p).isDirectory()) chmodSync(p, 0o755);
+        } catch {}
+      }
+    }
+    cleanup();
+  }
+});
+
 test("backup: restoring a folder backup puts the database and the agent homes back together", () => {
   const { dir, cleanup } = tmpdir();
   try {
@@ -651,15 +770,28 @@ test("backup: restoring a folder backup puts the database and the agent homes ba
 
 test("paths: resource resolution for packaged, override and staged dev layouts", () => {
   const packaged = resolveResourceDirs({ isPackaged: true, resourcesPath: "/opt/Timely/resources", appPath: "/opt/Timely/resources/app.asar", platform: "linux", arch: "x64", env: {} });
-  assert.deepEqual(packaged, { api: "/opt/Timely/resources/api", postgres: "/opt/Timely/resources/postgres", next: "/opt/Timely/resources/next-server" });
+  assert.deepEqual(packaged, {
+    api: "/opt/Timely/resources/api",
+    postgres: "/opt/Timely/resources/postgres",
+    next: "/opt/Timely/resources/next-server",
+    agent: "/opt/Timely/resources/agent",
+  });
 
   const staged = resolveResourceDirs({ isPackaged: false, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "darwin", arch: "arm64", env: {} });
-  assert.deepEqual(staged, { api: "/repo/apps/web/.electron-api/mac-arm64", postgres: "/repo/apps/web/.electron-postgres/mac-arm64", next: "/repo/apps/web/.electron-next" });
+  assert.deepEqual(staged, {
+    api: "/repo/apps/web/.electron-api/mac-arm64",
+    postgres: "/repo/apps/web/.electron-postgres/mac-arm64",
+    next: "/repo/apps/web/.electron-next",
+    agent: "/repo/apps/web/.electron-agent/mac-arm64",
+  });
+  const stagedWin = resolveResourceDirs({ isPackaged: false, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "win32", arch: "x64", env: {} });
+  assert.equal(stagedWin.agent, path.join("/repo/apps/web", ".electron-agent", "win-x64"), "stage dirs use electron-builder's ${os} names");
 
   const override = resolveResourceDirs({ isPackaged: true, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "linux", arch: "x64", env: { TIMELY_RESOURCES_DIR: "/tmp/res" } });
   assert.equal(override.api, "/tmp/res/api");
   assert.equal(override.postgres, "/tmp/res/postgres");
   assert.equal(override.next, "/repo/apps/web/.electron-next", "falls back to the staged Next output when the override has none");
+  assert.equal(override.agent, "/repo/apps/web/.electron-agent/linux-x64", "falls back to the staged agent runtime when the override has none");
 
   const paths = userPaths("/home/me/.config/Timely");
   assert.equal(paths.configFile, "/home/me/.config/Timely/config.json");
@@ -667,6 +799,200 @@ test("paths: resource resolution for packaged, override and staged dev layouts",
   assert.equal(paths.dataDir, "/home/me/.config/Timely/data");
   assert.equal(paths.backupDir, "/home/me/.config/Timely/backups");
   assert.equal(paths.logDir, "/home/me/.config/Timely/logs");
+});
+
+test("paths: an override folder holding agent/ wins over the staged runtime", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    mkdirSync(path.join(dir, "agent"));
+    const override = resolveResourceDirs({ isPackaged: false, resourcesPath: "/x", appPath: "/repo/apps/web", platform: "linux", arch: "x64", env: { TIMELY_RESOURCES_DIR: dir } });
+    assert.equal(override.agent, path.join(dir, "agent"));
+  } finally {
+    cleanup();
+  }
+});
+
+test("paths: the agent runtime is handed over only when boot.py is there", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const agent = path.join(dir, "agent");
+    mkdirSync(path.join(agent, "python"), { recursive: true });
+    assert.equal(agentRuntime(agent), undefined, "a folder without boot.py is not a runtime");
+    assert.equal(agentRuntime(path.join(dir, "missing")), undefined);
+    writeFileSync(path.join(agent, "boot.py"), "");
+    assert.equal(agentRuntime(agent), agent);
+  } finally {
+    cleanup();
+  }
+});
+
+test("paths: a packaged app hands over resources/agent even without boot.py, so the API never searches above its data folder", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const agent = path.join(dir, "resources", "agent");
+    assert.equal(agentRuntime(agent, { packaged: true }), agent, "missing folder");
+    mkdirSync(agent, { recursive: true });
+    assert.equal(agentRuntime(agent, { packaged: true }), agent, "folder without boot.py");
+    assert.equal(agentRuntime(agent, { packaged: false }), undefined, "unpackaged runs keep the dev discovery");
+  } finally {
+    cleanup();
+  }
+});
+
+test("main.ts builds the Supervisor with packaged: app.isPackaged, and SupervisorDeps makes it required", () => {
+  // 024aecc9's fix lives in that one line; with `packaged` optional, deleting it still typechecked.
+  const electron = path.join(import.meta.dirname, "..", "apps", "web", "electron");
+  const main = readFileSync(path.join(electron, "main.ts"), "utf8");
+  const call = main.slice(main.indexOf("new Supervisor({"), main.indexOf("});", main.indexOf("new Supervisor({")));
+  assert.match(call, /\n\s+packaged: app\.isPackaged,\n/);
+  const deps = readFileSync(path.join(electron, "supervisor", "index.ts"), "utf8");
+  assert.match(deps, /export type SupervisorDeps = \{[\s\S]*?\n {2}packaged: boolean;\n/);
+});
+
+// A small staged agent tree: files, a relative interpreter link, an empty folder.
+function stageAgentFixture(root) {
+  mkdirSync(path.join(root, "python", "bin"), { recursive: true });
+  mkdirSync(path.join(root, "app", "skills"), { recursive: true });
+  mkdirSync(path.join(root, "app", "timely_agent"), { recursive: true });
+  writeFileSync(path.join(root, "boot.py"), "import sys\n");
+  writeFileSync(path.join(root, "python", "bin", "python3.14"), "ELF....");
+  symlinkSync("python3.14", path.join(root, "python", "bin", "python3"));
+  writeFileSync(path.join(root, "app", "timely_agent", "boot.py"), "pass\n");
+  const { files, links } = verifyPack.listAgentTree(root);
+  const manifest = { target: "linux-x64", files, links, totals: { files: files.length, bytes: 0 } };
+  writeFileSync(path.join(root, "MANIFEST.json"), JSON.stringify(manifest));
+  return manifest;
+}
+
+test("verify-pack: a packed agent folder identical to the stage passes", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const root = path.join(dir, "agent");
+    const manifest = stageAgentFixture(root);
+    assert.ok(manifest.files.some(([rel]) => rel === "python/bin/python3.14"));
+    assert.equal(manifest.files.some(([rel]) => rel === "MANIFEST.json"), false);
+    assert.deepEqual(verifyPack.verifyAgentTree(root, manifest), []);
+    // electron-builder drops empty folders on Linux; the runtime does not need them.
+    rmSync(path.join(root, "app", "skills"), { recursive: true });
+    assert.deepEqual(verifyPack.verifyAgentTree(root, manifest), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test("verify-pack: dropped, resized, extra and absolute-linked entries and a missing manifest are each reported", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const root = path.join(dir, "agent");
+    const manifest = stageAgentFixture(root);
+    rmSync(path.join(root, "app", "timely_agent", "boot.py"));
+    writeFileSync(path.join(root, "boot.py"), "import sys  # longer\n");
+    writeFileSync(path.join(root, "extra.txt"), "x");
+    rmSync(path.join(root, "python", "bin", "python3"));
+    symlinkSync(path.join(root, "python", "bin", "python3.14"), path.join(root, "python", "bin", "python3"));
+    rmSync(path.join(root, "MANIFEST.json"));
+    const problems = verifyPack.verifyAgentTree(root, manifest);
+    const has = (prefix, rel) => assert.ok(problems.some((p) => p.startsWith(prefix) && p.includes(rel)), `${prefix} ${rel} in ${JSON.stringify(problems)}`);
+    has("missing:", "app/timely_agent/boot.py");
+    has("size differs:", "boot.py");
+    has("not in the stage:", "extra.txt");
+    has("absolute symlink:", "python/bin/python3");
+    has("symlink differs:", "python/bin/python3");
+    has("missing:", "MANIFEST.json");
+    assert.equal(problems.length, 6);
+
+    assert.deepEqual(verifyPack.verifyAgentTree(path.join(dir, "nowhere"), manifest), [`the packed app has no agent runtime at ${path.join(dir, "nowhere")}`]);
+  } finally {
+    cleanup();
+  }
+});
+
+// A minimal PE32+ image: MZ header, PE signature, COFF header, an optional
+// header with 16 data directories, then `body` bytes.
+function peImage(bodyLength, fill = 0x5a) {
+  const buf = Buffer.alloc(0x188 + bodyLength, fill);
+  buf.fill(0, 0, 0x188);
+  buf.writeUInt16LE(0x5a4d, 0);
+  buf.writeUInt32LE(0x80, 0x3c);
+  buf.writeUInt32LE(0x00004550, 0x80);
+  buf.writeUInt16LE(0x20b, 0x98);
+  buf.writeUInt32LE(16, 0x98 + 108);
+  return buf;
+}
+
+// What signtool does to it: pad to 8 bytes, append a WIN_CERTIFICATE table,
+// point the security directory at it and rewrite the header checksum.
+function authenticodeSign(image, certLength = 9000) {
+  const padded = Buffer.concat([image, Buffer.alloc((8 - (image.length % 8)) % 8)]);
+  const cert = Buffer.alloc(certLength, 0x30);
+  const signed = Buffer.concat([padded, cert]);
+  const security = 0x98 + 112 + 4 * 8;
+  signed.writeUInt32LE(padded.length, security);
+  signed.writeUInt32LE(cert.length, security + 4);
+  signed.writeUInt32LE(0x1234abcd, 0x98 + 64);
+  return signed;
+}
+
+test("verify-pack: a Windows .exe signed while packing passes on win32 only, and only as the staged image plus a certificate", () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    const stage = path.join(dir, "stage");
+    const packed = path.join(dir, "packed");
+    const exes = ["python/python.exe", "app/site-packages/winpty/winpty-agent.exe"];
+    const write = (root, rel, data) => {
+      mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      writeFileSync(path.join(root, rel), data);
+    };
+    for (const root of [stage, packed]) {
+      write(root, "boot.py", "import sys\n");
+      write(root, "python/python314.dll", peImage(4001));
+      write(root, exes[0], peImage(5003));
+      write(root, exes[1], peImage(2048, 0x11));
+    }
+    const { files, links } = verifyPack.listAgentTree(stage);
+    const manifest = { target: "win32-x64", files, links, totals: { files: files.length, bytes: 0 } };
+    writeFileSync(path.join(packed, "MANIFEST.json"), JSON.stringify(manifest));
+    for (const rel of exes) writeFileSync(path.join(packed, rel), authenticodeSign(readFileSync(path.join(stage, rel))));
+
+    const win = { platform: "win32", stagedDir: stage };
+    assert.deepEqual(verifyPack.verifyAgentTree(packed, manifest, win), [], "signed executables are the staged ones");
+    // Re-signing a signed staged file replaces its certificate table.
+    write(stage, exes[1], authenticodeSign(peImage(2048, 0x11), 3000));
+    assert.deepEqual(verifyPack.verifyAgentTree(packed, { ...manifest, files: verifyPack.listAgentTree(stage).files }, win), []);
+    write(stage, exes[1], peImage(2048, 0x11));
+
+    const sizeDiffers = (problems) => problems.filter((p) => p.startsWith("size differs:")).map((p) => p.split(" ")[2]).sort();
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, { platform: "linux", stagedDir: stage })), [...exes].sort(), "only win32 signs while packing");
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest)), [...exes].sort());
+
+    // A changed byte before the certificate is a different program.
+    const tampered = authenticodeSign(readFileSync(path.join(stage, exes[0])));
+    tampered[0x200] ^= 0xff;
+    writeFileSync(path.join(packed, exes[0]), tampered);
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, win)), [exes[0]]);
+    // Bytes appended without a certificate table are not a signature.
+    writeFileSync(path.join(packed, exes[0]), Buffer.concat([readFileSync(path.join(stage, exes[0])), Buffer.alloc(64, 1)]));
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, win)), [exes[0]]);
+    writeFileSync(path.join(packed, exes[0]), authenticodeSign(readFileSync(path.join(stage, exes[0]))));
+    // Only .exe files are signed by default (no win.signExts), so a grown .dll fails.
+    writeFileSync(path.join(packed, "python/python314.dll"), authenticodeSign(peImage(4001)));
+    assert.deepEqual(sizeDiffers(verifyPack.verifyAgentTree(packed, manifest, win)), ["python/python314.dll"]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("verify-pack: afterPack refuses a target with no staged runtime (every installer ships the agent)", async () => {
+  const { dir, cleanup } = tmpdir();
+  try {
+    // linux-universal is never staged.
+    await assert.rejects(
+      verifyPack({ appOutDir: dir, electronPlatformName: "linux", arch: 4, packager: {} }),
+      /no staged agent runtime for linux-universal/,
+    );
+  } finally {
+    cleanup();
+  }
 });
 
 test("shell env: fallback PATH gains the usual user directories once; last line wins", () => {
@@ -846,7 +1172,8 @@ function fakeLoginItem(state = ON, { throws = false } = {}) {
 function makeSupervisor(dir, loginItem, extra = {}) {
   return new Supervisor({
     userData: dir,
-    resources: { api: path.join(dir, "res-api"), postgres: path.join(dir, "res-pg"), next: path.join(dir, "res-next") },
+    resources: { api: path.join(dir, "res-api"), postgres: path.join(dir, "res-pg"), next: path.join(dir, "res-next"), agent: path.join(dir, "res-agent") },
+    packaged: false,
     version: "0.5.0",
     sealer: plainSealer,
     nodeBinary: process.execPath,

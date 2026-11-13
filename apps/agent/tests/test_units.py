@@ -327,6 +327,54 @@ def test_git_tree_id_matches_git():
         assert seed.git_tree_id(HERMES_SKILLS / rel.removeprefix("skills/")) == want
 
 
+def _on_windows(monkeypatch):
+    """seed.py as it runs on Windows, where files have no exec bit."""
+    from types import SimpleNamespace
+    monkeypatch.setattr(seed, "sys", SimpleNamespace(platform="win32"))
+
+
+def test_committed_reviewed_trees_match_on_windows(tmp_path, monkeypatch):
+    """Windows has no exec bit, so the tree id there takes each file's mode from the entry's
+    ``exec`` list (recorded from git by make hermes-skills-review). Guessing from a shebang
+    marked 100644 scripts that start with ``#!`` executable, so prepare on Windows found
+    youtube-content, microsoft-office, pdf and arxiv unreviewed and the Windows stage failed."""
+    reviewed = seed.load_reviewed(paths.skills_reviewed_file())
+    denied = seed.load_denied(seed.denied_file_for(paths.skills_reviewed_file()))
+    hermes = paths.hermes_dir()
+    native = {}
+    for rel, entry in reviewed.items():
+        d = hermes / rel
+        if d.is_dir() and seed.git_tree_id(d) == entry["tree"]:
+            native[rel] = d
+    assert len(native) > 100
+    _, linux = seed.build_seed_tree(paths.AgentLayout.at(tmp_path / "linux"), upstream=HERMES_SKILLS,
+                                    overrides=None, reviewed=reviewed, denied=denied)
+    _on_windows(monkeypatch)
+    differ = [rel for rel, d in native.items() if seed.reviewed_tree_id(d, reviewed[rel]) != reviewed[rel]["tree"]]
+    assert differ == []
+    _, win = seed.build_seed_tree(paths.AgentLayout.at(tmp_path / "win"), upstream=HERMES_SKILLS,
+                                  overrides=None, reviewed=reviewed, denied=denied)
+    assert win["unreviewed"] == [] and win["seeded"] == linux["seeded"] and len(win["seeded"]) >= 30
+
+
+def test_windows_tree_id_takes_modes_from_the_exec_list(tmp_path, monkeypatch):
+    skill = tmp_path / "demo"
+    (skill / "scripts").mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: demo\n---\n")
+    (skill / "scripts" / "run.sh").write_text("#!/bin/sh\necho hi\n")
+    (skill / "scripts" / "lib.py").write_text("#!/usr/bin/env python3\n")
+    os.chmod(skill / "scripts" / "run.sh", 0o755)
+    os.chmod(skill / "scripts" / "lib.py", 0o644)
+    if os.name != "posix":
+        pytest.skip("needs POSIX modes for the reference id")
+    want = seed.git_tree_id(skill)
+    entry = {"tree": want, "exec": ["scripts/run.sh"]}
+    _on_windows(monkeypatch)
+    assert seed.reviewed_tree_id(skill, entry) == want
+    assert seed.reviewed_tree_id(skill, {"tree": want}) != want  # no list: nothing is executable
+    assert seed.reviewed_tree_id(skill, dict(entry, exec=["scripts/run.sh", "scripts/lib.py"])) != want
+
+
 def _reviewed_for(*rels, default="on"):
     return {f"skills/{r}": {"tree": seed.git_tree_id(HERMES_SKILLS / r), "default": default} for r in rels}
 
@@ -421,6 +469,41 @@ os.write(pout, b'{{"type":"log","text":"protocol"}}\\n')
     err = proc.stderr.decode()
     for text in ("stray print", "stray fd1", "child stdout", "child fd1"):
         assert text in err
+
+
+def test_packaged_site_packages_run_their_pth_files(tmp_path):
+    """The packaged runtime has no venv: ``app/site-packages`` is a plain folder, and site.py
+    under ``-I`` never reads its ``.pth`` files. pywin32 (the MCP SDK on Windows) lives in
+    ``win32/`` and ``win32/lib/`` and only imports once ``pywin32.pth`` ran, so ``_fix_sys_path``
+    must register the folder as a site dir and keep the order hermes, app, site-packages, the
+    folders its ``.pth`` files add, then the stdlib."""
+    app = tmp_path / "app"
+    (app / "timely_agent").mkdir(parents=True)
+    (app / "hermes").mkdir()
+    shutil.copy(harness.AGENT_DIR / "timely_agent" / "boot.py", app / "timely_agent" / "boot.py")
+    site = app / "site-packages"
+    (site / "win32" / "lib").mkdir(parents=True)
+    (site / "win32" / "lib" / "probe_types.py").write_text("VALUE = 'from the pth folder'\n")
+    (site / "probe_bootstrap.py").write_text("import os\nos.environ['PROBE_PTH_RAN'] = '1'\n")
+    (site / "probe.pth").write_text("win32\nwin32/lib\nimport probe_bootstrap\n")
+    script = tmp_path / "probe.py"
+    script.write_text(f"""
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("timely_boot", {str(app / 'timely_agent' / 'boot.py')!r})
+boot = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(boot)
+boot._fix_sys_path()
+import probe_types
+app = {str(app)!r}
+print(json.dumps({{"path": [os.path.relpath(p, app) for p in sys.path[:5]], "value": probe_types.VALUE,
+                  "ran": os.environ.get("PROBE_PTH_RAN")}}))
+""")
+    proc = subprocess.run([harness.python(), "-I", "-B", str(script)], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    got = json.loads(proc.stdout)
+    assert got["value"] == "from the pth folder" and got["ran"] == "1"
+    assert got["path"][:5] == ["hermes", ".", "site-packages", os.path.join("site-packages", "win32"),
+                               os.path.join("site-packages", "win32", "lib")]
 
 
 def test_gate_blocks_messaging_and_never_offered_names_without_asking_go():

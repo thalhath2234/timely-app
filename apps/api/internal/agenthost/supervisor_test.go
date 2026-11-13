@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,12 +27,24 @@ func testRoot(t *testing.T) string {
 		dir := filepath.Join(home, ".cache", "timely-agent-test")
 		if os.MkdirAll(dir, 0o700) == nil {
 			if made, err := os.MkdirTemp(dir, "agenthost-"); err == nil {
-				t.Cleanup(func() { _ = os.RemoveAll(made) })
+				t.Cleanup(func() { removeTestTree(made) })
 				base = made
 			}
 		}
 	}
 	return filepath.Join(base, "agent")
+}
+
+// removeTestTree deletes a test agent folder. prepare makes the Timely skills
+// copy read-only (folders 0555), which os.RemoveAll cannot delete on its own.
+func removeTestTree(root string) {
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(root)
 }
 
 // testLog drops lines once the test has finished, so a worker exiting late

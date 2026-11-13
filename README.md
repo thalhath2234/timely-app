@@ -112,8 +112,33 @@ including the AUR update and signing secrets: [`package.md`](package.md).
 
 ```bash
 docker compose up db          # Postgres 17 on :5432
+make agent-tracked-list       # before every API image build: the files the agent stage may copy
 docker compose up --build     # db + api (:8080) + web (:4001)
 ```
+
+The image's build context has no `.git`, so the agent stage copies only the files git tracks under
+`apps/agent` as `apps/agent/.git-tracked` lists them. It fails without that list, and when the list
+does not match the build context (a file under `apps/agent` it does not name, other than Hermes'
+`.hermes-update.lock`, or a file it names that is gone): a list from before a commit would leave new
+modules out of the image. `make docker-api` writes it before building; `docker compose up --build`
+does not, so run `make agent-tracked-list` before every build.
+
+The API image (`apps/api/Dockerfile`, `make docker-api`) is `debian:bookworm-slim` with the static
+Go API and the agent runtime that every desktop installer ships: the same
+`apps/web/electron/stage-agent.mjs` stages it inside the build (glibc wheels, hence Debian rather
+than Alpine) into `/app/agent`, owned by root and read-only to the `timely` user (uid 10001), with
+`TIMELY_AGENT_RUNTIME=/app/agent`. Agent state (each account's home, the seed tree and the
+read-only Timely skills copy) lands in `/data/agent`, on the same `apidata` volume as the rest of
+the API's data, so back up that volume. Terminal and file tools the agent is allowed to run act
+inside the container, on its filesystem and network, not on the Docker host (plan 11.5).
+
+The image is 898 MB on disk (measured by `make docker-agent-smoke` in phase 3b review round 5;
+about 220 MB as a gzipped `docker save`), against 104 MB for the old Alpine image. `make docker-agent-smoke` builds it for linux/amd64 and checks the runtime read-only as uid
+10001, a real worker inside the image on a stub model, and the API against a throwaway PostgreSQL.
+It builds in a throwaway BuildKit builder and removes it afterwards, so its build cache does not
+stay in Docker's default builder.
+The Dockerfile maps `TARGETARCH=arm64` to the linux-arm64 runtime, but no arm64 image has been built
+or run yet.
 
 ## Notes on the workspace
 

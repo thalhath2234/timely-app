@@ -1,0 +1,163 @@
+{
+  "target": "darwin-arm64",
+  "archive": "cpython-3.14.9+20261021-aarch64-apple-darwin-pgo+lto-full.tar.zst",
+  "sha256": "6404c3ca06e7a8abf3bb5247bf359c8f06c3d0e1d0421a6c539b5457cd885537",
+  "python": "3.14.9",
+  "cpython": [
+    "Python-2.0",
+    "CNRI-Python"
+  ],
+  "libraries": [
+    {
+      "file": "LICENSE.bzip2.txt",
+      "spdx": [
+        "bzip2-1.0.6"
+      ],
+      "modules": [
+        "_bz2"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.expat.txt",
+      "spdx": [
+        "MIT"
+      ],
+      "modules": [
+        "pyexpat"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.libedit.txt",
+      "spdx": [
+        "BSD-3-Clause"
+      ],
+      "modules": [
+        "readline"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.libffi.txt",
+      "spdx": [
+        "MIT"
+      ],
+      "modules": [
+        "_ctypes"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.liblzma.txt",
+      "spdx": [
+        "0BSD"
+      ],
+      "modules": [
+        "_lzma"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.libuuid.txt",
+      "spdx": [
+        "BSD-3-Clause"
+      ],
+      "modules": [
+        "_uuid"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.mpdecimal.txt",
+      "spdx": [
+        "BSD-2-Clause"
+      ],
+      "modules": [
+        "_decimal"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.ncurses.txt",
+      "spdx": [
+        "X11"
+      ],
+      "modules": [
+        "_curses",
+        "_curses_panel"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.openssl-3.txt",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "modules": [
+        "_hashlib",
+        "_ssl"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.sqlite.txt",
+      "spdx": [
+        "Zlib"
+      ],
+      "modules": [
+        "_sqlite3"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.tcl.txt",
+      "spdx": [
+        "TCL",
+        "Zlib"
+      ],
+      "modules": [
+        "_tkinter"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.zlib-ng.txt",
+      "spdx": [
+        "TCL",
+        "Zlib"
+      ],
+      "modules": [
+        "_sqlite3",
+        "_tkinter",
+        "binascii",
+        "zlib"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.zlib.txt",
+      "spdx": [
+        "TCL",
+        "Zlib"
+      ],
+      "modules": [
+        "_sqlite3",
+        "_tkinter",
+        "binascii",
+        "zlib"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.zstd.txt",
+      "spdx": [
+        "BSD-3-Clause"
+      ],
+      "modules": [
+        "_zstd"
+      ],
+      "publicDomain": false
+    }
+  ]
+}

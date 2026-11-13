@@ -1,0 +1,121 @@
+{
+  "target": "win32-x64",
+  "archive": "cpython-3.14.9+20261021-x86_64-pc-windows-msvc-pgo-full.tar.zst",
+  "sha256": "f03ccd79ff289757a8a721faecb99ea318754df3141406ca0e83b1caf3af84d2",
+  "python": "3.14.9",
+  "cpython": [
+    "Python-2.0",
+    "CNRI-Python"
+  ],
+  "libraries": [
+    {
+      "file": "LICENSE.bzip2.txt",
+      "spdx": [
+        "bzip2-1.0.6"
+      ],
+      "modules": [
+        "_bz2"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.expat.txt",
+      "spdx": [
+        "MIT"
+      ],
+      "modules": [
+        "pyexpat"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.libffi.txt",
+      "spdx": [
+        "MIT"
+      ],
+      "modules": [
+        "_ctypes"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.liblzma.txt",
+      "spdx": [
+        "0BSD"
+      ],
+      "modules": [
+        "_lzma"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.libuuid.txt",
+      "spdx": [
+        "BSD-3-Clause"
+      ],
+      "modules": [
+        "_uuid"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.mpdecimal.txt",
+      "spdx": [
+        "BSD-2-Clause"
+      ],
+      "modules": [
+        "_decimal"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.openssl-3.txt",
+      "spdx": [
+        "Apache-2.0"
+      ],
+      "modules": [
+        "_hashlib",
+        "_ssl"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.sqlite.txt",
+      "spdx": [],
+      "modules": [
+        "_sqlite3"
+      ],
+      "publicDomain": true
+    },
+    {
+      "file": "LICENSE.tcl.txt",
+      "spdx": [
+        "TCL"
+      ],
+      "modules": [
+        "_tkinter"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.zlib-ng.txt",
+      "spdx": [
+        "Zlib"
+      ],
+      "modules": [
+        "zlib"
+      ],
+      "publicDomain": false
+    },
+    {
+      "file": "LICENSE.zstd.txt",
+      "spdx": [
+        "BSD-3-Clause"
+      ],
+      "modules": [
+        "_zstd"
+      ],
+      "publicDomain": false
+    }
+  ]
+}

@@ -1,0 +1,264 @@
+{
+  "dist": "rpds-py",
+  "version": "2026.9.1",
+  "targets": [
+    "darwin-arm64",
+    "linux-arm64",
+    "linux-x64",
+    "win32-x64"
+  ],
+  "rustStd": {
+    "rustc": [
+      "48a229ceaefd4985c50990b14116b6d856af0985",
+      "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4"
+    ],
+    "license": "MIT OR Apache-2.0",
+    "source": "https://github.com/rust-lang/rust/tree/48a229ceaefd4985c50990b14116b6d856af0985",
+    "texts": [
+      {
+        "rel": "COPYRIGHT",
+        "text": "172020dbfd5b"
+      },
+      {
+        "rel": "LICENSE-APACHE",
+        "text": "62c7a1e35f56"
+      },
+      {
+        "rel": "LICENSE-MIT",
+        "text": "b71bd43a069c"
+      }
+    ]
+  },
+  "crates": [
+    {
+      "name": "addr2line",
+      "version": "0.25.1",
+      "license": "Apache-2.0 OR MIT",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "e99d88d232bf"
+        }
+      ]
+    },
+    {
+      "name": "addr2line",
+      "version": "0.27.1",
+      "license": "Apache-2.0 OR MIT",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "e99d88d232bf"
+        }
+      ]
+    },
+    {
+      "name": "gimli",
+      "version": "0.32.3",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "7b63ecd5f190"
+        }
+      ]
+    },
+    {
+      "name": "gimli",
+      "version": "0.34.0",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "7b63ecd5f190"
+        }
+      ]
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "ff8f68cb076c"
+        }
+      ]
+    },
+    {
+      "name": "miniz_oxide",
+      "version": "0.9.1",
+      "license": "MIT OR Zlib OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE",
+          "text": "4108245a1f2d"
+        },
+        {
+          "rel": "LICENSE-APACHE.md",
+          "text": "0d542e0c8804"
+        },
+        {
+          "rel": "LICENSE-MIT.md",
+          "text": "799e9ca9d179"
+        },
+        {
+          "rel": "LICENSE-ZLIB.md",
+          "text": "0a54e647fe54"
+        }
+      ]
+    },
+    {
+      "name": "object",
+      "version": "0.37.3",
+      "license": "Apache-2.0 OR MIT",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "0b74dfa0bcee"
+        }
+      ]
+    },
+    {
+      "name": "once_cell",
+      "version": "1.21.3",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "23f18e03dc49"
+        }
+      ]
+    },
+    {
+      "name": "pyo3-ffi",
+      "version": "0.29.3",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "32c76dbe0e73"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "afcbe3b2e6b3"
+        }
+      ]
+    },
+    {
+      "name": "pyo3",
+      "version": "0.29.3",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "32c76dbe0e73"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "afcbe3b2e6b3"
+        }
+      ]
+    },
+    {
+      "name": "rpds",
+      "version": "1.2.1",
+      "license": "MIT",
+      "files": [
+        {
+          "rel": "LICENSE.md",
+          "text": "e326b5fef908"
+        }
+      ]
+    },
+    {
+      "name": "rustc-demangle",
+      "version": "0.1.27",
+      "license": "MIT/Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "378f5840b258"
+        }
+      ]
+    },
+    {
+      "name": "rustc-demangle",
+      "version": "0.1.28",
+      "license": "MIT/Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "378f5840b258"
+        }
+      ]
+    },
+    {
+      "name": "smallvec",
+      "version": "1.15.1",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a60eea817514"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "0b28172679e0"
+        }
+      ]
+    },
+    {
+      "name": "triomphe",
+      "version": "0.1.16",
+      "license": "MIT OR Apache-2.0",
+      "files": [
+        {
+          "rel": "LICENSE-APACHE",
+          "text": "a6b726048546"
+        },
+        {
+          "rel": "LICENSE-MIT",
+          "text": "15656cc11a83"
+        }
+      ]
+    }
+  ],
+  "components": []
+}

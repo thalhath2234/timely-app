@@ -162,11 +162,13 @@ func positiveInt(getenv func(string) string, name string, fallback int) int {
 // where the git worktree check (Worktree, with DB_SCHEMA) looks up from.
 func ConfigFromEnv(getenv func(string) string, workDir string) Config {
 	runtime, err := ResolveRuntime(strings.TrimSpace(getenv("TIMELY_AGENT_RUNTIME")), workDir)
+	env := envFromHost(getenv)
+	env.Packaged = runtime.Packaged
 	return Config{
 		Root:          DefaultRoot(getenv),
 		Runtime:       runtime,
 		RuntimeErr:    err,
-		Env:           envFromHost(getenv),
+		Env:           env,
 		MaxWorkers:    positiveInt(getenv, "TIMELY_AGENT_MAX_WORKERS", 3),
 		IdleTimeout:   time.Duration(positiveInt(getenv, "TIMELY_AGENT_IDLE_MINUTES", 15)) * time.Minute,
 		Worktree:      GitWorktree(workDir),
@@ -208,7 +210,14 @@ func (c *Config) applyDefaults() {
 		c.Logf = log.Printf
 	}
 	if c.Env.Path == "" && c.Env.RealHome == "" {
+		packaged := c.Env.Packaged
 		c.Env = envFromHost(os.Getenv)
+		c.Env.Packaged = packaged
+	}
+	// A packaged runtime is read-only however the Config was built (a test
+	// against a staged tree too): its workers never write bytecode.
+	if c.Runtime.Packaged {
+		c.Env.Packaged = true
 	}
 }
 

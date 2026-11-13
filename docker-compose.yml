@@ -34,6 +34,8 @@ services:
       DB_NAME: ${DB_NAME:-timely_db}
       DB_SSLMODE: disable
       TIMELY_DATA_DIR: /data
+      # The image's runtime; pinned here because env_file (the shared root .env) beats the image ENV.
+      TIMELY_AGENT_RUNTIME: /app/agent
     ports:
       - "8080:8080"
     volumes:

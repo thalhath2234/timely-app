@@ -2,7 +2,7 @@
 // and the DesktopInstance snapshot the renderer sees. Electron-free: main.ts
 // injects paths, safeStorage, shell/clipboard and the updater.
 import { EventEmitter } from "node:events";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { DesktopAction, DesktopActionResult, DesktopInstance, DesktopSettingKey } from "../../electron-env";
@@ -13,7 +13,7 @@ import { findOrphans, scanWithCap, setprivPath, stopOrphans } from "./lifetime.t
 import { FileLog, createLogger, type Logger } from "./logger.ts";
 import type { LoginItemState } from "./loginItem.ts";
 import { NextManager } from "./next.ts";
-import { userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
+import { agentRuntime, userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
 import { reconcilePorts, type PortSet } from "./ports.ts";
 import { PostgresManager } from "./postgres.ts";
 import { resolveShellEnv } from "./shellEnv.ts";
@@ -34,6 +34,12 @@ export type Updater = {
 export type SupervisorDeps = {
   userData: string;
   resources: ResourceDirs;
+  /**
+   * app.isPackaged: the API always gets resources.agent as its runtime (paths.ts agentRuntime).
+   * Required, so a Supervisor built without it is a type error rather than a packaged app that
+   * silently falls back to the API's upward dev discovery.
+   */
+  packaged: boolean;
   version: string;
   sealer: Sealer;
   /** Node-compatible binary for the Next server (Electron's execPath + ELECTRON_RUN_AS_NODE). */
@@ -264,7 +270,12 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   async boot(): Promise<void> {
     this.syncLoginItem(false);
     this.log.info(`boot: Timely ${this.deps.version} on ${this.platform}/${process.arch}; userData=${this.paths.userData}`);
-    this.log.info(`boot: resources api=${this.deps.resources.api} postgres=${this.deps.resources.postgres} next=${this.deps.resources.next}`);
+    const agent = this.agentRuntime();
+    const agentNote = existsSync(path.join(this.deps.resources.agent, "boot.py")) ? "" : " (no boot.py: the agent engine is unavailable)";
+    this.log.info(
+      `boot: resources api=${this.deps.resources.api} postgres=${this.deps.resources.postgres} next=${this.deps.resources.next} ` +
+        `agent=${agent ? `${agent}${agentNote}` : `none (no boot.py in ${this.deps.resources.agent})`}`,
+    );
     this.progress("postgres", "pending");
     this.progress("api", "pending");
     this.progress("web", "pending");
@@ -419,7 +430,12 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       dataDir: this.paths.dataDir,
       allowRegistration: this.config.allowRegistration,
       shell,
+      agentRuntime: this.agentRuntime(),
     });
+  }
+
+  private agentRuntime(): string | undefined {
+    return agentRuntime(this.deps.resources.agent, { packaged: this.deps.packaged });
   }
 
   /** Folder copy of PGDATA before the first run of a new version; the server must be stopped. */

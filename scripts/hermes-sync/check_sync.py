@@ -141,7 +141,8 @@ def main():
 
     if a.review_skills or a.review_all:
         reviewed = check_lib.read_json(check_policy.SKILLS_REVIEWED)
-        done = check_policy.review_skills(reviewed, trees, a.review_skills or [], everything=a.review_all)
+        done = check_policy.review_skills(reviewed, trees, a.review_skills or [], everything=a.review_all,
+                                          execs=check_policy.skill_execs(trees))
         check_lib.write_json(check_policy.SKILLS_REVIEWED, reviewed)
         for rel in done:
             e = reviewed["skills"][rel]
@@ -212,7 +213,8 @@ def main():
         e.append(f"{check_policy.SKILLS_JSON}: {exc} (generate it with `{check_policy.REGEN}`)")
     try:
         reviewed_doc = check_lib.read_json(check_policy.SKILLS_REVIEWED)
-        e += check_policy.check_skills(reviewed_doc, trees, dump.get("skills") if dump else None)
+        e += check_policy.check_skills(reviewed_doc, trees, dump.get("skills") if dump else None,
+                                       check_policy.skill_execs(trees), check_policy.skill_converted(trees))
     except (OSError, ValueError) as exc:
         reviewed_doc = None
         e.append(f"{check_policy.SKILLS_REVIEWED}: {exc}")

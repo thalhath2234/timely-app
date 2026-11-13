@@ -49,6 +49,7 @@ import (
 	"timely-api/internal/lifeline"
 	"timely-api/internal/middleware"
 	"timely-api/internal/models"
+	"timely-api/internal/procguard"
 	"timely-api/internal/realtime"
 	"timely-api/internal/recurrence"
 	"timely-api/internal/routes"
@@ -64,6 +65,11 @@ var version = "dev"
 
 func main() {
 	buildinfo.Set(version)
+	// Agent workers and their terminal commands run as this uid: make our
+	// /proc/<pid>/environ (JWT_SECRET, DB_PASSWORD, keys) unreadable to them.
+	if _, err := procguard.Harden(os.Getenv); err != nil {
+		log.Printf("Warning: could not mark the API non-dumpable: %v", err)
+	}
 	// Desktop sidecar: stop when the app that started us is gone, even if it
 	// died without stopping us (crash, OOM kill, lost session). Started first
 	// so a startup still waiting on the database also notices.
