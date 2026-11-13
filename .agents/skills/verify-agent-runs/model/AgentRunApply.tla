@@ -689,6 +689,23 @@ Delete ==
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
     /\ UNCHANGED <<seen, answeredEnded, asks>>
 
+\* restoreQuestion: the answer committed (Answer) but the worker did not reply
+\* to clarify.answer, so under the row lock the card goes back on the row, for
+\* the person to answer again, only while the row still names the same running
+\* run and no card took its place. Stop, Delete, Lost and a failure clear the
+\* run from the row, so the card never comes back for a run they ended.
+ReopenQuestion ==
+    /\ ~row.deleted
+    /\ asks > 0
+    /\ seen = NoRun
+    /\ row.status = "running" /\ row.run # NoRun /\ row.question = NoRun
+    /\ row' = [row EXCEPT !.question = row.run]
+    /\ seen' = row.run
+    /\ seenEnded' = FALSE
+    /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches,
+                   answeredEnded, asks>>
+
 -----------------------------------------------------------------------------
 
 Next ==
@@ -699,7 +716,7 @@ Next ==
     \/ \E f \in fol : FollowerRenew(f) \/ FollowerEnd(f) \/ FollowerCrash(f)
                      \/ Ask(f) \/ CloseQuestion(f)
     \/ Expire \/ Approve \/ Stop \/ Retry \/ Send \/ Reject \/ DiscardReview
-    \/ SetPermission \/ Steer \/ Delete \/ Answer
+    \/ SetPermission \/ Steer \/ Delete \/ Answer \/ ReopenQuestion
 
 Spec == Init /\ [][Next]_vars
 

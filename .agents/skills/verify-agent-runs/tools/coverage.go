@@ -102,6 +102,7 @@ var covered = []struct{ File, Func string }{
 	{asking, "questionOpen"},
 	{asking, "closeQuestion"},
 	{asking, "(*Service).answerQuestion"},
+	{asking, "(*Service).restoreQuestion"},
 }
 
 // An anchor is code text that must appear in a function (whitespace is
@@ -326,8 +327,11 @@ var anchors = []anchor{
 		`messageID = closeQuestion(&row, sent, outcome)`,
 		"the answer closes the card in its transaction"},
 	{"", asking, "(*Service).answerQuestion",
-		`if err := s.engine.Answer(ctx, uid, cid, runID, requestID, sent, outcome); err != nil {`,
-		"clarify.answer goes to the run only after the fenced commit"},
+		`err = s.engine.Answer(context.WithoutCancel(ctx), uid, cid, runID, requestID, sent, outcome)`,
+		"clarify.answer goes to the run only after the fenced commit, whatever happens to the person's request"},
+	{"", asking, "(*Service).restoreQuestion",
+		`if row.Status != "running" || row.AgentRunID != runID || row.Question.pending() { return nil }`,
+		"ReopenQuestion: an answer that could not be sent puts its card back only while the same run is the row's running run"},
 	{"", worker, "(*WorkerEngine).flush",
 		`err := e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error {`,
 		"the follower writes the card (Ask) in its fenced save"},
