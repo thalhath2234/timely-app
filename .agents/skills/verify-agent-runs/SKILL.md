@@ -93,7 +93,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 
 ## Coverage record
 
-Sync commit: `46fd718f3ed3b625ab18aef854ddf9d77a429012` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
+Sync commit: `00727d83cb5125132f10a98993700bce1f72af7f` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
 
 - `apps/api/internal/features/chat/runner.go`: `(*Service).work` (claim, engine dispatch, failure checkpoint), `runClassic`, `keepLease`, `apply`, `retrySerializable`, `serializationFailure`
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`
@@ -106,6 +106,8 @@ Sync commit: `46fd718f3ed3b625ab18aef854ddf9d77a429012` (the model was last conf
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
 
 Model changed 2026-11-13 (phase 4, Q-4.3): a question card. The row gains `question` (the run whose card waits), the person's screen `seen`; actions Ask and CloseQuestion (the follower's fenced saves) and Answer (the person's fenced commit); Stop, Retry, Lost's `clearRun`, a turn's end and a failed or stopped run close the card; the property NoAnswerAfterEnd and the guard `AnswerFenced` (its mutant: Ask, Stop, then an answer to the stopped run). `send` moved its transaction into `sendMessage` (the anchors followed), and `runEngine` keeps photo chats classic and lets Sensitive chats follow the chat's engine only with the test-only no-persist switch (`Start` then sends a no-persist run: no claim, lease or checkpoint changes). Bounds: the turn check allows one card (`MaxAsks = 1`), the apply check none.
+
+Code changed 2026-11-13 (phase 4 exit), model unchanged: `(*WorkerEngine).Start` appends the Timely block's ask line (`askHint`) for a run that may ask; nothing about claim, lease, Stop or the card changed.
 
 Resynced 2026-11-12 (owner decision Q-3.9): `toolCall` (the timely backend's `web_search` and `web_extract` no longer take the conversation: Timely's web rule after taint is gone, and `preview_bot` reads through the plain pre-approval guard) and `Start` (run.start no longer carries `person_hosts`, `person_links`, `search_results` or `private_context`) changed; neither changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
