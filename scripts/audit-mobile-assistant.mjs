@@ -711,7 +711,7 @@ else {
     await card.getByLabel("Main hall").click();
     await card.getByLabel("Garden").click();
     await expect(card.getByLabel("Garden")).toHaveAttribute("aria-checked", "true");
-    await card.getByRole("button", { name: "Other: type your own answer" }).click();
+    await card.getByRole("button", { name: "Other: type your own answer" }).last().click();
     const other = page.getByRole("dialog", { name: "Other answer" });
     await other.waitFor();
     await other.getByTestId("question-sheet-input").fill("The roof terrace");
