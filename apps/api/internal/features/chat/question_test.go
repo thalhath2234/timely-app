@@ -224,3 +224,20 @@ func TestTypedAnswerIsHeldToTheAnswerLimit(t *testing.T) {
 		t.Fatalf("an over-long answer: %v", err)
 	}
 }
+
+// A failed turn shows Timely's own error text: Hermes' transport prefix
+// ("HTTP 424:") that the gateway's status code puts in front of it is not for
+// the person (classic shows the same failure without it).
+func TestFailedTurnTextDropsHermesTransportPrefix(t *testing.T) {
+	for _, c := range []struct{ in, text, action string }{
+		{"HTTP 424: Claude failed: no rule matched", "Claude failed: no rule matched", ActionRetry},
+		{"HTTP 400: Claude Code is not connected. Connect it in Settings → Agent", "Claude Code is not connected. Connect it in Settings → Agent", ActionSettings},
+		{"  HTTP 502:   Codex failed", "Codex failed", ActionRetry},
+		{"Claude failed: HTTP 500: upstream", "Claude failed: HTTP 500: upstream", ActionRetry},
+		{"HTTP 4: short", "HTTP 4: short", ActionRetry},
+	} {
+		if text, action := failedTurnText(c.in); text != c.text || action != c.action {
+			t.Errorf("failedTurnText(%q) = %q, %q; want %q, %q", c.in, text, action, c.text, c.action)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1372,12 +1373,16 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 	}
 }
 
+// transportPrefix is the "HTTP 424: " Hermes puts in front of a gateway
+// error's message (its status code); it is not for the person.
+var transportPrefix = regexp.MustCompile(`^HTTP \d{3}:\s*`)
+
 // failedTurnText words a failed turn's error for the person. The gateway
 // passes a provider's own message on (Timely's wording for a CLI that is not
 // connected or a key that is refused, which names Settings), so an error that
 // names Settings sends the person there; any other offers Try again.
 func failedTurnText(err string) (string, string) {
-	text := strings.TrimSpace(err)
+	text := strings.TrimSpace(transportPrefix.ReplaceAllString(strings.TrimSpace(err), ""))
 	if strings.Contains(text, "Settings") {
 		return text, ActionSettings
 	}
