@@ -741,7 +741,9 @@ func (l *lateFirst) Answer(ctx context.Context, uid, cid, runID, requestID strin
 	l.mu.Unlock()
 	if first {
 		l.mu.Lock()
-		l.pending = func() { _ = l.WorkerEngine.Answer(context.WithoutCancel(ctx), uid, cid, runID, requestID, answers, outcome) }
+		l.pending = func() {
+			_ = l.WorkerEngine.Answer(context.WithoutCancel(ctx), uid, cid, runID, requestID, answers, outcome)
+		}
 		l.mu.Unlock()
 		return context.DeadlineExceeded
 	}

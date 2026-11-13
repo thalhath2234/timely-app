@@ -910,13 +910,15 @@ func TestIntegrationAgentEngineFailedTurnIsNotAReply(t *testing.T) {
 			"tokens": obj{}, "estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}, "error": err})
 	}
 	h := newEngineHarness(t)
-	for name, tc := range map[string]struct{ err, action string }{
-		"retry":    {"HTTP 424: Claude failed: exit status 1", ActionRetry},
-		"settings": {"Claude Code is not connected. Connect it in Settings → Agent", ActionSettings},
+	// err is what the worker reports (Hermes puts its status code in front of a
+	// gateway error); want is what the person reads.
+	for name, tc := range map[string]struct{ err, want, action string }{
+		"retry":    {"HTTP 424: Claude failed: exit status 1", "Claude failed: exit status 1", ActionRetry},
+		"settings": {"HTTP 400: Claude Code is not connected. Connect it in Settings → Agent", "Claude Code is not connected. Connect it in Settings → Agent", ActionSettings},
 	} {
 		c := h.chat("Plan my week", "supervised", "failed-"+name, failed(advice, tc.err))
 		c = h.wait(c.ID, "failed", statusIs("failed"))
-		if c.Error != tc.err || c.ErrorAction != tc.action {
+		if c.Error != tc.want || c.ErrorAction != tc.action {
 			t.Fatalf("%s: error %q action %q", name, c.Error, c.ErrorAction)
 		}
 		for _, m := range c.Messages {
