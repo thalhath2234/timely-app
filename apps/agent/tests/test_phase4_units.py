@@ -273,6 +273,31 @@ def test_sign_in_and_unknown_providers_are_refused(provider):
     assert not policy.ALLOWED_PROVIDERS & policy.OAUTH_PROVIDERS
 
 
+# Every key Hermes' own classifier (agent.anthropic_credentials._is_oauth_token) sends down its Claude Code
+# OAuth path: Bearer auth, the Claude Code identity and the oauth betas on api.anthropic.com.
+OAUTH_STYLE_KEYS = ["sk-ant-oat01-x", " sk-ant-oat01-x", "sk-ant-sid01-x", "sk-ant-x", "eyJhbGciOiJIUzI1NiJ9.x.sig", "cc-x0000"]
+
+
+@pytest.mark.parametrize("key", OAUTH_STYLE_KEYS)
+def test_claude_code_token_is_refused_whatever_its_prefix(key):
+    assert "sign-in token" in policy.provider_problem({"provider": "anthropic", "api_key": key})
+    assert policy.is_oauth_key(key)
+    # Anthropic's wire format on its own host, or on none, takes the same path.
+    for base in ("", "https://api.anthropic.com", "api.anthropic.com"):
+        model = {"provider": "custom", "api_mode": "anthropic_messages", "base_url": base, "api_key": key}
+        assert "sign-in token" in policy.provider_problem(model), base
+    # A third-party endpoint authenticates with x-api-key whatever the key looks like.
+    assert policy.provider_problem({"provider": "custom", "api_mode": "anthropic_messages",
+                                    "base_url": "https://example.test/v1", "api_key": key}) == ""
+    assert policy.provider_problem({"provider": "openrouter", "api_key": key}) == ""
+
+
+@pytest.mark.parametrize("key", ["sk-ant-api03-x", "sk-ant-usr01-x", "sk-ant-svc01-x", "sk-ant-admin01-x", "x"])
+def test_console_api_keys_are_not_refused(key):
+    assert policy.provider_problem({"provider": "anthropic", "api_key": key}) == ""
+    assert not policy.is_oauth_key(key)
+
+
 def test_claude_code_token_and_missing_model_are_refused():
     assert "sign-in token" in policy.provider_problem({"provider": "anthropic", "api_key": " sk-ant-oat01-x"})
     assert policy.provider_problem({"provider": "anthropic", "api_key": "sk-ant-api03-x"}) == ""

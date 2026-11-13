@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any, Mapping
+from urllib.parse import urlparse
 
 # Messaging and agent-to-agent tools (decision 6). None may ever resolve in a worker.
 MESSAGING_TOOLS = frozenset({
@@ -192,10 +193,41 @@ OAUTH_PROVIDERS = frozenset({
     "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth", "solstice", "solstice-oauth",
     "copilot", "copilot-acp", "github-copilot", "google-gemini-cli", "gemini-cli", "claude-code",
 })
-# A Claude Code sign-in token is not an Anthropic API key (Q-4.1).
+# A Claude Code sign-in token is not an Anthropic API key (Q-4.1). Hermes sends Bearer auth, the Claude
+# Code identity and the oauth betas for every key its ``_is_oauth_token`` calls OAuth: the Console
+# families sk-ant-api / -usr / -svc / -admin are API keys, every other ``sk-ant-*``, an ``eyJ`` JWT
+# and a ``cc-`` token are not (unknown sk-ant-* prefixes count as OAuth on purpose). This is a copy of
+# that rule for when Hermes cannot be imported; ``is_oauth_key`` refuses whatever either says.
 CLAUDE_OAUTH_TOKEN_PREFIX = "sk-ant-oat"
+ANTHROPIC_API_KEY_PREFIXES = ("sk-ant-api", "sk-ant-usr", "sk-ant-svc", "sk-ant-admin")
+ANTHROPIC_OAUTH_PREFIXES = ("sk-ant-", "eyJ", "cc-")
 # Files that would hold a Hermes sign-in in the account home.
 OAUTH_FILES = ("auth.json", ".anthropic_oauth.json")
+
+
+def is_oauth_key(key: str) -> bool:
+    """Whether Hermes would take ``key`` down its Claude Code OAuth path (see above)."""
+    key = key.strip()
+    if not key:
+        return False
+    if not key.startswith(ANTHROPIC_API_KEY_PREFIXES) and key.startswith(ANTHROPIC_OAUTH_PREFIXES):
+        return True
+    try:
+        from agent.anthropic_credentials import _is_oauth_token  # a seam: seams.json
+        return bool(_is_oauth_token(key))
+    except Exception:  # Hermes not importable here (unit tests, a changed module): the copy decided
+        return False
+
+
+def _anthropic_native(model: Mapping[str, Any]) -> bool:
+    """Provider ``anthropic``, or Anthropic's wire format on Anthropic's own host (or none)."""
+    if model.get("provider") == "anthropic":
+        return True
+    if model.get("api_mode") != "anthropic_messages":
+        return False
+    base = str(model.get("base_url") or "").strip()
+    host = (urlparse(base if "//" in base else "//" + base).hostname or "").lower() if base else ""
+    return not base or host == "api.anthropic.com"
 
 
 def provider_problem(model: Mapping[str, Any] | None) -> str:
@@ -208,7 +240,7 @@ def provider_problem(model: Mapping[str, Any] | None) -> str:
     if provider not in ALLOWED_PROVIDERS:
         return f"model.provider {provider!r} is not one Timely runs (no Hermes sign-ins)"
     key = model.get("api_key")
-    if provider == "anthropic" and isinstance(key, str) and key.strip().startswith(CLAUDE_OAUTH_TOKEN_PREFIX):
+    if isinstance(key, str) and _anthropic_native(model) and is_oauth_key(key):
         return "model.api_key is a Claude Code sign-in token, not an API key"
     return ""
 

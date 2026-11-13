@@ -120,6 +120,8 @@ TIMELY_SEAMS = [
     ("LSP installer subprocess (install guard R1)", "agent/lsp/install.py", "_run_installer"),
     ("dotenv loader (dotenv guard R2)", "hermes_cli/env_loader.py", "load_hermes_dotenv"),
     ("MCP config load reloads dotenv (R2)", "tools/mcp_tool_config.py", "_load_mcp_config"),
+    ("Claude OAuth key classifier (policy.is_oauth_key, Q-4.1)", "agent/anthropic_credentials.py", "_is_oauth_token"),
+    ("Anthropic auth style: OAuth keys take Bearer + Claude Code identity (Q-4.1)", "agent/anthropic_adapter.py", "_auth_style"),
     ("auxiliary Nous auth read (sign-in guard R5)", "agent/auxiliary_client.py", "_read_nous_auth"),
     ("auxiliary Nous token refresh (sign-in guard R5)", "agent/auxiliary_client.py", "_resolve_nous_runtime_api"),
     ("auxiliary Nous client (sign-in guard R5)", "agent/auxiliary_client.py", "_try_nous"),

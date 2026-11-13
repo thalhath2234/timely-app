@@ -336,7 +336,7 @@ func TestIntegrationDirectAPIProviders(t *testing.T) {
 	var testedModels []string
 	anthropicAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.Header.Get("X-Api-Key") != "sk-ant-goodkey" {
+		if r.Header.Get("X-Api-Key") != "sk-ant-api03-goodkey" {
 			w.WriteHeader(401)
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
 			return
@@ -409,10 +409,10 @@ func TestIntegrationDirectAPIProviders(t *testing.T) {
 	}
 
 	// Anthropic: a bad key is rejected in plain words; a good one is stored encrypted.
-	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-badkey"}); code != 409 || !strings.Contains(body["message"].(string), "didn't accept the API key (HTTP 401)") {
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-api03-badkey"}); code != 409 || !strings.Contains(body["message"].(string), "didn't accept the API key (HTTP 401)") {
 		t.Fatalf("bad key: %d %v", code, body)
 	}
-	code, body = call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"})
+	code, body = call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-api03-goodkey"})
 	if code != 200 {
 		t.Fatalf("%d %v", code, body)
 	}
@@ -488,7 +488,7 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	anthropicModels := []string{}
 	anthropicAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.Header.Get("X-Api-Key") != "sk-ant-goodkey" {
+		if r.Header.Get("X-Api-Key") != "sk-ant-api03-goodkey" {
 			w.WriteHeader(401)
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
 			return
@@ -517,7 +517,7 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/openrouter/key", map[string]string{"key": "sk-or-v1-goodkey"}); code != 200 {
 		t.Fatalf("%d %v", code, body)
 	}
-	code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"})
+	code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-api03-goodkey"})
 	if code != 200 || body["defaultProvider"] != "" || body["defaultChosen"] != false {
 		t.Fatalf("a saved Anthropic key must not become the default on its own: %d %v %v", code, body["defaultProvider"], body["defaultChosen"])
 	}
@@ -544,7 +544,7 @@ func TestIntegrationOpenRouterKeyNeverTakesChat(t *testing.T) {
 	mu.Lock()
 	listed = `{"type":"model","id":"claude-haiku-5-5-20261001","display_name":"Claude Haiku 5.5","created_at":"2026-09-01T00:00:00Z"}`
 	mu.Unlock()
-	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"}); code != 200 {
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-api03-goodkey"}); code != 200 {
 		t.Fatalf("%d %v", code, body)
 	}
 	if _, model, _ := s.Resolve(context.Background(), "user-a"); model != "claude-haiku-5-5-20261001" {

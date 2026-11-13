@@ -371,31 +371,44 @@ func TestAgentModelSendsNoOAuthProvider(t *testing.T) {
 	}
 }
 
-// Q-4.1: a Claude Code sign-in token (sk-ant-oat...) is not an Anthropic API
-// key. Saving one is refused before anything is stored or sent, and a run
-// with one already stored never reaches the worker.
+// Q-4.1: a Claude Code sign-in token is not an Anthropic API key. That is
+// every key Hermes' own classifier (_is_oauth_token) sends down its Claude Code
+// OAuth path: sk-ant-oat, any other sk-ant-* outside the Console families, an
+// eyJ JWT and a cc- token. Saving one is refused before anything is stored or
+// sent, and a run with one already stored never reaches the worker.
 func TestAnthropicSignInTokenIsRefused(t *testing.T) {
-	const token = "sk-ant-oat01-stand-in-token-value"
 	s := agentTestService(t)
 	s.models.effort["claude-sonnet-5"] = true
-	if _, err := s.apiAgentModel(apiProviderByID("anthropic"), APIKey{Key: sealed(t, s, token), Model: "claude-sonnet-5"}, ""); !errors.Is(err, errSignInToken) {
-		t.Errorf("AgentModel with a stored sign-in token: %v", err)
-	}
-	if _, err := s.apiAgentModel(apiProviderByID("anthropic"), APIKey{Key: sealed(t, s, "sk-ant-api03-stand-in"), Model: "claude-sonnet-5"}, ""); err != nil {
-		t.Errorf("a real API key was refused: %v", err)
-	}
-
-	e := echo.New()
-	s.Routes(e.Group("")) // no database: the token is refused before any read
-	for _, key := range []string{token, "  " + token + "\n"} {
-		body, _ := json.Marshal(map[string]string{"key": key})
-		req := httptest.NewRequest(http.MethodPost, "/agent/providers/anthropic/key", strings.NewReader(string(body)))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Claude Code sign-in token, not an API key") {
-			t.Errorf("saving %q: %d %s", key, rec.Code, rec.Body.String())
+	for _, token := range []string{"sk-ant-oat01-stand-in-token-value", "sk-ant-sid01-stand-in", "sk-ant-stand-in", "eyJhbGciOiJIUzI1NiJ9.stand-in.sig", "cc-stand-in-0000"} {
+		if _, err := s.apiAgentModel(apiProviderByID("anthropic"), APIKey{Key: sealed(t, s, token), Model: "claude-sonnet-5"}, ""); !errors.Is(err, errSignInToken) {
+			t.Errorf("AgentModel with a stored %q: %v", token, err)
 		}
+		e := echo.New()
+		s.Routes(e.Group("")) // no database: the token is refused before any read
+		for _, key := range []string{token, "  " + token + "\n"} {
+			body, _ := json.Marshal(map[string]string{"key": key})
+			req := httptest.NewRequest(http.MethodPost, "/agent/providers/anthropic/key", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Claude Code sign-in token, not an API key") {
+				t.Errorf("saving %q: %d %s", key, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	// The Console key families are API keys.
+	for _, key := range []string{"sk-ant-api03-stand-in", "sk-ant-usr01-stand-in", "sk-ant-svc01-stand-in", "sk-ant-admin01-stand-in"} {
+		if _, err := s.apiAgentModel(apiProviderByID("anthropic"), APIKey{Key: sealed(t, s, key), Model: "claude-sonnet-5"}, ""); err != nil {
+			t.Errorf("a real API key %q was refused: %v", key, err)
+		}
+	}
+	// Another provider's key that happens to look like a JWT is that
+	// provider's business: Hermes' classifier reads only Anthropic's.
+	if signInToken("deepseek", "eyJhbGciOiJIUzI1NiJ9.stand-in.sig") || signInToken("deepseek", "cc-x") {
+		t.Error("a non-Anthropic key was taken for a Claude Code token")
+	}
+	if !signInToken("deepseek", "sk-ant-oat01-x") {
+		t.Error("an sk-ant-oat token is refused on any provider")
 	}
 }
 

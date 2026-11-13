@@ -643,6 +643,22 @@
       "signature": "def _load_mcp_config() -> dict[str, dict]",
       "sha256": "883e458a47c2f6ae6520e6a3021866d14499c8a26d6665baa2172ceb1522f68d"
     },
+    "Claude OAuth key classifier (policy.is_oauth_key, Q-4.1)": {
+      "file": "agent/anthropic_credentials.py",
+      "qualname": "_is_oauth_token",
+      "line": 62,
+      "end_line": 69,
+      "signature": "def _is_oauth_token(key: str) -> bool",
+      "sha256": "9b2ca97272b653eccea2da47cb53d14ccf9b512b63b7c4181e679e4d64c1c052"
+    },
+    "Anthropic auth style: OAuth keys take Bearer + Claude Code identity (Q-4.1)": {
+      "file": "agent/anthropic_adapter.py",
+      "qualname": "_auth_style",
+      "line": 472,
+      "end_line": 487,
+      "signature": "def _auth_style(api_key, base_url, normalized_base_url) -> str",
+      "sha256": "48a2d33b525045154b69ed2c31e02561038443f33435e2d61dc83f729195f8d1"
+    },
     "auxiliary Nous auth read (sign-in guard R5)": {
       "file": "agent/auxiliary_client.py",
       "qualname": "_read_nous_auth",

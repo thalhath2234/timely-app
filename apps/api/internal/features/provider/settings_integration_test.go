@@ -25,7 +25,7 @@ func fakeAnthropicAPI(t *testing.T, during func()) (*httptest.Server, func() []s
 	var called []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.Header.Get("X-Api-Key") != "sk-ant-goodkey" {
+		if r.Header.Get("X-Api-Key") != "sk-ant-api03-goodkey" {
 			w.WriteHeader(401)
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
 			return
@@ -63,14 +63,14 @@ func TestIntegrationSettingsAskTheProviderOnlyWhenSomethingChanged(t *testing.T)
 	s := New(db, nil, jobs.NewQueue(db))
 	s.anthropicURL = anthropicAPI.URL
 
-	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "  sk-ant-goodkey\n"}); code != 200 {
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "  sk-ant-api03-goodkey\n"}); code != 200 {
 		t.Fatalf("a pasted key with spaces around it: %d %v", code, body)
 	}
 	var stored APIKey
 	if err := db.First(&stored, "user_id = ? AND provider = ?", "user-a", "anthropic").Error; err != nil {
 		t.Fatal(err)
 	}
-	if key, err := s.apiKey(stored); err != nil || key != "sk-ant-goodkey" {
+	if key, err := s.apiKey(stored); err != nil || key != "sk-ant-api03-goodkey" {
 		t.Fatalf("the key must be stored trimmed: %v", err)
 	}
 
@@ -134,7 +134,7 @@ func TestIntegrationHelpMeWriteKeepsTheModelWhenTheKeyGoesMeanwhile(t *testing.T
 	})
 	s := New(db, nil, jobs.NewQueue(db))
 	s.anthropicURL = anthropicAPI.URL
-	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-goodkey"}); code != 200 {
+	if code, body := call(t, s, "user-a", http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": "sk-ant-api03-goodkey"}); code != 200 {
 		t.Fatalf("%d %v", code, body)
 	}
 	if code, body := call(t, s, "user-a", http.MethodPatch, "/agent/providers", map[string]string{"defaultProvider": "anthropic"}); code != 200 {

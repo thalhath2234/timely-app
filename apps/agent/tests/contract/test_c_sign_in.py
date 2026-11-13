@@ -54,9 +54,14 @@ def test_sign_in_providers_are_refused(sagent, sworker, stub, provider):
     assert "provider" in err["message"], err
 
 
-def test_a_claude_code_token_is_not_an_anthropic_key(sagent, sworker, stub):
+# Every key Hermes' own classifier sends down its Claude Code OAuth path (Bearer auth, the Claude Code
+# identity, the oauth betas on api.anthropic.com): sk-ant-oat, any other sk-ant-* outside the Console
+# families, an eyJ JWT and a cc- token.
+@pytest.mark.parametrize("key", [
+    FAKE_TOKEN, "sk-ant-sid01-FAKE-0000000000", "eyJhbGciOiJIUzI1NiJ9.FAKE.sig", "cc-FAKE0000000000"])
+def test_a_claude_code_token_is_not_an_anthropic_key(sagent, sworker, stub, key):
     msg = harness.run_start(sagent, stub, run_id="csi-oat", conversation="c-csi-oat")
-    msg["model"].update(provider="anthropic", api_key=FAKE_TOKEN, api_mode="anthropic_messages")
+    msg["model"].update(provider="anthropic", api_key=key, api_mode="anthropic_messages")
     sworker.send(msg)
     err, _ = sworker.until("error")
     assert err["code"] == "bad_message" and "sign-in token" in err["message"], err

@@ -33,7 +33,7 @@ func TestIntegrationDisconnectDuringACheckStaysDisconnected(t *testing.T) {
 	}
 	anthropicAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if key := r.Header.Get("X-Api-Key"); key != "sk-ant-goodkey" && key != "sk-ant-otherkey" {
+		if key := r.Header.Get("X-Api-Key"); key != "sk-ant-api03-goodkey" && key != "sk-ant-api03-otherkey" {
 			w.WriteHeader(401)
 			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
 			return
@@ -103,7 +103,7 @@ func TestIntegrationDisconnectDuringACheckStaysDisconnected(t *testing.T) {
 	}
 
 	// 1. A model change plus "Use as default" (the finding's own steps).
-	saveKey("sk-ant-goodkey")
+	saveKey("sk-ant-api03-goodkey")
 	got := during(http.MethodPatch, "/agent/providers", map[string]any{"models": map[string]string{"anthropic": "claude-sonnet-5-5"}, "defaultProvider": "anthropic"}, disconnect)
 	if got.code != 409 || !strings.Contains(got.body["message"].(string), "changed in another tab or device") {
 		t.Fatalf("model change: %d %v", got.code, got.body)
@@ -111,7 +111,7 @@ func TestIntegrationDisconnectDuringACheckStaysDisconnected(t *testing.T) {
 	assertGone("model change")
 
 	// 2. "Use as default" alone.
-	saveKey("sk-ant-goodkey")
+	saveKey("sk-ant-api03-goodkey")
 	got = during(http.MethodPatch, "/agent/providers", map[string]any{"defaultProvider": "anthropic"}, disconnect)
 	if got.code != 409 {
 		t.Fatalf("use as default: %d %v", got.code, got.body)
@@ -119,7 +119,7 @@ func TestIntegrationDisconnectDuringACheckStaysDisconnected(t *testing.T) {
 	assertGone("use as default")
 
 	// 3. Changing the endpoint with the saved key (an empty key field).
-	saveKey("sk-ant-goodkey")
+	saveKey("sk-ant-api03-goodkey")
 	holdList.Store(true)
 	got = during(http.MethodPost, "/agent/providers/anthropic/key", map[string]string{"key": ""}, disconnect)
 	holdList.Store(false)
@@ -129,8 +129,8 @@ func TestIntegrationDisconnectDuringACheckStaysDisconnected(t *testing.T) {
 	assertGone("saved-key resave")
 
 	// 4. A new key saved while a model change is checked keeps the new key.
-	saveKey("sk-ant-goodkey")
-	got = during(http.MethodPatch, "/agent/providers", map[string]any{"models": map[string]string{"anthropic": "claude-sonnet-5-5"}}, func() { saveKey("sk-ant-otherkey") })
+	saveKey("sk-ant-api03-goodkey")
+	got = during(http.MethodPatch, "/agent/providers", map[string]any{"models": map[string]string{"anthropic": "claude-sonnet-5-5"}}, func() { saveKey("sk-ant-api03-otherkey") })
 	if got.code != 409 {
 		t.Fatalf("model change over a new key: %d %v", got.code, got.body)
 	}

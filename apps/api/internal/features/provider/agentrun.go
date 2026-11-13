@@ -20,15 +20,38 @@ import (
 var ErrAgentEngineUnsupported = errors.New("The model gateway is not running, so Claude Code and Codex use the classic engine")
 
 // errSignInToken is a Claude Code sign-in token pasted where an Anthropic API
-// key goes (Q-4.1). Hermes would take an "sk-ant-oat" key down its Claude
-// Code OAuth path (hermes:hermes_cli/auth.py, the anthropic row), which
-// Timely never uses, so it is refused when saved and when a run asks for it.
+// key goes (Q-4.1). Hermes would take it down its Claude Code OAuth path
+// (Bearer auth, the Claude Code identity, the oauth betas;
+// hermes:agent/anthropic_credentials.py _is_oauth_token), which Timely never
+// uses, so it is refused when saved and when a run asks for it.
 var errSignInToken = errors.New("This is a Claude Code sign-in token, not an API key. Paste an Anthropic API key, or connect Claude Code itself in Settings → Agent")
 
-// signInToken reports a Claude Code OAuth token (sk-ant-oat...), which is
-// never an API key.
-func signInToken(key string) bool {
-	return strings.HasPrefix(strings.TrimSpace(key), "sk-ant-oat")
+// signInToken reports a Claude Code OAuth token, which is never an API key:
+// "sk-ant-oat..." on any provider, and for Anthropic every key Hermes' own
+// classifier (_is_oauth_token) calls OAuth. The Console key families
+// (sk-ant-api, -usr, -svc, -admin) are API keys; any other "sk-ant-" key, an
+// "eyJ" JWT and a "cc-" token are not (unknown sk-ant- prefixes count as OAuth
+// in Hermes on purpose, so prefixes Anthropic ships later keep working there).
+// The worker keeps the same rule (timely_agent policy.is_oauth_key).
+func signInToken(provider, key string) bool {
+	key = strings.TrimSpace(key)
+	if strings.HasPrefix(key, "sk-ant-oat") {
+		return true
+	}
+	if provider != "anthropic" {
+		return false
+	}
+	for _, api := range []string{"sk-ant-api", "sk-ant-usr", "sk-ant-svc", "sk-ant-admin"} {
+		if strings.HasPrefix(key, api) {
+			return false
+		}
+	}
+	for _, oauth := range []string{"sk-ant-", "eyJ", "cc-"} {
+		if strings.HasPrefix(key, oauth) {
+			return true
+		}
+	}
+	return false
 }
 
 // agentProviderIDs are the only Hermes provider ids Timely ever sends in
@@ -220,7 +243,7 @@ func (s *Service) gatewayAgentModel(ctx context.Context, userID, provider, model
 		if !found {
 			return AgentModel{}, fmt.Errorf("%s is not connected. Add its key in Settings → Agent", spec.Label)
 		}
-		if key, err := s.apiKey(row); err == nil && signInToken(key) {
+		if key, err := s.apiKey(row); err == nil && signInToken(provider, key) {
 			return AgentModel{}, errSignInToken
 		}
 		if model == "" {
@@ -273,7 +296,7 @@ func (s *Service) apiAgentModel(spec *apiProvider, row APIKey, model string) (Ag
 	if err != nil {
 		return AgentModel{}, err
 	}
-	if signInToken(key) {
+	if signInToken(spec.ID, key) {
 		return AgentModel{}, errSignInToken
 	}
 	if key == "" && !spec.KeyOptional {
