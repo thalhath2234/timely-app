@@ -13,7 +13,10 @@ import (
 // web for one run.
 type runSetup struct {
 	learningWrites, searchHistory bool
-	toolsets                      []string
+	// asks: the run may ask the person (clarify) and hand work to sub-tasks
+	// (delegation); noPersist: a Sensitive chat's no-persist run (phase 4).
+	asks, noPersist bool
+	toolsets        []string
 	// taintedConversations are the account's chats with outside text (a
 	// past-chat search hit from one taints the run), searchExclude its
 	// "Don't learn from this chat" chats (never search hits). searchAllow
@@ -36,7 +39,7 @@ type runSetup struct {
 // A switch that cannot be read leaves learning off, and a list of tainted
 // chats that cannot be read turns past-chat search off: a hit from a chat
 // with outside text must taint the run.
-func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *toolRun) runSetup {
+func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *toolRun, noPersist bool) runSetup {
 	var prefs LearningPrefs
 	if e.opts.Learning != nil {
 		var err error
@@ -45,7 +48,10 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 			prefs = LearningPrefs{}
 		}
 	}
-	out := runSetup{taintedConversations: []string{}, searchExclude: []string{}, searchAllow: []string{}}
+	out := runSetup{taintedConversations: []string{}, searchExclude: []string{}, searchAllow: []string{}, noPersist: noPersist}
+	// A chat run asks and delegates unless it only answers (Bot tags) or
+	// keeps nothing (no-persist); bots never do (bot.run, phase 6).
+	out.asks = !tools.answerOnly && !noPersist
 	out.learningWrites = prefs.Learning && !c.Sensitive && !c.NoLearning && !tools.answerOnly
 	out.searchHistory = prefs.SearchHistory && out.learningWrites
 	tools.web.on = c.WebSearch && !c.Sensitive && !tools.answerOnly
@@ -76,7 +82,7 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 	if out.taintedConversations == nil {
 		out.taintedConversations = []string{}
 	}
-	out.toolsets = runToolsets(out.learningWrites, out.searchHistory, tools.web.on)
+	out.toolsets = runToolsets(out, tools.web.on)
 	return out
 }
 
@@ -117,21 +123,33 @@ func (e *WorkerEngine) narrowLearning(ctx context.Context, c *Conversation, setu
 	learning, search := e.learnsNow(ctx, c.UserID, c.ID, c)
 	setup.learningWrites = setup.learningWrites && learning
 	setup.searchHistory = setup.searchHistory && search && setup.learningWrites
-	setup.toolsets = runToolsets(setup.learningWrites, setup.searchHistory, tools.web.on)
+	setup.toolsets = runToolsets(*setup, tools.web.on)
 }
 
+// noPersistToolsets are a no-persist run's toolsets (the worker refuses any
+// other, PROTOCOL.md 11.4).
+var noPersistToolsets = []string{"timely", "todo"}
+
 // runToolsets are a chat run's Hermes toolsets: phase 2's, plus memory,
-// past-chat search and the web when the run has them.
-func runToolsets(learningWrites, searchHistory, web bool) []string {
+// past-chat search and the web when the run has them, and clarify and
+// delegation when it may ask and delegate (phase 4 decision 8). A
+// no-persist run has only timely and todo.
+func runToolsets(setup runSetup, web bool) []string {
+	if setup.noPersist {
+		return append([]string{}, noPersistToolsets...)
+	}
 	out := append([]string{}, chatToolsets...)
-	if learningWrites {
+	if setup.learningWrites {
 		out = append(out, "memory")
 	}
-	if searchHistory {
+	if setup.searchHistory {
 		out = append(out, "session_search")
 	}
 	if web {
 		out = append(out, "web")
+	}
+	if setup.asks {
+		out = append(out, "clarify", "delegation")
 	}
 	return out
 }

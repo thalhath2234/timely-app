@@ -48,7 +48,7 @@ func engineCatalog(tx *gorm.DB) agent.Catalog {
 }
 
 // testModel is run.start's model in these tests: nothing ever calls it.
-func testModel(context.Context, string, string, string) (any, error) {
+func testModel(context.Context, string, string, string, RunModelOptions) (any, error) {
 	return map[string]any{"provider": "custom", "model": "stub-model", "base_url": "http://127.0.0.1:9/v1", "api_key": "sk-test", "api_mode": "chat_completions"}, nil
 }
 
@@ -104,7 +104,7 @@ func newEngineHarness(t *testing.T) *engineHarness {
 
 // newEngineHarnessWith runs the engine on the supervisor cfg describes (the
 // fake worker, or the real one in engine_realworker_test.go).
-func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context.Context, string, string, string) (any, error)) *engineHarness {
+func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context.Context, string, string, string, RunModelOptions) (any, error)) *engineHarness {
 	t.Helper()
 	db := integrationDB(t)
 	s := New(db, engineCatalog, nil)
@@ -358,7 +358,7 @@ func TestIntegrationAgentEngineStreamsAReply(t *testing.T) {
 	if start.SystemHash != blockHash(start.SystemText) || !strings.HasPrefix(start.SystemText, instruction) {
 		t.Error("system_text is the Timely block with its hash")
 	}
-	if strings.Join(start.Toolsets, ",") != "timely,todo,skills" || start.Permission != "supervised" || len(start.Budgets) != 0 {
+	if strings.Join(start.Toolsets, ",") != "timely,todo,skills,clarify,delegation" || start.Permission != "supervised" || len(start.Budgets) != 0 {
 		t.Errorf("toolsets %v permission %s budgets %v", start.Toolsets, start.Permission, start.Budgets)
 	}
 	if start.Flags["learning_writes"] || start.Flags["web"] || start.Flags["sensitive"] || start.Flags["from_bot"] || start.Flags["answer_only"] {

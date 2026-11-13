@@ -2,7 +2,7 @@
 # Model-check the Agent run protocol (see SKILL.md): the apply check
 # (AgentRunApply.cfg) and the turn check (AgentRunTurn.cfg), one model.
 #
-#   run.sh             read guards from the code, check drift, run TLC (~50 s)
+#   run.sh             read guards from the code, check drift, run TLC (~3.5 min)
 #   run.sh --mutants   also prove each guard matters: remove it in the model
 #                      and expect TLC to find a violation (~2 min more)
 #   run.sh --resync    after you confirmed the model matches the code: record
@@ -101,7 +101,7 @@ done
 if [[ $mode == "mutants" ]]; then
   echo "mutants: each guard removed in the model must break a property (apply check first, then the turn check)"
   bad=0
-  for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone HoldsSupervised; do
+  for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone HoldsSupervised AnswerFenced; do
     v="" where=""
     for c in "${CONFIGS[@]}"; do
       sed -E "s/^(\s*$g\s*=\s*)TRUE/\1FALSE/" "$WORK/$c.cfg" > "$WORK/m-$g-$c.cfg"

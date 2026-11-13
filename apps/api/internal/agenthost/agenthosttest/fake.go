@@ -45,6 +45,11 @@ type fakeRun struct {
 	replies   chan map[string]any // tool.result / gate.verdict for this run's requests
 	approvals chan string         // approval.answer ids while waiting for one
 	waitingOK bool                // guarded by fake.mu: waiting for an approval.answer
+	// clarify is the request id of the question card the run waits on
+	// (guarded by fake.mu, "" when none); answers gets its clarify.answer.
+	clarify     string
+	answers     chan map[string]any
+	lastAnswers string
 
 	text       strings.Builder
 	lastResult string
@@ -193,6 +198,8 @@ func (f *fake) handle(m map[string]any) {
 		}
 	case "approval.answer":
 		f.approvalAnswer(m)
+	case "clarify.answer":
+		f.clarifyAnswer(m)
 	case "tool.result", "gate.verdict":
 		f.mu.Lock()
 		r := f.pending[id]
@@ -467,6 +474,7 @@ func (f *fake) runStart(m map[string]any) {
 	r := &fakeRun{
 		id: run, startID: id, conversation: conv, sessionKey: str(m, "session_key"), userMessage: str(m, "user_message"),
 		stop: make(chan struct{}), replies: make(chan map[string]any, 1), approvals: make(chan string, 1),
+		answers: make(chan map[string]any, 1),
 	}
 	f.runs[run] = r
 	f.runsDone.Add(1)
@@ -498,6 +506,125 @@ func (f *fake) approvalAnswer(m map[string]any) {
 	default:
 		f.send(map[string]any{"type": "ack", "id": id, "ok": false})
 	}
+}
+
+// clarifyAnswer takes Go's answer to the card a run waits on and acks it
+// ok, as the real worker does; an answer to a card that no longer waits,
+// another run's, or one after the run is over gets ok: false, and one
+// without request_id is bad_message.
+func (f *fake) clarifyAnswer(m map[string]any) {
+	id, run, request := str(m, "id"), str(m, "run"), str(m, "request_id")
+	if request == "" {
+		f.fail(id, run, "bad_message", "clarify.answer needs the clarify.request's request_id")
+		return
+	}
+	f.mu.Lock()
+	r := f.runs[run]
+	waiting := r != nil && r.clarify != "" && r.clarify == request
+	if waiting {
+		r.clarify = ""
+		r.answers <- m
+	}
+	f.mu.Unlock()
+	// As the real worker (PROTOCOL.md 11.2): an answer after the run is
+	// over is acked ok: false too.
+	f.send(map[string]any{"type": "ack", "id": id, "ok": waiting})
+}
+
+// clarify plays the clarify directive: event clarify.request, then a wait
+// for clarify.answer, run.stop (or shutdown) or the timeout, then event
+// clarify.closed with how it ended. false means the run was stopped.
+func (f *fake) clarify(r *fakeRun, obj map[string]any) bool {
+	request := str(obj, "request_id")
+	if request == "" {
+		request = "req-" + r.id
+	}
+	questions, _ := obj["questions"].([]any)
+	if questions == nil {
+		questions = []any{map[string]any{"qid": "q0", "question": "Which one?", "choices": []any{"A", "B"}, "recommended": 0, "multi_select": false}}
+	}
+	ms, _ := obj["timeout_ms"].(float64)
+	if ms <= 0 {
+		ms = 60_000
+	}
+	f.mu.Lock()
+	r.clarify = request
+	select {
+	case <-r.answers: // a stale answer from an earlier card
+	default:
+	}
+	f.mu.Unlock()
+	f.send(map[string]any{"type": "event", "run": r.id, "kind": "clarify.request",
+		"payload": map[string]any{"request_id": request, "questions": questions, "timeout_s": int(ms / 1000)}})
+	closed := func(outcome string) {
+		f.mu.Lock()
+		if r.clarify == request {
+			r.clarify = ""
+		}
+		f.mu.Unlock()
+		f.send(map[string]any{"type": "event", "run": r.id, "kind": "clarify.closed",
+			"payload": map[string]any{"request_id": request, "outcome": outcome}})
+	}
+	t := time.NewTimer(time.Duration(ms) * time.Millisecond)
+	defer t.Stop()
+	select {
+	case m := <-r.answers:
+		raw, _ := json.Marshal(m["answers"])
+		r.lastAnswers = string(raw)
+		outcome := str(m, "outcome")
+		if outcome == "" {
+			outcome = "submitted"
+		}
+		closed(outcome)
+		return true
+	case <-t.C:
+		r.lastAnswers = "{}"
+		closed("timed_out")
+		return true
+	case <-r.stop:
+		closed("cancelled")
+		return false
+	case <-f.quit:
+		closed("cancelled")
+		return false
+	}
+}
+
+// subagent plays the subagent directive: a sub-task starts, reports the
+// outside sources it read as the parent's taint (via "subagent"), and
+// stops.
+func (f *fake) subagent(r *fakeRun, obj map[string]any) bool {
+	child := str(obj, "child")
+	if child == "" {
+		child = "child-" + r.id
+	}
+	sub := str(obj, "subagent_id")
+	if sub == "" {
+		sub = "sa-" + child
+	}
+	goal := str(obj, "goal")
+	f.send(map[string]any{"type": "event", "run": r.id, "kind": "subagent",
+		"payload": map[string]any{"phase": "start", "subagent_id": sub, "child_session_id": child, "goal": goal}})
+	if taint, ok := obj["taint"].([]any); ok && len(taint) > 0 {
+		sources := make([]any, 0, len(taint))
+		for _, src := range taint {
+			if m, ok := src.(map[string]any); ok {
+				m["via"], m["child"] = "subagent", child
+				sources = append(sources, m)
+			}
+		}
+		f.send(map[string]any{"type": "taint", "run": r.id, "sources": sources})
+	}
+	if ms, _ := obj["ms"].(float64); ms > 0 && !f.wait(r, time.Duration(ms)*time.Millisecond) {
+		return false
+	}
+	status := str(obj, "status")
+	if status == "" {
+		status = "completed"
+	}
+	f.send(map[string]any{"type": "event", "run": r.id, "kind": "subagent",
+		"payload": map[string]any{"phase": "stop", "subagent_id": sub, "child_session_id": child, "goal": goal, "status": status, "tool_calls": 1}})
+	return true
 }
 
 // arm makes the run accept one approval.answer, unless one is already
@@ -735,6 +862,10 @@ func (f *fake) directive(r *fakeRun, directive string, obj map[string]any) bool 
 		case <-f.quit:
 			return false
 		}
+	case "clarify":
+		return f.clarify(r, obj)
+	case "subagent":
+		return f.subagent(r, obj)
 	case "crash":
 		code, _ := obj["code"].(float64)
 		if code == 0 {
@@ -774,6 +905,7 @@ func (f *fake) substitute(r *fakeRun, v any) any {
 		return strings.NewReplacer(
 			"{{run}}", r.id, "{{conversation_id}}", r.conversation, "{{session_key}}", r.sessionKey,
 			"{{user_message}}", r.userMessage, "{{account}}", account, "{{last_result}}", r.lastResult,
+			"{{last_answers}}", r.lastAnswers,
 		).Replace(v)
 	}
 	return v

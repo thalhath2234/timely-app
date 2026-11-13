@@ -325,6 +325,9 @@ func endRun(row *Conversation, run *toolRun) {
 	// The agent engine hands web taint over call by call; classic's
 	// searches arrive here.
 	mergeTaint(row, run.web.takeTaint())
+	// A question card still open when the run ends closes unanswered (the
+	// worker's clarify.closed normally came first).
+	closeQuestion(row, nil, outcomeStopped)
 	row.AgentRunID, row.AgentInstance = "", ""
 	row.Activity = ChatActivity{}
 	row.RunReads = RunReads{}

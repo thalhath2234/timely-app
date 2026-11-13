@@ -191,9 +191,7 @@ func TestIntegrationGatewayExitCLIChatsRunOnTheNewEngine(t *testing.T) {
 		chatService := chat.New(db, func(*gorm.DB) agent.Catalog { return nil }, nil)
 		// As newAgentEngine wires it.
 		engine := chat.NewWorkerEngine(chatService, chat.WorkerEngineOptions{
-			Model: func(ctx context.Context, uid, providerID, model string) (any, error) {
-				return providers.AgentModel(ctx, uid, providerID, model)
-			},
+			Model:       agentRunModel(providers),
 			Unsupported: func(err error) bool { return errors.Is(err, provider.ErrAgentEngineUnsupported) },
 		})
 		sup := agenthost.New(agenthost.Config{Root: filepath.Join(t.TempDir(), "agent"), Runtime: agenthost.Runtime{Program: exe}, Logf: t.Logf})

@@ -1,5 +1,5 @@
 // Chat on the agent engine (packages/contract/src/agentChat.ts): streamed reply
-// deltas, and the permission copy both apps show.
+// deltas, the permission copy both apps show, and question cards (phase 4).
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import {
@@ -13,8 +13,21 @@ import {
   PERMISSION_MODES,
   USE_CLASSIC_ACTION,
   USE_CLASSIC_LABEL,
+  QUESTION_CARD_TITLES,
+  QUESTION_CLOSED,
+  QUESTION_LIMITS,
+  QUESTION_PUSH,
+  QUESTION_STATUS_WORD,
+  answerProblem,
+  answerSummary,
   applyDelta,
+  cleanAnswers,
   draftFromActivity,
+  questionCardState,
+  questionSecondsLeft,
+  questionStatusWord,
+  questionTimeLeft,
+  questionWaiting,
 } from "../packages/contract/src/agentChat.ts";
 
 const delta = (run, offset, text) => ({ type: "delta", kind: "chat", id: "chat_1", document: { run, offset, text } });
@@ -118,5 +131,83 @@ describe("permission copy", () => {
     assert.equal(ENGINE_COPY.agent.name, "New");
     assert.equal(USE_CLASSIC_ACTION, "use_classic");
     assert.equal(USE_CLASSIC_LABEL, "Use classic for this chat");
+  });
+});
+
+const card = {
+  requestId: "req-1",
+  run: "run_1",
+  questions: [
+    { qid: "q0", question: "Which day?", choices: ["Mon", "Tue"], recommended: 0, multiSelect: false },
+    { qid: "q1", question: "Which rooms?", choices: ["A", "B", "C"], recommended: null, multiSelect: true },
+    { qid: "q2", question: "Anything else?", choices: null, recommended: null, multiSelect: false },
+  ],
+  askedAt: "2026-11-13T09:00:00Z",
+  expiresAt: "2026-11-13T09:10:00Z",
+};
+
+describe("question cards", () => {
+  test("a running chat with a card needs an answer; any other row does not", () => {
+    assert.equal(questionWaiting({ status: "running", question: card }), true);
+    assert.equal(questionStatusWord({ status: "running", question: card }), "Needs your answer");
+    assert.equal(QUESTION_STATUS_WORD, "Needs your answer");
+    for (const row of [
+      { status: "running", question: {} },
+      { status: "running" },
+      { status: "stopped", question: card },
+      { status: "idle", question: {} },
+      { status: "running", question: { requestId: "req-1", questions: [] } },
+      null,
+    ]) {
+      assert.equal(questionWaiting(row), false, JSON.stringify(row));
+      assert.equal(questionStatusWord(row), null);
+    }
+  });
+
+  test("each outcome maps to its card state and title", () => {
+    const want = { submitted: "answered", cancelled: "skipped", timed_out: "expired", undelivered: "expired", stopped: "stopped" };
+    for (const [outcome, state] of Object.entries(want)) assert.equal(questionCardState(outcome), state);
+    assert.equal(questionCardState(undefined), "waiting");
+    assert.deepEqual(QUESTION_CARD_TITLES, {
+      waiting: "Timely needs an answer",
+      answered: "Answered",
+      skipped: "Skipped",
+      expired: "Not answered in time",
+      stopped: "Stopped before you answered",
+    });
+    assert.equal(QUESTION_PUSH, "Timely has a question.");
+    assert.equal(QUESTION_CLOSED, "This question was already closed");
+  });
+
+  test("time left counts down to the expiry", () => {
+    assert.equal(questionSecondsLeft(card, Date.parse("2026-11-13T09:00:00Z")), 600);
+    assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:00:00Z")), "10 min left");
+    assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:09:15Z")), "45 s left");
+    assert.equal(questionSecondsLeft(card, new Date("2026-11-13T09:20:00Z")), 0);
+    assert.equal(questionTimeLeft(card, Date.parse("2026-11-13T09:20:00Z")), "");
+    assert.equal(questionSecondsLeft({}, Date.now()), null);
+  });
+
+  test("answers are cleaned and checked as the server checks them", () => {
+    const answers = cleanAnswers({ q0: " Tue ", q1: ["B", "A", "B", " "], q2: "   " });
+    assert.deepEqual(answers, { q0: "Tue", q1: ["B", "A"], q2: null });
+    assert.equal(answerProblem(card.questions, answers), null);
+    assert.equal(answerProblem(card.questions, { q0: "Friday instead" }), null, "typed text answers a single-select question");
+    assert.equal(answerProblem(card.questions, { q1: ["A", "the garden"] }), null, "one typed pick in a multi-select");
+    assert.match(answerProblem(card.questions, { q9: "x" }), /no question/);
+    assert.match(answerProblem(card.questions, { q0: ["Mon"] }), /Pick one/);
+    assert.match(answerProblem(card.questions, { q2: ["x"] }), /Pick one/);
+    assert.match(answerProblem(card.questions, { q1: ["A", "x", "y"] }), /choices/);
+    assert.match(answerProblem(card.questions, { q2: "x".repeat(QUESTION_LIMITS.answerChars + 1) }), /2,000/);
+    assert.deepEqual(QUESTION_LIMITS, { questions: 5, choices: 4, answerChars: 2000 });
+  });
+
+  test("an answered card sums up one line per question", () => {
+    const answered = { requestId: "req-1", questions: card.questions, answers: { q0: "Tue", q1: ["A", "C"], q2: null }, outcome: "submitted" };
+    assert.deepEqual(answerSummary(answered), [
+      { question: "Which day?", answer: "Tue" },
+      { question: "Which rooms?", answer: "A, C" },
+      { question: "Anything else?", answer: "—" },
+    ]);
   });
 });

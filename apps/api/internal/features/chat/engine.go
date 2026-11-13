@@ -15,7 +15,8 @@ import (
 // lease (renewLease), answers tool calls (toolCall, prepareAgentProposal)
 // and ends the turn with finishTurn, the same checkpoint classic uses.
 // Timely data still changes only through a proposal and the model-free
-// apply (ADR 0007). Photo phases, apply and Sensitive chats never reach it.
+// apply (ADR 0007). Photo chats, apply and Sensitive chats never reach it
+// (Sensitive ones only as no-persist runs while the test-only switch is on).
 type AgentEngine interface {
 	// Available says why this chat cannot use the agent engine now (nil =
 	// it can): runtime missing, a worktree without DB_SCHEMA, a CLI
@@ -37,6 +38,10 @@ type AgentEngine interface {
 	Steer(ctx context.Context, uid, cid, runID, text string) error
 	// Forget drops the chat's session in the worker after Delete.
 	Forget(uid, cid string)
+	// Answer passes the person's answer to a question card (clarify.answer,
+	// phase 4) once the fenced answer committed (answerQuestion). An error
+	// means the run no longer waits for it.
+	Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error
 }
 
 // draftReader is an engine that can say how much of a live run's reply it
@@ -65,12 +70,14 @@ func (s *Service) engineAvailable(ctx context.Context, uid string, c *Conversati
 }
 
 // runEngine is the engine a freshly claimed run uses: classic for photo
-// phases, apply and Sensitive chats; else the chat's own choice, else the
-// account's (Classic until the person picks New). It reads the account
-// setting inside the claim transaction, in a savepoint so a missing row or
-// table leaves the claim intact.
-func runEngine(tx *gorm.DB, c *Conversation) string {
-	if c.Sensitive || c.Phase != "plan" {
+// chats (photo phases, and plan turns of a chat holding photos), apply and
+// Sensitive chats (Q-4.2: unless sensitiveNoPersist, the test-only
+// no-persist switch); else the chat's own choice, else the account's
+// (Classic until the person picks New). It reads the account setting inside
+// the claim transaction, in a savepoint so a missing row or table leaves the
+// claim intact.
+func runEngine(tx *gorm.DB, c *Conversation, sensitiveNoPersist bool) string {
+	if c.Phase != "plan" || holdsPhotos(c) || (c.Sensitive && !sensitiveNoPersist) {
 		return engineClassic
 	}
 	if c.Engine == engineClassic || c.Engine == engineAgent {
@@ -88,6 +95,20 @@ func runEngine(tx *gorm.DB, c *Conversation) string {
 		return nil
 	})
 	return engine
+}
+
+// holdsPhotos reports a chat with photos: a receipt or image review, or a
+// message that attached images. Photo chats stay on classic (Q-4.2).
+func holdsPhotos(c *Conversation) bool {
+	if c.ImageReview != nil {
+		return true
+	}
+	for _, m := range c.Messages {
+		if len(m.ImageIDs) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // startAgentRun hands a claimed plan turn to the agent engine. An unusable

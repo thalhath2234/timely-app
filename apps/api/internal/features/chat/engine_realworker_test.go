@@ -40,7 +40,7 @@ func TestIntegrationAgentEngineRealWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub := startStubModel(t, rt)
-	model := func(context.Context, string, string, string) (any, error) {
+	model := func(context.Context, string, string, string, RunModelOptions) (any, error) {
 		return map[string]any{"provider": "custom", "model": "stub-model", "base_url": stub, "api_key": "sk-stub", "api_mode": "chat_completions"}, nil
 	}
 	cfg := agenthost.Config{

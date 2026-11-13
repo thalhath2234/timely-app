@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"timely-api/internal/agenthost"
+	"timely-api/internal/features/chat"
 	"timely-api/internal/features/learning"
 	"timely-api/internal/features/provider"
 )
@@ -102,7 +104,7 @@ func TestIntegrationAccountSettingsRenderLearningAndWeb(t *testing.T) {
 	}
 
 	got, spec := render()
-	if ts := strs(got["toolsets"]); !slices.Equal(ts, []string{"timely", "todo", "skills", "memory", "session_search", "web"}) {
+	if ts := strs(got["toolsets"]); !slices.Equal(ts, []string{"timely", "todo", "skills", "memory", "session_search", "web", "clarify", "delegation"}) {
 		t.Errorf("toolsets = %v", ts)
 	}
 	if c := got["curator"].(map[string]any); c["enabled"] != true || c["auto_archive"] != false {
@@ -129,12 +131,12 @@ func TestIntegrationAccountSettingsRenderLearningAndWeb(t *testing.T) {
 	// Search off, then learning off: the toolsets follow, and the curator
 	// rests while learning is off.
 	prefs.SearchHistory = false
-	if got, _ = render(); !slices.Equal(strs(got["toolsets"]), []string{"timely", "todo", "skills", "memory", "web"}) {
+	if got, _ = render(); !slices.Equal(strs(got["toolsets"]), []string{"timely", "todo", "skills", "memory", "web", "clarify", "delegation"}) {
 		t.Errorf("search off: toolsets = %v", got["toolsets"])
 	}
 	prefs.Learning, prefs.SkillsDisabled, prefs.SkillsEnabled = false, nil, nil
 	got, _ = render()
-	if !slices.Equal(strs(got["toolsets"]), []string{"timely", "todo", "skills", "web"}) || got["curator"].(map[string]any)["enabled"] != false {
+	if !slices.Equal(strs(got["toolsets"]), []string{"timely", "todo", "skills", "web", "clarify", "delegation"}) || got["curator"].(map[string]any)["enabled"] != false {
 		t.Errorf("learning off: toolsets %v, curator %v", got["toolsets"], got["curator"])
 	}
 	if e, ok := got["skills_enabled"].([]any); !ok || len(e) != 0 {
@@ -213,5 +215,47 @@ func TestIntegrationAccountDeletionRemovesTheAgentHomeAndLearning(t *testing.T) 
 	// No worker starts for a deleted account.
 	if _, err := sup.Ensure(context.Background(), uid); !errors.Is(err, agenthost.ErrAccountRemoved) {
 		t.Errorf("Ensure after deletion: %v", err)
+	}
+}
+
+// The no-persist switch and the clarify timeout are test switches: read
+// only with DB_SCHEMA set, so a shipped API never turns Sensitive chats onto
+// the agent engine (Q-4.2) or shortens a question card's wait.
+func TestPhase4TestSwitchesNeedASchema(t *testing.T) {
+	env := func(values map[string]string) func(string) string {
+		return func(name string) string { return values[name] }
+	}
+	for name, values := range map[string]map[string]string{
+		"neither":     {},
+		"flag only":   {"TIMELY_AGENT_SENSITIVE_NO_PERSIST": "1", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "5"},
+		"schema only": {"DB_SCHEMA": "wt_phase4"},
+		"bad values":  {"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_SENSITIVE_NO_PERSIST": "maybe", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "0"},
+		"too long":    {"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "86401"},
+	} {
+		if sensitiveNoPersist(env(values)) {
+			t.Errorf("%s: Sensitive chats would run on the agent engine", name)
+		}
+		if d := clarifyTimeout(env(values)); d != 0 {
+			t.Errorf("%s: clarify timeout %s, want the default", name, d)
+		}
+	}
+	on := env(map[string]string{"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_SENSITIVE_NO_PERSIST": "true", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "5"})
+	if !sensitiveNoPersist(on) || clarifyTimeout(on) != 5*time.Second {
+		t.Fatalf("with a schema: no-persist %v, timeout %s", sensitiveNoPersist(on), clarifyTimeout(on))
+	}
+}
+
+// The engine's Model asks the provider service for the run's kind: a
+// Sensitive run needs the gateway even for an API-key provider, so without
+// one it is refused with the gateway's reason (phase 4 decision 11).
+func TestAgentRunModelPassesSensitive(t *testing.T) {
+	model := agentRunModel(provider.New(nil, nil, nil))
+	_, err := model(context.Background(), "user-a", "openrouter", "m", chat.RunModelOptions{Sensitive: true})
+	if !errors.Is(err, provider.ErrAgentEngineUnsupported) || !strings.Contains(err.Error(), "Sensitive") {
+		t.Fatalf("Sensitive run without the gateway: %v", err)
+	}
+	_, err = model(context.Background(), "user-a", provider.ClaudeCLI, "sonnet", chat.RunModelOptions{})
+	if !errors.Is(err, provider.ErrAgentEngineUnsupported) || strings.Contains(err.Error(), "Sensitive") {
+		t.Fatalf("Claude Code without the gateway: %v", err)
 	}
 }

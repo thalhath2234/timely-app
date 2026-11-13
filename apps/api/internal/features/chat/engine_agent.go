@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/agenthost"
+	"timely-api/internal/features/decide"
 	"timely-api/internal/realtime"
 	"timely-api/internal/utils"
 )
@@ -61,9 +62,10 @@ type WorkerEngine struct {
 // WorkerEngineOptions are what the engine needs from outside package chat.
 type WorkerEngineOptions struct {
 	// Model is run.start's model object for the provider and model a run
-	// fixed at claim, with the account's own key (provider.AgentModel). It
-	// goes on the worker's stdin and nowhere else.
-	Model func(ctx context.Context, uid, provider, model string) (any, error)
+	// fixed at claim, with the account's own key (provider.AgentModelFor).
+	// It goes on the worker's stdin and nowhere else. A Sensitive run asks
+	// for the loopback gateway's Sensitive grant (ZDR, phase 4 decision 11).
+	Model func(ctx context.Context, uid, provider, model string, opts RunModelOptions) (any, error)
 	// Unsupported reports a Model error meaning the provider cannot drive
 	// the agent engine (provider.ErrAgentEngineUnsupported: Claude Code or
 	// Codex without the loopback gateway); the run then fails with "Use
@@ -84,6 +86,16 @@ type WorkerEngineOptions struct {
 	// Fetch reads pages for the timely web backend's web_extract; nil is
 	// NetguardFetcher. FixtureFetcher serves test pages.
 	Fetch PageFetcher
+	// ClarifyTimeout is how long a question card waits for the person
+	// (run.start.clarify_timeout_s; 10 minutes, phase 4 decision 3).
+	ClarifyTimeout time.Duration
+}
+
+// RunModelOptions say what kind of run a model is for.
+type RunModelOptions struct {
+	// Sensitive: a no-persist run of a Sensitive chat, whose model calls go
+	// through the gateway's Sensitive grant (provider.AgentRunOptions).
+	Sensitive bool
 }
 
 // LearningPrefs are the account's learning switches a run reads.
@@ -114,6 +126,9 @@ func NewWorkerEngine(s *Service, opts WorkerEngineOptions) *WorkerEngine {
 	if opts.Fetch == nil {
 		opts.Fetch = NetguardFetcher()
 	}
+	if opts.ClarifyTimeout <= 0 {
+		opts.ClarifyTimeout = defaultClarifyTimeout
+	}
 	return &WorkerEngine{s: s, opts: opts, runs: map[string]*agentRun{}, chats: map[string]*agentRun{},
 		seeded: map[string]bool{}, unsettled: map[string]bool{}, forgetting: map[string]bool{}, started: map[*agenthost.Worker]int64{}}
 }
@@ -135,6 +150,8 @@ const (
 	// blocks it after end_turn, so this is a second line.
 	proposalTwice = "A proposal is already recorded for this turn. Reply to the person in one sentence."
 	engineBusy    = "The new engine is still busy with another reply in this chat. Try again in a moment."
+	// childProposal answers a sub-task's propose_changes (phase 4).
+	childProposal = "Only the main assistant proposes changes. Return what you found instead."
 	emptyAnswer   = "AI returned an empty answer; try again"
 )
 
@@ -165,6 +182,8 @@ type agentRun struct {
 	queue  runQueue
 	// pending is the turn's recorded proposal, applied or held at run.done.
 	pending *pendingProposal
+	// noPersist is a Sensitive chat's no-persist run (phase 4 decision 9).
+	noPersist bool
 
 	mu       sync.Mutex
 	lease    string
@@ -178,6 +197,8 @@ type agentRun struct {
 	dirty     bool
 	lastFlush time.Time
 	taint     []TaintSource
+	// asking is a question card (clarify.request) the next flush writes.
+	asking *ChatQuestion
 }
 
 // runItem is one thing a follower handles: a worker message, or the end of
@@ -226,14 +247,14 @@ func (e *WorkerEngine) Available(ctx context.Context, uid string, c *Conversatio
 	if c == nil {
 		return nil
 	}
-	if c.Sensitive {
+	if c.Sensitive && !e.s.sensitiveNoPersist {
 		return errors.New("Sensitive chats use the classic engine")
 	}
-	if c.Phase != "plan" {
+	if c.Phase != "plan" || holdsPhotos(c) {
 		return errors.New("Photos and receipts use the classic engine")
 	}
 	if c.Provider != "" && e.opts.Model != nil {
-		if _, err := e.opts.Model(ctx, uid, c.Provider, c.Model); err != nil && e.opts.Unsupported(err) {
+		if _, err := e.opts.Model(ctx, uid, c.Provider, c.Model, RunModelOptions{Sensitive: c.Sensitive}); err != nil && e.opts.Unsupported(err) {
 			return err
 		}
 	}
@@ -251,7 +272,14 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	if e.sup == nil || e.opts.Model == nil {
 		return unavailable(c, errNoEngine.Error())
 	}
-	model, err := e.opts.Model(ctx, c.UserID, c.Provider, c.Model)
+	// A Sensitive chat reaches Start only as a no-persist run (runEngine,
+	// the test-only switch): nothing of it is stored in the worker's home,
+	// and its tools keep its searches and titles away from Jev, as classic.
+	noPersist := c.Sensitive
+	if noPersist {
+		ctx = decide.WithSensitive(ctx)
+	}
+	model, err := e.opts.Model(ctx, c.UserID, c.Provider, c.Model, RunModelOptions{Sensitive: c.Sensitive})
 	if err != nil {
 		if e.opts.Unsupported(err) {
 			return unavailable(c, err.Error())
@@ -290,11 +318,14 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	e.sendForgets(w, c.UserID, c.ID)
 
 	runCtx, cancel := context.WithCancel(context.Background())
+	if noPersist {
+		runCtx = decide.WithSensitive(runCtx)
+	}
 	toolCtx, tools := e.s.newToolRun(runCtx, c)
 	if language != "" {
 		c.Language = language
 	}
-	setup := e.runSetup(ctx, c, tools)
+	setup := e.runSetup(ctx, c, tools, noPersist)
 	if tools.web.on {
 		// The timely web backend searches with the chat's own provider
 		// (Q-3.8), as classic's web_search does.
@@ -303,7 +334,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	block := timelyBlock(c, tools, e.opts.HostAllowed(c.UserID))
 	input := e.s.turnInput(ctx, c)
 	r := &agentRun{id: id("run_"), uid: c.UserID, cid: c.ID, instance: e.instance(w), worker: w,
-		ctx: toolCtx, cancel: cancel, tools: tools, live: nil}
+		ctx: toolCtx, cancel: cancel, tools: tools, live: nil, noPersist: noPersist}
 	r.live = newLiveRun(r.id)
 	r.queue.signal = make(chan struct{}, 1)
 	// The row names the run before the worker hears of it, so Stop and
@@ -347,7 +378,10 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"model":           model,
 		"toolsets":        setup.toolsets,
 		"flags": map[string]any{"sensitive": c.Sensitive, "answer_only": tools.answerOnly, "web": tools.web.on,
-			"rich_ui": c.RichUI, "from_bot": false, "learning_writes": setup.learningWrites, "search_history": setup.searchHistory},
+			"rich_ui": c.RichUI, "from_bot": false, "learning_writes": setup.learningWrites, "search_history": setup.searchHistory,
+			"no_persist": noPersist},
+		// How long a question card waits (phase 4 decision 3).
+		"clarify_timeout_s": int(e.opts.ClarifyTimeout / time.Second),
 		// No Timely cap (Q-2.3): Hermes' own turn limit applies.
 		"budgets":               map[string]any{},
 		"permission":            c.Permission,
@@ -365,7 +399,14 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	// turn was not saved, or a restore (whose state.db holds the backup's
 	// transcript, not the turns since), the seed replaces what it has.
 	seed := historySeed(c.Messages)
-	if reseed := unsettled || restored || classicSinceAgent(c.Messages); reseed {
+	if noPersist {
+		// The worker keeps nothing of a no-persist run: the whole
+		// conversation goes with every turn (phase 4 decision 9).
+		if seed == nil {
+			seed = []map[string]string{}
+		}
+		fields["history"] = seed
+	} else if reseed := unsettled || restored || classicSinceAgent(c.Messages); reseed {
 		if seed == nil {
 			seed = []map[string]string{}
 		}
@@ -398,6 +439,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 // clearRun takes a run that never started off the row.
 func (e *WorkerEngine) clearRun(ctx context.Context, c *Conversation) {
 	_ = e.s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
+		closeQuestion(row, nil, outcomeStopped)
 		row.AgentRunID, row.AgentInstance = "", ""
 		row.Activity = ChatActivity{}
 		row.RunReads = RunReads{}
@@ -584,6 +626,77 @@ func (e *WorkerEngine) Steer(ctx context.Context, uid, cid, runID, text string) 
 	}
 	return nil
 }
+
+// Answer implements AgentEngine: clarify.answer to the run that asked. The
+// worker acks ok: false when that card no longer waits (timed out, stopped).
+func (e *WorkerEngine) Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	e.mu.Lock()
+	r := e.runs[runID]
+	e.mu.Unlock()
+	if r == nil || r.uid != uid || r.cid != cid {
+		return errNotFollowing
+	}
+	if answers == nil {
+		answers = map[string]any{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	reply, err := r.worker.Request(ctx, agenthost.TypeClarifyAnswer, map[string]any{"run": runID, "request_id": requestID, "answers": answers, "outcome": outcome})
+	if err != nil {
+		return err
+	}
+	var ack struct {
+		OK bool `json:"ok"`
+	}
+	if err := reply.Decode(&ack); err != nil || !ack.OK {
+		return errNotFollowing
+	}
+	return nil
+}
+
+// ask keeps a clarify.request's card for the next flush, which runs at once:
+// the card is written in the follower's fenced save under the run's lease,
+// with the activity and taint the run has so far, and one push.
+func (e *WorkerEngine) ask(r *agentRun, ev workerEvent) {
+	q, ok := askedQuestion(r.id, ev, time.Now(), e.opts.ClarifyTimeout)
+	if !ok {
+		e.opts.Logf("agent engine: run %s sent a clarify.request without a question", r.id)
+		return
+	}
+	r.asking = &q
+	e.flush(r)
+}
+
+// closeAsked handles clarify.closed: the wait ended in the worker (timed
+// out, cancelled, or the answer Go already recorded). A card still on the
+// row moves into the thread with that outcome; a card the answer or Stop
+// already cleared leaves nothing to do.
+func (e *WorkerEngine) closeAsked(r *agentRun, ev workerEvent) {
+	requestID := ev.Payload.RequestID
+	if r.asking != nil && r.asking.RequestID == requestID {
+		// Closed before its card was written: the person never saw it.
+		r.asking = nil
+	}
+	outcome := ev.Payload.Outcome
+	switch outcome {
+	case outcomeSubmitted, outcomeCancelled, outcomeTimedOut, outcomeUndelivered:
+	default:
+		outcome = outcomeCancelled
+	}
+	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
+		if requestID == "" || row.Question.RequestID != requestID {
+			return errUnchanged
+		}
+		closeQuestion(row, nil, outcome)
+		return nil
+	})
+	if err != nil && !fenced(err) && !errors.Is(err, errUnchanged) {
+		e.opts.Logf("agent engine: closing run %s's question: %v", r.id, err)
+	}
+}
+
+// errUnchanged rolls back a follower save that has nothing to write.
+var errUnchanged = errors.New("nothing to save")
 
 // Forget implements AgentEngine (after Delete): session.delete in the
 // account's worker, once the chat's run is over. The request waits in
@@ -862,15 +975,25 @@ func (e *WorkerEngine) flush(r *agentRun) {
 	r.lastFlush = time.Now()
 	taint := r.taint
 	r.taint = nil
+	asking := r.asking
 	activity := r.live.activity()
 	e.activityWrites.Add(1)
 	err := e.saveTaint(r, taint, func(tx *gorm.DB, row *Conversation) error {
 		row.Activity = activity
 		r.tools.save(row, r.id)
 		mergeTaint(row, taint)
+		if asking != nil && row.Question.RequestID != asking.RequestID {
+			// The question card (Ask): one push per question.
+			row.Question = *asking
+			return notify(tx, row, tr(row.Language, txtPushQuestion))
+		}
 		return nil
 	})
-	if err != nil && !fenced(err) {
+	if err == nil || fenced(err) {
+		if r.asking == asking {
+			r.asking = nil
+		}
+	} else {
 		e.opts.Logf("agent engine: activity checkpoint: %v", err)
 		r.taint = append(taint, r.taint...)
 		r.dirty = true
@@ -922,6 +1045,12 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		}
 		if line, ok := outputRisk(r.id, ev); ok {
 			e.opts.Logf("%s", line)
+		}
+		switch ev.Kind {
+		case "clarify.request":
+			e.ask(r, ev)
+		case "clarify.closed":
+			e.closeAsked(r, ev)
 		}
 		changed, delta := r.live.event(ev, time.Now().UTC())
 		if delta != nil {
@@ -975,6 +1104,9 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 		Batch    int             `json:"batch_size"`
 		Siblings []string        `json:"sibling_tools"`
 		Tainted  []TaintSource   `json:"tainted_sources"`
+		// Subagent is the sub-task's session id when a child of the run
+		// made the call (delegate_task, phase 4).
+		Subagent string `json:"subagent"`
 	}
 	if err := m.Decode(&call); err != nil {
 		_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": map[string]string{"error": "Unreadable tool call"}, "outside": false, "end_turn": false})
@@ -989,6 +1121,12 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 		args = json.RawMessage("{}")
 	}
 	c := r.conv
+	if call.Name == "propose_changes" && call.Subagent != "" {
+		// Children read, never propose (decision 6); the worker's gate
+		// blocks this first.
+		_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": map[string]string{"error": childProposal}, "outside": false, "end_turn": false})
+		return
+	}
 	if call.Name == "propose_changes" && !r.tools.answerOnly {
 		if r.pending != nil {
 			_ = r.worker.Reply(m, agenthost.TypeToolResult, map[string]any{"result": map[string]string{"error": proposalTwice}, "outside": false, "end_turn": true})

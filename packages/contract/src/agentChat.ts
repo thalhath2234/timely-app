@@ -17,10 +17,11 @@ export type AccountEngine = "classic" | "agent";
 /** Where Full Access may be turned on. */
 export type FullAccessAllowedOn = "desktop" | "devices";
 
-/** One line of a live agent run's activity: a tool it runs or a status it reports. */
+/** One line of a live agent run's activity: a tool it runs, a status it reports,
+ * or a sub-task it handed work to (phase 4, label "Sub-task: <goal>"). */
 export type ActivityLine = {
   id: string;
-  kind: "tool" | "status";
+  kind: "tool" | "status" | "subagent";
   label: string;
   state: "running" | "done" | "failed";
   /** RFC 3339 time. */
@@ -183,4 +184,169 @@ export function applyDelta(draft: ReplyDraft | null, event: ChatDelta): { draft:
   const fresh = chunk.slice(current.chars - offset);
   if (fresh.length === 0) return { draft: current, refetch: false };
   return { draft: { run, text: current.text + fresh.join(""), chars: current.chars + fresh.length }, refetch: false };
+}
+
+// ---------------------------------------------------------------------------
+// Question cards (phase 4, Q-4.3): the agent asks the person and its run waits
+// for the answer. Wire shapes mirror apps/api/internal/features/chat/question.go.
+
+/** One question of a card. choices null is an open question; recommended is the
+ * index of the choice the agent recommends. Every question also takes a typed
+ * answer of the person's own ("Other"). */
+export type QuestionItem = {
+  qid: string;
+  question: string;
+  choices: string[] | null;
+  recommended: number | null;
+  multiSelect: boolean;
+};
+
+/** Conversation.question: the card the live run waits on, `{}` when none waits.
+ * The row stays `running` while it waits. Times are RFC 3339. */
+export type ChatQuestion = {
+  requestId?: string;
+  run?: string;
+  questions?: QuestionItem[];
+  askedAt?: string;
+  expiresAt?: string;
+};
+
+/** An answer: a choice or typed text (a string), the picks of a multi-select
+ * question (a list, at most one typed item), or null to skip the question. */
+export type QuestionAnswer = string | string[] | null;
+
+/** How a card's wait ended. submitted, cancelled (Skip), timed_out and
+ * undelivered come from the worker; stopped is Stop, or a run that failed or was
+ * lost while it waited. */
+export type QuestionOutcome = "submitted" | "cancelled" | "timed_out" | "undelivered" | "stopped";
+
+/** A `question` message's card (Message.question) once its wait ended. */
+export type AnsweredQuestion = {
+  requestId: string;
+  questions: QuestionItem[];
+  answers: Record<string, QuestionAnswer>;
+  outcome: QuestionOutcome;
+};
+
+/** POST /chats/:id/answer. 200 with the row; 409 when the card no longer waits
+ * (QUESTION_CLOSED); 400 for an unknown qid or an answer the question cannot
+ * take; 404 for another account's chat. A message sent (POST /messages) or
+ * steered while a card waits answers every question with its text instead. */
+export type AnswerQuestionInput = {
+  requestId: string;
+  answers?: Record<string, QuestionAnswer>;
+  /** Skip: end the wait without answers. */
+  skip?: boolean;
+};
+
+export const QUESTION_LIMITS = { questions: 5, choices: 4, answerChars: 2000 } as const;
+
+/** The status word of a chat whose run waits on a card (chat header, list, sidebar). */
+export const QUESTION_STATUS_WORD = "Needs your answer";
+/** The push body Go sends once per card. */
+export const QUESTION_PUSH = "Timely has a question.";
+/** The 409 message of a stale answer. */
+export const QUESTION_CLOSED = "This question was already closed";
+
+export type QuestionCardState = "waiting" | "answered" | "skipped" | "expired" | "stopped";
+
+/** Card titles, the same on web, desktop and phone. */
+export const QUESTION_CARD_TITLES: Record<QuestionCardState, string> = {
+  waiting: "Timely needs an answer",
+  answered: "Answered",
+  skipped: "Skipped",
+  expired: "Not answered in time",
+  stopped: "Stopped before you answered",
+};
+
+/** Whether the chat's live run waits on a card the person can answer now. */
+export function questionWaiting(row: { status?: string; question?: ChatQuestion | null } | null | undefined): boolean {
+  return row?.status === "running" && !!row.question?.requestId && (row.question.questions?.length ?? 0) > 0;
+}
+
+/** The status word for a chat waiting on a card, or null (the apps' own word applies). */
+export function questionStatusWord(row: { status?: string; question?: ChatQuestion | null } | null | undefined): string | null {
+  return questionWaiting(row) ? QUESTION_STATUS_WORD : null;
+}
+
+/** The state a `question` message's card shows. */
+export function questionCardState(outcome: QuestionOutcome | string | null | undefined): QuestionCardState {
+  switch (outcome) {
+    case "submitted":
+      return "answered";
+    case "cancelled":
+      return "skipped";
+    case "timed_out":
+    case "undelivered":
+      return "expired";
+    case "stopped":
+      return "stopped";
+    default:
+      return "waiting";
+  }
+}
+
+/** Whole seconds left before the card times out (0 once it passed), or null
+ * without an expiry. */
+export function questionSecondsLeft(question: ChatQuestion | null | undefined, now: Date | number = Date.now()): number | null {
+  const expires = question?.expiresAt ? Date.parse(question.expiresAt) : NaN;
+  if (!Number.isFinite(expires)) return null;
+  const at = typeof now === "number" ? now : now.getTime();
+  return Math.max(0, Math.ceil((expires - at) / 1000));
+}
+
+/** "9 min left", "45 s left", or "" once it passed (the card then waits for the worker to close it). */
+export function questionTimeLeft(question: ChatQuestion | null | undefined, now: Date | number = Date.now()): string {
+  const left = questionSecondsLeft(question, now);
+  if (left === null || left <= 0) return "";
+  return left >= 60 ? `${Math.ceil(left / 60)} min left` : `${left} s left`;
+}
+
+/** The answers to send, cleaned the way the server takes them: text trimmed,
+ * empty answers and lists skipped (null), repeated picks dropped. */
+export function cleanAnswers(answers: Record<string, QuestionAnswer | undefined>): Record<string, QuestionAnswer> {
+  const out: Record<string, QuestionAnswer> = {};
+  for (const [qid, value] of Object.entries(answers)) {
+    if (Array.isArray(value)) {
+      const picked = [...new Set(value.map((v) => v.trim()).filter(Boolean))];
+      out[qid] = picked.length ? picked : null;
+    } else if (typeof value === "string") {
+      const text = value.trim();
+      out[qid] = text ? text : null;
+    } else {
+      out[qid] = null;
+    }
+  }
+  return out;
+}
+
+/** Why the server would refuse these answers (400), or null. Mirrors Go's
+ * validAnswers: a known qid; a list only for a multi-select question with
+ * choices, every item one of them except one typed item; text at most 2,000
+ * characters. */
+export function answerProblem(questions: QuestionItem[], answers: Record<string, QuestionAnswer>): string | null {
+  for (const [qid, value] of Object.entries(answers)) {
+    const item = questions.find((q) => q.qid === qid);
+    if (!item) return `This card has no question "${qid}"`;
+    if (value === null) continue;
+    if (typeof value === "string") {
+      if (Array.from(value.trim()).length > QUESTION_LIMITS.answerChars) return "An answer can be at most 2,000 characters";
+      continue;
+    }
+    if (!item.multiSelect || !item.choices?.length) return "Pick one answer to this question";
+    const typed = value.filter((v) => !item.choices!.includes(v.trim()));
+    if (typed.length > 1 || typed.some((v) => Array.from(v.trim()).length > QUESTION_LIMITS.answerChars)) {
+      return "Pick from this question's choices";
+    }
+  }
+  return null;
+}
+
+/** One line per question of an answered card, for its collapsed summary. */
+export function answerSummary(card: AnsweredQuestion): { question: string; answer: string }[] {
+  return card.questions.map((q) => {
+    const value = card.answers?.[q.qid];
+    const answer = Array.isArray(value) ? value.join(", ") : typeof value === "string" ? value : "—";
+    return { question: q.question, answer };
+  });
 }

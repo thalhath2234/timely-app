@@ -1,22 +1,22 @@
 ---
 name: verify-agent-runs
-description: Model-checks (TLA+) that an approved Agent run writes each plan step once and nothing after Stop, and that a proposal recorded in Supervised never applies without Approve, across chat pollers, both engines (classic lane, agent engine follower), lease expiry, crashes, Retry, permission switches and Delete. Use when changing how chat runs are claimed, leased, handed to the agent engine, applied, checkpointed, stopped, retried or discarded in apps/api/internal/features/chat (runner.go work/runClassic/keepLease/apply, service.go checkpoint/change/save/stop/retry/approve/send/reject/remove/configure/steer, receipts.go discardReview, engine.go, engine_agent.go Start/Lost/renew/save/done, toolcall.go finishTurn/toolCall/renewLease, permission_mode.go) or the chat tool catalog in apps/api/cmd/agent_deps.go.
+description: Model-checks (TLA+) that an approved Agent run writes each plan step once and nothing after Stop, that a proposal recorded in Supervised never applies without Approve, and that no answer to a question card reaches a run after Stop, Delete or Lost, across chat pollers, both engines (classic lane, agent engine follower), lease expiry, crashes, Retry, permission switches and Delete. Use when changing how chat runs are claimed, leased, handed to the agent engine, applied, checkpointed, stopped, retried or discarded in apps/api/internal/features/chat (runner.go work/runClassic/keepLease/apply, service.go checkpoint/change/save/stop/retry/approve/send/reject/remove/configure/steer, receipts.go discardReview, engine.go, engine_agent.go Start/Lost/renew/save/flush/closeAsked/Answer/done, toolcall.go finishTurn/toolCall/renewLease, permission_mode.go, question.go questionOpen/closeQuestion/answerQuestion) or the chat tool catalog in apps/api/cmd/agent_deps.go.
 ---
 
 # Verify Agent runs
 
 ## The promise
 
-**Property:** an approved Agent run changes the person's data at most once per plan step, the stored plan marks exactly the steps whose change committed, no step's change commits after Stop (or a discard) until the person approves or asks again, "Done" is published once and only when every step is done, and a proposal recorded while the chat is Supervised never changes data before the person approves it (plan 5.5b).
+**Property:** an approved Agent run changes the person's data at most once per plan step, the stored plan marks exactly the steps whose change committed, no step's change commits after Stop (or a discard) until the person approves or asks again, "Done" is published once and only when every step is done, a proposal recorded while the chat is Supervised never changes data before the person approves it (plan 5.5b), and an answer to a question card never reaches a run that Stop, Delete, Lost or a failure ended (phase 4, Q-4.3).
 
-**Harm if broken:** duplicated Work, Events, sheet rows or edits; changes that land after the person pressed Stop; a run reported done or failed that is not; a Supervised chat that changes data on its own.
+**Harm if broken:** duplicated Work, Events, sheet rows or edits; changes that land after the person pressed Stop; a run reported done or failed that is not; a Supervised chat that changes data on its own; an answer the person gave to a card that a stopped, deleted or lost run asked, taken by that run anyway.
 
 Every API process runs three `Service.work` lanes, and the main checkout and every worktree poll the same `conversations` table (unless `DB_SCHEMA` separates them), so one conversation is raced by many pollers. A plan turn runs on one of two engines: classic runs it in the lane under `keepLease`; the agent engine (ADR 0026) takes it from the lane in `Start`, and a follower goroutine in the same API process renews the lease and ends the turn, while the lane goes back to claiming. Integration tests (`make test-chat-integration`) run one worker in sequence; this check covers the interleavings.
 
 ## Run it
 
 ```bash
-make verify-agent-runs                 # ~50 s: read guards from code, check drift, run TLC on both checks
+make verify-agent-runs                 # ~3.5 min: read guards from code, check drift, run TLC on both checks
 make verify-agent-runs ARGS=--mutants  # ~80 s in all: also prove each guard matters
 ```
 
@@ -26,7 +26,7 @@ Exit codes of `run.sh`: `0` pass and in sync · `1` property violated · `2` the
 
 Two checks run on the one model:
 - **apply** (`model/AgentRunApply.cfg`): a proposal waits for approval; three lanes race to apply its two steps. The classic apply path, as before phase 2.
-- **turn** (`model/AgentRunTurn.cfg`): a new message; two lanes claim it and run the turn on either engine (Start, the follower, Lost), the turn records a one-step proposal that waits or applies at once as the chat's mode decides, and the person may switch the mode, Stop, Retry, steer or delete. Two lanes keep it near 30 s (three take about 3 minutes, 6.6 million states, and found nothing more).
+- **turn** (`model/AgentRunTurn.cfg`): a new message; two lanes claim it and run the turn on either engine (Start, the follower, Lost), the turn records a one-step proposal that waits or applies at once as the chat's mode decides, the agent run may ask one question card (Ask, CloseQuestion) the person answers (Answer), and the person may switch the mode, Stop, Retry, steer or delete. Two lanes keep it near 3 minutes since the question card (phase 4; before it, 30 s; three lanes took about 3 minutes and 6.6 million states without the card, and found nothing more).
 
 ## How the check is tied to the code
 
@@ -46,6 +46,7 @@ Two checks run on the one model:
 | `CheckpointFenced` | `service.go` `checkpoint`: lease and status check | OneDoneNotice |
 | `CheckpointReadsLatest` | `checkpoint`: locked `find`, `fn(tx, &latest)`, `Save(&latest)` | DoneMatchesWrites |
 | `RetryKeepsDone` | `service.go` `retry`: only `Status != "done"` (and not discarded) steps go back to pending | DoneMatchesWrites |
+| `AnswerFenced` | `question.go` `questionOpen`: status `running`, `agent_run_id` set and equal to `question.run`, same `requestId`; `answerQuestion`: `if !questionOpen(&row, requestID) { return errCardClosed }` | NoAnswerAfterEnd (turn check) |
 | `HoldsSupervised` | `permission_mode.go` `holdReason`: `mode == agent.Supervised` returns `heldSupervised`; `proposalStatus` returns `"approval"` for any hold reason; `toolcall.go` `finishTurn`: `row.Status = proposalStatus(row, ...)` on the stored row | SupervisedHolds (turn check) |
 
 ## Reading a result
@@ -64,7 +65,10 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 | --- | --- |
 | `Approve`, `Stop`, `Retry`, `Send`, `Reject`, `Delete` | `service.go` `approve`, `stop`, `retry`, `send`, `reject`, `remove` (each one `change()`/`save()` transaction holding the row lock; Stop and Retry also clear `agent_run_id`) |
 | `SetPermission` | `service.go` `configure` with `{permission}`: any time, mode only |
-| `Steer` | `service.go` `steer`: adds a message to a live agent run; changes nothing modelled (a stutter) |
+| `Steer` | `service.go` `steer`: adds a message to a live agent run; changes nothing modelled (a stutter). A steer or a send while a card waits is `Answer` |
+| `Ask` | `engine_agent.go` `ask` -> `flush`: the worker's `clarify.request`; the card (`question`) goes on the row in the follower's fenced save, with one push |
+| `CloseQuestion` | `engine_agent.go` `closeAsked`: the worker's `clarify.closed` (timed out, cancelled); a card still on the row closes in the follower's fenced save |
+| `Answer` | `question.go` `answerQuestion` (`POST /chats/:id/answer`, and `send`/`steer` while a card waits): the fenced commit that closes the card, then `clarify.answer` |
 | `DiscardReview` | `receipts.go` `discardReview` (no busy check, so it can land mid-apply) |
 | `Claim` (`ClaimRead`+`ClaimWrite` when unlocked) | the claim transaction in `runner.go` `work`, which also picks the engine (`runEngine`) for a fresh plan turn |
 | `Expire` / `Renew` | `lease_until` passing / `keepLease` renewing (classic lanes) |
@@ -79,7 +83,7 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 | `FinishApply` / `FailRun` | the final checkpoint in `apply` / the failure checkpoint in `work` |
 | `Crash` | the API process of a lane dies, with any follower it ran; their lease is left to expire |
 
-`writes[i]` counts changes to the person's data for plan step `i`; `row.lease` is the `lease` column (a number stands for a random `id("lease_")`); `row.run` is `agent_run_id` (a number: the lease Start held, `0` = none); `row.mode` is `permission`; `mem[w]` is lane `w`'s in-memory `c`; `fol` is the set of live followers (`run`, `lease`, the lane whose process runs it); `unapproved` is set when a proposal is recorded while the stored row says Supervised and cleared by Approve. Report a trace as steps, e.g. "worker 1 claims and writes step 1; its lease expires; worker 2 claims and writes step 1 again".
+`writes[i]` counts changes to the person's data for plan step `i`; `row.lease` is the `lease` column (a number stands for a random `id("lease_")`); `row.run` is `agent_run_id` (a number: the lease Start held, `0` = none); `row.mode` is `permission`; `mem[w]` is lane `w`'s in-memory `c`; `fol` is the set of live followers (`run`, `lease`, the lane whose process runs it); `unapproved` is set when a proposal is recorded while the stored row says Supervised and cleared by Approve; `row.question` is the run whose card waits (`0` = `{}`), `seen` the run whose card the person's screen shows, `ended` the runs the row recorded as ended by Stop, Delete, Lost or a failure, and `answeredEnded` is set when an answer reaches one of them. Report a trace as steps, e.g. "worker 1 claims and writes step 1; its lease expires; worker 2 claims and writes step 1 again".
 
 ## When the covered code changed on purpose
 
@@ -98,7 +102,10 @@ Sync commit: `cae7645fe942380190722e92cbb8223e6bae3ed7` (the model was last conf
 - `apps/api/internal/features/chat/engine_agent.go`: `(*WorkerEngine).Start`, `clearRun`, `Lost`, `Stop`, `loop`, `save`, `renew`, `done`, `stopped`, `fail`, `failWith`
 - `apps/api/internal/features/chat/toolcall.go`: `(*Service).toolCall` (reads only), `finishTurn`, `endRun`, `renewLease`
 - `apps/api/internal/features/chat/permission_mode.go`: `proposalStatus`, `holdReason`
+- `apps/api/internal/features/chat/question.go`: `questionOpen`, `closeQuestion`, `(*Service).answerQuestion`; `engine_agent.go` also `flush`, `closeAsked`, `Answer`; `service.go` also `sendMessage`
 - `apps/api/cmd/agent_deps.go`: `chatCatalog`; `apps/api/cmd/main.go`: the `chat.New(...)` wiring (anchor only)
+
+Model changed 2026-11-13 (phase 4, Q-4.3): a question card. The row gains `question` (the run whose card waits), the person's screen `seen`; actions Ask and CloseQuestion (the follower's fenced saves) and Answer (the person's fenced commit); Stop, Retry, Lost's `clearRun`, a turn's end and a failed or stopped run close the card; the property NoAnswerAfterEnd and the guard `AnswerFenced` (its mutant: Ask, Stop, then an answer to the stopped run). `send` moved its transaction into `sendMessage` (the anchors followed), and `runEngine` keeps photo chats classic and lets Sensitive chats follow the chat's engine only with the test-only no-persist switch (`Start` then sends a no-persist run: no claim, lease or checkpoint changes). Bounds: the turn check allows one card (`MaxAsks = 1`), the apply check none.
 
 Resynced 2026-11-12 (owner decision Q-3.9): `toolCall` (the timely backend's `web_search` and `web_extract` no longer take the conversation: Timely's web rule after taint is gone, and `preview_bot` reads through the plain pre-approval guard) and `Start` (run.start no longer carries `person_hosts`, `person_links`, `search_results` or `private_context`) changed; neither changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
@@ -114,13 +121,13 @@ Resynced 2026-11-12 (phase 3 review fixes): `toolCall` (web_search gets the conv
 
 Resynced 2026-11-11 (phase 3): `configure` (the `noLearning` field), `toolCall` (the web branches), `finishTurn` (messages carry the agent run id) and `Start` (the run's learning and web setup) changed; none of them changes how a run is claimed, leased, checkpointed, held or applied, so the model did not change, and `--mutants` caught all eight guards.
 
-Last proven able to fail (2026-11-09, phase 2): with `HoldsSupervised` removed, the turn check gave a SupervisedHolds trace in 5 states (a lane claims the new message, its turn records the proposal as queued in a Supervised chat, a lane claims it and the step transaction writes); with `CheckpointFenced` removed, the turn check alone gave DoneMeansComplete in 6 states (a lane claims, its lease expires, a second lane claims, both plan turns commit). Every guard's mutant is caught (`--mutants`): seven in the apply check, `HoldsSupervised` in the turn check.
+Last proven able to fail (2026-11-13, phase 4): `--mutants` caught all nine guards, `AnswerFenced` in the turn check (NoAnswerAfterEnd: a run asks, the person stops it, and the card still on screen is answered to the stopped run). Earlier (2026-11-09, phase 2): with `HoldsSupervised` removed, the turn check gave a SupervisedHolds trace in 5 states (a lane claims the new message, its turn records the proposal as queued in a Supervised chat, a lane claims it and the step transaction writes); with `CheckpointFenced` removed, the turn check alone gave DoneMeansComplete in 6 states (a lane claims, its lease expires, a second lane claims, both plan turns commit). Every guard's mutant is caught (`--mutants`): seven in the apply check, `HoldsSupervised` in the turn check.
 
 ## Bounds and scope
 
 Bounds:
 - apply (`AgentRunApply.cfg`): 3 lanes, 2 plan steps, 4 claims, 1 Stop, 2 Retries, 1 crash, 1 new message, Delete allowed, no agent engine, no mode switch; about 1.01 million distinct states, 14 s.
-- turn (`AgentRunTurn.cfg`): 2 lanes and the followers they start, 1 plan step, 4 claims, 1 Stop, 1 Retry, 1 crash, 1 new message, 1 permission switch, starting Supervised, Delete allowed, both engines; about 1.75 million distinct states, 30 s.
+- turn (`AgentRunTurn.cfg`): 2 lanes and the followers they start, 1 plan step, 4 claims, 1 Stop, 1 Retry, 1 crash, 1 new message, 1 permission switch, 1 question card, starting Supervised, Delete allowed, both engines; about 10.4 million distinct states, 190 s (1.75 million and 30 s before the question card).
 
 A pass covers every interleaving within these bounds, not every size.
 
