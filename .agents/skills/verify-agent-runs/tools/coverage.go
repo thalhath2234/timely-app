@@ -158,8 +158,8 @@ var anchors = []anchor{
 		`return row.Status == "running" && row.AgentRunID != "" && row.Question.Run == row.AgentRunID && row.Question.RequestID != "" && row.Question.RequestID == requestID`,
 		"an answer is for the card the live run the row names waits on"},
 	{"AnswerFenced", asking, "(*Service).answerQuestion",
-		`if !questionOpen(&row, requestID) { return errCardClosed }`,
-		"a stale answer is refused before anything is written or sent"},
+		`if !questionOpen(&row, requestID) { if questionOpen(&row, row.Question.RequestID) { return errNewQuestion } return errCardClosed }`,
+		"a stale answer is refused before anything is written or sent (errNewQuestion when another card waits, errCardClosed otherwise: both 409)"},
 
 	// Assumptions: the model is built on these; no switch.
 	{"", runner, "(*Service).work",
@@ -343,8 +343,8 @@ var anchors = []anchor{
 		`if asking != nil && row.Question.RequestID != asking.RequestID { row.Question = *asking`,
 		"Ask puts the card on the row once"},
 	{"", worker, "(*WorkerEngine).closeCard",
-		`err := e.save(r, func(tx *gorm.DB, row *Conversation) error { if c.requestID == "" || row.Question.RequestID != c.requestID { return errUnchanged } var answers map[string]any if c.outcome == outcomeSubmitted { answers = c.answers } closeQuestion(row, answers, c.outcome)`,
-		"CloseQuestion closes only the card still on the row, in the follower's fenced save"},
+		`if c.requestID == "" || row.Question.RequestID != c.requestID { return errUnchanged } var answers map[string]any if c.outcome == outcomeSubmitted { answers = c.answers } closeQuestion(row, answers, c.outcome)`,
+		"CloseQuestion closes only the card still on the row, in the follower's fenced save (a submitted close for a card that is gone only rewrites the thread's answer message, keepWorkersAnswer: no card, run or step changes)"},
 	{"", service, "(*Service).remove",
 		`if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {`,
 		"delete locks the row"},
