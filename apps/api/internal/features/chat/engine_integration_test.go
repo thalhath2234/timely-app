@@ -899,6 +899,41 @@ func TestIntegrationAgentEngineLeftoverSteerSupersedesAHeldProposal(t *testing.T
 	}
 }
 
+// A turn the model could not answer ends with Hermes' own advice as its final
+// response ("start a clean session with /new ... run `hermes doctor`"). That
+// is never the chat's reply: the run fails with the error and Try again, or
+// with Settings when the error names it (a CLI disconnected in Settings).
+func TestIntegrationAgentEngineFailedTurnIsNotAReply(t *testing.T) {
+	const advice = "custom rejected this request as malformed, so the model didn't answer. Start a clean session with /new or switch models with /model; if it keeps happening, run `hermes doctor`.\n\nProvider said: HTTP 400: bad request"
+	failed := func(final, err string) []byte {
+		return lines(obj{"type": "run.done", "final_response": final, "completed": false, "interrupted": false, "turn_exit_reason": "error",
+			"tokens": obj{}, "estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}, "error": err})
+	}
+	h := newEngineHarness(t)
+	for name, tc := range map[string]struct{ err, action string }{
+		"retry":    {"HTTP 424: Claude failed: exit status 1", ActionRetry},
+		"settings": {"Claude Code is not connected. Connect it in Settings → Agent", ActionSettings},
+	} {
+		c := h.chat("Plan my week", "supervised", "failed-"+name, failed(advice, tc.err))
+		c = h.wait(c.ID, "failed", statusIs("failed"))
+		if c.Error != tc.err || c.ErrorAction != tc.action {
+			t.Fatalf("%s: error %q action %q", name, c.Error, c.ErrorAction)
+		}
+		for _, m := range c.Messages {
+			if strings.Contains(m.Content, "hermes doctor") || strings.Contains(m.Content, "/new") {
+				t.Fatalf("%s: Hermes' advice became a message: %q", name, m.Content)
+			}
+		}
+	}
+	// A partial turn (out of iterations) reports its closing text as the error
+	// too: that text stays the reply.
+	c := h.chat("Plan my week", "supervised", "partial", failed("I ran out of steps.", "I ran out of steps."))
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if lastMessage(c).Content != "I ran out of steps." {
+		t.Fatalf("partial turn: last message %q", lastMessage(c).Content)
+	}
+}
+
 // A run that fails after the worker saved part of its turn: Retry reseeds
 // the session from the chat, and still sends the steer the run took.
 func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {

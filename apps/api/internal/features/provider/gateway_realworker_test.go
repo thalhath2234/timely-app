@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -152,6 +153,11 @@ type gatewayRig struct {
 	mu   sync.Mutex
 	seen []seenRequest
 	runs int
+	// disconnected makes the account's CLI Completer unbuildable, as when
+	// the CLI was disconnected in Settings.
+	disconnected bool
+	// afterGrant runs once the grant for a run is issued.
+	afterGrant func()
 }
 
 // gatewayRigTools are the Timely tools the worker registers: two reads and
@@ -187,6 +193,12 @@ func newGatewayRig(t *testing.T) *gatewayRig {
 	// Service.Completer without the database: the account has both CLIs
 	// connected, and build makes the same checks and Completers.
 	completer := func(_ context.Context, uid, provider, model string) (chat.Completer, error) {
+		r.mu.Lock()
+		off := r.disconnected
+		r.mu.Unlock()
+		if off {
+			return nil, errors.New("Claude Code is not connected. Connect it in Settings → Agent")
+		}
 		return s.build(Settings{UserID: uid, ClaudeConnectedAt: &connected, CodexConnectedAt: &connected}, provider, model)
 	}
 	g, err := newGateway(completer, r.watch)
@@ -316,6 +328,9 @@ func (r *gatewayRig) run(provider, model string, opts AgentRunOptions, message s
 	}
 	if m.Provider != "custom" || m.BaseURL != r.g.BaseURL() {
 		t.Fatalf("not the gateway: %v", m)
+	}
+	if r.afterGrant != nil {
+		r.afterGrant()
 	}
 	r.runs++
 	run := fmt.Sprintf("run-%d", r.runs)
@@ -553,4 +568,41 @@ func normalizeCLIArgs(args []string) []string {
 		out[i] = a
 	}
 	return out
+}
+
+// A CLI that keeps failing (logged out, over its usage limit, crashing) fails
+// the run after one try, as classic does: the gateway's error is one Hermes
+// does not retry, so the person's CLI is not run again and again.
+func TestIntegrationGatewayRealWorkerFailingCLIFailsOnce(t *testing.T) {
+	cli := useFakeCLIs(t)
+	r := newGatewayRig(t)
+	for _, provider := range []string{ClaudeCLI, CodexCLI} {
+		t.Run(provider, func(t *testing.T) {
+			r.t = t
+			cli.script(provider) // no rule matches: the CLI exits 1
+			start := time.Now()
+			out := r.run(provider, gatewayRigModels[provider], AgentRunOptions{}, "What is open?", nil)
+			if out.done.Completed || out.done.Error == "" {
+				t.Fatalf("run.done %+v, want a failed run with an error", out.done)
+			}
+			if n := cli.calls(); n != 1 {
+				t.Fatalf("the failing CLI ran %d times, want 1 (after %s)", n, time.Since(start).Round(time.Second))
+			}
+		})
+	}
+}
+
+// A CLI disconnected in Settings fails the run too, with the error that
+// names the fix, and no CLI runs.
+func TestIntegrationGatewayRealWorkerDisconnectedCLIFailsTheRun(t *testing.T) {
+	cli := useFakeCLIs(t)
+	r := newGatewayRig(t)
+	cli.script(ClaudeCLI)
+	// The grant is issued; the CLI is disconnected before the model call,
+	// as when someone disconnects it mid-chat.
+	r.afterGrant = func() { r.mu.Lock(); r.disconnected = true; r.mu.Unlock() }
+	out := r.run(ClaudeCLI, "sonnet", AgentRunOptions{}, "What is open?", nil)
+	if out.done.Completed || !strings.Contains(out.done.Error, "not connected") || cli.calls() != 0 {
+		t.Fatalf("run.done %+v, %d CLI calls", out.done, cli.calls())
+	}
 }

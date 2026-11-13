@@ -1198,13 +1198,24 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 	r.taint = append(r.taint, d.Tainted...)
 	final := strings.TrimSpace(d.Final)
 	endTurn := d.Reason == "end_turn"
+	// A turn Hermes could not finish carries its own advice as the final
+	// response ("start a clean session with /new", "run `hermes doctor`"):
+	// that is never the reply. The turn fails with the error, or, with a
+	// recorded proposal, finishes on the proposal alone.
+	// (A partial turn, such as one that ran out of iterations, reports its
+	// own closing text as the error too: that text stays the reply.)
+	failedTurn := !d.Completed && !d.Interrupted && d.Error != "" && strings.TrimSpace(d.Error) != final
+	if failedTurn {
+		final = ""
+	}
 	switch {
 	case d.Interrupted && !endTurn && e.isClosing():
 		e.fail(r, tr(r.conv.Language, txtAgentLost), ActionRetry)
 	case d.Interrupted && !endTurn:
 		e.stopped(r)
 	case r.pending == nil && final == "" && d.Error != "":
-		e.fail(r, d.Error, ActionRetry)
+		text, action := failedTurnText(d.Error)
+		e.fail(r, text, action)
 	case r.pending == nil && final == "":
 		e.fail(r, emptyAnswer, ActionRetry)
 	default:
@@ -1234,6 +1245,18 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 			}
 		}
 	}
+}
+
+// failedTurnText words a failed turn's error for the person. The gateway
+// passes a provider's own message on (Timely's wording for a CLI that is not
+// connected or a key that is refused, which names Settings), so an error that
+// names Settings sends the person there; any other offers Try again.
+func failedTurnText(err string) (string, string) {
+	text := strings.TrimSpace(err)
+	if strings.Contains(text, "Settings") {
+		return text, ActionSettings
+	}
+	return text, ActionRetry
 }
 
 // stopped ends a run the worker interrupted while Timely still had it

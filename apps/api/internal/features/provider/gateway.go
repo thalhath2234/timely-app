@@ -235,7 +235,12 @@ func (g *Gateway) completions(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(r.Context().Err(), context.Canceled) {
 			return // Hermes hung up (Stop)
 		}
-		gatewayError(w, http.StatusBadGateway, "provider_error", err.Error())
+		// 424, not 502: Hermes retries a 502 as a transient outage (3 tries in
+		// each of up to 5 recovery cycles, waits growing to about 70 s), which
+		// would run a logged-out or over-limit CLI again and again where
+		// classic fails once. A status it has no rule for is a failed
+		// request it does not retry.
+		gatewayError(w, http.StatusFailedDependency, "provider_error", err.Error())
 		return
 	}
 	calls := make([]map[string]any, len(reply.ToolCalls))
