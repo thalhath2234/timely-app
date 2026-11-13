@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync ffbf0e84e7d2e6c94bece7857a1ae72cdd58d11f
+sync 833dc79a73f7db1f8d2fd4e47d70cfc54111ce20
 apps/api/internal/features/chat/runner.go (*Service).work 4714f507de496d33
 apps/api/internal/features/chat/runner.go (*Service).runClassic 92f268cf78651921
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
@@ -9,7 +9,7 @@ apps/api/internal/features/chat/runner.go retrySerializable 1f57c94eb699043a
 apps/api/internal/features/chat/runner.go serializationFailure fe3f785f75aca889
 apps/api/internal/features/chat/service.go (*Service).change e875a35df01dbe77
 apps/api/internal/features/chat/service.go (*Service).save d533a99cf407e633
-apps/api/internal/features/chat/service.go (*Service).send bd42b92b54f2f6d4
+apps/api/internal/features/chat/service.go (*Service).send f8f855082effcca1
 apps/api/internal/features/chat/service.go (*Service).sendMessage 7d63edae67b7d878
 apps/api/internal/features/chat/service.go (*Service).approve 7031e18ca871d7da
 apps/api/internal/features/chat/service.go (*Service).stop 242417322fa8344e
@@ -18,7 +18,7 @@ apps/api/internal/features/chat/service.go (*Service).remove 8eaea2192ef50834
 apps/api/internal/features/chat/service.go (*Service).retry fd9e33e7aa8566c8
 apps/api/internal/features/chat/service.go (*Service).checkpoint 6dc8aed3fe91fcf2
 apps/api/internal/features/chat/service.go (*Service).configure 8bdcbd5af2aef39a
-apps/api/internal/features/chat/service.go (*Service).steer 1e590bd4b2ce706b
+apps/api/internal/features/chat/service.go (*Service).steer 3b80fa261de1e768
 apps/api/internal/features/chat/service.go busy 7234056d226574cb
 apps/api/internal/features/chat/receipts.go (*Service).discardReview 1647195039ce0234
 apps/api/cmd/agent_deps.go chatCatalog e226468207e02575
@@ -35,17 +35,18 @@ apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Start 59f340d5e3
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).clearRun 8f70a458aa345803
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Lost 2b982691c52c1806
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Stop 37dcf46f929f2bd1
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).loop 4668bb8a3bf97048
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).loop 5f52be193949a2ab
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).save 908283c505f533ac
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).renew a3630fc2aaa9f377
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).done 0c0f7f04863fd31f
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).stopped b870317fbc0f9854
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).fail a17c026654fa2b5d
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).failWith 7ea5b75aebb57b4d
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).flush 6e973f15f479f82e
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).closeAsked 5d17cbf200fd9274
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).flush eb185164ee35df32
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).closeAsked e499a85d0cb3a15b
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).closeCard 3190a71b7fca3ea8
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Answer ea438e9d75fc4205
 apps/api/internal/features/chat/question.go questionOpen 54f6644575357cd2
 apps/api/internal/features/chat/question.go closeQuestion 0dfab76c7d628ce2
-apps/api/internal/features/chat/question.go (*Service).answerQuestion 676aacada6d780ff
+apps/api/internal/features/chat/question.go (*Service).answerQuestion 7b4b145e1c332ef4
 apps/api/internal/features/chat/question.go (*Service).restoreQuestion 5f1ea23f6d3439cb
