@@ -52,14 +52,15 @@ PROPOSE_ALONE = "Call propose_changes alone, after all read tools finish"
 # Taint sources (plan 9b.2): tools whose result brings outside content to the model. A call that
 # ran (was not blocked) adds ``{kind, tool, host?}`` to the run's taint and is reported to Go
 # (``taint``). Timely's own tools are not listed: Go marks their outside results (``outside: true``
-# in ``tool.result``). Delegation is listed as a source outright until the child-to-parent map
-# arrives (phase 4). Session search is not listed (phase 3): timely_learning taints the session
+# in ``tool.result``). Session search is not listed (phase 3): timely_learning taints the session
 # per hit, only when a hit comes from a conversation Go lists in ``tainted_conversations``.
+# ``delegate_task`` is not listed (phase 4): a sub-task's own outside reads reach the parent run
+# with ``via: "subagent"`` (``bridge.report_taint``), so a child that read nothing outside adds none.
 TAINT_SOURCES: dict[str, str] = {
     "web_search": "web", "web_extract": "web", "x_search": "web", "bot_browse": "browser",
     "read_file": "file", "search_files": "file",
     "terminal": "terminal", "process": "terminal", "process_manage": "terminal", "execute_code": "code",
-    "vision_analyze": "vision", "delegate_task": "subagent",
+    "vision_analyze": "vision",
 }
 TAINT_PREFIXES: tuple[tuple[str, str], ...] = (("web_", "web"), ("browser_", "browser"), ("mcp_", "mcp"))
 
@@ -131,3 +132,93 @@ def args_hash(args: Mapping[str, Any] | None) -> str:
     """sha256 of the canonical JSON of tool arguments (the pre-approved call match, section 3.5)."""
     return hashlib.sha256(json.dumps(args or {}, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------- phase 4: clarify, sub-tasks, providers
+
+CLARIFY_TOOL = "clarify"
+DELEGATE_TOOL = "delegate_task"
+# Q-4.3: a clarify wait ends after this many seconds unless run.start sets clarify_timeout_s.
+CLARIFY_TIMEOUT_S = 600
+CLARIFY_TIMEOUT_MAX_S = 86400
+CLARIFY_OUTCOMES = ("submitted", "cancelled", "timed_out", "undelivered")
+# What Go may answer (the worker itself ends a wait timed_out or undelivered).
+CLARIFY_ANSWER_OUTCOMES = ("submitted", "cancelled")
+CLARIFY_TIMED_OUT = ("The person did not answer within the time Timely allows. Continue without the answer; "
+                     "if you still need it, ask in your reply.")
+CLARIFY_STOPPED = "The person stopped this reply before answering."
+CLARIFY_SHUTDOWN = "Timely is restarting, so the question was withdrawn."
+CLARIFY_UNDELIVERED = "Timely could not show the question. Continue without the answer."
+CLARIFY_NOT_HERE = "Blocked: questions to the person are not available here. Decide yourself or say what you need."
+
+# Sub-tasks (delegate_task, decision 5 of the phase 4 packages). The managed config floors
+# (config_render) set Hermes' own limits; the plugin counts the rest per run.
+CHILDREN_PER_RUN = 3          # children per run in total, across every delegate_task call
+CHILD_TOOL_CALL_POOL = 60     # tool calls shared by every child of one run
+CHILD_MAX_ITERATIONS = 20     # delegation.max_iterations
+CHILD_TIMEOUT_S = 300         # delegation.child_timeout_seconds (Hermes: inactivity, floor 30)
+CHILD_GOAL_CHARS = 200        # the goal as the subagent event carries it
+CHILD_CAP = ("Blocked: this reply already used its {n} sub-tasks. Finish with what you have, or do the "
+             "rest yourself.")
+CHILD_POOL_USED = "The sub-task budget for this reply is used up. Finish with what you have."
+CHILD_BACKGROUND = "Blocked: sub-tasks cannot run in the background in Timely. Call delegate_task without background."
+CHILD_NOT_HERE = "Blocked: sub-tasks are not available here. Do the work yourself."
+# Children read; only the main assistant proposes, searches past chats or saves skills and memory.
+CHILD_BLOCKED: dict[str, str] = {
+    PROPOSE_TOOL: "Blocked: only the main assistant proposes changes. Return what you found instead.",
+    "session_search": "Blocked: a sub-task cannot search past chats. Return what you found instead.",
+    "skill_manage": "Blocked: a sub-task cannot save skills. Return what you found instead.",
+    "memory": "Blocked: a sub-task cannot save memory. Return what you found instead.",
+    CLARIFY_TOOL: "Blocked: a sub-task cannot ask the person. Return what you found instead.",
+    DELEGATE_TOOL: "Blocked: a sub-task cannot start sub-tasks.",
+}
+
+# Q-4.1: the only Hermes provider ids a run may name (every id Go's hermesProvider can produce: the
+# API-key providers, OpenRouter, and ``custom`` for the CLI gateway and plain endpoints). No Hermes
+# OAuth sign-in (ChatGPT/Codex, Nous Portal, Copilot, a borrowed Claude Code login) is reachable.
+ALLOWED_PROVIDERS = frozenset({
+    "custom", "openrouter", "anthropic", "gemini", "deepseek", "xai", "zai", "nvidia",
+    "opencode-zen", "opencode-go", "ollama-cloud",
+    # hermesProvider also maps openai -> openai-api and kimi -> kimi-coding / kimi-coding-cn: API keys.
+    "openai-api", "kimi-coding", "kimi-coding-cn",
+})
+# Hermes ids that sign in with OAuth or borrow another app's login. The self-test also adds every
+# registry entry whose auth type is not an API key.
+OAUTH_PROVIDERS = frozenset({
+    "nous", "openai-codex", "xai-oauth", "qwen-oauth", "minimax-oauth", "solstice", "solstice-oauth",
+    "copilot", "copilot-acp", "github-copilot", "google-gemini-cli", "gemini-cli", "claude-code",
+})
+# A Claude Code sign-in token is not an Anthropic API key (Q-4.1).
+CLAUDE_OAUTH_TOKEN_PREFIX = "sk-ant-oat"
+# Files that would hold a Hermes sign-in in the account home.
+OAUTH_FILES = ("auth.json", ".anthropic_oauth.json")
+
+
+def provider_problem(model: Mapping[str, Any] | None) -> str:
+    """Why a run.start's ``model`` names a provider Timely does not allow, else "" (Q-4.1)."""
+    if not isinstance(model, Mapping):
+        return "model must name a provider"
+    provider = model.get("provider")
+    if not isinstance(provider, str) or not provider.strip():
+        return "model.provider is required"
+    if provider not in ALLOWED_PROVIDERS:
+        return f"model.provider {provider!r} is not one Timely runs (no Hermes sign-ins)"
+    key = model.get("api_key")
+    if provider == "anthropic" and isinstance(key, str) and key.strip().startswith(CLAUDE_OAUTH_TOKEN_PREFIX):
+        return "model.api_key is a Claude Code sign-in token, not an API key"
+    return ""
+
+
+def delegate_task_count(args: Mapping[str, Any] | None) -> int:
+    """How many children a delegate_task call asks for (``tasks`` entries, or one legacy ``goal``)."""
+    args = args if isinstance(args, Mapping) else {}
+    tasks = args.get("tasks")
+    if isinstance(tasks, list) and tasks:
+        return len(tasks)
+    return 1 if args.get("goal") else 0
+
+
+def truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)

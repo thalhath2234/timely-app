@@ -93,6 +93,8 @@ def why_never(parts: tuple[str, ...]) -> str:
     top = parts[0]
     if parts == (".timely", "feed-baseline.json"):
         return "not agent state"  # this worker's own bookkeeping (learning/feed.py): a restore primes afresh
+    if parts == (".timely", "delegations.json"):
+        return "not agent state"  # names cache/ folders, which are never in a backup (timely_agent/delegation.py)
     if len(parts) == 1 and top in KEEP_FILES:
         return ""
     if top == ".curator_backups":
@@ -264,8 +266,10 @@ def forget_sessions(home: Path, ids: Iterable[str]) -> list[str]:
             sdb.close()
         if not scrub_deleted(db):
             raise BackupError("state.db is busy; the deletes are kept for the next try")
+    from timely_agent import delegation
     for sid in ids:
         remove_session_files(sessions, sid)
+        delegation.forget(sid, home)  # the chat's sub-task transcripts (phase 4)
     return gone
 
 

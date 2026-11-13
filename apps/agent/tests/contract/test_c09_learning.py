@@ -569,8 +569,38 @@ def test_c09_search_exclude_chat_never_comes_back(lagent, lworker, stub):
     assert off and "past chats is off" in off[0], off
 
 
-def test_c09_delegate_task_child_taint():
-    pytest.skip("phase 4: delegate_task")
+def test_c09_delegate_task_child_taint(stub):
+    """Phase 4: a sub-task's outside read counts as the parent's. The child ``web_extract``s a page;
+    the parent's taint gains the source with ``via: "subagent"``, and the parent's next learning
+    write in the same turn is staged (``reason: tainted``), not applied."""
+    import test_c_web as web
+    root = harness.new_root("c09d")
+    a = harness.Agent(root)
+    w, _log = web._start(a, root)
+    tag = "tag-c09d"
+    kid = {"goal": "SCRIPT " + json.dumps([{"calls": [["web_extract", {"urls": [web.NEWS]}]]},
+                                           {"text": "the page says hello"}]) + " kid-c09d"}
+    add = ["memory", {"action": "add", "target": "memory", "content": "Dana likes tulips c09d"}]
+    script = [{"calls": [["delegate_task", {"tasks": [kid]}]]}, {"calls": [add]}, {"text": "Saved."}]
+    try:
+        w.send(harness.run_start(a, stub, run_id="c09d", conversation="c-c09d", text=text(script, tag), budgets={},
+                                 toolsets=TOOLSETS + ["web", "delegation"], flags={**LEARN, "web": True}))
+        done, seen = harness.drive(w, a.account, "c09d", answer=web.answer({web.NEWS: "A page about flowers."}),
+                                   verdict=("allow", ""), timeout=120)
+        events = [m["event"] for m in seen if m.get("type") == "learning"] + settle(w, a)
+    finally:
+        w.close()
+    sid = [m["payload"]["child_session_id"] for m in seen
+           if m.get("type") == "event" and m.get("kind") == "subagent"][0]
+    source = {"kind": "web", "tool": "web_extract", "host": "news.example", "via": "subagent", "child": sid}
+    assert source in done["tainted_sources"], done["tainted_sources"]
+    assert all(s.get("via") == "subagent" for s in done["tainted_sources"]), done["tainted_sources"]
+    assert STAGED in tool_results(stub, tag)[-1], tool_results(stub, tag)
+    staged = [e for e in events if e["kind"] == "memory" and "tulips" in json.dumps(e)]
+    assert [(e["status"], e["reason"]) for e in staged] == [("staged", "tainted")], staged
+    assert source in staged[0]["tainted_sources"]
+    memory = a.home / "memories" / "MEMORY.md"
+    assert not memory.exists() or "tulips" not in memory.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------- 16, background-review half

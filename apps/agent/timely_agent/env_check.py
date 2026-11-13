@@ -48,6 +48,9 @@ FORBIDDEN = frozenset({
     "HERMES_ENABLE_PROJECT_PLUGINS", "HERMES_CONFIG_BACKEND", "HERMES_LANGUAGE",
     "HERMES_BUNDLED_LOCALES", "HERMES_MANAGED", "HERMES_ACCEPT_HOOKS", "HERMES_PROFILE",
     "DATABASE_URL", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP",
+    # Q-4.1: a Claude Code sign-in token never reaches a worker (Hermes reads these before any key),
+    # nor a pointer at another Claude Code login folder.
+    "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR",
 })
 
 FORBIDDEN_PREFIXES = (

@@ -28,7 +28,8 @@ in). "After the directive" means the messages that follow that user message in t
 Streaming (``stream: true``) and plain responses are both supported. Usage is a fixed
 ``USAGE``, or with ``real_usage=True`` the request's size (4 bytes a token) so Hermes' context
 compression can trigger. Every request is kept in
-``server.requests`` (with its ``Authorization`` header as ``auth``) for assertions.
+``server.requests`` (with its ``Authorization`` header as ``auth`` and every header as ``headers``)
+for assertions.
 
 Run standalone: ``python -I stub_openai.py <port>`` (0 = any free port; prints the port).
 """
@@ -174,7 +175,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        self.server.requests.append({"method": "GET", "path": self.path, "auth": self.headers.get("Authorization")})
+        self.server.requests.append({"method": "GET", "path": self.path, "auth": self.headers.get("Authorization"),
+                                     "headers": dict(self.headers)})
         if self.path.rstrip("/").endswith("/models"):
             return self._json({"object": "list", "data": [
                 {"id": STUB_MODEL, "object": "model", "context_length": self.server.context_length}]})
@@ -185,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n) or b"{}"
         body = json.loads(raw)
         self.server.requests.append({"method": "POST", "path": self.path, "body": body, "bytes": len(raw),
-                                     "auth": self.headers.get("Authorization")})
+                                     "auth": self.headers.get("Authorization"), "headers": dict(self.headers)})
         if not self.path.rstrip("/").endswith("/chat/completions"):
             return self._json({"error": {"message": "not found"}}, 404)
         refuse = _refusal(body)

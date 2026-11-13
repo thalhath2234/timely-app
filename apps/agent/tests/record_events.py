@@ -81,11 +81,12 @@ def scenarios() -> list[dict]:
          "text": _script({"calls": [["get_task", {"id": "task-1"}]]}),
          "steer_on_tool_call": "STEER also add eggs",
          "description": "run.steer while a tool.call waits on Go: ack ok, the reply follows the steer."},
-        {"name": "blocked_non_timely_tool", "toolsets": harness.PHASE2_TOOLSETS + ["clarify"],
-         "text": 'CALL clarify {"question": "Which list?", "choices": ["Groceries", "Work"]}',
-         "description": "A Hermes tool outside the local allow list and the timely toolset (clarify, "
-                        "offered here only to reach the gate; phase 3 decides session_search in the worker): "
-                        "gate.ask, Go's block verdict, the model replies with the block message."},
+        {"name": "blocked_non_timely_tool", "toolsets": harness.PHASE2_TOOLSETS + ["file"],
+         "text": 'CALL read_file {"path": "notes.txt"}',
+         "description": "A Hermes tool outside the local allow list and the timely toolset (read_file, "
+                        "offered here only to reach the gate; phase 3 decides session_search and phase 4 "
+                        "clarify in the worker): gate.ask, Go's block verdict, the model replies with the "
+                        "block message."},
         {"name": "learning_skill_applied", "toolsets": harness.PHASE2_TOOLSETS + ["memory"], "flags": LEARN,
          "text": _script({"calls": [["skill_manage", {"action": "create", "name": "fixture-sorting",
                                                        "content": SKILL}]]}, {"text": "Saved how you sort lists."}),

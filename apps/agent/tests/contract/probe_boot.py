@@ -1,7 +1,8 @@
 """Test-only wrapper around ``timely_agent/boot.py`` for contract tests 5, 6, 18 and 19.
 
     python -I probe_boot.py [--net-log FILE] [--stdout-tool] [--taint-tool] [--system-via MODE]
-                            [--tool-search MODE] [--slow-bind S] [--slow-ledger ACTION:S] worker
+                            [--tool-search MODE] [--slow-bind S] [--slow-ledger ACTION:S]
+                            [--batch-deadline S] [--sleep-tool] worker
 
 ``--net-log FILE`` records every name lookup and every outgoing IP connection the worker
 process makes (``socket.getaddrinfo``, ``gethostbyname``, ``gethostbyname_ex``,
@@ -17,6 +18,11 @@ and marks it as a taint source in ``policy.TAINT_SOURCES`` (kind ``web``) (contr
 
 ``--system-via ephemeral|system_message`` sets ``run_chat.SYSTEM_VIA``, where the Timely block
 goes (contract test 6 runs both).
+
+``--batch-deadline S`` sets Hermes' default tool batch deadline to S seconds (the managed config
+names none), and ``--sleep-tool`` registers ``sleep_probe`` (toolset ``probe``), which sleeps
+``args.s`` seconds: the clarify test proves the deadline is armed and that a question wait longer
+than it still completes (phase 4).
 
 ``--tool-search off|on`` makes Hermes read ``tools.tool_search.enabled`` as given, whatever the
 managed floor says (the tool_search measurement in ``tests/measure_prompt.py``; never a product path).
@@ -140,6 +146,43 @@ def _install_tool_search(mode: str) -> None:
     worker.Worker.on_hello = on_hello
 
 
+SLEEP_TOOL = "sleep_probe"
+
+
+def _install_batch_deadline(seconds: float) -> None:
+    from timely_agent import worker
+    original = worker.Worker.on_hello
+
+    def on_hello(self, msg):
+        out = original(self, msg)  # Hermes is loaded; runs start only after this returns
+        from agent import tool_executor
+        tool_executor._DEFAULT_CONCURRENT_TOOL_TIMEOUT_S = seconds
+        return out
+
+    worker.Worker.on_hello = on_hello
+
+
+def _install_sleep_tool() -> None:
+    from timely_agent import worker
+    original = worker.Worker.on_hello
+
+    def on_hello(self, msg):
+        import time
+        from tools.registry import registry
+
+        def handler(args, **_):
+            time.sleep(float((args or {}).get("s") or 0))
+            return json.dumps({"slept": True})
+
+        registry.register(
+            name=SLEEP_TOOL, toolset=PROBE_TOOLSET, handler=handler,
+            schema={"name": SLEEP_TOOL, "description": "Phase 4 clarify test: sleeps s seconds.",
+                    "parameters": {"type": "object", "properties": {"s": {"type": "number"}}}})
+        return original(self, msg)
+
+    worker.Worker.on_hello = on_hello
+
+
 def _install_slow_bind(seconds: float) -> None:
     """``--slow-bind S``: a run binds its session state S seconds late (a loaded machine), so a
     ``learning.stop`` sent right after the run.start reaches the worker first."""
@@ -187,6 +230,11 @@ def main(argv: list[str]) -> int:
         elif flag == "--slow-ledger":
             action, _, seconds = argv.pop(0).partition(":")
             patches.append(lambda action=action, seconds=float(seconds): _install_slow_ledger(action, seconds))
+        elif flag == "--batch-deadline":
+            seconds = float(argv.pop(0))
+            patches.append(lambda seconds=seconds: _install_batch_deadline(seconds))
+        elif flag == "--sleep-tool":
+            patches.append(_install_sleep_tool)
         elif flag == "--tool-search":
             mode = argv.pop(0)
             patches.append(lambda mode=mode: _install_tool_search(mode))

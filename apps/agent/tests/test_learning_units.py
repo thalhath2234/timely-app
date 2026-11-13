@@ -309,7 +309,7 @@ def test_run_start_phase3_fields_are_validated():
     from timely_agent.worker import run_start_problem
     ok = {"toolsets": ["timely", "memory", "session_search", "web"], "flags": {"learning_writes": True,
           "search_history": True, "web": False, "from_bot": False}, "tainted_conversations": ["a"],
-          "search_exclude": [], "search_allow": ["a"]}
+          "search_exclude": [], "search_allow": ["a"], "model": {"provider": "custom"}}
     assert run_start_problem(ok) is None
     for bad in ({"flags": {"search_history": "yes"}}, {"flags": {"from_bot": 1}}, {"search_exclude": "a"},
                 {"search_allow": [1]}, {"tainted_conversations": {"a": 1}}):

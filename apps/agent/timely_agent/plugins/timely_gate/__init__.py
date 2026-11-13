@@ -28,8 +28,22 @@ Hermes runs this hook for every tool call, MCP included, before the tool runs. P
 4. Everything else: ask Go (``gate.ask``) and return its verdict; no answer means ``block``. In
    phase 2 Go answers ``block`` ("That isn't available in Timely yet") for every such tool.
 
+Phase 4 (``timely_agent.delegation``):
+
+5. ``clarify`` runs locally in a chat run (the question card, Q-4.3) and is blocked in a bot,
+   ``from_bot`` or no-persist run (the recursion guard: bots never ask).
+6. ``delegate_task`` runs locally in such a chat run within the caps: at most 3 children per run in
+   total, none in the background. Blocked in bot, ``from_bot`` and no-persist runs.
+7. A call made inside a sub-task: ``propose_changes``, ``session_search``, ``skill_manage``,
+   ``memory``, ``clarify`` and ``delegate_task`` are blocked, and every other call counts against
+   the run's shared pool of child tool calls (blocked once it is used up). Then rules 2b-4 apply
+   as for the run itself.
+
 ``post_tool_call`` reports ``{kind: "web", tool: "web_extract", host}`` as taint for each host a
-``web_extract`` that ran named (any backend), so the chat's taint names the sites it read.
+``web_extract`` that ran named (any backend), so the chat's taint names the sites it read; in a
+sub-task the source also says ``via: "subagent"`` and names the child. After a ``delegate_task``
+it records the children's live transcript folders under the chat, so deleting the chat removes them.
+``subagent_start`` / ``subagent_stop`` map each child to the run and send ``event subagent``.
 
 An ``approve`` verdict becomes Hermes' human-approval gate with ``rule_key
 timely:<tool_call_id>`` (the approval payload carries no arguments, so the key carries the id).
@@ -40,7 +54,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from timely_agent import bridge, policy
+from timely_agent import bridge, delegation, policy
 
 logger = logging.getLogger("timely_agent.plugins.timely_gate")
 
@@ -111,10 +125,19 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
     run = bridge.current_run.get()
     if run is not None and run.end_turn:
         return _end_turn(run)
+    child = bridge.current_child(run, session_id)
+    if child:
+        verdict = delegation.child_verdict(run, child, tool_name)
+        if verdict is not None:
+            return verdict
     if run is not None and tool_call_id:
-        run.note_call(tool_name, tool_call_id)
+        run.note_call(tool_name, tool_call_id, child)
+    if tool_name == policy.CLARIFY_TOOL:
+        return delegation.clarify_verdict(run)
+    if tool_name == policy.DELEGATE_TOOL:
+        return delegation.verdict(run, args)
     if tool_name == policy.PROPOSE_TOOL and _timely_tool(tool_name):
-        batch = run.batch_for(tool_call_id, tool_name) if run is not None else None
+        batch = run.batch_for(tool_call_id, tool_name, child) if run is not None else None
         if batch is None:
             logger.warning("propose_changes %r: no recorded batch for this call id", tool_call_id)
             return {"action": "block", "message": UNKNOWN_BATCH}
@@ -156,17 +179,26 @@ def _end_turn(run) -> dict:
     return {"action": "block", "message": END_TURN}
 
 
-def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | None = None, **_: Any) -> None:
-    """Report each host a ``web_extract`` that ran named as taint (the page's site)."""
-    if tool_name != "web_extract" or status == "blocked":
+def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | None = None,
+                   session_id: str = "", **kw: Any) -> None:
+    """Report each host a ``web_extract`` that ran named as taint (the page's site); after a
+    ``delegate_task``, remember its children's transcript folders under the chat."""
+    if status == "blocked" or tool_name not in ("web_extract", policy.DELEGATE_TOOL):
         return
     run = bridge.current_run.get()
     if run is None:
         return
+    if tool_name == policy.DELEGATE_TOOL:
+        try:
+            delegation.record_live(run.conversation_id, kw.get("result"))
+        except Exception as exc:
+            logger.warning("recording the sub-task transcripts failed: %s", exc)
+        return
     try:
         hosts = policy.extract_hosts(args if isinstance(args, dict) else {})
         if hosts:
-            bridge.report_taint(run, [{"kind": "web", "tool": "web_extract", "host": h} for h in hosts])
+            bridge.report_taint(run, [{"kind": "web", "tool": "web_extract", "host": h} for h in hosts],
+                                session_id)
     except Exception as exc:
         logger.warning("reporting web_extract hosts as taint failed: %s", exc)
 
@@ -174,3 +206,5 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", pre_tool_call)
     ctx.register_hook("post_tool_call", post_tool_call)
+    ctx.register_hook("subagent_start", delegation.subagent_start)
+    ctx.register_hook("subagent_stop", delegation.subagent_stop)

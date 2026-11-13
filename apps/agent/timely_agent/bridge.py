@@ -17,6 +17,16 @@ after the run ended under the same session id, still finds the taint and the pol
 ``session_state(session_id)``. Inside that pass ``current_run.get()`` answers ``None``: the fork
 copied the finished run's context, and nothing in it may act for that run any more (end the turn,
 ask Go about a tool, flush its stream).
+
+**Sub-tasks (phase 4).** Hermes runs ``delegate_task`` children in the parent's copied context, so
+``current_run`` is the parent's run inside a child too. ``current_child`` tells a child's call
+apart (Hermes' delegated-child context and the session it binds, or the ``subagent_start`` map):
+its taint reaches the parent with ``via: "subagent"`` and its ``tool.call`` carries ``subagent``.
+
+**Clarify (phase 4, Q-4.3).** ``clarify_wait`` sends ``event clarify.request`` and blocks the run's
+thread until ``clarify.answer`` (``clarify_answer``), ``run.stop`` or shutdown
+(``cancel_clarify``), or the run's ``clarify_timeout_s``; every way out sends ``clarify.closed``
+once and returns Hermes' reply shape ``{answers, outcome, notice?}``.
 """
 
 from __future__ import annotations
@@ -24,6 +34,8 @@ from __future__ import annotations
 import contextvars
 import json
 import threading
+import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -190,6 +202,16 @@ def forget_session(session_id: str) -> None:
 
 
 @dataclass
+class ChildState:
+    """One sub-task of a run (``subagent_start`` to ``subagent_stop``)."""
+    session_id: str
+    subagent_id: str = ""
+    goal: str = ""
+    tool_calls: int = 0
+    done: bool = False
+
+
+@dataclass
 class RunContext:
     run_id: str
     session_key: str
@@ -213,6 +235,7 @@ class RunContext:
     stopped: Callable[[], bool] = field(default=lambda: False, repr=False, compare=False)
     _batches: dict[str, Batch] = field(default_factory=dict, repr=False)
     _last_batch: Optional[Batch] = field(default=None, repr=False)
+    _last_batches: dict[str, Batch] = field(default_factory=dict, repr=False)
     _last_call: dict[str, str] = field(default_factory=dict, repr=False)
     # The Timely tool calls Go answered ``outside: true`` whose result has not reached the model
     # yet (``timely_tools`` wraps each as untrusted data in ``transform_tool_result``).
@@ -221,6 +244,13 @@ class RunContext:
     # The conversation's state (phase 3): the run shares its taint list, so the learning pass
     # that outlives the run sees every source the run added.
     session: Optional[SessionState] = field(default=None, repr=False, compare=False)
+    # Q-4.3: how long a clarify wait may last (run.start.clarify_timeout_s).
+    clarify_timeout_s: float = 600.0
+    # Phase 4 sub-tasks: child session id -> state; children asked for so far (every delegate_task
+    # call of the run, refused ones excluded) and the tool calls every child made, shared.
+    children: dict[str, ChildState] = field(default_factory=dict, repr=False)
+    children_reserved: int = 0
+    child_tool_calls: int = 0
 
     def __post_init__(self) -> None:
         if self.session is not None:
@@ -264,10 +294,13 @@ class RunContext:
                 self.flush()
             except Exception:
                 pass
-        reply = ask({"type": "tool.call", "run": self.run_id, "session_key": self.session_key,
-                     "tool_call_id": call_id, "name": name, "args": dict(args or {}),
-                     "tainted_sources": self.taint_snapshot(), "batch_size": 1, "sibling_tools": []},
-                    timeout if timeout is not None else TOOL_ANSWER_TIMEOUT_S)
+        msg = {"type": "tool.call", "run": self.run_id, "session_key": self.session_key,
+               "tool_call_id": call_id, "name": name, "args": dict(args or {}),
+               "tainted_sources": self.taint_snapshot(), "batch_size": 1, "sibling_tools": []}
+        child = current_child(self)
+        if child:
+            msg["subagent"] = child
+        reply = ask(msg, timeout if timeout is not None else TOOL_ANSWER_TIMEOUT_S)
         if not reply or reply.get("type") != "tool.result":
             raise TimeoutError(f"Timely did not answer {name}")
         outside = reply.get("outside") is True
@@ -277,53 +310,77 @@ class RunContext:
         return reply.get("result"), outside
 
     # ------------------------------------------------------------ batches
-    def record_batch(self, calls: list[tuple[str, str]]) -> Batch:
+    # A sub-task's conversation reuses call ids the parent's uses (``call_1``), so every per-call
+    # record is kept per conversation: ``child`` is the sub-task's session id, "" for the run itself.
+    def record_batch(self, calls: list[tuple[str, str]], child: str = "") -> Batch:
         """Remember the ``(tool_call_id, name)`` pairs of one assistant message."""
         batch = Batch(ids=[c[0] for c in calls], names=[c[1] for c in calls])
         with self._lock:
-            self._last_batch = batch
+            self._last_batches[child] = batch
+            if not child:
+                self._last_batch = batch
             for call_id in batch.ids:
                 if call_id:
-                    self._batches[call_id] = batch
+                    self._batches[_call_key(child, call_id)] = batch
         return batch
 
-    def batch_for(self, tool_call_id: str, tool_name: str = "") -> Optional[Batch]:
+    def batch_for(self, tool_call_id: str, tool_name: str = "", child: str = "") -> Optional[Batch]:
         """The batch a call came in: by its id, else the latest model response when that holds
         the tool. Hermes renames a call id the conversation already used (``call_1`` ->
         ``call_1_d2``, ``agent_runtime_helpers._dedupe_tool_call_ids``) after the hook saw it;
         the tools of one response all run before the next response is recorded."""
         with self._lock:
-            batch = self._batches.get(tool_call_id or "")
+            batch = self._batches.get(_call_key(child, tool_call_id or ""))
             if batch is not None and (not tool_name or tool_name in batch.names):
                 return batch
-            last = self._last_batch
+            last = self._last_batches.get(child)
             if last is not None and tool_name and tool_name in last.names:
                 return last
             return None
 
-    def note_call(self, tool_name: str, tool_call_id: str) -> None:
+    def note_call(self, tool_name: str, tool_call_id: str, child: str = "") -> None:
         """The gate saw this call (the handler's fallback when the call id is not in context)."""
         with self._lock:
-            self._last_call[tool_name] = tool_call_id
+            self._last_call[_call_key(child, tool_name)] = tool_call_id
 
-    def last_call(self, tool_name: str) -> str:
+    def last_call(self, tool_name: str, child: str = "") -> str:
         with self._lock:
-            return self._last_call.get(tool_name, "")
+            return self._last_call.get(_call_key(child, tool_name), "")
 
-    def note_outside(self, tool_call_id: str, tool_name: str) -> None:
+    def note_outside(self, tool_call_id: str, tool_name: str, child: str = "") -> None:
         """Go answered this Timely tool call ``outside: true`` (its result quotes outside text)."""
         with self._lock:
-            self._outside.add(tool_call_id or f"tool:{tool_name}")
+            self._outside.add(_call_key(child, tool_call_id or f"tool:{tool_name}"))
 
-    def take_outside(self, tool_call_id: str, tool_name: str) -> bool:
+    def take_outside(self, tool_call_id: str, tool_name: str, child: str = "") -> bool:
         """Whether that call's result quotes outside text (forgotten once asked). A call whose id
         the handler did not know is matched by its tool name."""
         with self._lock:
             for key in (tool_call_id, f"tool:{tool_name}"):
-                if key and key in self._outside:
-                    self._outside.discard(key)
+                if key and _call_key(child, key) in self._outside:
+                    self._outside.discard(_call_key(child, key))
                     return True
             return False
+
+    # ------------------------------------------------------------ sub-tasks
+    def reserve_children(self, n: int, cap: int) -> bool:
+        """Count ``n`` more children against the run's cap; False (nothing counted) past it."""
+        with self._lock:
+            if n < 1 or self.children_reserved + n > cap:
+                return False
+            self.children_reserved += n
+            return True
+
+    def child_call(self, child: str, pool: int) -> bool:
+        """Count one tool call of a child against the run's shared pool; False once it is used up."""
+        with self._lock:
+            if self.child_tool_calls >= pool:
+                return False
+            self.child_tool_calls += 1
+            state = self.children.get(child)
+            if state is not None:
+                state.tool_calls += 1
+            return True
 
     # ------------------------------------------------------------ taint
     def add_taint(self, sources: list[Any]) -> list[Any]:
@@ -345,6 +402,10 @@ class RunContext:
     def taint_snapshot(self) -> list[Any]:
         with self._lock:
             return list(self.tainted_sources)
+
+
+def _call_key(child: str, key: str) -> str:
+    return f"{child}\x00{key}" if child else key
 
 
 def _source_key(source: Any) -> str:
@@ -400,8 +461,13 @@ ask: Optional[Callable[[dict, float], Optional[dict]]] = None
 notify: Optional[Callable[[dict], bool]] = None
 
 
-def report_taint(run: RunContext, sources: list[Any]) -> list[Any]:
-    """Add ``sources`` to the run's taint and send ``taint`` for the new ones (plan 5.2, 9b.2)."""
+def report_taint(run: RunContext, sources: list[Any], session_id: str = "") -> list[Any]:
+    """Add ``sources`` to the run's taint and send ``taint`` for the new ones (plan 5.2, 9b.2).
+    Inside a sub-task each source names it (``via: "subagent"``, ``child``): a child's outside
+    read taints the parent's run and its learning (phase 4)."""
+    child = current_child(run, session_id)
+    if child:
+        sources = [dict(s, via="subagent", child=child) if isinstance(s, dict) else s for s in sources]
     new = run.add_taint(sources)
     if new and notify is not None:
         notify({"type": "taint", "run": run.run_id, "sources": new})
@@ -427,3 +493,236 @@ def timely_tools() -> list[dict[str, Any]]:
 
 def timely_catalog_version() -> str:
     return _timely_catalog_version
+
+
+# ---------------------------------------------------------------- sub-tasks (phase 4)
+
+_child_runs: dict[str, RunContext] = {}
+_child_runs_lock = threading.Lock()
+
+
+def in_child_context() -> bool:
+    """True while Hermes runs code for a ``delegate_task`` child (its delegated-child context)."""
+    import sys
+    mod = sys.modules.get("agent.delegation_context")
+    if mod is None:
+        return False
+    try:
+        return bool(mod.is_delegated_child_context())
+    except Exception:
+        return False
+
+
+def _context_session_id() -> str:
+    import sys
+    mod = sys.modules.get("gateway.session_context")
+    if mod is None:
+        return ""
+    try:
+        return str(mod.get_session_env("HERMES_SESSION_ID") or "")
+    except Exception:
+        return ""
+
+
+def current_child(run: Optional[RunContext], session_id: str = "") -> str:
+    """The sub-task session this call belongs to, or "" for the run's own conversation. A hook's
+    ``session_id`` that ``subagent_start`` recorded wins; else Hermes' delegated-child context and
+    the session it binds (every child thread copies it)."""
+    if run is None:
+        return ""
+    if session_id:
+        with run._lock:
+            if session_id in run.children:
+                return session_id
+    if in_child_context():
+        return _context_session_id() or session_id or "subagent"
+    return ""
+
+
+def child_started(run: RunContext, session_id: str, subagent_id: str = "", goal: str = "") -> ChildState:
+    state = ChildState(session_id=session_id, subagent_id=subagent_id, goal=goal)
+    with run._lock:
+        run.children[session_id] = state
+    with _child_runs_lock:
+        _child_runs[session_id] = run
+    return state
+
+
+def child_stopped(session_id: str) -> Optional[ChildState]:
+    with _child_runs_lock:
+        run = _child_runs.pop(session_id, None)
+    if run is None:
+        return None
+    with run._lock:
+        state = run.children.get(session_id)
+        if state is not None:
+            state.done = True
+    return state
+
+
+def child_run(session_id: str) -> Optional[RunContext]:
+    """The run a live sub-task session belongs to (between ``subagent_start`` and ``subagent_stop``)."""
+    with _child_runs_lock:
+        return _child_runs.get(session_id)
+
+
+def forget_children(run: RunContext) -> None:
+    """The run ended: drop its sub-tasks from the live map (a child that never stopped included)."""
+    with _child_runs_lock:
+        for sid in [k for k, v in _child_runs.items() if v is run]:
+            _child_runs.pop(sid, None)
+
+
+# ---------------------------------------------------------------- clarify (phase 4, Q-4.3)
+
+@dataclass
+class ClarifyWait:
+    request_id: str
+    run_id: str
+    qids: tuple[str, ...]
+    event: threading.Event = field(default_factory=threading.Event)
+    reply: Optional[dict[str, Any]] = None
+
+
+_clarify: dict[str, ClarifyWait] = {}
+_clarify_lock = threading.Lock()
+CLARIFY_POLL_S = 0.5
+
+
+def clarify_payload(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hermes' display copy of the questions as ``clarify.request`` carries them: the choices
+    without the "(Recommended)" label (``choices_offered``), and the index Hermes marks."""
+    out = []
+    for q in questions:
+        offered = q.get("choices_offered")
+        offered = [str(c) for c in offered] if isinstance(offered, list) and offered else None
+        shown = q.get("choices") if isinstance(q.get("choices"), list) else None
+        recommended = 0 if offered and shown and len(offered) >= 2 and str(shown[0]) != offered[0] else None
+        out.append({"qid": str(q.get("qid") or ""), "question": str(q.get("question") or ""),
+                    "choices": offered, "recommended": recommended, "multi_select": bool(q.get("multi_select"))})
+    return out
+
+
+def _finish_clarify(wait: ClarifyWait, outcome: str, notice: str = "",
+                    answers: Optional[dict[str, Any]] = None) -> bool:
+    """End a wait once; False when it had already ended."""
+    with _clarify_lock:
+        if wait.reply is not None:
+            return False
+        reply: dict[str, Any] = {"answers": dict(answers or {}), "outcome": outcome}
+        if notice:
+            reply["notice"] = notice
+        wait.reply = reply
+    wait.event.set()
+    return True
+
+
+def clarify_answer(run_id: str, request_id: str, answers: dict[str, Any], outcome: str = "submitted",
+                   notice: str = "") -> bool:
+    """Go answered a question card (``clarify.answer``). False when that request no longer waits
+    (answered, timed out, cancelled) or belongs to another run."""
+    with _clarify_lock:
+        wait = _clarify.get(request_id)
+    if wait is None or wait.run_id != run_id:
+        return False
+    kept = {q: answers[q] for q in wait.qids if q in answers}
+    return _finish_clarify(wait, outcome, notice, kept)
+
+
+def cancel_clarify(run_id: str = "", notice: str = "") -> int:
+    """End the waits of one run (every run without ``run_id``) as ``cancelled``: run.stop, shutdown."""
+    with _clarify_lock:
+        waits = [w for w in _clarify.values() if not run_id or w.run_id == run_id]
+    return sum(1 for w in waits if _finish_clarify(w, "cancelled", notice))
+
+
+def clarify_pending(run_id: str = "") -> int:
+    with _clarify_lock:
+        return sum(1 for w in _clarify.values() if not run_id or w.run_id == run_id)
+
+
+def clarify_wait(run: RunContext, questions: list[dict[str, Any]], timeout: float,
+                 stopped_notice: str = "", timed_out_notice: str = "", undelivered_notice: str = "") -> dict[str, Any]:
+    """Ask the person (``event clarify.request``) and block this thread until the answer, a stop
+    or the timeout; returns Hermes' clarify reply. Sends ``clarify.closed`` once, however it ends."""
+    payload = clarify_payload(questions)
+    wait = ClarifyWait(request_id=uuid.uuid4().hex, run_id=run.run_id,
+                       qids=tuple(q["qid"] for q in payload if q["qid"]))
+    timeout = max(0.0, float(timeout))
+    with _clarify_lock:
+        _clarify[wait.request_id] = wait
+    try:
+        delivered = False
+        if run.emit is not None and not run.stopped():
+            try:
+                run.emit("clarify.request", {"request_id": wait.request_id, "questions": payload,
+                                             "timeout_s": int(round(timeout))})
+                delivered = True
+            except Exception:
+                delivered = False
+        if not delivered:
+            _finish_clarify(wait, "undelivered" if not run.stopped() else "cancelled",
+                            undelivered_notice if not run.stopped() else stopped_notice)
+        deadline = time.monotonic() + timeout
+        with _human_wait(run.session_key):
+            while wait.reply is None:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    _finish_clarify(wait, "timed_out", timed_out_notice)
+                    break
+                if wait.event.wait(min(CLARIFY_POLL_S, left)):
+                    break
+                if run.stopped():
+                    _finish_clarify(wait, "cancelled", stopped_notice)
+                    break
+                _touch_activity(wait)
+    finally:
+        with _clarify_lock:
+            _clarify.pop(wait.request_id, None)
+        _finish_clarify(wait, "cancelled", stopped_notice)  # an exception above: never leave it open
+        if run.emit is not None:
+            try:
+                run.emit("clarify.closed", {"request_id": wait.request_id, "outcome": wait.reply["outcome"]})
+            except Exception:
+                pass
+    return dict(wait.reply or {"answers": {}, "outcome": "cancelled"})
+
+
+class _NoWindow:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _human_wait(session_key: str):
+    """Hermes' human-wait window: the time a person takes to answer never counts against a tool
+    batch deadline (clarify runs inline, before any deadline is armed; this keeps it so)."""
+    import sys
+    mod = sys.modules.get("tools.approval_human_wait")
+    if mod is None:
+        try:
+            import tools.approval_human_wait as mod  # noqa: F811 - only inside a worker
+        except Exception:
+            return _NoWindow()
+    try:
+        return mod.human_wait_window(session_key or None)
+    except Exception:
+        return _NoWindow()
+
+
+def _touch_activity(wait: ClarifyWait) -> None:
+    import sys
+    mod = sys.modules.get("tools.environments.base")
+    if mod is None:
+        return
+    state = getattr(wait, "_activity", None)
+    if state is None:
+        now = time.monotonic()
+        state = {"last_touch": now, "start": now}
+        wait._activity = state  # type: ignore[attr-defined]
+    try:
+        mod.touch_activity_if_due(state, "waiting for the person's answer")
+    except Exception:
+        pass

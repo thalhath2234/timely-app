@@ -34,6 +34,7 @@ EXIT_REFUSED_ENV = 3
 def _setup_logging() -> None:
     level = logging.INFO
     handler = logging.StreamHandler(sys.stderr)
+    handler._timely_stderr = True  # type: ignore[attr-defined]  (no_persist: not a Hermes file log)
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.handlers[:] = [handler]
@@ -132,6 +133,19 @@ def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
         value = msg.get(name)
         if value is not None and (not isinstance(value, list) or any(not isinstance(v, str) for v in value)):
             return f"{name} must be a list of strings"
+    from timely_agent import policy
+    # Q-4.1: API keys and the Go gateway only; no Hermes sign-in provider is reachable.
+    problem = policy.provider_problem(msg.get("model"))
+    if problem:
+        return problem
+    timeout = msg.get("clarify_timeout_s")
+    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+                                or not 0 < timeout <= policy.CLARIFY_TIMEOUT_MAX_S):
+        return f"clarify_timeout_s must be a number of seconds from 1 to {policy.CLARIFY_TIMEOUT_MAX_S}"
+    if flags.get("no_persist") is True:
+        extra = [t for t in msg.get("toolsets") or [] if t not in P.NO_PERSIST_TOOLSETS]
+        if extra:
+            return f"a no-persist run takes only the toolsets {list(P.NO_PERSIST_TOOLSETS)}, not {extra}"
     return None
 
 
@@ -286,6 +300,8 @@ class Worker:
         ours = {n for n, v in bridged.items() if n.startswith("TERMINAL_") and os.environ.get(n) == v}
         from hermes_cli.plugins import discover_plugins
         discover_plugins()
+        from timely_agent import no_persist
+        no_persist.prime(self.home)  # Hermes' log handlers exist, with Timely's no-persist filter
         skills_sync: dict[str, Any] = {}
         try:
             from tools.skills_sync import sync_skills
@@ -521,9 +537,33 @@ class Worker:
         return run
 
     def on_run_stop(self, msg: dict[str, Any]) -> None:
+        from timely_agent import policy
         run = self._find_run(msg)
         run.stop(str(msg.get("reason") or "stopped"))
         self.pending.cancel_run(run.run_id)  # a tool.call or gate.ask waiting on Go ends at once
+        bridge.cancel_clarify(run.run_id, policy.CLARIFY_STOPPED)  # a question card closes cancelled
+
+    def on_clarify_answer(self, msg: dict[str, Any]) -> None:
+        """``clarify.answer`` (phase 4): the person answered a question card. ``ack ok: false``
+        when that request no longer waits (answered, timed out, stopped, or its run is over)."""
+        from timely_agent import policy
+        mid = msg.get("id")
+        request_id = msg.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, "clarify.answer needs the clarify.request's request_id", mid)
+        answers = msg.get("answers") if msg.get("answers") is not None else {}
+        if not isinstance(answers, dict) or any(
+                not (v is None or isinstance(v, str) or (isinstance(v, list) and all(isinstance(x, str) for x in v)))
+                for v in answers.values()):
+            raise P.ProtocolError(P.E_BAD_MESSAGE, "clarify.answer answers must map each qid to a string, a list "
+                                                   "of strings or null", mid)
+        outcome = msg.get("outcome") or "submitted"
+        if outcome not in policy.CLARIFY_ANSWER_OUTCOMES:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"clarify.answer outcome must be one of "
+                                                   f"{list(policy.CLARIFY_ANSWER_OUTCOMES)}", mid)
+        notice = msg.get("notice") if isinstance(msg.get("notice"), str) else ""
+        ok = bridge.clarify_answer(str(msg.get("run") or ""), request_id, answers, outcome, notice[:2000])
+        self.send({"type": "ack", "id": mid, "ok": ok})
 
     def on_run_steer(self, msg: dict[str, Any]) -> None:
         run = self._find_run(msg)
@@ -562,6 +602,13 @@ class Worker:
         self.cache.drop(conversation, keep_counters=False)
         self.counters.forget(conversation)
         bridge.forget_session(conversation)
+        try:
+            # The chat's sub-task transcripts (Hermes keys them by delegation, not by chat); the
+            # child sessions themselves go with the parent row in delete_session below.
+            from timely_agent import delegation
+            delegation.forget(conversation, self.home)
+        except Exception as exc:
+            logger.warning("session.delete %s: removing sub-task transcripts failed: %s", conversation, exc)
         ok = False
         try:
             from hermes_constants import get_hermes_home
@@ -588,6 +635,7 @@ class Worker:
 
     # ------------------------------------------------------------ shutdown
     def stop_all(self, reason: str) -> None:
+        from timely_agent import policy
         with self.runs_lock:
             runs = list(self.runs.values())
         for run in runs:
@@ -596,6 +644,20 @@ class Worker:
             except Exception:
                 run.stop_reason = reason
         self.pending.cancel_all()
+        bridge.cancel_clarify("", policy.CLARIFY_SHUTDOWN)
+
+    def stop_waiting(self, reason: str) -> None:
+        """Shutdown: a run waiting for the person's answer (a question card) cannot finish within
+        the grace, so it is stopped at once and its card closes ``cancelled`` (phase 4)."""
+        from timely_agent import policy
+        with self.runs_lock:
+            runs = [r for r in self.runs.values() if bridge.clarify_pending(r.run_id)]
+        for run in runs:
+            try:
+                run.stop(reason)
+            except Exception:
+                run.stop_reason = reason
+            bridge.cancel_clarify(run.run_id, policy.CLARIFY_SHUTDOWN)
 
     def begin_shutdown(self, grace: float) -> None:
         """``shutdown``: refuse new work, and let live runs finish within ``grace`` on another
@@ -611,6 +673,7 @@ class Worker:
         code = 0
         try:
             deadline = time.monotonic() + max(0.0, grace)
+            self.stop_waiting("shutdown")
             self.wait_runs(grace)
             self.stop_all("shutdown")
             self.wait_runs(2.0)
@@ -675,6 +738,8 @@ class Worker:
             self.on_run_steer(msg)
         elif t == "approval.answer":
             self.on_approval_answer(msg)
+        elif t == "clarify.answer":
+            self.on_clarify_answer(msg)
         elif t == "session.delete":
             self.on_session_delete(msg)
         elif t.startswith("learning.") or t == "settings.update":

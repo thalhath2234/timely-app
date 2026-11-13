@@ -23,6 +23,16 @@ Build or reuse the conversation's ``AIAgent``, run ``run_conversation``, forward
   feed reports what changed before ``run.done``; a learning pass Hermes started is watched
   (``busy.learning``) and reported when it ends. The pass uses the run's own model and
   credentials: Timely never sets ``auxiliary.background_review`` (Q-3.2).
+- **Clarify** (phase 4, Q-4.3): with the ``clarify`` toolset the agent gets a ``clarify_callback``
+  that asks Go for a question card and waits on this run's thread (``bridge.clarify_wait``); the
+  turn goes on where it was once the person answers, the wait times out or the run is stopped.
+- **Sub-tasks** (phase 4): the agent is built inside Hermes' joined-delegation scope, so a
+  ``delegate_task`` call runs its children inside the call and returns their results to the turn;
+  no child outlives the run (``timely_agent.delegation``).
+- **No-persist** (phase 4, Q-4.2; ``flags.no_persist``, test-only): an uncached agent with
+  ``session_db=None``, ``skip_memory``, no learning pass, no review counters, no learning feed and
+  no request dumps; Go sends the whole conversation as ``history`` every turn. Nothing of the run
+  is written under the account home (``NO_PERSIST`` lists the seams).
 """
 
 from __future__ import annotations
@@ -33,9 +43,10 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Optional
 
-from timely_agent import bridge, config_render, untrusted
+from timely_agent import bridge, config_render, policy, untrusted
 from timely_agent.learning import feed as learning_feed
 from timely_agent.learning import passes as learning_passes
 
@@ -183,6 +194,14 @@ class Run:
                 self.agent.clear_interrupt()
 
 
+def clarify_timeout(msg: dict[str, Any]) -> float:
+    """``run.start.clarify_timeout_s`` (Go sends 600), else ``policy.CLARIFY_TIMEOUT_S``."""
+    value = msg.get("clarify_timeout_s")
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+        return float(min(value, policy.CLARIFY_TIMEOUT_MAX_S))
+    return float(policy.CLARIFY_TIMEOUT_S)
+
+
 def config_signature(msg: dict[str, Any]) -> str:
     """Agent cache key part: model, provider, key, toolsets and the Timely block hash (section 3.3).
     The key enters only as a hash: a key changed in Settings must reach the next turn."""
@@ -277,14 +296,43 @@ class EmitRef:
             self.emit(kind, payload)
 
 
+# What a no-persist run turns off so nothing of it lands in the account home (phase 4, Q-4.2):
+# session_db=None (no state.db rows), skip_memory (no MEMORY.md/USER.md read or write),
+# skip_background_review (no learning pass), the agent cache and the review counters
+# (.timely/counters.json), the learning feed diff (.timely/feed-baseline.json), and Hermes'
+# request dump on a failed provider call (sessions/request_dump_*.json, the whole request body).
+NO_PERSIST = ("session_db", "skip_memory", "skip_background_review", "agent_cache", "counters",
+              "learning_feed", "request_dump")
+
+
+def no_persist(msg: dict[str, Any]) -> bool:
+    return (msg.get("flags") or {}).get("no_persist") is True
+
+
+def clarify_callback(questions: list[dict[str, Any]]) -> dict[str, Any]:
+    """``AIAgent.clarify_callback``: the question card for the run this thread serves (Q-4.3)."""
+    run = bridge.current_run.get()
+    if run is None or bridge.current_child(run):
+        return {"answers": {}, "outcome": "undelivered", "notice": policy.CLARIFY_UNDELIVERED}
+    return bridge.clarify_wait(run, list(questions or []), run.clarify_timeout_s,
+                               stopped_notice=policy.CLARIFY_STOPPED, timed_out_notice=policy.CLARIFY_TIMED_OUT,
+                               undelivered_notice=policy.CLARIFY_UNDELIVERED)
+
+
+def _no_request_dump(*_: Any, **__: Any) -> None:
+    return None
+
+
 def build_agent(msg: dict[str, Any], emit: EmitRef):
     """Construct the ``AIAgent`` for a run (section 3.4 step 5)."""
     from hermes_state import SessionDB
     from run_agent import AIAgent
+    from tools.delegate_tool_config import gateway_delegation_inline_scope
 
     model = msg.get("model") or {}
     toolsets = [str(t) for t in msg.get("toolsets") or []]
     learning = (msg.get("flags") or {}).get("learning_writes") is True
+    ephemeral = no_persist(msg)
 
     def delta(text=None, *_, **__):
         if text:
@@ -312,38 +360,50 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
 
     reasoning_cfg = model.get("reasoning")
     system_text = str(msg.get("system_text") or "")
-    return AIAgent(
-        base_url=model.get("base_url") or None,
-        api_key=model.get("api_key") or None,
-        provider=model.get("provider") or None,
-        api_mode=model.get("api_mode") or None,
-        model=model.get("model") or "",
-        max_iterations=turn_limit(msg.get("budgets")),
-        enabled_toolsets=toolsets,  # explicit, never None (section 8.1)
-        # The managed floor agent.disabled_toolsets: AIAgent does not read that key itself (Hermes'
-        # CLI and gateway pass it in), so pass it here; subtracted last, after any composite.
-        disabled_toolsets=list(config_render.NEVER_TOOLSETS),
-        quiet_mode=True,
-        platform="timely",
-        session_id=msg.get("conversation_id"),
-        session_db=SessionDB(),
-        load_soul_identity=True,
-        skip_context_files=True,
-        # A chat always reads About you and Notes (plan 9b.3; review round 6): learning off, a
-        # Sensitive or Don't-learn chat or an answer-only turn stops writes and the learning pass
-        # only. Without the memory toolset the model has no memory tool, Hermes ticks no memory
-        # review, and timely_learning blocks any write while learning_writes is not true (9b.2).
-        skip_memory=False,
-        skip_background_review=not learning,
-        ephemeral_system_prompt=(system_text or None) if SYSTEM_VIA == "ephemeral" else None,
-        reasoning_config=reasoning_cfg if isinstance(reasoning_cfg, dict) else None,
-        stream_delta_callback=delta,
-        tool_start_callback=tool_start,
-        tool_complete_callback=tool_complete,
-        reasoning_callback=reasoning,
-        status_callback=status,
-        tool_progress_callback=progress,
-    )
+    # Joined delegation: the delegate_task the model sees returns its children's results in the
+    # call (Hermes' gateway inline mode, frozen on the agent at its first tool build), so no child
+    # runs in the background after the turn.
+    with gateway_delegation_inline_scope(True):
+        agent = AIAgent(
+            base_url=model.get("base_url") or None,
+            api_key=model.get("api_key") or None,
+            provider=model.get("provider") or None,
+            api_mode=model.get("api_mode") or None,
+            model=model.get("model") or "",
+            max_iterations=turn_limit(msg.get("budgets")),
+            enabled_toolsets=toolsets,  # explicit, never None (section 8.1)
+            # The managed floor agent.disabled_toolsets: AIAgent does not read that key itself (Hermes'
+            # CLI and gateway pass it in), so pass it here; subtracted last, after any composite.
+            disabled_toolsets=list(config_render.NEVER_TOOLSETS),
+            quiet_mode=True,
+            platform="timely",
+            session_id=msg.get("conversation_id"),
+            session_db=None if ephemeral else SessionDB(),
+            load_soul_identity=True,
+            skip_context_files=True,
+            # A chat always reads About you and Notes (plan 9b.3; review round 6): learning off, a
+            # Sensitive or Don't-learn chat or an answer-only turn stops writes and the learning pass
+            # only. Without the memory toolset the model has no memory tool, Hermes ticks no memory
+            # review, and timely_learning blocks any write while learning_writes is not true (9b.2).
+            # A no-persist run reads none of it either (phase 4).
+            skip_memory=ephemeral,
+            skip_background_review=ephemeral or not learning,
+            # Q-4.3: the question card, only when Go offered the clarify toolset.
+            clarify_callback=clarify_callback if "clarify" in toolsets and not ephemeral else None,
+            ephemeral_system_prompt=(system_text or None) if SYSTEM_VIA == "ephemeral" else None,
+            reasoning_config=reasoning_cfg if isinstance(reasoning_cfg, dict) else None,
+            stream_delta_callback=delta,
+            tool_start_callback=tool_start,
+            tool_complete_callback=tool_complete,
+            reasoning_callback=reasoning,
+            status_callback=status,
+            tool_progress_callback=progress,
+        )
+    if ephemeral:
+        # Hermes writes the whole request body to sessions/request_dump_*.json after a provider
+        # refuses it; a no-persist run keeps nothing (per-agent attribute, no patch point).
+        agent._dump_api_request_debug = _no_request_dump
+    return agent
 
 
 SEED_ROLES = ("user", "assistant")
@@ -494,7 +554,17 @@ def _review_callback(conversation: str) -> Callable[[str], None]:
 
 
 def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> dict[str, Any]:
-    """Run one turn; returns the ``run.done`` fields (never raises)."""
+    """Run one turn; returns the ``run.done`` fields (never raises). A no-persist turn runs with
+    Hermes' file logs closed to it (``timely_agent.no_persist``)."""
+    if not no_persist(run.msg):
+        return _run_turn(run, cache, emit)
+    from hermes_constants import get_hermes_home
+    from timely_agent import no_persist as no_persist_logs
+    with no_persist_logs.scope(Path(get_hermes_home())):
+        return _run_turn(run, cache, emit)
+
+
+def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> dict[str, Any]:
     from gateway.session_context import clear_session_vars, set_session_vars
     from hermes_constants import get_hermes_home
     from tools.approval_context import reset_current_session_key, set_current_session_key
@@ -522,9 +592,10 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,
         permission=str(msg.get("permission") or "supervised"), flags=flags,
-        flush=sink.flush, emit=sink.emit, session=state)
+        flush=sink.flush, emit=sink.emit, session=state, clarify_timeout_s=clarify_timeout(msg))
     ctx.stopped = lambda: bool(run.stop_reason)
-    counters = getattr(cache, "counters", None)
+    ephemeral = no_persist(msg)
+    counters = None if ephemeral else getattr(cache, "counters", None)
     turn_ran = False
     try:
         bridge.current_run.set(ctx)
@@ -537,7 +608,11 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
         # config installs Hermes' refusal scope, so terminal tools fail closed.
         scope_token = install_profile_terminal_scope(get_hermes_home())
         signature = config_signature(msg)
-        agent = cache.get(conversation, signature)
+        if ephemeral:
+            # Never a cached agent: one built for a persisting turn holds the session database,
+            # and this one must not outlive the turn (phase 4).
+            cache.drop(conversation, keep_counters=False)
+        agent = None if ephemeral else cache.get(conversation, signature)
         if agent is not None and learning_passes.pending_review(agent) is not None:
             # The last turn's learning pass still runs on this agent, and Hermes cancels it at the
             # start of the agent's next turn (its counters already used up): leave it running on
@@ -551,7 +626,8 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             if counters is not None:
                 counters.apply(conversation, agent)  # resume the review counters (plan 3.3)
             agent.background_review_callback = _review_callback(conversation)
-            cache.put(conversation, signature, agent)
+            if not ephemeral:
+                cache.put(conversation, signature, agent)
         agent._timely_emit.emit = sink.emit
         ctx.agent = agent
         state.agent = agent
@@ -610,8 +686,9 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
     except Exception as exc:
         logger.exception("run %s failed", run.run_id)
         done["error"] = f"{type(exc).__name__}: {exc}"
-        cache.drop(conversation)  # stores the counters first
+        cache.drop(conversation, keep_counters=not ephemeral)  # stores the counters first
     finally:
+        bridge.forget_children(ctx)
         done["tainted_sources"] = ctx.taint_snapshot()
         if turn_ran and counters is not None and run.agent is not None:
             counters.store(conversation, run.agent)  # after every turn (plan 3.3)
@@ -619,7 +696,8 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             sink.close()  # every delta before run.done
         except Exception:
             logger.exception("run %s: flushing stream text failed", run.run_id)
-        _report_run(ctx)  # after the stream text, before run.done
+        if not ephemeral:
+            _report_run(ctx)  # after the stream text, before run.done
         if ctx.end_turn_hit and run.agent is not None:
             try:
                 run.agent.clear_interrupt()
@@ -633,6 +711,11 @@ def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> 
             cache.drop(conversation)  # never reuse an agent that may still hold the stop
         if run.agent is not None and getattr(run.agent, "_timely_emit", None) is not None:
             run.agent._timely_emit.emit = None
+        if ephemeral and run.agent is not None:
+            try:
+                run.agent.close()
+            except Exception:
+                logger.debug("run %s: closing the no-persist agent failed", run.run_id, exc_info=True)
         if scope_token is not None:
             reset_terminal_scope(scope_token)
         if var_tokens is not None:

@@ -25,6 +25,10 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``mcp``           no ``command`` MCP server unless the account is host-allowed and approved it
 - ``timely_tools``  every spec from ``hello.timely_tools`` is registered under toolset ``timely``
                     with timely_tools' own handler, and nothing else is in that toolset
+- ``no_sign_in``    Q-4.1: no Hermes sign-in in the home (``auth.json``, ``.anthropic_oauth.json``),
+                    borrowing another app's login is off, and no ``model``, ``delegation`` or
+                    ``auxiliary.*`` provider in the effective config is a sign-in provider or one
+                    Timely does not run (``policy.ALLOWED_PROVIDERS``, ``auto`` or empty)
 
 If any check fails the worker answers ``ready`` with ``self_test.ok = false`` and refuses runs.
 """
@@ -248,8 +252,57 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
     except Exception as exc:
         checks.append(_check("timely_tools", False, f"{type(exc).__name__}: {exc}"))
 
+    try:
+        from hermes_cli.config import load_config
+        problems = sign_in_problems(want_home, load_config(), oauth_provider_ids())
+        checks.append(_check("no_sign_in", not problems, "; ".join(problems)))
+    except Exception as exc:
+        checks.append(_check("no_sign_in", False, f"{type(exc).__name__}: {exc}"))
+
     return {"ok": all(c["ok"] for c in checks), "checks": checks, "tools": tools,
             "timely_registered": registered}
+
+
+def oauth_provider_ids() -> set[str]:
+    """Hermes provider ids that sign in (OAuth, device code, an external login): Timely's list plus
+    every registry entry whose auth type says so, so a sign-in provider added upstream is caught."""
+    ids = set(policy.OAUTH_PROVIDERS)
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+        for name, cfg in PROVIDER_REGISTRY.items():
+            auth = str(getattr(cfg, "auth_type", "") or "")
+            if auth.startswith("oauth") or auth in ("external_process",):
+                ids.add(str(name))
+    except Exception:
+        pass
+    return ids
+
+
+def sign_in_problems(home: Path, cfg: Any, oauth_ids: set[str]) -> list[str]:
+    """Q-4.1 (pure, for the self-test and unit tests): what in the home or the effective config
+    would let Hermes sign in or borrow a login."""
+    problems = []
+    for name in policy.OAUTH_FILES:
+        path = Path(home) / name
+        if path.exists() or path.is_symlink():
+            problems.append(f"{name} is in the account home (a Hermes sign-in)")
+    cfg = cfg if isinstance(cfg, dict) else {}
+    if config_render.get_dotted(cfg, "auth.adopt_external_logins") is not False:
+        problems.append("auth.adopt_external_logins is not false (Hermes would borrow the Claude Code login)")
+    keys = [("model.provider", config_render.get_dotted(cfg, "model.provider")),
+            ("delegation.provider", config_render.get_dotted(cfg, "delegation.provider"))]
+    aux = cfg.get("auxiliary")
+    for task, entry in (aux.items() if isinstance(aux, dict) else []):
+        if isinstance(entry, dict):
+            keys.append((f"auxiliary.{task}.provider", entry.get("provider")))
+    for key, value in keys:
+        if not isinstance(value, str) or value.strip().lower() in ("", "auto"):
+            continue
+        if value in oauth_ids:
+            problems.append(f"{key} is {value!r}, a sign-in provider")
+        elif value not in policy.ALLOWED_PROVIDERS:
+            problems.append(f"{key} is {value!r}, a provider Timely does not run")
+    return problems
 
 
 def timely_tool_problems(expected: list[str]) -> tuple[list[str], list[str]]:

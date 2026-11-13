@@ -334,6 +334,17 @@ SYMBOLS: dict[str, list[str] | None] = {
     "run_agent:AIAgent.interrupt": ["message", "tool_reason"],  # timely_gate ends the turn (Q-2.4)
     "run_agent:AIAgent.clear_interrupt": [],
     "run_agent:AIAgent.steer": [],
+    # phase 4: a no-persist agent is closed after its turn and never writes a request dump; the
+    # clarify wait sits in Hermes' human-wait window; a sub-task's calls are told apart by Hermes'
+    # delegated-child context and the session it binds
+    "run_agent:AIAgent.close": [],
+    "run_agent:AIAgent._dump_api_request_debug": None,
+    "tools.approval_human_wait:human_wait_window": ["session_key"],
+    "tools.environments.base:touch_activity_if_due": [],
+    "agent.delegation_context:is_delegated_child_context": [],
+    "gateway.session_context:get_session_env": ["name"],
+    "agent.tool_executor:_DEFAULT_CONCURRENT_TOOL_TIMEOUT_S": None,  # the clarify test's --batch-deadline
+    "hermes_logging:setup_logging": ["hermes_home"],
     # timely_tools: its own call id inside a handler, and the hook that sees each model response
     "tools.approval_context:_approval_tool_call_id": None,
     "hermes_cli.plugins:VALID_HOOKS": None,
