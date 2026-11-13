@@ -26,6 +26,12 @@ export type ApiEnvInput = {
    * developer shell's runtime never stands in for the bundled one.
    */
   agentRuntime?: string;
+  /**
+   * The per-launch shell token (shellBridge.newShellToken), passed as
+   * TIMELY_SHELL_TOKEN. Absent: any inherited value is dropped, so no token
+   * the app did not make is ever honoured. Never logged, never sent to a page.
+   */
+  shellToken?: string;
   /** Base environment; defaults to process.env. */
   base?: NodeJS.ProcessEnv;
 };
@@ -39,6 +45,7 @@ export function buildApiEnv(input: ApiEnvInput): NodeJS.ProcessEnv {
     if (key.startsWith("ELECTRON_") || key.startsWith("DB_") || key.startsWith("API_")) delete base[key];
   }
   delete base.TIMELY_AGENT_RUNTIME;
+  delete base.TIMELY_SHELL_TOKEN;
   return {
     ...base,
     PATH: input.shell.PATH,
@@ -58,6 +65,7 @@ export function buildApiEnv(input: ApiEnvInput): NodeJS.ProcessEnv {
     // apps/api/internal/lifeline: exit when the app's stdin pipe closes.
     [LIFELINE_ENV]: "stdin",
     ...(input.agentRuntime ? { TIMELY_AGENT_RUNTIME: input.agentRuntime } : {}),
+    ...(input.shellToken ? { TIMELY_SHELL_TOKEN: input.shellToken } : {}),
   };
 }
 

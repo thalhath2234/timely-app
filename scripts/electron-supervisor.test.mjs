@@ -1407,3 +1407,118 @@ test("start at login: boot syncs the login item first, before the database", asy
     cleanup();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Shell token and the desktop window's requests (plan 11.4)
+// ---------------------------------------------------------------------------
+
+import { SHELL_TOKEN_HEADER, forwardShellRequest, isLoopbackUrl, newShellToken } from "../apps/web/electron/shellBridge.ts";
+
+const shellInput = {
+  apiPort: 48080,
+  bind: ["127.0.0.1"],
+  postgresPort: 54329,
+  secrets: { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" },
+  dataDir: "/data",
+  allowRegistration: false,
+  shell: { PATH: "/bin", HOME: "/home/me" },
+};
+
+test("shell token: 64 hex characters of fresh randomness every time", () => {
+  const tokens = new Set(Array.from({ length: 50 }, () => newShellToken()));
+  assert.equal(tokens.size, 50);
+  for (const token of tokens) assert.match(token, /^[0-9a-f]{64}$/);
+});
+
+test("api env: TIMELY_SHELL_TOKEN is the one the app made, and an inherited one never stands in for it", () => {
+  const token = newShellToken();
+  const env = buildApiEnv({ ...shellInput, shellToken: token, base: { TIMELY_SHELL_TOKEN: "from-the-developer-shell" } });
+  assert.equal(env.TIMELY_SHELL_TOKEN, token);
+  const without = buildApiEnv({ ...shellInput, base: { TIMELY_SHELL_TOKEN: "from-the-developer-shell" } });
+  assert.equal("TIMELY_SHELL_TOKEN" in without, false, "no token made: an inherited one is dropped, never honoured");
+});
+
+test("shell token: one per launch, the same for every API restart, and never in what a window sees", () => {
+  const first = tmpdir();
+  const second = tmpdir();
+  try {
+    const a = makeSupervisor(first.dir, undefined);
+    const b = makeSupervisor(second.dir, undefined);
+    for (const sup of [a, b]) sup.secrets = { jwtSecret: "jwt", backupKey: "bk", dbPassword: "pw" };
+    const shell = { PATH: "/bin", HOME: first.dir };
+    const tokenA = a.getShellToken();
+    assert.match(tokenA, /^[0-9a-f]{64}$/);
+    assert.notEqual(tokenA, b.getShellToken(), "a new launch makes a new token");
+    assert.equal(a.apiEnv(shell).TIMELY_SHELL_TOKEN, tokenA);
+    assert.equal(a.apiEnv(shell).TIMELY_SHELL_TOKEN, tokenA, "an API restart keeps the launch's token");
+    // The snapshot a window gets, and everything written to the log, carry no token.
+    const snapshot = JSON.stringify(a.getInstance());
+    assert.equal(snapshot.includes(tokenA), false, "the DesktopInstance snapshot holds the shell token");
+    a.log.close();
+    b.log.close();
+    for (const dir of [first.dir, second.dir]) {
+      const logDir = userPaths(dir).logDir;
+      for (const name of readdirSync(logDir)) {
+        assert.equal(readFileSync(path.join(logDir, name), "utf8").includes(tokenA), false, `${name} holds the shell token`);
+      }
+    }
+  } finally {
+    first.cleanup();
+    second.cleanup();
+  }
+});
+
+test("shell requests: only to the API on this computer, with the token and the window's session, never echoing either", async () => {
+  assert.equal(isLoopbackUrl("http://127.0.0.1:48080"), true);
+  assert.equal(isLoopbackUrl("http://localhost:48080"), true);
+  assert.equal(isLoopbackUrl("http://[::1]:48080"), true);
+  for (const url of ["http://192.168.0.14:48080", "http://100.64.1.1:48080", "https://127.0.0.1:48080", "http://127.0.0.1.evil.example", "http://localhost.evil.example:1", "http://evil.example/@127.0.0.1", "nonsense"]) {
+    assert.equal(isLoopbackUrl(url), false, url);
+  }
+
+  const token = newShellToken();
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    seen.push({ url: String(url), init });
+    return new Response(JSON.stringify({ hostAccounts: [], shell: true }), { status: 200, headers: { "content-type": "application/json", "set-cookie": "session=rotated; Path=/" } });
+  };
+  const options = { apiUrl: "http://127.0.0.1:48080", token, sessionCookie: async () => "jwt-of-the-window", deviceName: "laptop", fetchImpl };
+
+  const result = await forwardShellRequest(options, "hostAccounts.set", { uid: "usr_1", on: true });
+  assert.deepEqual(result, { ok: true, status: 200, body: { hostAccounts: [], shell: true } });
+  assert.equal(JSON.stringify(result).includes(token), false);
+  assert.equal(JSON.stringify(result).includes("jwt-of-the-window"), false);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url, "http://127.0.0.1:48080/instance/host-accounts");
+  assert.equal(seen[0].init.method, "PUT");
+  assert.equal(seen[0].init.headers[SHELL_TOKEN_HEADER], token);
+  assert.equal(seen[0].init.headers.Cookie, "session=jwt-of-the-window");
+  assert.equal(seen[0].init.body, JSON.stringify({ uid: "usr_1", on: true }));
+  assert.equal(seen[0].init.redirect, "manual");
+
+  // A host card answer is stamped as the desktop device by the main process.
+  await forwardShellRequest(options, "chat.hostApproval", { chatId: "chat_1", revision: 4, requestId: "req_9", choice: "once" });
+  assert.equal(seen[1].url, "http://127.0.0.1:48080/chats/chat_1/host-approval");
+  assert.deepEqual(JSON.parse(seen[1].init.body), { revision: 4, requestId: "req_9", choice: "once", device: { kind: "desktop", name: "laptop" } });
+  // A page cannot name its own device kind.
+  await assert.rejects(
+    forwardShellRequest(options, "chat.hostApproval", { chatId: "chat_1", revision: 4, requestId: "req_9", choice: "once", device: { kind: "phone", unlocked: true } }),
+  );
+  await assert.rejects(forwardShellRequest(options, "chat.hostApproval", { chatId: "chat_1", revision: 4, requestId: "req_9", choice: "once", device: "phone" }), /Unknown field device/);
+
+  // Not loopback, no token, or an operation off the list: nothing is sent.
+  const before = seen.length;
+  for (const apiUrl of ["http://192.168.0.14:48080", "https://127.0.0.1:48080", "http://100.64.1.1:48080"]) {
+    await assert.rejects(forwardShellRequest({ ...options, apiUrl }, "instance.settings", {}), /on this computer/);
+  }
+  await assert.rejects(forwardShellRequest({ ...options, token: "" }, "instance.settings", {}), /No shell token/);
+  await assert.rejects(forwardShellRequest(options, "chat.delete", { chatId: "chat_1" }), /Unknown request/);
+  await assert.rejects(forwardShellRequest(options, "__proto__", {}), /Unknown request/);
+  await assert.rejects(forwardShellRequest(options, "hostAccounts.set", { uid: "usr_1", on: "yes" }), /invalid field on/);
+  await assert.rejects(forwardShellRequest(options, "chat.permission", { chatId: "../instance/host-accounts", permission: "full" }), /Invalid chat id/);
+  assert.equal(seen.length, before, "a refused request reached the network");
+
+  // The API's own failure comes back as data.
+  const refused = await forwardShellRequest({ ...options, fetchImpl: async () => new Response("no", { status: 404 }) }, "instance.settings", undefined);
+  assert.deepEqual(refused, { ok: false, status: 404, body: "no" });
+});

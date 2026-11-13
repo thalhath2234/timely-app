@@ -13,11 +13,13 @@ import {
 } from "electron";
 import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { parseAlertPayload } from "./alerts";
 import { FLAVOR } from "./flavor";
 import { isOpenableExternally, isPermissionAllowed, isSameOrigin } from "./origin";
 import { movePointer } from "./pointer";
+import { forwardShellRequest } from "./shellBridge";
 import { waitForHttp } from "./supervisor/api";
 import { makeSealer } from "./supervisor/config";
 import { checkPrivileges } from "./supervisor/guards";
@@ -169,6 +171,43 @@ ipcMain.handle("instance:action", async (event, name: unknown) => {
   if (!supervisor || !fromMainWindow(event)) return { ok: false, error: "Not available" };
   if (typeof name !== "string" || !ACTIONS.includes(name as DesktopAction)) return { ok: false, error: "Unknown action" };
   return supervisor.action(name as DesktopAction);
+});
+
+// Requests the desktop window may send to the API with the shell token (plan
+// 11.4; docs/desktop/README.md "Shell requests"). Only the main window's own
+// origin may ask, only for an operation in shellOps.ts, and the token and the
+// session cookie never leave this process.
+function fromRendererOrigin(event: Electron.IpcMainInvokeEvent): boolean {
+  if (!fromMainWindow(event)) return false;
+  return isSameOrigin(event.senderFrame?.url ?? "", new URL(rendererUrl).origin);
+}
+
+ipcMain.handle("shell:request", async (event, op: unknown, body: unknown) => {
+  if (!supervisor || !fromRendererOrigin(event)) throw new Error("Not available");
+  const sup = supervisor;
+  return forwardShellRequest(
+    {
+      apiUrl: sup.apiUrl,
+      token: sup.getShellToken(),
+      deviceName: os.hostname(),
+      sessionCookie: async () => {
+        const cookies = await event.sender.session.cookies.get({ url: rendererUrl, name: "session" });
+        return cookies[0]?.value;
+      },
+    },
+    op,
+    body,
+  );
+});
+
+// The working folder: a native picker, so a page never types a path it cannot see.
+ipcMain.handle("shell:pickFolder", async (event) => {
+  if (!supervisor || !fromRendererOrigin(event) || !mainWindow) throw new Error("Not available");
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Working folder for the assistant",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return result.canceled || result.filePaths.length === 0 ? { canceled: true } : { canceled: false, path: result.filePaths[0] };
 });
 
 ipcMain.on("boot:open-logs", (event) => {

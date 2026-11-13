@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useId, useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   CircleAlert,
+  Cpu,
   Database,
   Download,
   ExternalLink,
@@ -15,10 +16,32 @@ import {
   ScrollText,
   Server,
 } from "lucide-react";
+import {
+  HOST_LIMIT_COPY,
+  HOST_TOGGLE_LABEL,
+  IDLE_MINUTES_LIMIT,
+  WORKER_LIMIT,
+  WORKING_FOLDER_HINT,
+  WORKING_FOLDER_LABEL,
+  agentLimitsError,
+  hostAccountRows,
+  hostSectionState,
+  parseWholeNumber,
+  type InstanceSettings,
+} from "@timely/contract/instanceSettings";
 import type { DesktopAction, DesktopInstance } from "@/electron-env";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { cn } from "@/app/utils/cn";
-import { getHealth, getInstance } from "@/app/utils/api/instance";
+import {
+  getHealth,
+  getInstance,
+  getInstanceSettings,
+  setAgentLimits,
+  setHostAccount,
+  setWorkingFolder,
+} from "@/app/utils/api/instance";
+import { useMe } from "@/app/utils/hooks/user";
+import { Input } from "@/app/_components/_ui/field";
 import {
   canToggleTailscale,
   describeSidecar,
@@ -27,7 +50,7 @@ import {
   describeUpdate,
   type StatusSummary,
 } from "@/app/utils/desktopInstance";
-import { useDesktopAction, useDesktopInstance, useDesktopSetting } from "@/app/utils/hooks/desktop";
+import { useDesktopAction, useDesktopInstance, useDesktopSetting, useDesktopShell } from "@/app/utils/hooks/desktop";
 import { Badge } from "@/app/_components/settings/agentSettings";
 import PairingQr from "@/app/_components/settings/pairingQr";
 import { buttonClass } from "@/app/_components/_ui/button";
@@ -303,6 +326,243 @@ function ApiReachability() {
   );
 }
 
+const SETTINGS_KEY = ["instance-settings"] as const;
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Could not save that.";
+}
+
+/**
+ * "Let the assistant use this computer": which accounts may run approved
+ * commands here, the signed-in account's working folder, and how many agent
+ * workers run at once. Only the desktop window changes these (the server
+ * answers 404 to anyone else); everywhere else the section reads the same
+ * facts and says where to change them.
+ */
+export function HostToolsSection() {
+  const shell = useDesktopShell();
+  const queryClient = useQueryClient();
+  const me = useMe();
+  const settings = useQuery({ queryKey: SETTINGS_KEY, queryFn: getInstanceSettings, retry: false, refetchInterval: 15000 });
+  const [error, setError] = useState<string | null>(null);
+  const uid = me.data?.id ?? null;
+  const data = settings.data;
+
+  const save = useMutation({
+    mutationFn: async (run: () => Promise<InstanceSettings>) => run(),
+    onSuccess: (next) => {
+      setError(null);
+      queryClient.setQueryData(SETTINGS_KEY, next);
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+
+  if (settings.isPending) {
+    return (
+      <section className="flex flex-col gap-3 rounded-lg border border-border p-4" aria-busy="true">
+        <HostHeading />
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <LogoSpinner size={14} label="Loading" /> Reading what this account may do…
+        </div>
+      </section>
+    );
+  }
+  if (!data) {
+    return (
+      <section className="flex flex-col gap-2 rounded-lg border border-border p-4">
+        <HostHeading />
+        <p className="text-xs text-destructive" role="alert">
+          {errorMessage(settings.error)}
+        </p>
+      </section>
+    );
+  }
+
+  const mine = data.hostAccounts.find((account) => account.uid === uid);
+  const state = hostSectionState(data, Boolean(shell && data.shell), mine?.source ?? null);
+  const rows = hostAccountRows(data, uid);
+  const busy = save.isPending;
+
+  return (
+    <section className="flex flex-col gap-3" aria-labelledby="host-tools-heading">
+      <h3 id="host-tools-heading" className="text-sm font-semibold text-foreground">
+        Assistant on this computer
+      </h3>
+      <Toggle
+        name="hostAllowed"
+        label={HOST_TOGGLE_LABEL}
+        description={HOST_LIMIT_COPY}
+        checked={state.checked}
+        disabled={!state.editable || !state.canTurnOff || !uid}
+        hint={state.note || undefined}
+        busy={busy}
+        onChange={(next) => uid && save.mutate(() => setHostAccount(uid, next))}
+      />
+
+      {data.hostAccounts.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
+          <h4 className="text-sm font-medium text-foreground">Accounts that can use this computer</h4>
+          <ul className="flex flex-col divide-y divide-border" data-testid="host-accounts">
+            {rows.map((row) => (
+              <li key={row.uid} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-foreground">
+                    {row.title}
+                    {row.you && <span className="ml-1.5 text-xs text-muted-foreground">({row.you})</span>}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground" title={row.folder}>
+                    {row.folder}
+                  </p>
+                </div>
+                <Badge tone={row.source === "server" ? "muted" : "primary"}>{row.sourceLabel}</Badge>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            Each account is turned on on its own: sign in as it in the desktop app to turn it on or off. Every
+            other account can still chat with the assistant, but gets no commands, files or browser.
+          </p>
+        </div>
+      )}
+
+      {state.checked && (
+        <WorkingFolderRow
+          folder={data.thisAccountWorkingDir}
+          editable={state.editable}
+          busy={busy}
+          onPick={async () => {
+            if (!shell || !uid) return;
+            const picked = await shell.pickFolder();
+            if (!picked.canceled) save.mutate(() => setWorkingFolder(uid, picked.path));
+          }}
+          onClear={() => uid && save.mutate(() => setWorkingFolder(uid, ""))}
+        />
+      )}
+
+      <LimitsRow data={data} editable={state.editable} busy={busy} onSave={(max, idle) => save.mutate(() => setAgentLimits({ maxWorkers: max, idleMinutes: idle }))} />
+
+      {error && (
+        <p className="flex items-center gap-1.5 text-xs text-destructive" role="alert">
+          <CircleAlert className="size-3.5 shrink-0" />
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function HostHeading() {
+  return (
+    <div className="flex items-center gap-2">
+      <Cpu className="size-4 text-primary" />
+      <h3 className="text-sm font-semibold text-foreground">Assistant on this computer</h3>
+    </div>
+  );
+}
+
+function WorkingFolderRow({
+  folder,
+  editable,
+  busy,
+  onPick,
+  onClear,
+}: {
+  folder: string;
+  editable: boolean;
+  busy: boolean;
+  onPick: () => void | Promise<void>;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h4 className="text-sm font-medium text-foreground">{WORKING_FOLDER_LABEL}</h4>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground" title={folder || undefined} data-testid="working-folder">
+            {folder || "Not chosen. The assistant works in its own folder."}
+          </p>
+        </div>
+        {editable && (
+          <div className="flex items-center gap-2">
+            <button type="button" className={secondaryButton} disabled={busy} onClick={() => void onPick()}>
+              <FolderOpen className="size-3.5" /> {folder ? "Change folder" : "Choose folder"}
+            </button>
+            {folder && (
+              <button type="button" className={buttonClass({ variant: "ghost" })} disabled={busy} onClick={onClear}>
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">{WORKING_FOLDER_HINT}</p>
+    </div>
+  );
+}
+
+function LimitsRow({
+  data,
+  editable,
+  busy,
+  onSave,
+}: {
+  data: InstanceSettings;
+  editable: boolean;
+  busy: boolean;
+  onSave: (maxWorkers: number, idleMinutes: number) => void;
+}) {
+  const [workers, setWorkers] = useState<string | null>(null);
+  const [idle, setIdle] = useState<string | null>(null);
+  const workersText = workers ?? String(data.maxWorkers);
+  const idleText = idle ?? String(data.idleMinutes);
+  const problem = agentLimitsError(parseWholeNumber(workersText), parseWholeNumber(idleText));
+  const dirty = workersText !== String(data.maxWorkers) || idleText !== String(data.idleMinutes);
+  const workersId = useId();
+  const idleId = useId();
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border p-4">
+      <div>
+        <h4 className="text-sm font-medium text-foreground">Assistant workers</h4>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Each account that is chatting with the assistant uses one worker. A worker that has done nothing for a
+          while stops, and starts again when it is needed.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label htmlFor={workersId} className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Workers at once ({WORKER_LIMIT.min} to {WORKER_LIMIT.max})
+          <Input id={workersId} inputMode="numeric" value={workersText} disabled={!editable || busy} onChange={(e) => setWorkers(e.target.value)} aria-invalid={dirty && problem !== null} />
+        </label>
+        <label htmlFor={idleId} className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Minutes before an idle worker stops ({IDLE_MINUTES_LIMIT.min} to {IDLE_MINUTES_LIMIT.max})
+          <Input id={idleId} inputMode="numeric" value={idleText} disabled={!editable || busy} onChange={(e) => setIdle(e.target.value)} aria-invalid={dirty && problem !== null} />
+        </label>
+      </div>
+      {editable && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className={primaryButton}
+            disabled={busy || !dirty || problem !== null}
+            onClick={() => {
+              onSave(parseWholeNumber(workersText), parseWholeNumber(idleText));
+              setWorkers(null);
+              setIdle(null);
+            }}
+          >
+            Save
+          </button>
+          {dirty && problem && (
+            <p className="text-xs text-destructive" role="alert">
+              {problem}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ServerSettings() {
   const { instance, loading, error } = useDesktopInstance();
   const actions = useDesktopAction();
@@ -325,6 +585,7 @@ export default function ServerSettings() {
             ? `Could not read the server status: ${error}`
             : "This page is only available in the Timely desktop app, which runs its own server."}
         </p>
+        <HostToolsSection />
       </div>
     );
   }
@@ -409,6 +670,8 @@ export default function ServerSettings() {
         </p>
         <PairingQr instance={instance} />
       </section>
+
+      <HostToolsSection />
 
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-semibold text-foreground">Access</h3>

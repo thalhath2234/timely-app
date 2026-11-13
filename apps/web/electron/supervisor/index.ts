@@ -13,6 +13,7 @@ import { findOrphans, scanWithCap, setprivPath, stopOrphans } from "./lifetime.t
 import { FileLog, createLogger, type Logger } from "./logger.ts";
 import type { LoginItemState } from "./loginItem.ts";
 import { NextManager } from "./next.ts";
+import { newShellToken } from "../shellBridge.ts";
 import { agentRuntime, userPaths, type ResourceDirs, type UserPaths } from "./paths.ts";
 import { reconcilePorts, type PortSet } from "./ports.ts";
 import { PostgresManager } from "./postgres.ts";
@@ -148,6 +149,12 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
   /** setpriv the sidecars run under for a death signal (lifetime.ts), or null. */
   private setpriv: string | null = null;
   private loginState: LoginItemState = { supported: false, on: false, blockedBySystem: false };
+  /**
+   * The per-launch shell token (plan 11.4): made here, handed to the API in its
+   * environment and used only by the main process (shellBridge.ts). It is not
+   * part of the DesktopInstance snapshot, the log or any message to a page.
+   */
+  private readonly shellToken = newShellToken();
 
   private postgres: PostgresManager | null = null;
   private api: ApiManager | null = null;
@@ -238,6 +245,11 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
 
   get apiUrl(): string {
     return `http://127.0.0.1:${this.config.apiPort}`;
+  }
+
+  /** For the main process only: main.ts hands it to shellBridge, never to a window. */
+  getShellToken(): string {
+    return this.shellToken;
   }
 
   private progress(step: BootStep, state: BootStepState, detail?: string) {
@@ -431,6 +443,7 @@ export class Supervisor extends EventEmitter<SupervisorEvents> {
       allowRegistration: this.config.allowRegistration,
       shell,
       agentRuntime: this.agentRuntime(),
+      shellToken: this.shellToken,
     });
   }
 

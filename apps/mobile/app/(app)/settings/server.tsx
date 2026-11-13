@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ScrollView, Text, View } from "react-native";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RefreshCw } from "lucide-react-native";
@@ -8,7 +9,9 @@ import MobileHeader from "../../../components/ui/MobileHeader";
 import { GroupHint, GroupLabel, ListGroup, ListRow } from "../../../components/settings/SettingsList";
 import ConfirmSheet from "../../../components/ui/ConfirmSheet";
 import { useServer, type ServerStatus } from "../../../lib/server/ServerProvider";
+import { api } from "../../../lib/api/client";
 import { colors, createThemedStyleSheet } from "../../../lib/theme";
+import { phoneHostLine, type InstanceSettings } from "@timely/contract/instanceSettings";
 
 function statusLabel(status: ServerStatus, health: { status: string; db?: string } | null, wrongServer: boolean) {
   if (status === "checking") return "Checking…";
@@ -36,6 +39,14 @@ export default function ServerSettings() {
   const [confirmChange, setConfirmChange] = useState(false);
   const checking = server.status === "checking";
   const others = (server.config?.urls ?? []).filter((url) => url !== server.activeUrl);
+  // Read-only: only the desktop window turns host tools on (plan 11.2).
+  const computer = useQuery({
+    queryKey: ["instance-settings"],
+    queryFn: () => api<InstanceSettings>("/instance/settings"),
+    enabled: server.status === "online",
+    retry: false,
+  });
+  const host = phoneHostLine(computer.data ?? null);
 
   return (
     <Screen>
@@ -84,6 +95,17 @@ export default function ServerSettings() {
             This phone talks to the Timely desktop over Tailscale. It re-checks the known addresses when it opens, when
             you come back to it and when the network changes, and only talks to the server it paired with.
           </GroupHint>
+        </View>
+
+        <View style={styles.section}>
+          <GroupLabel>This computer</GroupLabel>
+          <ListGroup>
+            <ListRow
+              title={host.label}
+              trailing={<Text numberOfLines={1} style={styles.value} accessibilityLabel={`${host.label}: ${host.value}`}>{host.value}</Text>}
+            />
+          </ListGroup>
+          {host.hint ? <GroupHint>{host.hint}</GroupHint> : null}
         </View>
 
         <View style={styles.section}>

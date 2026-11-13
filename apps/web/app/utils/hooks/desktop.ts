@@ -26,6 +26,20 @@ export function useDesktopBridge(): DesktopBridge | null {
   return useSyncExternalStore(noopSubscribe, readBridge, () => null);
 }
 
+export type DesktopShell = NonNullable<TimelyDesktop["shell"]>;
+
+function readShell(): DesktopShell | null {
+  if (typeof window === "undefined") return null;
+  return window.timelyDesktop?.shell ?? null;
+}
+
+/** The desktop window's request bridge (the page is the desktop window), or
+ * null in a browser or during server rendering. Like the instance bridge it is
+ * injected before any script runs. */
+export function useDesktopShell(): DesktopShell | null {
+  return useSyncExternalStore(noopSubscribe, readShell, () => null);
+}
+
 export type DesktopInstanceState = {
   instance: DesktopInstance | null;
   loading: boolean;
