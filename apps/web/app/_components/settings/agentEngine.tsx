@@ -11,7 +11,9 @@ import { GroupHint, GroupLabel, ListGroup, ListRow } from "@/app/_components/_ui
 import { usePatchChatSettings } from "@/app/utils/hooks/chat";
 
 /** Claude Code and Codex are not Classic-only: New runs them through this
- * server's own CLI and its sign-in (phase 2 gateway, Q-4.1). */
+ * server's own CLI and its sign-in (phase 2 gateway, Q-4.1). Said only when New
+ * can run here: when it cannot, the warning row above gives the reason and
+ * this line would contradict it (the gateway being down is such a reason). */
 const CLI_ON_NEW = "Claude Code and Codex also work on New, through this server’s CLI; their replies arrive in one piece.";
 
 /**
@@ -58,7 +60,7 @@ export default function EngineGroup({ settings }: { settings: AgentChatSettings 
           ? patch.error.message
           : engine === "agent" && !settings.engineAvailable
             ? "Chats on New stop with “Use classic for this chat” until it can run."
-            : `${ENGINE_COPY[engine].description} ${CLI_ON_NEW} Private photo chats and applying changes always run on Classic.`}
+            : `${ENGINE_COPY[engine].description}${settings.engineAvailable ? ` ${CLI_ON_NEW}` : ""} Private photo chats and applying changes always run on Classic.`}
       </GroupHint>
     </div>
   );
