@@ -419,7 +419,7 @@ export function HostToolsSection() {
             ))}
           </ul>
           <p className="text-xs text-muted-foreground">
-            Each account is turned on on its own: sign in as it in the desktop app to turn it on or off. Every
+            Each account is turned on separately: sign in as it in the desktop app to turn it on or off. Every
             other account can still chat with the assistant, but gets no commands, files or browser.
           </p>
         </div>
