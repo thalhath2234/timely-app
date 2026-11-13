@@ -189,6 +189,25 @@ def test_delegate_task_count_and_taint_policy():
     assert "delegate_task" not in policy.TAINT_SOURCES and policy.taint_kind("delegate_task") == ""
 
 
+def test_delegate_tasks_are_read_the_way_hermes_reads_them():
+    """The gate sees raw arguments: a JSON-array string is a batch (Hermes parses it after the gate), and
+    anything else Hermes could read differently is refused instead of counted as 0 children."""
+    kids = [{"goal": "a"}, {"goal": "b"}, {"goal": "c"}]
+    assert policy.delegate_task_count({"tasks": json.dumps(kids)}) == 3
+    assert policy.delegate_task_count({"tasks": "  " + json.dumps(kids[:1]) + " "}) == 1
+    assert policy.delegate_tasks({"tasks": json.dumps(kids)}) == (kids, "")
+    assert policy.delegate_tasks({"tasks": []}) == ([], "") and policy.delegate_tasks({}) == ([], "")
+    for bad in ("not json", "", '{"goal": "x"}', "3", 7, {"goal": "x"}, [json.dumps(kids[0])], [None]):
+        assert policy.delegate_tasks({"tasks": bad})[0] is None, bad
+    run, _ = make_run()
+    assert delegation.verdict(run, {"tasks": "not json"})["message"] == policy.CHILD_TASKS_SHAPE
+    assert run.children_reserved == 0
+    string_images = json.dumps([{"goal": "g", "images": ["https://attacker.example/p.png"]}])
+    assert delegation.verdict(run, {"tasks": string_images})["message"] == policy.CHILD_IMAGES
+    assert delegation.verdict(run, {"tasks": json.dumps(kids)}) is None and run.children_reserved == 3
+    assert delegation.verdict(run, {"tasks": json.dumps(kids[:1])})["message"].startswith("Blocked: this reply already used")
+
+
 def test_live_transcripts_are_recorded_and_forgotten(tmp_path):
     root = tmp_path / "cache" / "delegation" / "live"
     (root / "deleg_a").mkdir(parents=True)

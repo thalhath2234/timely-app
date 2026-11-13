@@ -164,6 +164,8 @@ CHILD_POOL_USED = "The sub-task budget for this reply is used up. Finish with wh
 CHILD_BACKGROUND = "Blocked: sub-tasks cannot run in the background in Timely. Call delegate_task without background."
 CHILD_IMAGES = ("Blocked: sub-tasks cannot be given images in Timely. Describe what they should read "
                 "instead.")
+CHILD_TASKS_SHAPE = ("Blocked: delegate_task needs tasks as an array of objects, each with a goal "
+                     "(a string, a non-array or a non-object entry is not accepted). Call it again that way.")
 CHILD_NOT_HERE = "Blocked: sub-tasks are not available here. Do the work yourself."
 # Children read; only the main assistant proposes, searches past chats or saves skills and memory.
 CHILD_BLOCKED: dict[str, str] = {
@@ -211,12 +213,36 @@ def provider_problem(model: Mapping[str, Any] | None) -> str:
     return ""
 
 
-def delegate_task_count(args: Mapping[str, Any] | None) -> int:
-    """How many children a delegate_task call asks for (``tasks`` entries, or one legacy ``goal``)."""
+def delegate_tasks(args: Mapping[str, Any] | None) -> tuple[list | None, str]:
+    """``delegate_task``'s ``tasks`` the way Hermes reads it (``_normalize_task_list``): a list, or a
+    string holding a JSON array (the pre_tool_call hook sees the raw arguments, before any coercion).
+    Returns ``(entries, "")``; ``(None, why)`` when ``tasks`` is present but is neither (the gate fails
+    closed instead of counting 0 children); ``([], "")`` when the call has no batch."""
     args = args if isinstance(args, Mapping) else {}
     tasks = args.get("tasks")
-    if isinstance(tasks, list) and tasks:
+    if isinstance(tasks, str):
+        try:
+            tasks = json.loads(tasks.strip())
+        except ValueError:
+            return None, "tasks was a string that is not JSON"
+        if not isinstance(tasks, list):
+            return None, "tasks was a string that is not a JSON array"
+    elif tasks is not None and not isinstance(tasks, list):
+        if not tasks:
+            return [], ""
+        return None, "tasks is not an array"
+    tasks = tasks or []
+    if any(not isinstance(t, dict) for t in tasks):
+        return None, "a task is not an object"
+    return tasks, ""
+
+
+def delegate_task_count(args: Mapping[str, Any] | None) -> int:
+    """How many children a delegate_task call asks for (``tasks`` entries, or one legacy ``goal``)."""
+    tasks, _ = delegate_tasks(args)
+    if tasks:
         return len(tasks)
+    args = args if isinstance(args, Mapping) else {}
     return 1 if args.get("goal") else 0
 
 

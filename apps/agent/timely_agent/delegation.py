@@ -50,14 +50,12 @@ def _no_subtasks(run: Optional[bridge.RunContext]) -> bool:
     return run.kind != "chat" or flags.get("from_bot") is True or flags.get("no_persist") is True
 
 
-def _has_images(args: dict) -> bool:
+def _has_images(args: dict, tasks: list) -> bool:
     """``delegate_task`` takes ``images`` (URLs or local paths) at the top level and per task: Hermes
     reads a local file into the child's first message and hands a URL to the provider, outside
-    content with no taint source and a way past the chat's web setting."""
-    if args.get("images"):
-        return True
-    tasks = args.get("tasks")
-    return isinstance(tasks, list) and any(isinstance(t, dict) and t.get("images") for t in tasks)
+    content with no taint source and a way past the chat's web setting. ``tasks`` is the list
+    ``policy.delegate_tasks`` read (a JSON-array string included, as Hermes reads it)."""
+    return bool(args.get("images")) or any(t.get("images") for t in tasks)
 
 
 def verdict(run: Optional[bridge.RunContext], args: dict) -> Optional[dict]:
@@ -66,7 +64,11 @@ def verdict(run: Optional[bridge.RunContext], args: dict) -> Optional[dict]:
         return {"action": "block", "message": policy.CHILD_NOT_HERE}
     if "background" in args and policy.truthy(args.get("background")):
         return {"action": "block", "message": policy.CHILD_BACKGROUND}
-    if _has_images(args):
+    tasks, bad = policy.delegate_tasks(args)
+    if tasks is None:  # Hermes would read it some other way than the gate counted it: fail closed
+        logger.info("delegate_task blocked: %s", bad)
+        return {"action": "block", "message": policy.CHILD_TASKS_SHAPE}
+    if _has_images(args, tasks):
         return {"action": "block", "message": policy.CHILD_IMAGES}
     action = str(args.get("action") or "").strip().lower()
     if action and action != "spawn":
