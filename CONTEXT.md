@@ -79,6 +79,14 @@ _Avoid_: current screen (when referring to previously attached context)
 An attempt to carry out a request in a conversation, with progress and results retained in its history. It can continue while the person leaves the chat; stopping prevents further steps but preserves completed changes.
 _Avoid_: task (Work is a separate concept)
 
+**Question card**:
+A card an Agent run on the New engine puts in the chat when it needs the person to decide something: one to five questions, each with up to four choices or an open answer. The run waits on it and the chat reads "Needs your answer". The run takes the answer from the card, from a message typed meanwhile, or as a Skip, then goes on from where it stopped. Stop, deleting the chat or a lost run closes the card. After 10 minutes the card closes and the run goes on without an answer. A closed card stays in the thread with what was answered.
+_Avoid_: clarify, clarification (Clarify is the Inbox step), prompt, choices card (that is a Reply card the model writes into its answer and that nothing waits on)
+
+**Sub-task**:
+Part of an Agent run's work handed to a helper agent that runs inside the same run and reports back. A run gets at most three sub-tasks, and they share one budget. A sub-task can read but never proposes changes. Each shows as a "Sub-task: …" line while it works. Outside content a sub-task reads gives the chat its Taint.
+_Avoid_: subagent, child agent (in copy), delegate (a Bot's link to another Bot is Pass to), task (Work is a separate concept)
+
 **Quick prompt**:
 The floating chat bar opened with Ctrl/Cmd+Shift+J from any screen. It carries Chat context, image attach, Web search and the model choice. Sending starts the conversation and hands it to the Activity island.
 _Avoid_: agent modal, chat overlay (in copy)
@@ -120,7 +128,7 @@ The changes Auto always asks about first: deleting or overwriting (deletes, more
 _Avoid_: dangerous actions, blocklist (the floors no mode lifts are separate)
 
 **Taint**:
-The mark a chat carries once outside content reached the agent in it: a web page or search, a Timely read of outside data (a Bot's findings), or a past-chat search hit from a chat that carries the mark. It stays with the chat for good, through restarts. In a tainted chat every change is held for review and every learning write is Staged. Where the agent may search or read the web is not limited by the mark: web reads follow Hermes' own handling (outside text reaches the model marked as untrusted data, a link that carries a key or token is refused, private addresses are blocked; owner decision Q-3.9).
+The mark a chat carries once outside content reached the agent in it: a web page or search (its own or a Sub-task's), a Timely read of outside data (a Bot's findings), or a past-chat search hit from a chat that carries the mark. It stays with the chat for good, through restarts. In a tainted chat every change is held for review and every learning write is Staged. Where the agent may search or read the web is not limited by the mark: web reads follow Hermes' own handling (outside text reaches the model marked as untrusted data, a link that carries a key or token is refused, private addresses are blocked; owner decision Q-3.9).
 _Avoid_: dirty, unsafe, untrusted chat (in copy, say "this chat read something from outside Timely")
 
 **Learning pass**:

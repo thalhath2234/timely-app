@@ -529,7 +529,13 @@ The list lives in Go (`agent/permission.go`) with one test per item; Hermes' pat
 
 - **Reply cards (ADR 0013-0017):** unchanged. Kit text in the system block; describe and tick stay in Go.
 - **Photos and receipts:** the Go pipeline (phases `extract`, `receipt_plan`, `receipt_edit`; `chat/images.go:228-395`, `chat/receipts.go:308-702`) stays. Photo chats stay on the classic engine until phase 8.
-- **Sensitive chats:** stay on classic until the agent engine has a proven no-persist path: no `state.db` rows (`session_db=None` and a test that nothing is written), no memory, no session search, no web or browser, no learning pass, and ZDR routing. Hermes has OpenRouter `provider_data_collection` (`hermes:agent/agent_init.py:2066`, `hermes:agent/chat_completion_helpers.py:472-482`) *(read, plan check)* but no `zdr` flag *(ran grep, timely-agent)*; Sensitive runs therefore use the Go gateway (section 5.7), which already sends `provider.zdr=true` (`chat/provider.go:347-374`).
+- **Sensitive chats:** stay on classic until the agent engine has a proven no-persist path: no `state.db` rows (`session_db=None` and a test that nothing is written), no memory, no session search, no web or browser, no learning pass, and ZDR routing. Hermes has OpenRouter `provider_data_collection` (`hermes:agent/agent_init.py:2066`, `hermes:agent/chat_completion_helpers.py:472-482`) *(read, plan check)* but no `zdr` flag *(ran grep, timely-agent)*; Sensitive runs therefore use the Go gateway (section 5.7), which already sends `provider.zdr=true` (`chat/provider.go:347-374`). **Phase 4 (2026-11-13, Q-4.2):** the no-persist path is built and proved, but Sensitive and photo chats still run on classic. With the test-only switch `TIMELY_AGENT_SENSITIVE_NO_PERSIST` (honoured only with `DB_SCHEMA` set, off by default), a Sensitive plan turn runs on the agent engine as a no-persist run:
+  - `flags.no_persist`, which gives `session_db=None`, no memory, no learning pass and an uncached agent;
+  - toolsets `timely` and `todo` only, so no web, past-chat search, sub-tasks or questions;
+  - Go sends the whole conversation every turn;
+  - the model is the gateway's Sensitive grant (`provider.AgentModelFor(..., AgentRunOptions{Sensitive: true})`) on any provider, with ZDR, no streaming and no token counts.
+
+  A real-worker test proves that two such turns leave the account home byte for byte as it was on a home that has served the endpoint (only the `tmp/` folder's mtime moves, from Python's `tempfile` probe). On a cold endpoint Hermes records endpoint metadata, which holds no chat text. Photo chats have no no-persist path yet.
 - **Jev triage (ADR 0012):** per-message tool narrowing (`chat/jev.go:313-328`) is dropped on the agent engine because toolsets are fixed per conversation. Kept: similar-chat pointer (runs before the run starts), language detection, chip pruning, proposal review notes, `resolve_target`.
 - **Bot tags (answer-only turns, `chat/bot_tags.go`):** become a gate verdict: every tool except `get_context`, `list_bots`, `get_bot`, `list_bot_findings`, `ask_bot` is blocked for that run.
 - **Web search toggle per chat:** a gate block on `web_*` and `browser_*` when off.
@@ -538,8 +544,17 @@ The list lives in Go (`agent/permission.go`) with one test per item; Hermes' pat
 
 - Selection stays in Go: the person picks the default provider (ADR 0020), chat prefers a dedicated provider (ADR 0019), provider and model are fixed at claim, there is no silent default.
 - Keys stay encrypted in Postgres. Go decrypts and passes `api_key`, `base_url`, `provider`, `api_mode` per run, the same arguments Hermes cron passes. Phase 2 must verify that auxiliary calls (compression, titles, vision, learning pass) use the run's credentials; they fall back to the main provider unless pinned (`hermes:agent/auxiliary_client.py:4568-4593`) *(read)*. If they read keys from env instead, the account's provider keys also go into the worker's allowlisted environment; terminal children strip known provider keys *(ran, state-multiaccount)*.
-- **CLI providers (Claude Code, Codex):** a Go loopback OpenAI-compatible endpoint (`POST /internal/agent/v1/chat/completions`, `GET /internal/agent/v1/models`) backed by the existing `Completer`s, used only for `claude` and `codex` providers and for Sensitive runs. It runs on **its own `http.Server` bound to 127.0.0.1 on an ephemeral port** (`net.Listen("tcp", "127.0.0.1:0")`), separate from the main router, which listens on every `API_BIND` address including Tailscale ones (`cmd/main.go:404-449`; ADR 0011) *(read, rev check)*. The port and a per-worker secret go to the worker in `hello`. No fixed port means no worktree clash and no new entry in the port rules. A test asserts the route returns 404 on the main router. Until it lands (phase 4), accounts on CLI providers stay on the classic engine. The `--system-prompt-file` fix (earlier plan 4.10) is phase 0, because Hermes adds tens of KB. **Built in phase 2 (2026-11-11), pulled forward from phase 4 for the owner's parity run on Claude Code + Sonnet** (`provider/gateway.go`) *(ran)*. As built it differs from this text in four ways: it serves `/v1/chat/completions` and `/v1/models` on its own loopback server rather than `/internal/agent/...` (nothing else listens there); the secret is one per (account, provider, model), handed to the worker as `run.start.model.api_key` with `provider: "custom"`, not one per worker in `hello` (workers are per account, so isolation is the same; grants live for the API process and are not rotated, which phase 5 must revisit before terminal children can reach 127.0.0.1); token usage is reported as 0, so CLI runs have no token counts or cost; and the CLI answers in one piece, so a CLI reply streams as one chunk (classic CLI doesn't stream either). Sensitive runs do not use it yet (phase 4).
-- Hermes-native OAuth logins (ChatGPT/Codex OAuth, borrowing the Claude Code token, Nous Portal) are not offered by default (Q-4.1).
+- **CLI providers (Claude Code, Codex):** a Go loopback OpenAI-compatible endpoint (`POST /internal/agent/v1/chat/completions`, `GET /internal/agent/v1/models`) backed by the existing `Completer`s, used only for `claude` and `codex` providers and for Sensitive runs. It runs on **its own `http.Server` bound to 127.0.0.1 on an ephemeral port** (`net.Listen("tcp", "127.0.0.1:0")`), separate from the main router, which listens on every `API_BIND` address including Tailscale ones (`cmd/main.go:404-449`; ADR 0011) *(read, rev check)*. The port and a per-worker secret go to the worker in `hello`. No fixed port means no worktree clash and no new entry in the port rules. A test asserts the route returns 404 on the main router. Until it lands (phase 4), accounts on CLI providers stay on the classic engine. The `--system-prompt-file` fix (earlier plan 4.10) is phase 0, because Hermes adds tens of KB. **Built in phase 2 (2026-11-11), pulled forward from phase 4 for the owner's parity run on Claude Code + Sonnet** (`provider/gateway.go`) *(ran)*. As built it differs from this text in four ways: it serves `/v1/chat/completions` and `/v1/models` on its own loopback server rather than `/internal/agent/...` (nothing else listens there); the secret is one per (account, provider, model), handed to the worker as `run.start.model.api_key` with `provider: "custom"`, not one per worker in `hello` (workers are per account, so isolation is the same; grants live for the API process and are not rotated, which phase 5 must revisit before terminal children can reach 127.0.0.1); token usage is reported as 0, so CLI runs have no token counts or cost; and the CLI answers in one piece, so a CLI reply streams as one chunk (classic CLI doesn't stream either). Sensitive runs do not use it yet (phase 4). **Phase 4 (2026-11-13):**
+  - Sensitive runs get their own grant on any provider (`AgentModelFor` with `Sensitive`): one `tgw-` key, ZDR, no reasoning setting, no streaming, zero tokens. It is used only under the test-only no-persist switch (5.6).
+  - Fake-CLI tests drive Claude Code and Codex tool calls through a real worker (`provider/gateway_realworker_test.go`, `testdata/fakecli`). Codex is proved only that way; the live check is Claude Code + Sonnet.
+  - A test pins the gateway paths on the main router: 404 for a signed-in caller, 401 without a session.
+  - Grants are still not rotated.
+- Hermes-native OAuth logins (ChatGPT/Codex OAuth, borrowing the Claude Code token, Nous Portal) are never offered (Q-4.1, answered 2026-11-13: API keys and the CLI providers through the gateway only). As built in phase 4:
+  - Go hands a worker only allowlisted API-key provider ids, and the worker checks the same list (`custom`, `openrouter`, `anthropic`, `gemini`, `deepseek`, `xai`, `zai`, `nvidia`, `opencode-zen`, `opencode-go`, `ollama-cloud`, plus `openai-api`, `kimi-coding` and `kimi-coding-cn`, which Go's OpenAI and Kimi rows map to).
+  - An `sk-ant-oat` token is refused as an Anthropic key.
+  - The worker refuses `ANTHROPIC_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CONFIG_DIR` in its environment and never reads `~/.claude/.credentials.json`.
+  - The self-test check `no_sign_in` fails on an `auth.json` or an OAuth provider in the config.
+  - Hermes' auxiliary resolver still tries `nous` at worker start and finds no credentials (phase 4 status, finding 5).
 - `web.keyless_fallback: false` and `keyless_rescue: false` (ADR 0009: never switch silently). Search backend keys come from Settings.
 
 ### 5.8 Go code: deleted, kept, changed
@@ -827,8 +842,8 @@ Once a bot is a scheduled agent run, a chat and a bot are the same thing seen tw
 | `memory` | memory | allow (policy may stage) | staged | 3 | Inline executor |
 | `session_search` | session_search | allow; a hit from a tainted or bot-originated conversation taints the session | block (bot ticks have no session DB) | 3 | Inline executor; FTS5, no LLM |
 | `todo_list` | todo | allow | block | 2 | Agent's run plan, not Timely tasks |
-| `clarify` | clarify | block → card | block | 4 | Q-4.3 |
-| `delegate_task` | delegation | allow, capped (3 children, shared budget); the parent is tainted by any child taint | block | 4 | Children inherit hooks but run under their own `session_id` (`hermes:tools/delegate_tool.py:289-311`) *(read, rev check)*; the plugin maps child to parent through `parent_session_id` |
+| `clarify` | clarify | card the run waits on (Q-4.3) | block | 4 | *Built in phase 4:*<br>• The worker decides it locally (no `gate.ask`) and waits on `clarify.request` / `clarify.answer` / `clarify.closed`, 10 minutes by default.<br>• Go keeps the card on the row (`question`, status `running`), answers through `POST /chats/:id/answer`, a message or a steer, and closes it on Stop, Delete, a lost run or the timeout.<br>• Not offered in bot, answer-only or no-persist runs. |
+| `delegate_task` | delegation | allow, capped (3 children, shared budget); the parent is tainted by any child taint | block | 4 | Children inherit hooks but run under their own `session_id` (`hermes:tools/delegate_tool.py:289-311`) *(read, rev check)*; the plugin maps child to parent through `parent_session_id`.<br>*Built in phase 4:*<br>• 3 children per run in total, sharing 60 tool calls; 20 iterations and 300 s per child; no grandchildren or background children.<br>• Children cannot propose, search past chats or write skills.<br>• A child's outside read taints the parent at once (`via: "subagent"`, `child`). `delegate_task` itself is no longer a taint source.<br>• Sub-tasks show as "Sub-task: <goal>" activity lines.<br>• Not offered in bot or no-persist runs. |
 | `web_search`, `web_extract` | web | allow; block when the chat's web toggle is off, in Sensitive and answer-only runs. No Timely rule on where a tainted session may search or read (owner decision Q-3.9, which replaced phase 3's block-then-approve exfiltration rule): Hermes' own handling applies on every backend (untrusted wrapping, the advisory threat scan, a URL carrying a key or token refused, the SSRF floor; Hermes' website blocklist is opt-in and empty in Timely); each read is taint | bot egress policy (section 7.5) | 3 | Untrusted wrapper is Hermes' (`hermes:agent/tool_dispatch_helpers.py:484-590`) *(read)*; secret-URL block `hermes:tools/web_tools_extract.py` `_validate_extract_urls` |
 | `x_search` | x_search | allow with an xAI key | allow | later | |
 | `vision_analyze` | vision | allow for attachments/URLs; host path → approve | allow for URLs | 4 | Receipts stay in Go |
@@ -1474,6 +1489,122 @@ Every phase keeps a working agent: the classic engine stays the default until ph
 - Deliverables: Go CLI model gateway for `claude`/`codex` on its own loopback listener (ephemeral port, 404 on the main router) *(done in phase 2, 2026-11-11; phase 4 adds Sensitive runs and the fake-CLI translation tests through a real worker)*; `delegate_task` with caps and child → parent taint; clarify choices card (if Q-4.3 yes); no-persist path for Sensitive (no `state.db` writes, no learning, ZDR via the gateway) behind a flag.
 - Verification: gateway tool-call translation tests with the fake CLI; a test that the gateway route returns 404 through a listener bound to a non-loopback address; a delegation scenario, including a child `web_extract` that taints the parent; Sensitive test asserts nothing written to the home.
 - Exit: accounts on CLI providers can use the new engine.
+- Phase 4 status (2026-11-13, `feature/hermes-phase4` on top of phase 3b's PR #294; five packages in `docs/plans/2026-11-13-phase4-work-packages.md`) *(ran)*. Built, not pushed. **Exit reached:** a Claude Code account on Engine = New answered, held a proposal and applied it live through the loopback gateway, and Codex answered on Engine = New through the fake CLI (below). Owner answers Q-4.1 to Q-4.3 are in section 15.
+  - Built:
+    - **Gateway** (`1fcc6e80`).
+      - `provider.AgentModelFor(ctx, uid, provider, model, AgentRunOptions{Sensitive})` gives a Sensitive run the gateway's own grant on any provider: `custom`, `<gateway>/v1`, a `tgw-` key, chat completions, with ZDR on the completer, no reasoning setting, no streaming and zero tokens. Without the gateway it returns `ErrAgentEngineUnsupported`.
+      - Fake-CLI tests run Claude Code and Codex tool calls through a real worker (`testdata/fakecli`, `gateway_realworker_test.go`).
+      - The non-loopback listener test: a gateway path on the main router is 404 for a signed-in caller and 401 without a session.
+      - The Q-4.1 Go half: only allowlisted provider ids reach a worker, and an `sk-ant-oat` token is refused as an Anthropic key.
+    - **Worker** (`89268ebc`, PROTOCOL.md section 11).
+      - `clarify` is a question card the run waits on: `clarify.request`, `clarify.answer` and `clarify.closed`, with `run.start.clarify_timeout_s` (default 600). Stop and shutdown cancel the wait, and every way it ends sends `clarify.closed` once.
+      - `delegate_task` with Timely's caps:
+        - 3 children per run in total, and the children share a pool of 60 tool calls;
+        - 20 iterations and 300 s per child;
+        - no grandchildren and no background children;
+        - children cannot propose, search past chats or write skills.
+      - A child's outside read taints the parent at once with `via: "subagent"` and `child`. The `subagent` start and stop events carry the goal, and a child's `tool.call` carries `subagent`.
+      - No-persist runs (`flags.no_persist`): `session_db=None`, no memory, no background review, an uncached agent, toolsets `timely` and `todo`, and the whole history from Go every turn.
+      - The Q-4.1 worker half:
+        - the provider allowlist, which adds `openai-api`, `kimi-coding` and `kimi-coding-cn`: Go maps OpenAI and Kimi to these API-key ids;
+        - the worker refuses `ANTHROPIC_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CONFIG_DIR` in its environment;
+        - it never reads `~/.claude/.credentials.json`;
+        - the self-test check `no_sign_in` fails on an `auth.json` or an OAuth provider in the config.
+      - Bots and no-persist runs never get `clarify` or `delegation`.
+    - **hermes-sync** (`25e8e632`): `clarify` is allowed in chat with its reviewed schema; the phase 4 seams are recorded.
+    - **Go engine** (`46fd718f`, `7d5e2a81`).
+      - Migration `agent_conversation_question`, with a down step, adds `agent_conversations.question`. A waiting card keeps status `running`, so claim, lease, Stop, Delete and Lost are unchanged.
+      - `POST /chats/:id/answer {requestId, answers | skip}` is fenced on the run that asked. A stale card, or an answer the worker no longer waited for, gets 409 (the second is kept as `undelivered`); another account gets 404.
+      - A message or a steer sent while a card waits answers it.
+      - Stop, a failure and a lost run close the card as `stopped`, and every closed card stays in the thread as a `question` message.
+      - One push per card ("Timely has a question.").
+      - Sub-task activity lines ("Sub-task: <goal>"), and `TaintSource.Via` and `Child`.
+      - Two test-only switches, honoured only with `DB_SCHEMA` set: `TIMELY_AGENT_SENSITIVE_NO_PERSIST` (off by default; with it on, a Sensitive plan turn runs no-persist on the gateway's Sensitive grant) and `TIMELY_AGENT_CLARIFY_TIMEOUT_S`.
+      - TLA+ gains Ask, CloseQuestion and Answer, the property NoAnswerAfterEnd and the guard `AnswerFenced` with its mutant.
+    - **UI** (`dc9569a1`): `QuestionCard` on web (`questionCard.tsx`) and phone (`QuestionCard.tsx`, with a sheet for typed answers):
+      - the card states waiting, answered, skipped, "Not answered in time" and "Stopped before you answered";
+      - "Needs your answer" in the chat header and history, the composer's "Send as your answer", and the time left;
+      - sub-task lines (`data-kind="subagent"`, `activity-subagent`);
+      - Settings copy that no longer calls Claude Code or Codex Classic-only.
+    - **verify-docs** (`8c01997d` and this commit): the real-worker tests below; a `verify-timely` recipe for the agent engine (`features/agent-question-cards.md`, the SKILL's "Agent engine runs"); a `doctor` that works with the non-dumpable API. The doctor's API checks had failed since phase 3b's `internal/procguard`: `ss` cannot name the listener and its `/proc` files are root-owned, so it now reads `air`'s environment and cwd.
+  - Real-worker tests *(ran)*, in `chat/engine_phase4_realworker_test.go`, which `TIMELY_AGENT_TEST_RUNTIME=dev make test-chat-integration` runs. They use the real Python worker on the stub model behind a recording proxy, through Go and Postgres.
+    - `...RealWorkerQuestionCards`:
+      - The card is on the row: 32-hex request id, the run's id, 10 minutes. The model is asked only once while the card waits.
+      - `POST /answer` continues the same run into a held `create_task` proposal with the card's run id. The model reads Hermes' clarify result (`user_response` "Tuesday", "after lunch"), and a second answer gets 409.
+      - A 2 s timeout closes a multi-select card `timed_out` and the run replies.
+      - Stop ends the run in the worker, the card closes `stopped`, a late answer gets 409, and the model gets no further request.
+      - Delete ends the run, and a late answer gets 404.
+      - Killing the worker during the wait gives `txtAgentLost` with Try again and the card `stopped`. Retry asks a new card in a new worker, and answering it finishes the turn.
+    - `...RealWorkerSubtaskTaint`:
+      - The worker starts through a wrapper that resolves `*.fixture.invalid` (Hermes' SSRF floor). Otherwise it is the real boot path, `probe_boot.py`.
+      - A `delegate_task` child's `web_extract` of a `FixtureFetcher` page shows a running "Sub-task: …" line.
+      - The page reaches the child's own model requests, which carry none of the parent's conversation.
+      - The chat is tainted `{web, web_extract, news.fixture.invalid, via: subagent, child}`, and the parent's `direct=true` proposal in Auto ends in `approval` with nothing written.
+    - `...RealWorkerSensitiveNoPersist`:
+      - After an ordinary chat on the same endpoint, two Sensitive turns with tool calls, with the switch on, leave every file in the account home byte for byte as it was: path, size, mode, mtime and sha256. The secret word is in no file.
+      - Every model call of those turns carried the Sensitive grant's key, and the ordinary chat carried its own.
+      - The second turn's model saw the first.
+      - With the switch off, the same kind of chat ran classic, made no model call through the worker's endpoint and left the home unchanged.
+      - A mutant that sends Sensitive runs without `no_persist` fails it, with `.timely/counters.json`, `logs/agent.log`, `logs/errors.log` and `state.db*` changed.
+      - The one exception the test allows: the folder `tmp/`, the worker's `TMPDIR` inside the home, changes its mtime. Python's `tempfile` probes the folder once per process with a random 8-letter file holding `blat`, deleted at once (seen with inotify; nothing else in the home changed). On a cold endpoint the worker also writes endpoint metadata (the worker package's note).
+  - `verify-timely` end to end *(ran)*.
+    - Stack:
+      - API on 8081 with `DB_SCHEMA=phase4` and its own `TIMELY_DATA_DIR`, run in a private mount namespace whose `/etc/hosts` maps the fixture hosts, with `TIMELY_AGENT_WEB_FIXTURES` and `TIMELY_AGENT_CLARIFY_TIMEOUT_S=90`;
+      - web on 4002 and Expo web on 8082;
+      - the stub model behind `ollama_shim.py` with a phrase table. The shim needed no new directives: `clarify` and `delegate_task` are `SCRIPT` calls, and a child plays its goal's own phrase;
+      - `CLAUDE_BIN` and `CODEX_BIN` pointing at signed-in wrappers of the fake CLIs.
+    - Web at 1440, light and dark, a new account each. Every check passed in both:
+      - (a) Answered: the card ("Timely needs an answer", Recommended on the first choice, "2 min left"); the header and history read "Needs your answer". Tuesday, then Send answer: the card reads "Answered · Tuesday", the same run's proposal waits in Supervised, and nothing is written. The shim log shows the model reading the clarify result.
+      - (b) Three questions on one card: multi-select Mon and Fri, 45 minutes, and a typed "No running, my knee is sore". All three answers reached the run, and it replied.
+      - (c) Stop run while the card waits: "Stopped before you answered", status `stopped`. A late answer gets 409, and the model is not asked again.
+      - (d) Delete from the history menu while the card waits: the chat is gone (404), and a late answer gets 404.
+      - (e) Nobody answers: after 90 s, "Not answered in time", and the run's next reply arrives.
+      - (f) Auto with Web search on, a delegation: the "Sub-task: Read https://recipes.fixture.invalid/ and list what to buy" line shows while the child works. The parent's `direct=true` proposal is held ("Ready for your review", status `approval`) with nothing written, and the DB row's taint names the child (`via: subagent`, host `recipes.fixture.invalid`).
+      - (g) Claude Code (`sonnet`) and Codex (`gpt-5.1-codex`), fake CLIs, connected: each chat answered on the New engine (`runEngine` `agent`, header "Codex · gpt-5.1-codex · New engine") with the fake CLI's text.
+    - Phone at 390 (Expo web), light and dark: (a); (b) with the typed answer through the answer sheet; a message typed in the composer answering a waiting card ("Sunday morning", outcome submitted, no extra user message); (c); (e); (f) with `activity-subagent`.
+    - `make audit-mobile-assistant` passed (23 screenshots).
+    - Proof is in `~/.cache/timely-phase4-verify/evidence/run1/` (not committed): screenshots, ARIA snapshots, API and DB reads, the action log and `doctor.txt`.
+  - Live, Claude Code + Sonnet through the loopback gateway *(ran)*, on an API outside the namespace and with no fake CLIs. A new account connected the host's Claude Code with model `sonnet`, Engine = New, Supervised.
+    1. A reply on the New engine (`runEngine` `agent`, `agentRun` set).
+    2. "Add a task called “Buy hallway paint” due tomorrow.": the proposal waited (`approval`, nothing written), and Apply changes wrote the task.
+    3. "Book a haircut for me next week. I'm free on two different days, so pick with me.": **Sonnet did not call `clarify`**. It asked in its reply with Timely's own Choices reply card (Mon to Fri dates). This is a finding, not a failure.
+    4. Told to "use your clarify tool to ask me which day suits me": Sonnet called `clarify` (one question, four dates). The card showed, the answer (Monday 16 Nov) reached the same run, the card closed `submitted`, and the run went on, asking for a time in a Choices card.
+  - Suites at `8c01997d` *(ran, 2026-11-13)*. The docs commit after it changes only docs and `.agents/skills/verify-timely`.
+    - `make test` exit 0 on a quiet machine (6 min):
+      - 45 Go packages;
+      - the worker's pytest 282 passed, 1 skipped;
+      - contract 120 passed, none skipped (contract test 9's `delegate_task` case runs now);
+      - 1,265 node tests, 1 skipped.
+
+      The first run, during the end-to-end drive (load average 34, no free memory), exited 2. Three contract tests in `test_c09_learning.py` timed out waiting 120 s for a worker message (`memory_counter_of_zero_survives_a_restart`, `taint_survives_a_worker_restart`, `learning_stop_right_after_run_start_reaches_the_run[chat]`), and all three passed in `make -k test` (exit 0, the same counts) and in every later run.
+    - `TIMELY_AGENT_TEST_RUNTIME=dev make test-chat-integration` exit 2: 21 packages pass, the three new real-worker tests included. The one failure is `bots` `TestIntegrationIconJob` (finding 8, not caused by phase 4).
+    - Exit 0:
+      - `make agent-go-integration`;
+      - `make hermes-sync-check`: 0 patch points, 83 tools classified, 44 bundled and 78 optional skills reviewed, 176 seams unchanged, with its own agent-test and agent-contract at the counts above;
+      - `make agent-test` (282 passed, 1 skipped) and `make agent-contract` (120 passed);
+      - `make lint`, `make typecheck`, `make lint-chat`, `make check-format-chat`, `make agent-lint` and `make agent-go-vet-windows`;
+      - `make test-agent-chat` (15) and `make test-mobile-assistant` (59);
+      - `make audit-mobile-assistant` (23 screenshots).
+    - TLA+ *(ran)*: `make verify-agent-runs` exit 0. The covered functions match sync commit `46fd718f`. AgentRunApply passes with 1.0 million distinct states in 26 s, and AgentRunTurn with 10.4 million distinct states in 185 s. `ARGS=--mutants` exit 0: all nine guards are caught, `AnswerFenced` included (removed, NoAnswerAfterEnd is violated).
+  - Findings (each outside this package's files unless marked):
+    1. Two ways to ask the person. Unprompted, Sonnet asks through Timely's Choices reply card (genui, ADR 0013-0017), not `clarify`. A Choices card does not pause the run, has no time limit and does not survive Stop. Whether the Timely block should steer the model to `clarify` (or leave Choices for after a run) is the owner's call.
+    2. The activity lines show the raw tool names "Clarify" and "Delegate task". "Clarify" is already a CONTEXT.md term (an Inbox item becoming Work or a Reminder), and the copy should say "Asked you a question" / "Handed work to a sub-task". This is in the UI's activity labels.
+    3. Hermes' `clarify` always marks the first of two or more choices Recommended: its schema tells the model to put the recommended choice first. So every card with choices shows the badge, even where the model meant none.
+    4. A child's page read is in the chat's taint three times: Go's own entry for the outside `web_extract` result (no `via`), the worker's at `pre_tool_call` (no host), and the worker's with the host. The hold is right; the list is noisy. Readers should match `via` and `host` together.
+    5. Q-4.1: no sign-in path runs, but at every worker start Hermes' auxiliary resolver still tries the `nous` provider and logs "Auxiliary Nous client unavailable … run: hermes auth" (the gateway package flagged it). Pinning the auxiliary providers to the run's in the rendered config would stop it.
+    6. *(verify-docs, fixed)* `verify-timely doctor` failed every API check since phase 3b's `procguard` (above).
+    7. Open from the ui package: the phone push for a question reads "Your assistant has finished." (`notify/service.go` `notificationPushMessage` keys every agent push on `data.status`, which is `running` for a card), and the web Activity island shows "Working" for a waiting card (`activityIsland.tsx` calls `statusMeta(c.status)` without the question).
+    8. `TestIntegrationIconJob` (`bots`) fails in `make test-chat-integration` ("a database error: job succeeded"). It fails the same way on `feature/hermes-phase3b`, so phase 4 did not cause it.
+  - Open for the owner: the work packages' flags 1-9 stand. In short:
+    - a card keeps status `running`;
+    - a 10-minute live wait with no parked continuation;
+    - the delegation numbers;
+    - the no-persist switch is test-only, and a cold endpoint still records endpoint metadata (a per-run scratch `HERMES_HOME` would remove it);
+    - Sensitive and CLI runs through the gateway do not stream and report no tokens;
+    - children cannot propose;
+    - Codex is proved only with the fake CLI;
+    - gateway grants are not rotated.
+    - Plus findings 1-3 above.
 
 ### Phase 5: host tools and browser
 

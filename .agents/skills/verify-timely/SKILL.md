@@ -158,6 +158,25 @@ Run `$V down` after every failed attempt too, so broken attempts don't strand po
   - `VERIFY_TIMELY_TIMEOUT`: action timeout in ms, default 20000.
   - `VERIFY_TIMELY_EVIDENCE`: action log dir.
 
+## Agent engine runs (stub model, fixture pages, fake CLIs)
+
+Chats on the New engine need a model, and a fresh account has none. To verify them without a live provider, keep the stack from `up` (web, browser, scratch worktree) and replace its API:
+
+1. Start the stub model: `python3 -I apps/api/scripts/agentqa/ollama_shim.py 11435 apps/agent/tests <dir>/phrases.json`. Set `TIMELY_SHIM_LOG=<file>` to log what the model saw. The phrase table maps the person's words to a stub directive. See `apps/api/scripts/agentqa/README.md`.
+2. Kill the session in `~/.cache/verify-timely/api.sid`. Start `make dev-worktree-api DB_SCHEMA=<schema> ALLOW_REGISTRATION=true` in the scratch worktree, in a new session that writes `api.sid`, with these variables:
+   - `OLLAMA_BASE_URL=http://127.0.0.1:11435`.
+   - `TIMELY_AGENT_RUNTIME=<this checkout>/apps/agent`. The scratch worktree has no `.venv`.
+   - `TIMELY_DATA_DIR=<scratch>`.
+   - `TIMELY_AGENT_WEB_FIXTURES=<dir>`: `https://<name>.fixture.invalid/` is served from `<dir>/<name>/index.html`.
+   - `TIMELY_AGENT_CLARIFY_TIMEOUT_S=90`.
+   - `CORS_ORIGINS=http://localhost:8082` for the phone.
+   - For Claude Code and Codex without a live model: `CLAUDE_BIN` and `CODEX_BIN` pointing at wrappers of `apps/api/internal/features/provider/testdata/fakecli/*`. Each wrapper reports signed in and sets its own `FAKECLI_DIR`.
+   - The test switches (`TIMELY_AGENT_CLARIFY_TIMEOUT_S`, `TIMELY_AGENT_SENSITIVE_NO_PERSIST`, the fixtures) work only with `DB_SCHEMA` set.
+3. For fixture pages, run the API under `unshare -rm` with `mount --bind <hosts> /etc/hosts`, mapping the fixture names to `93.184.216.34`. Hermes' SSRF floor resolves every `web_extract` host in the worker and fails closed. Nothing connects to that address, because Go's `FixtureFetcher` answers. A live Claude Code check needs an API outside the namespace, which runs as uid 0.
+4. Phone: `make dev-mobile-web` in the scratch worktree, which serves Expo web on `:8082` against `:8081`.
+
+`doctor` accepts this API when it runs in the recorded `api` session. The API marks itself non-dumpable (`internal/procguard`), so `doctor` reads the environment and working directory of `air` instead of the API binary's. The recipe is [features/agent-question-cards.md](features/agent-question-cards.md).
+
 ## Secondary surfaces (not proved by this skill)
 
 - **Electron shell** (`apps/web/electron`). `make audit-desktop AUDIT_PORT=4002` runs Electron under Xvfb against this skill's `:4002` web, with CDP on `127.0.0.1:4061`. It lists a page only once the web answers below 500. Stop it with `pkill -f "[t]imely-design-audit-electron"`. Hosted mode, with its own Postgres and API, is `make dev-desktop-hosted`. Desktop-only UI, such as Settings → Account → Delete account and Settings → Server, appears only inside Electron.

@@ -192,6 +192,31 @@ recommended answer to Q-5.2.
     phase 5.
   - ADR 0013 to ADR 0020 stand.
 
+## The owner's answers (2026-11-13, phase 4)
+
+- **Q-4.1** Hermes' own sign-ins are never offered: no ChatGPT or Codex
+  OAuth, no borrowing the Claude Code login, no Nous Portal. The New engine
+  uses API keys and, for Claude Code and Codex, the Go model endpoint above.
+  Go and the worker each keep an allowlist of API-key provider ids. A Claude
+  Code OAuth token is refused as an Anthropic key, and the worker refuses the
+  Claude Code token variables and never reads the CLI's credentials file.
+- **Q-4.2** Sensitive and photo chats stay on Classic. The no-persist run they
+  would need is built and proved behind a test-only switch:
+  - nothing is written to the agent home;
+  - no learning, past-chat search, web, sub-tasks or questions;
+  - Go sends the whole conversation each turn;
+  - the Go model endpoint gives the run a zero-data-retention grant.
+
+  They move only at the cutover (plan phase 8).
+- **Q-4.3** When the agent needs the person to decide, it asks on a Question
+  card the run waits on, on web and phone. The person answers on the card or
+  by typing, or skips, and the run goes on where it stopped. Stop, deleting
+  the chat, a lost run and a 10-minute limit close the card. The wait keeps
+  the run's `running` status, so claiming, leases, Stop and Delete are
+  unchanged, and the answer is accepted only while the run that asked is
+  still live (checked in TLA+). Bots never ask and never start Sub-tasks.
+  A Sub-task's outside read counts as the chat's own.
+
 ## Considered Options
 
 - **Install Hermes as a pinned package**: rejected by the owner; the code lives
