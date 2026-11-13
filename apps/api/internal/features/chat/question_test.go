@@ -211,3 +211,16 @@ func TestRunEngineKeepsPhotoAndSensitiveChatsOnClassic(t *testing.T) {
 		}
 	}
 }
+
+// A message typed as the answer is held to the 2,000-character limit that
+// POST /answer enforces.
+func TestTypedAnswerIsHeldToTheAnswerLimit(t *testing.T) {
+	card := ChatQuestion{RequestID: "r", Questions: []QuestionItem{{QID: "q0", Question: "Which?"}, {QID: "q1", Question: "More?"}}}
+	got, err := textAnswers(strings.Repeat("é", maxAnswerRunes))(card)
+	if err != nil || got["q0"] != strings.Repeat("é", maxAnswerRunes) || got["q1"] != got["q0"] {
+		t.Fatalf("a full-length answer: %v %v", got, err)
+	}
+	if _, err := textAnswers(strings.Repeat("é", maxAnswerRunes+1))(card); err == nil || !strings.Contains(err.Error(), "2000 characters") {
+		t.Fatalf("an over-long answer: %v", err)
+	}
+}

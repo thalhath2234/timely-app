@@ -253,6 +253,10 @@ func validAnswers(q ChatQuestion, answers map[string]any) (map[string]any, error
 // card (decision 4: Hermes reads a string as the typed "Other" answer).
 func textAnswers(text string) func(ChatQuestion) (map[string]any, error) {
 	return func(q ChatQuestion) (map[string]any, error) {
+		// Free text is held to the same limit as on POST /answer.
+		if utf8.RuneCountInString(text) > maxAnswerRunes {
+			return nil, echo.NewHTTPError(400, fmt.Sprintf("An answer can be at most %d characters", maxAnswerRunes))
+		}
 		out := map[string]any{}
 		for _, item := range q.Questions {
 			out[item.QID] = text

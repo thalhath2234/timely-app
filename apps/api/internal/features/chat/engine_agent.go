@@ -150,6 +150,9 @@ const (
 	// blocks it after end_turn, so this is a second line.
 	proposalTwice = "A proposal is already recorded for this turn. Reply to the person in one sentence."
 	engineBusy    = "The new engine is still busy with another reply in this chat. Try again in a moment."
+	// engineBusyAccount is the worker's cap on live runs per account: chats
+	// waiting on a question card keep theirs for up to the card's time limit.
+	engineBusyAccount = "The new engine is busy with other chats, which may be waiting for your answer. Answer or stop one of them, then try again."
 	// childProposal answers a sub-task's propose_changes (phase 4).
 	childProposal = "Only the main assistant proposes changes. Return what you found instead."
 	emptyAnswer   = "AI returned an empty answer; try again"
@@ -686,6 +689,14 @@ func (e *WorkerEngine) closeAsked(r *agentRun, ev workerEvent) {
 	default:
 		outcome = outcomeCancelled
 	}
+	r.mu.Lock()
+	stopped := !r.stopSent.IsZero()
+	r.mu.Unlock()
+	if outcome == outcomeCancelled && (stopped || e.isClosing()) {
+		// The worker ends a wait the same way for a Stop and for the API's
+		// shutdown as for a Skip; the person did not skip this one.
+		outcome = outcomeStopped
+	}
 	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
 		if requestID == "" || row.Question.RequestID != requestID {
 			return errUnchanged
@@ -1087,7 +1098,9 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 			Message string `json:"message"`
 		}
 		_ = m.Decode(&body)
-		if body.Code == "busy" {
+		if body.Code == "busy" && strings.Contains(body.Message, "the account already has") {
+			e.refused(r, engineBusyAccount, ActionRetry)
+		} else if body.Code == "busy" {
 			e.refused(r, engineBusy, ActionRetry)
 		} else {
 			e.refused(r, fmt.Sprintf(tr(r.conv.Language, txtAgentUnavailable), strings.TrimRight(body.Message, ".")), ActionUseClassic)

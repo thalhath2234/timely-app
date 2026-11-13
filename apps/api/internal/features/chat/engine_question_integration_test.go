@@ -658,3 +658,36 @@ func TestIntegrationAgentEngineClarifyUnsentAnswerRestoresTheCard(t *testing.T) 
 		t.Fatalf("reply %q", lastMessage(c).Content)
 	}
 }
+
+// The worker ends a wait the same way for a Stop (and for the API's shutdown)
+// as for a Skip. When Timely stopped the run, the card closes "stopped", not
+// as something the person skipped.
+func TestIntegrationAgentEngineClarifyClosedByAStopIsNotASkip(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "auto", "ask-stopped-closed", lines(ask("req-k", 600_000), reply("never", 0)))
+	c = h.waiting(c.ID, "req-k")
+	h.e.mu.Lock()
+	r := h.e.runs[c.AgentRunID]
+	h.e.mu.Unlock()
+	h.e.stopWorkerRun(r, "stop")
+	c = h.wait(c.ID, "closed", func(c Conversation) bool { return len(questionMessages(c)) == 1 })
+	if asked := questionMessages(c); asked[0].Question.Outcome != outcomeStopped || !strings.Contains(asked[0].Content, "(stopped before an answer)") {
+		t.Fatalf("the card closed as %+v", asked[0])
+	}
+}
+
+// Three chats waiting on cards fill the account's run cap: the fourth chat's
+// error says so, not that this chat is busy.
+func TestIntegrationAgentEngineAccountRunCapNamesTheOtherChats(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Plan my week", "supervised", "cap", lines(obj{"fake": "refuse", "code": "busy", "message": "the account already has 3 live runs"}))
+	c = h.wait(c.ID, "refused", statusIs("failed"))
+	if c.Error != engineBusyAccount || c.ErrorAction != ActionRetry {
+		t.Fatalf("error %q action %q", c.Error, c.ErrorAction)
+	}
+	c = h.chat("Plan my week", "supervised", "cap-chat", lines(obj{"fake": "refuse", "code": "busy", "message": "this conversation already has a live run"}))
+	c = h.wait(c.ID, "refused", statusIs("failed"))
+	if c.Error != engineBusy {
+		t.Fatalf("error %q", c.Error)
+	}
+}
