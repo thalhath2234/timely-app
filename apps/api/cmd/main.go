@@ -18,6 +18,7 @@ import (
 	_ "time/tzdata" // IANA zones for recurrence and working hours, even on hosts without a zoneinfo directory
 
 	"gorm.io/gorm"
+	"timely-api/internal/agenthost"
 	"timely-api/internal/buildinfo"
 	"timely-api/internal/database"
 	"timely-api/internal/features/agent"
@@ -91,6 +92,9 @@ func main() {
 	if godotenv.Load("../../.env") != nil && godotenv.Load() != nil {
 		log.Println("Warning: No .env file found or failed to load")
 	}
+	// The desktop app's per-launch token (plan 11.4) is read once and removed
+	// from the environment, so no child process inherits it.
+	instance.ShellTokenFromEnv()
 	if err := auth.CheckSecret("JWT_SECRET", os.Getenv("JWT_SECRET")); err != nil {
 		log.Fatal(err)
 	}
@@ -256,12 +260,17 @@ func main() {
 	chatService.SetDecisions(decisions)
 	chatService.SetEstimates(suggestions.EstimateMany)
 	chatService.SetBotNames(chatBotNames(botService))
+	// Who may use this computer (instance_settings united with
+	// TIMELY_AGENT_HOST_ACCOUNTS) and the worker limits. Created before the
+	// agent engine, which reads it through instanceStore.
+	instanceStore = newInstanceStore(db)
 	// Chats an account switches to the new engine run in its Hermes worker
 	// (ADR 0026); everything else stays on classic.
 	agentStack := newAgentEngine(db, chatService, func() agent.Catalog {
 		return chatCatalog(db, live, providerService.EmbedCredentials, botService)
 	}, providerService, live)
 	agentEngine := agentStack.engine
+	applyAgentLimits(instanceStore, agentStack.sup)
 	// Backups carry the account's agent state (plan 6.5): memory, learned
 	// skills, staged writes and chat sessions.
 	portabilityService.SetAgentState(agentStack.sup)
@@ -314,6 +323,7 @@ func main() {
 		LocalCLI:          providerService.LocalCLI(),
 		RegistrationOpen:  authHandler.RegistrationOpen,
 	}, mustSQLDB(db))
+	instanceHandler.SetStore(instanceStore)
 
 	handlers := routes.Handlers{
 		Chat:      chatService,
@@ -344,6 +354,9 @@ func main() {
 	}
 
 	e := newRouter(handlers)
+	// Settings -> Server: the two PUT routes answer 404 to anyone but the
+	// desktop window, before sign-in is asked.
+	instanceHandler.Routes(e, middleware.JWTMiddleware(authService))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -561,4 +574,36 @@ func chatBotNames(svc *bots.Service) func(ctx context.Context, userID string) ([
 		}
 		return out, nil
 	}
+}
+
+// instanceStore is the instance settings store (host-allowed accounts, worker
+// limits). main sets it before the agent engine is built; the engine's
+// HostAllowed and HostWorkingDir read it. Nil-safe: a nil store allows nobody.
+var instanceStore *instance.Store
+
+// newInstanceStore reads TIMELY_AGENT_HOST_ACCOUNTS (several ids, each
+// host-allowed) and the worker limits' environment defaults.
+func newInstanceStore(db *gorm.DB) *instance.Store {
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
+	}
+	cfg := agenthost.ConfigFromEnv(os.Getenv, wd)
+	return instance.NewStore(mustSQLDB(db), agenthost.HostAccountIDs(os.Getenv), instance.AgentLimits{
+		MaxWorkers:  cfg.MaxWorkers,
+		IdleMinutes: int(cfg.IdleTimeout / time.Minute),
+	})
+}
+
+// applyAgentLimits hands the stored worker cap and idle minutes to the
+// supervisor now and after every change in Settings -> Server. A supervisor
+// that cannot change its limits while running keeps the ones it started with.
+func applyAgentLimits(store *instance.Store, sup any) {
+	limiter, ok := sup.(interface {
+		SetLimits(maxWorkers, idleMinutes int)
+	})
+	if !ok || store == nil {
+		return
+	}
+	store.OnLimits(func(l instance.AgentLimits) { limiter.SetLimits(l.MaxWorkers, l.IdleMinutes) })
 }

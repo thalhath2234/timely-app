@@ -37,6 +37,7 @@ type Handler struct {
 	db  *sql.DB
 
 	mu         sync.RWMutex
+	store      *Store
 	listening  []string
 	instanceID string
 }
