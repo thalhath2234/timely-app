@@ -461,6 +461,137 @@ func TestApprovalWaitIsAcked(t *testing.T) {
 	}
 }
 
+// Phase 4: the clarify directive asks, takes the answer for its request
+// (acked ok; a second or stale one gets ok: false, one without request_id
+// is bad_message), closes the card and goes on with the answers in
+// {{last_answers}}; a short timeout closes it timed_out; run.stop closes it
+// cancelled and interrupts the run.
+func TestClarifyWaitAnswersTimesOutAndStops(t *testing.T) {
+	r := newRig(t, nil)
+	r.kit.Fixture("ask", []byte(`
+{"fake":"clarify","request_id":"req-1","questions":[{"qid":"q0","question":"Which day?","choices":["Mon","Tue"],"recommended":0,"multi_select":false}]}
+{"fake":"reply","text":"got {{last_answers}}"}
+`)).Fixture("late", []byte(`
+{"fake":"clarify","request_id":"req-2","timeout_ms":100}
+{"fake":"reply","text":"went on"}
+`)).Fixture("stop", []byte(`
+{"fake":"clarify","request_id":"req-3"}
+{"fake":"reply","text":"never"}
+`)).ForConversation("conv-ask", "ask").ForConversation("conv-late", "late").ForConversation("conv-stop", "stop")
+	w := r.worker()
+	kinds := func(msgs []agenthost.Message) (out []string) {
+		for _, m := range msgs {
+			if m.Type == "event" {
+				var ev struct {
+					Kind    string `json:"kind"`
+					Payload struct {
+						Outcome string `json:"outcome"`
+					} `json:"payload"`
+				}
+				_ = m.Decode(&ev)
+				out = append(out, ev.Kind+":"+ev.Payload.Outcome)
+			}
+		}
+		return out
+	}
+	ack := func(run, request string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		reply, err := w.Request(ctx, agenthost.TypeClarifyAnswer, map[string]any{"run": run, "request_id": request,
+			"answers": map[string]any{"q0": "Tue"}, "outcome": "submitted"})
+		if err != nil {
+			return err.Error()
+		}
+		return string(reply.Raw)
+	}
+
+	if err := w.Send(agenthost.TypeRunStart, startFields("k1", "conv-ask", "go")); err != nil {
+		t.Fatal(err)
+	}
+	first := r.until("k1", "event")
+	if got := kinds(first); len(got) != 1 || got[0] != "clarify.request:" {
+		t.Fatalf("first event %v", got)
+	}
+	if got := ack("k1", "other"); !strings.Contains(got, `"ok":false`) {
+		t.Fatalf("an answer to another card: %s", got)
+	}
+	if got := ack("k1", ""); !strings.Contains(got, "bad_message") {
+		t.Fatalf("an answer without request_id: %s", got)
+	}
+	if got := ack("k1", "req-1"); !strings.Contains(got, `"ok":true`) {
+		t.Fatalf("the answer: %s", got)
+	}
+	if got := ack("k1", "req-1"); !strings.Contains(got, `"ok":false`) {
+		t.Fatalf("a second answer: %s", got)
+	}
+	msgs := r.until("k1", agenthost.TypeRunDone)
+	if got := kinds(msgs); len(got) < 1 || got[0] != "clarify.closed:submitted" {
+		t.Fatalf("events after the answer %v", got)
+	}
+	if d := decodeDone(t, msgs[len(msgs)-1]); d.Final != `got {"q0":"Tue"}` || !d.Completed {
+		t.Fatalf("run.done = %+v", d)
+	}
+
+	if err := w.Send(agenthost.TypeRunStart, startFields("k2", "conv-late", "go")); err != nil {
+		t.Fatal(err)
+	}
+	msgs = r.until("k2", agenthost.TypeRunDone)
+	if got := kinds(msgs); len(got) < 2 || got[1] != "clarify.closed:timed_out" || decodeDone(t, msgs[len(msgs)-1]).Final != "went on" {
+		t.Fatalf("timed out: %v", got)
+	}
+
+	if err := w.Send(agenthost.TypeRunStart, startFields("k3", "conv-stop", "go")); err != nil {
+		t.Fatal(err)
+	}
+	r.until("k3", "event")
+	if err := w.Send(agenthost.TypeRunStop, map[string]any{"run": "k3", "reason": "user"}); err != nil {
+		t.Fatal(err)
+	}
+	msgs = r.until("k3", agenthost.TypeRunDone)
+	if got := kinds(msgs); len(got) != 1 || got[0] != "clarify.closed:cancelled" || !decodeDone(t, msgs[len(msgs)-1]).Interrupted {
+		t.Fatalf("stopped: %v", got)
+	}
+}
+
+// The subagent directive reports a sub-task's start and stop, and its
+// outside reads as the parent run's taint with via "subagent".
+func TestSubagentDirectiveReportsChildTaint(t *testing.T) {
+	r := newRig(t, nil)
+	r.kit.Default("sub").Fixture("sub", []byte(`
+{"fake":"subagent","goal":"Read the page","child":"child-1","taint":[{"kind":"web","tool":"web_extract","host":"news.example"}]}
+`))
+	w := r.worker()
+	if err := w.Send(agenthost.TypeRunStart, startFields("s1", "conv-s", "go")); err != nil {
+		t.Fatal(err)
+	}
+	msgs := r.until("s1", agenthost.TypeRunDone)
+	var phases []string
+	var taint []map[string]string
+	for _, m := range msgs {
+		var body struct {
+			Kind    string              `json:"kind"`
+			Sources []map[string]string `json:"sources"`
+			Payload struct {
+				Phase string `json:"phase"`
+				Child string `json:"child_session_id"`
+			} `json:"payload"`
+		}
+		_ = m.Decode(&body)
+		switch m.Type {
+		case "event":
+			phases = append(phases, body.Kind+":"+body.Payload.Phase+":"+body.Payload.Child)
+		case "taint":
+			taint = append(taint, body.Sources...)
+		}
+	}
+	if strings.Join(phases, ",") != "subagent:start:child-1,subagent:stop:child-1" {
+		t.Fatalf("events %v", phases)
+	}
+	if len(taint) != 1 || taint[0]["via"] != "subagent" || taint[0]["child"] != "child-1" || taint[0]["host"] != "news.example" {
+		t.Fatalf("taint %v", taint)
+	}
+}
+
 func TestCrashMidRunReportsTheLiveRun(t *testing.T) {
 	r := newRig(t, nil)
 	r.kit.Default("crash").Fixture("crash", []byte(`{"fake":"reply","text":"partial"}

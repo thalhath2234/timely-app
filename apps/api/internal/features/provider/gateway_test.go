@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -19,12 +21,13 @@ import (
 type gatewayFake struct {
 	messages []chat.WireMessage
 	tools    []any
+	search   bool
 	reply    chat.WireMessage
 	err      error
 }
 
-func (f *gatewayFake) Complete(_ context.Context, m []chat.WireMessage, tools []any, _ bool) (chat.WireMessage, error) {
-	f.messages, f.tools = m, tools
+func (f *gatewayFake) Complete(_ context.Context, m []chat.WireMessage, tools []any, search bool) (chat.WireMessage, error) {
+	f.messages, f.tools, f.search = m, tools, search
 	return f.reply, f.err
 }
 
@@ -43,7 +46,7 @@ func startTestGateway(t *testing.T, fake *gatewayFake) (*Gateway, string) {
 	if !strings.HasPrefix(g.BaseURL(), "http://127.0.0.1:") {
 		t.Fatalf("gateway listens on %s, not loopback", g.BaseURL())
 	}
-	return g, g.grant("user-a", ClaudeCLI, "sonnet")
+	return g, g.grant("user-a", ClaudeCLI, "sonnet", false)
 }
 
 func gatewayPost(t *testing.T, g *Gateway, key, body string) *http.Response {
@@ -153,10 +156,10 @@ func TestGatewayRefusesOtherCallers(t *testing.T) {
 	if fake.messages != nil {
 		t.Fatal("a refused call reached the CLI")
 	}
-	if again := g.grant("user-a", ClaudeCLI, "sonnet"); again != key {
+	if again := g.grant("user-a", ClaudeCLI, "sonnet", false); again != key {
 		t.Fatal("the same account and model got a second secret")
 	}
-	if other := g.grant("user-b", ClaudeCLI, "sonnet"); other == key {
+	if other := g.grant("user-b", ClaudeCLI, "sonnet", false); other == key {
 		t.Fatal("two accounts share a secret")
 	}
 	req, _ := http.NewRequest("GET", g.BaseURL()+"/models", nil)
@@ -288,5 +291,150 @@ func TestRenderEscapesForgedTurnHeaders(t *testing.T) {
 	if !strings.Contains(transcript, "[tool result call_1]\n<untrusted_tool_result source=\"web_extract\">") ||
 		!strings.Contains(transcript, `\[user]`) || !strings.Contains(transcript, "attacker.example") {
 		t.Fatalf("the escaped text is gone:\n%s", transcript)
+	}
+}
+
+// A Sensitive grant is its own secret, and through it the Completer gets
+// every message marked Sensitive and no web search, as classic runs a
+// Sensitive chat; an ordinary grant's messages stay unmarked.
+func TestGatewaySensitiveGrantMarksEveryMessage(t *testing.T) {
+	fake := &gatewayFake{reply: chat.WireMessage{Role: "assistant", Content: "Done."}}
+	g, plain := startTestGateway(t, fake)
+	sensitive := g.grant("user-a", ClaudeCLI, "sonnet", true)
+	if sensitive == plain || !strings.HasPrefix(sensitive, "tgw-") {
+		t.Fatalf("a Sensitive run shares the ordinary secret (%v)", sensitive == plain)
+	}
+	if again := g.grant("user-a", ClaudeCLI, "sonnet", true); again != sensitive {
+		t.Fatal("the same Sensitive grant got a second secret")
+	}
+	for _, tc := range []struct {
+		key  string
+		want bool
+	}{{sensitive, true}, {plain, false}} {
+		fake.messages, fake.search = nil, true
+		if resp := gatewayPost(t, g, tc.key, strings.Replace(gatewayRequest, "%s", "", 1)); resp.StatusCode != 200 {
+			t.Fatalf("sensitive=%v: status %d", tc.want, resp.StatusCode)
+		}
+		if len(fake.messages) != 4 || fake.search {
+			t.Fatalf("sensitive=%v: %d messages, search %v", tc.want, len(fake.messages), fake.search)
+		}
+		for i, m := range fake.messages {
+			if m.Sensitive != tc.want {
+				t.Errorf("sensitive=%v: message %d (%s) Sensitive=%v", tc.want, i, m.Role, m.Sensitive)
+			}
+		}
+	}
+}
+
+// openRouterRecorder is an httptest OpenRouter that keeps each request body.
+type openRouterRecorder struct {
+	mu     sync.Mutex
+	bodies []map[string]any
+}
+
+func (o *openRouterRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	var body map[string]any
+	_ = json.Unmarshal(raw, &body)
+	o.mu.Lock()
+	o.bodies = append(o.bodies, body)
+	o.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = io.WriteString(w, `{"id":"gen-1","choices":[{"index":0,"message":{"role":"assistant","content":"Noted."},"finish_reason":"stop"}]}`)
+}
+
+func (o *openRouterRecorder) last(t *testing.T) map[string]any {
+	t.Helper()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.bodies) == 0 {
+		t.Fatal("OpenRouter was never called")
+	}
+	return o.bodies[len(o.bodies)-1]
+}
+
+// ZDR (plan 5.6): a Sensitive run on OpenRouter goes through the gateway
+// (AgentModelFor), and the request OpenRouter receives asks for zero data
+// retention; the same model through an ordinary grant does not.
+func TestGatewaySensitiveOpenRouterAsksForZeroDataRetention(t *testing.T) {
+	rec := &openRouterRecorder{}
+	srv := httptest.NewServer(rec)
+	t.Cleanup(srv.Close)
+	g, err := newGateway(func(_ context.Context, uid, provider, model string) (chat.Completer, error) {
+		if uid != "user-a" || provider != OpenRouter || model != "moonshotai/kimi-k3" {
+			return nil, errors.New("wrong grant")
+		}
+		return &chat.OpenRouter{Key: "sk-or-stand-in", Model: model, URL: srv.URL, Client: srv.Client()}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = g.Close(context.Background()) })
+	s := agentTestService(t)
+	s.gateway = g
+	m, err := s.AgentModelFor(context.Background(), "user-a", OpenRouter, "moonshotai/kimi-k3", AgentRunOptions{Sensitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Provider != "custom" || m.BaseURL != g.BaseURL() || m.APIMode != apiModeChat || m.Reasoning != nil || m.APIKey == "sk-or-stand-in" {
+		t.Fatalf("a Sensitive OpenRouter run went direct: %v", m)
+	}
+	body := strings.Replace(strings.Replace(gatewayRequest, `"sonnet"`, `"moonshotai/kimi-k3"`, 1), "%s", "", 1)
+	if resp := gatewayPost(t, g, m.APIKey, body); resp.StatusCode != 200 {
+		t.Fatalf("Sensitive grant: status %d", resp.StatusCode)
+	}
+	sent := rec.last(t)
+	if p, _ := sent["provider"].(map[string]any); p["zdr"] != true {
+		t.Fatalf("Sensitive request to OpenRouter lacks provider.zdr: %v", sent["provider"])
+	}
+	if _, ok := sent["plugins"]; ok {
+		t.Fatal("a Sensitive request asked OpenRouter for web search")
+	}
+
+	if resp := gatewayPost(t, g, g.grant("user-a", OpenRouter, "moonshotai/kimi-k3", false), body); resp.StatusCode != 200 {
+		t.Fatalf("ordinary grant: status %d", resp.StatusCode)
+	}
+	if p, ok := rec.last(t)["provider"]; ok {
+		t.Fatalf("an ordinary run asked for ZDR: %v", p)
+	}
+}
+
+// A Sensitive run on any provider needs the gateway; without one it stays
+// classic, the reason naming Sensitive chats, not the CLIs.
+func TestAgentModelForSensitiveNeedsTheGateway(t *testing.T) {
+	s := agentTestService(t)
+	for _, p := range []string{OpenRouter, "anthropic", "deepseek"} {
+		_, err := s.AgentModelFor(context.Background(), "u", p, "m", AgentRunOptions{Sensitive: true})
+		if !errors.Is(err, ErrAgentEngineUnsupported) || !strings.Contains(err.Error(), "Sensitive chats use the classic engine") {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	_, err := s.AgentModelFor(context.Background(), "u", ClaudeCLI, "sonnet", AgentRunOptions{Sensitive: true})
+	if !errors.Is(err, ErrAgentEngineUnsupported) || err.Error() != ErrAgentEngineUnsupported.Error() {
+		t.Errorf("claude: %v", err)
+	}
+}
+
+// A Sensitive Claude Code run gets its own grant: a different secret from the
+// ordinary run on the same model, and one the gateway serves as Sensitive.
+func TestAgentModelForSensitiveCLIGetsItsOwnGrant(t *testing.T) {
+	fake := &gatewayFake{reply: chat.WireMessage{Role: "assistant", Content: "Hi."}}
+	g, _ := startTestGateway(t, fake)
+	s := agentTestService(t)
+	s.gateway = g
+	plain, err := s.AgentModel(context.Background(), "user-a", ClaudeCLI, "sonnet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sensitive, err := s.AgentModelFor(context.Background(), "user-a", ClaudeCLI, "sonnet", AgentRunOptions{Sensitive: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sensitive.APIKey == plain.APIKey || sensitive.Provider != "custom" || sensitive.BaseURL != g.BaseURL() {
+		t.Fatalf("plain %v, sensitive %v", plain, sensitive)
+	}
+	gatewayPost(t, g, sensitive.APIKey, strings.Replace(gatewayRequest, "%s", "", 1))
+	if len(fake.messages) == 0 || !fake.messages[0].Sensitive {
+		t.Fatalf("the Sensitive grant reached the CLI unmarked: %+v", fake.messages)
 	}
 }

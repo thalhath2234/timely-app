@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { routeForNotification } from "../apps/mobile/lib/notificationRoute.ts";
+import { NOTIFICATION_CATEGORIES, categoryFor, replyBody } from "../apps/mobile/lib/notificationCategories.ts";
 import {
   contextChip,
   draftForScreen,
@@ -35,6 +36,8 @@ import {
   visibleDraft,
   wantsReplyStream,
 } from "../apps/mobile/lib/chat/agentRun.ts";
+import * as phoneQuestion from "../apps/mobile/lib/chat/question.ts";
+import * as webQuestion from "../apps/web/app/_components/chat/questionDraft.ts";
 
 test("agent notification targets its chat and retains existing reminder routing", () => {
   assert.equal(
@@ -814,4 +817,168 @@ test("on Classic, What Timely learned says learning needs the New engine and Abo
     assert.equal(copy.notice, null);
     assert.equal(copy.aboutHint, "Timely reads this at the start of every chat. Changes apply from your next chat.");
   }
+});
+
+// Question cards (phase 4, Q-4.3): the phone's lib/chat/question.ts and the
+// web's questionDraft.ts hold the same rules; every test runs on both.
+const card = {
+  requestId: "req-1",
+  run: "run_1",
+  questions: [
+    { qid: "q0", question: "Which day?", choices: ["Mon", "Tue"], recommended: 1, multiSelect: false },
+    { qid: "q1", question: "Which rooms?", choices: ["A", "B", "C"], recommended: null, multiSelect: true },
+    { qid: "q2", question: "Anything else?", choices: null, recommended: null, multiSelect: false },
+  ],
+  askedAt: "2026-11-13T09:00:00Z",
+  expiresAt: "2026-11-13T09:10:00Z",
+};
+const [day, rooms, open] = card.questions;
+for (const [app, q] of [
+  ["phone", phoneQuestion],
+  ["web", webQuestion],
+]) {
+  test(`${app}: a single-choice question keeps one pick, and typing Other replaces it`, () => {
+    let draft = q.pickChoice({}, day, "Mon");
+    draft = q.pickChoice(draft, day, "Tue");
+    assert.deepEqual(q.draftAnswers([day], draft), { q0: "Tue" });
+    draft = q.typeOther(draft, day, "  Friday instead ");
+    assert.deepEqual(q.draftAnswers([day], draft), { q0: "Friday instead" }, "typed Other is the answer, trimmed");
+    assert.deepEqual(q.pickOf(draft, "q0").picks, [], "typing Other unpicks the choice");
+    draft = q.pickChoice(draft, day, "Mon");
+    assert.deepEqual(q.draftAnswers([day], draft), { q0: "Mon" }, "a choice after Other wins again");
+  });
+
+  test(`${app}: a multi-select question toggles picks in the choices' order and adds one typed Other`, () => {
+    let draft = q.pickChoice({}, rooms, "C");
+    draft = q.pickChoice(draft, rooms, "A");
+    draft = q.pickChoice(draft, rooms, "B");
+    draft = q.pickChoice(draft, rooms, "B");
+    assert.deepEqual(q.draftAnswers([rooms], draft), { q1: ["A", "C"] });
+    draft = q.typeOther(draft, rooms, "the garden");
+    assert.deepEqual(q.draftAnswers([rooms], draft), { q1: ["A", "C", "the garden"] });
+    draft = q.typeOther(draft, rooms, "  ");
+    assert.equal(q.pickOf(draft, "q1").otherOn, false, "clearing Other unticks it");
+    assert.deepEqual(q.draftAnswers([rooms], draft), { q1: ["A", "C"] });
+    draft = q.toggleOther(q.toggleOther(draft, rooms), rooms);
+    assert.equal(q.pickOf(draft, "q1").otherOn, false);
+  });
+
+  test(`${app}: an open question takes typed text; nothing picked sends null`, () => {
+    assert.equal(q.isOpen(open), true);
+    assert.equal(q.isOpen(day), false);
+    let draft = q.typeOther({}, open, "Bring snacks");
+    assert.deepEqual(q.draftAnswers(card.questions, draft), { q0: null, q1: null, q2: "Bring snacks" });
+    assert.equal(q.answeredCount(card.questions, draft), 1);
+    draft = q.typeOther(draft, open, "");
+    assert.equal(q.answeredCount(card.questions, draft), 0);
+  });
+
+  test(`${app}: Send answer needs one answer the server would take`, () => {
+    assert.equal(q.sendProblem(card.questions, {}), "Answer at least one question, or skip.");
+    assert.equal(q.sendProblem([day], {}), "Pick or type an answer, or skip.");
+    assert.equal(q.sendProblem([open], {}), "Type an answer, or skip.", "nothing to pick on an open question");
+    assert.equal(q.sendProblem([open, open], {}), "Answer at least one question, or skip.");
+    assert.equal(q.sendProblem([day], q.toggleOther({}, day)), "Pick or type an answer, or skip.", "an empty Other is no answer");
+    assert.equal(q.sendProblem(card.questions, q.pickChoice({}, day, "Tue")), null, "other questions may stay unanswered");
+    assert.match(q.sendProblem([open], q.typeOther({}, open, "x".repeat(2001))), /2,000/);
+  });
+
+  test(`${app}: the recommended choice is named for screen readers`, () => {
+    assert.equal(q.choiceLabel(day, 1), "Tue (recommended)");
+    assert.equal(q.choiceLabel(day, 0), "Mon");
+  });
+
+  test(`${app}: a closed card says how its wait ended, one line per question`, () => {
+    const closed = (outcome, answers = {}) => q.closedCard({ requestId: "req-1", questions: card.questions, answers, outcome });
+    const answered = closed("submitted", { q0: "Tue", q1: ["A", "C"], q2: null });
+    assert.equal(answered.state, "answered");
+    assert.equal(answered.title, "Answered");
+    assert.equal(answered.note, "");
+    assert.deepEqual(
+      answered.lines.map((l) => [l.question, l.answer, l.empty]),
+      [
+        ["Which day?", "Tue", false],
+        ["Which rooms?", "A, C", false],
+        ["Anything else?", "No answer", true],
+      ],
+    );
+    assert.deepEqual(
+      ["cancelled", "timed_out", "undelivered", "stopped"].map((o) => [closed(o).title, closed(o).note]),
+      [
+        ["Skipped", "Timely went on without an answer."],
+        ["Not answered in time", "Timely went on without your answer."],
+        ["Not answered in time", "Timely went on without your answer."],
+        ["Stopped before you answered", "The run stopped while it waited."],
+      ],
+    );
+    assert.ok(closed("stopped").lines.every((l) => l.empty && l.answer === "No answer"));
+    assert.equal(answered.anyAnswer, true);
+    assert.equal(closed("stopped").anyAnswer, false, "a card with nothing back lists only what was asked");
+    assert.equal(answered.reply, "", "different answers are listed per question");
+    // A message typed in the composer answers every question with the same text: shown once.
+    const typed = closed("submitted", { q0: "Mon and Fri", q1: "Mon and Fri", q2: "Mon and Fri" });
+    assert.equal(typed.reply, "Mon and Fri");
+    assert.equal(closed("submitted", { q0: "Mon", q1: "Mon", q2: null }).reply, "");
+    // The same pick on two questions is not a typed reply: each question keeps its answer.
+    const yes = { qid: "q0", question: "Add it on Monday?", choices: ["Yes", "No"], multi_select: false };
+    const picks = q.closedCard({ requestId: "r", questions: [yes, { ...yes, qid: "q1", question: "Add a reminder?" }], answers: { q0: "Yes", q1: "Yes" }, outcome: "submitted" });
+    assert.equal(picks.reply, "");
+    assert.deepEqual(picks.lines.map((l) => l.answer), ["Yes", "Yes"]);
+    const typedYes = q.closedCard({ requestId: "r", questions: [yes, { ...yes, qid: "q1" }], answers: { q0: "Friday works", q1: "Friday works" }, outcome: "submitted" });
+    assert.equal(typedYes.reply, "Friday works");
+    assert.equal(
+      q.closedCard({ requestId: "r", questions: [day], answers: { q0: "Tue" }, outcome: "submitted" }).reply,
+      "",
+      "one question needs no summary line",
+    );
+    assert.equal(answered.anyAnswer, true);
+    assert.equal(closed("stopped").anyAnswer, false, "a card with nothing back lists only what was asked");
+  });
+
+  test(`${app}: the composer and the run card point at the waiting card`, () => {
+    assert.equal(q.QUESTION_PLACEHOLDER, "Type your answer, or use the card above…");
+    assert.equal(q.QUESTION_WAITING_LINE, "Waiting for your answer");
+  });
+}
+
+test("the web and phone question rules give the same answers for the same taps", () => {
+  const taps = (q) => {
+    let draft = q.pickChoice({}, day, "Mon");
+    draft = q.pickChoice(draft, rooms, "B");
+    draft = q.typeOther(draft, rooms, "Hall");
+    draft = q.typeOther(draft, open, " ok ");
+    return [q.draftAnswers(card.questions, draft), q.sendProblem(card.questions, draft), q.answeredCount(card.questions, draft)];
+  };
+  assert.deepEqual(taps(phoneQuestion), taps(webQuestion));
+  assert.deepEqual(taps(phoneQuestion)[0], { q0: "Mon", q1: ["B", "Hall"], q2: "ok" });
+});
+
+test("the 'Timely has a question' notification opens its chat, from the push and from the list", () => {
+  // The push carries the chat as entityType/entityId; the in-app list also has data.status "running".
+  assert.equal(
+    routeForNotification({ category: "agent", entityType: "chat", entityId: "chat_q", kind: "" }),
+    "/(app)/assistant?chatId=chat_q",
+  );
+  assert.equal(
+    routeForNotification({ status: "running", category: "agent", entityType: "chat", entityId: "chat_q" }),
+    "/(app)/assistant?chatId=chat_q",
+  );
+});
+
+test("a question alert offers no blind Reply, and the Reply of any alert names no card (review round 5)", () => {
+  // Go sends data.question as the card's request id (a string); a boolean works the same.
+  for (const question of ["req-1", true]) {
+    const category = categoryFor({ category: "agent", data: { status: "running", question } });
+    assert.equal(category, "timely_agent_question");
+    assert.deepEqual(
+      NOTIFICATION_CATEGORIES[category].map((action) => [action.id, Boolean(action.textInput)]),
+      [["open", false]],
+    );
+  }
+  // Review, failure and plain finish keep their buttons.
+  assert.equal(categoryFor({ category: "agent", data: { status: "approval" } }), "timely_agent_review");
+  assert.equal(categoryFor({ category: "agent", data: { status: "failed", question: "req-1" } }), "timely_agent_failed");
+  assert.equal(categoryFor({ category: "agent", data: { status: "idle" } }), "timely_agent_done");
+  // The Reply says it read no card: a waiting card gets 409 "Read it first", not this text as its answer.
+  assert.deepEqual(replyBody("  Monday  ", "ntf-1"), { content: "Monday", requestId: "ntf-1", questionRequestId: "" });
 });

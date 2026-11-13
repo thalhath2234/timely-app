@@ -2,8 +2,9 @@ import { markNotificationRead, prioritizeOverdueTask, snoozeNotification } from 
 import { runNotificationTriage, type TriageStep } from "./api/decisions";
 import { editTaskOccurrence, getTask, startFocus, updateTask } from "./api/tasks";
 import { chatRequest } from "./api/chat";
+import { ApiError } from "./api/client";
 import { resumeBot } from "./api/bots";
-import { LEGACY_PRIORITIZE_ACTION, NOTIFICATION_CATEGORIES } from "./notificationCategories";
+import { LEGACY_PRIORITIZE_ACTION, NOTIFICATION_CATEGORIES, replyBody } from "./notificationCategories";
 import { routeForNotification } from "./notificationRoute";
 import { notificationsModule } from "./notifications";
 
@@ -161,11 +162,14 @@ export async function handleQuickAction(input: QuickActionInput): Promise<QuickA
       const res = await runNotificationTriage(notificationId, actionId.slice(7) as TriageStep);
       result = { message: res.message };
     } else if (actionId === "reply" && chatId && input.userText?.trim()) {
-      await chatRequest(`/${encodeURIComponent(chatId)}/messages`, "POST", {
-        content: input.userText.trim(),
-        requestId: `ntf-${Date.now().toString(36)}`,
-      });
-      result = { message: "Sent to the assistant" };
+      try {
+        await chatRequest(`/${encodeURIComponent(chatId)}/messages`, "POST", replyBody(input.userText, `ntf-${Date.now().toString(36)}`));
+        result = { message: "Sent to the assistant" };
+      } catch (error) {
+        // A question card waits that this reply did not read: open the chat on it instead.
+        if (error instanceof ApiError && error.status === 409) return { route };
+        throw error;
+      }
     } else if (actionId === "retry" && chatId) {
       await chatRequest(`/${encodeURIComponent(chatId)}/retry`, "POST");
       result = { message: "Trying again" };

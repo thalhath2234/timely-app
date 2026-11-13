@@ -2,6 +2,7 @@
 
 import { CircleAlert } from "lucide-react";
 import {
+  CLI_ON_NEW,
   ENGINE_COPY,
   type AccountEngine,
   type AgentChatSettings,
@@ -54,7 +55,7 @@ export default function EngineGroup({ settings }: { settings: AgentChatSettings 
           ? patch.error.message
           : engine === "agent" && !settings.engineAvailable
             ? "Chats on New stop with “Use classic for this chat” until it can run."
-            : `${ENGINE_COPY[engine].description} Private photo chats and applying changes always run on Classic.`}
+            : `${ENGINE_COPY[engine].description}${settings.engineAvailable ? ` ${CLI_ON_NEW}` : ""} Private photo chats and applying changes always run on Classic.`}
       </GroupHint>
     </div>
   );

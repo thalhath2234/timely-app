@@ -105,7 +105,7 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	if !f.LearningWrites || !f.SearchHistory || !f.Web || f.Sensitive || f.AnswerOnly || f.FromBot {
 		t.Fatalf("flags %+v", f)
 	}
-	if want := []string{"timely", "todo", "skills", "memory", "session_search", "web"}; !slices.Equal(start.Toolsets, want) {
+	if want := []string{"timely", "todo", "skills", "memory", "session_search", "web", "clarify", "delegation"}; !slices.Equal(start.Toolsets, want) {
 		t.Fatalf("toolsets %v, want %v", start.Toolsets, want)
 	}
 	if !slices.Equal(start.TaintedConversations, []string{tainted.ID}) {
@@ -156,12 +156,12 @@ func TestIntegrationAgentEngineNoLearningDuringStart(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	model := func(ctx context.Context, uid, provider, m string) (any, error) {
+	model := func(ctx context.Context, uid, provider, m string, opts RunModelOptions) (any, error) {
 		once.Do(func() {
 			close(entered)
 			<-release
 		})
-		return testModel(ctx, uid, provider, m)
+		return testModel(ctx, uid, provider, m, opts)
 	}
 	h := newEngineHarnessWith(t, kit.Config(), model)
 	h.kit = kit
@@ -245,7 +245,7 @@ func TestIntegrationAgentEngineNoLearningChat(t *testing.T) {
 	h.e.opts.Learning = nil
 	off := h.chatWith("Hello", "supervised", "off", lines(reply("Hi.", 0)), nil)
 	h.wait(off.ID, "replied", statusIs("idle"))
-	if s := h.runStart(off.ID); s.Flags.LearningWrites || s.Flags.SearchHistory || !slices.Equal(s.Toolsets, chatToolsets) {
+	if s := h.runStart(off.ID); s.Flags.LearningWrites || s.Flags.SearchHistory || !slices.Equal(s.Toolsets, append(slices.Clone(chatToolsets), "clarify", "delegation")) {
 		t.Fatalf("learning without switches: %+v %v", s.Flags, s.Toolsets)
 	}
 }
@@ -255,22 +255,29 @@ func TestIntegrationAgentEngineNoLearningChat(t *testing.T) {
 func TestIntegrationAgentEngineRunSetupFlags(t *testing.T) {
 	h := newEngineHarness(t)
 	ctx := context.Background()
+	asks := []string{"clarify", "delegation"}
+	with := func(sets ...string) []string { return append(sets, asks...) }
 	for _, tc := range []struct {
 		name                 string
 		prefs                LearningPrefs
 		edit                 func(*Conversation)
 		answerOnly           bool
+		noPersist            bool
 		learn, search, webOn bool
 		toolsets             []string
 	}{
 		{name: "all on", prefs: LearningPrefs{true, true}, edit: func(c *Conversation) { c.WebSearch = true }, learn: true, search: true, webOn: true,
-			toolsets: []string{"timely", "todo", "skills", "memory", "session_search", "web"}},
-		{name: "search history off", prefs: LearningPrefs{true, false}, learn: true, toolsets: []string{"timely", "todo", "skills", "memory"}},
+			toolsets: with("timely", "todo", "skills", "memory", "session_search", "web")},
+		{name: "search history off", prefs: LearningPrefs{true, false}, learn: true, toolsets: with("timely", "todo", "skills", "memory")},
 		{name: "learning off keeps search off", prefs: LearningPrefs{false, true}, edit: func(c *Conversation) { c.WebSearch = true }, webOn: true,
-			toolsets: []string{"timely", "todo", "skills", "web"}},
-		{name: "no_learning", prefs: LearningPrefs{true, true}, edit: func(c *Conversation) { c.NoLearning = true }, toolsets: chatToolsets},
-		{name: "sensitive", prefs: LearningPrefs{true, true}, edit: func(c *Conversation) { c.Sensitive, c.WebSearch = true, true }, toolsets: chatToolsets},
+			toolsets: with("timely", "todo", "skills", "web")},
+		{name: "no_learning", prefs: LearningPrefs{true, true}, edit: func(c *Conversation) { c.NoLearning = true }, toolsets: with(chatToolsets...)},
+		{name: "sensitive", prefs: LearningPrefs{true, true}, edit: func(c *Conversation) { c.Sensitive, c.WebSearch = true, true }, toolsets: with(chatToolsets...)},
+		// Phase 4: an answer-only turn neither asks nor delegates; a
+		// no-persist run has only timely and todo.
 		{name: "answer-only", prefs: LearningPrefs{true, true}, edit: func(c *Conversation) { c.WebSearch = true }, answerOnly: true, toolsets: chatToolsets},
+		{name: "no-persist", prefs: LearningPrefs{true, true}, edit: func(c *Conversation) { c.Sensitive, c.WebSearch = true, true }, noPersist: true,
+			toolsets: []string{"timely", "todo"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h.e.opts.Learning = func(context.Context, string) (LearningPrefs, error) { return tc.prefs, nil }
@@ -279,7 +286,7 @@ func TestIntegrationAgentEngineRunSetupFlags(t *testing.T) {
 				tc.edit(c)
 			}
 			tools := &toolRun{answerOnly: tc.answerOnly}
-			got := h.e.runSetup(ctx, c, tools)
+			got := h.e.runSetup(ctx, c, tools, tc.noPersist)
 			if got.learningWrites != tc.learn || got.searchHistory != tc.search || tools.web.on != tc.webOn || !slices.Equal(got.toolsets, tc.toolsets) {
 				t.Fatalf("learn %v search %v web %v toolsets %v", got.learningWrites, got.searchHistory, tools.web.on, got.toolsets)
 			}

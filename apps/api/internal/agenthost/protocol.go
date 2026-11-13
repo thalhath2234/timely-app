@@ -48,6 +48,10 @@ const (
 	TypeLearning       = "learning"
 	TypeLearningResult = "learning.result"
 	TypeSettingsUpdate = "settings.update"
+
+	// Phase 4 (PROTOCOL.md section 11.2): the person's answer to a question
+	// card (event clarify.request), answered by ack.
+	TypeClarifyAnswer = "clarify.answer"
 )
 
 // allowedWhileStopping are the messages Go still writes during a graceful
@@ -56,7 +60,7 @@ const (
 // (run.start, bot.run, session.delete, ...) is refused with ErrWorkerStopping.
 var allowedWhileStopping = map[string]bool{
 	TypeShutdown: true, TypeToolResult: true, TypeGateVerdict: true,
-	TypeRunStop: true, TypeRunSteer: true, TypeApprovalAnswer: true,
+	TypeRunStop: true, TypeRunSteer: true, TypeApprovalAnswer: true, TypeClarifyAnswer: true,
 }
 
 // goIDPrefix marks request ids Go creates, so a worker request can never be

@@ -704,8 +704,10 @@ def test_skill_manage_refuses_names_timely_cannot_keep(monkeypatch, name):
 # Tools chat may call that bring no outside text into the session: Timely's own skills and memory, the
 # to-do list, file writes (their result is what was written), and past-chat search, whose taint the
 # session-taint gate gives per hit.
+# delegate_task (phase 4): a child's own outside reads taint the parent with via: "subagent"; the call
+# itself brings nothing in. clarify: the answer is the person's own words.
 NOT_TAINT = frozenset({"skills_list", "skill_view", "skill_manage", "memory", "todo_list", "session_search",
-                       "write_file", "patch"})
+                       "write_file", "patch", "delegate_task", "clarify"})
 
 
 def test_every_tool_chat_may_call_has_a_taint_classification():
@@ -732,7 +734,8 @@ def test_every_tool_chat_may_call_has_a_taint_classification():
 
 def test_taint_sources_policy():
     assert policy.taint_kind("web_extract") == "web" and policy.taint_kind("browser_navigate") == "browser"
-    assert policy.taint_kind("read_file") == "file" and policy.taint_kind("delegate_task") == "subagent"
+    assert policy.taint_kind("read_file") == "file"
+    assert policy.taint_kind("delegate_task") == "" and "delegate_task" not in policy.TAINT_SOURCES  # phase 4
     assert policy.taint_kind("anything", "mcp-github") == "mcp" and policy.taint_kind("mcp_github_issue") == "mcp"
     for name in ("todo_list", "skill_view", "get_task", "propose_changes"):
         assert policy.taint_kind(name) == "", name

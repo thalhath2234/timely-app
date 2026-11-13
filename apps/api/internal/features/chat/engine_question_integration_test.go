@@ -1,0 +1,979 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/labstack/echo/v5"
+	"timely-api/internal/agenthost"
+	"timely-api/internal/models"
+)
+
+// Phase 4 on the agent engine (Q-4.3, work packages decisions 1-4, 6-10):
+// question cards the run waits on, sub-tasks and their taint, and the
+// Sensitive and photo routing, against the fake worker. make
+// test-chat-integration runs them.
+
+// dayQuestions is a card of two questions: a single-select one with the
+// first choice recommended, and an open one.
+var dayQuestions = []obj{
+	{"qid": "q0", "question": "Which day suits you?", "choices": []string{"Monday", "Tuesday"}, "recommended": 0, "multi_select": false},
+	{"qid": "q1", "question": "Anything else?", "choices": nil, "recommended": nil, "multi_select": false},
+}
+
+// ask is the fake's clarify directive (agenthosttest): clarify.request,
+// then a wait for the answer, run.stop or timeoutMS.
+func ask(request string, timeoutMS int, questions ...obj) obj {
+	if questions == nil {
+		questions = dayQuestions
+	}
+	return obj{"fake": "clarify", "request_id": request, "questions": questions, "timeout_ms": timeoutMS}
+}
+
+// waiting waits until the chat's card for request is on the row.
+func (h *engineHarness) waiting(cid, request string) Conversation {
+	h.t.Helper()
+	return h.wait(cid, "asked "+request, func(c Conversation) bool { return c.Status == "running" && c.Question.RequestID == request })
+}
+
+// serveAs is serve for another signed-in account.
+func serveAs(t *testing.T, s *Service, uid, method, path, body string) (int, []byte) {
+	t.Helper()
+	e := echo.New()
+	g := e.Group("")
+	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", uid); return next(c) }
+	})
+	s.Routes(g)
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	e.ServeHTTP(recorder, request)
+	return recorder.Code, recorder.Body.Bytes()
+}
+
+// questionPushes counts the chat's "Timely has a question" notifications.
+func (h *engineHarness) questionPushes(cid string) int64 {
+	var n int64
+	h.db.Model(&models.Notification{}).Where("entity_id = ? AND body = ?", cid, tr("", txtPushQuestion)).Count(&n)
+	return n
+}
+
+// clarifyAnswers are the clarify.answer lines Go sent the fake.
+func (h *engineHarness) clarifyAnswers() []struct {
+	Run       string         `json:"run"`
+	RequestID string         `json:"request_id"`
+	Answers   map[string]any `json:"answers"`
+	Outcome   string         `json:"outcome"`
+} {
+	var out []struct {
+		Run       string         `json:"run"`
+		RequestID string         `json:"request_id"`
+		Answers   map[string]any `json:"answers"`
+		Outcome   string         `json:"outcome"`
+	}
+	for _, r := range h.kit.ReceivedOf(agenthost.TypeClarifyAnswer) {
+		var body struct {
+			Run       string         `json:"run"`
+			RequestID string         `json:"request_id"`
+			Answers   map[string]any `json:"answers"`
+			Outcome   string         `json:"outcome"`
+		}
+		_ = r.Decode(&body)
+		out = append(out, body)
+	}
+	return out
+}
+
+// noCard checks the chat as the apps read it carries an empty card ({})
+// outside a wait.
+func (h *engineHarness) noCard(cid string) {
+	h.t.Helper()
+	code, body := serve(h.t, h.s, "GET", "/chats/"+cid, "")
+	if code != 200 || !strings.Contains(string(body), `"question":{}`) {
+		h.t.Fatalf("GET /chats/%s outside a wait: %d %s", cid, code, body)
+	}
+}
+
+// questionMessages are the chat's "question" messages.
+func questionMessages(c Conversation) []Message {
+	var out []Message
+	for _, m := range c.Messages {
+		if m.Kind == "question" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// The run asks; the card is on the row (status running, one push); the
+// answer clears it, stays in the thread, reaches the worker, and the same
+// run ends with its reply.
+func TestIntegrationAgentEngineClarifyAnswerContinuesTheRun(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask", lines(
+		reply("Let me check one thing. ", 0),
+		// The same request twice (a repeated event) still pushes once.
+		obj{"type": "event", "kind": "clarify.request", "payload": obj{"request_id": "req-1", "questions": dayQuestions, "timeout_s": 600}},
+		ask("req-1", 600_000),
+		reply("Booked for {{last_answers}}", 0),
+	))
+	c = h.waiting(c.ID, "req-1")
+	q := c.Question
+	if q.Run == "" || q.Run != c.AgentRunID || len(q.Questions) != 2 || q.Questions[0].Choices[1] != "Tuesday" ||
+		q.Questions[0].Recommended == nil || *q.Questions[0].Recommended != 0 || q.Questions[1].Choices != nil || q.AskedAt == nil || q.ExpiresAt == nil {
+		t.Fatalf("card %+v (run %s)", q, c.AgentRunID)
+	}
+	if left := q.ExpiresAt.Sub(*q.AskedAt); left != 600*time.Second {
+		t.Fatalf("expires after %s, want 10 minutes", left)
+	}
+	if c.Activity.Draft != "Let me check one thing. " {
+		t.Fatalf("the draft before the card was not saved with it: %q", c.Activity.Draft)
+	}
+	var start struct {
+		ClarifyTimeout int `json:"clarify_timeout_s"`
+	}
+	if err := h.kit.ReceivedOf("run.start")[0].Decode(&start); err != nil || start.ClarifyTimeout != 600 {
+		t.Fatalf("run.start clarify_timeout_s %d, %v", start.ClarifyTimeout, err)
+	}
+	// The row the apps read carries the card, in GET /chats too.
+	code, body := serve(t, h.s, "GET", "/chats", "")
+	if code != 200 || !strings.Contains(string(body), `"requestId":"req-1"`) {
+		t.Fatalf("GET /chats %d %s", code, body)
+	}
+	time.Sleep(300 * time.Millisecond) // the repeated event reached the follower too
+	if n := h.questionPushes(c.ID); n != 1 {
+		t.Fatalf("%d question pushes, want 1", n)
+	}
+
+	code, body = h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-1","answers":{"q0":"Tuesday","q1":"  after lunch  "}}`)
+	if code != 200 {
+		t.Fatalf("answer: %d %s", code, body)
+	}
+	var answered Conversation
+	if err := json.Unmarshal(body, &answered); err != nil || answered.Question.pending() {
+		t.Fatalf("the card is still on the answered row: %+v %v", answered.Question, err)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if got := h.clarifyAnswers(); len(got) != 1 || got[0].Run != q.Run || got[0].RequestID != "req-1" || got[0].Outcome != outcomeSubmitted ||
+		got[0].Answers["q0"] != "Tuesday" || got[0].Answers["q1"] != "after lunch" {
+		t.Fatalf("clarify.answer %+v", got)
+	}
+	if n := len(h.kit.ReceivedOf("run.start")); n != 1 {
+		t.Fatalf("%d run.starts: the answer must continue the same run", n)
+	}
+	asked := questionMessages(c)
+	if len(asked) != 1 || asked[0].Question == nil || asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Tuesday" ||
+		asked[0].AgentRun != q.Run || !strings.Contains(asked[0].Content, "Which day suits you?") {
+		t.Fatalf("question messages %+v", asked)
+	}
+	last := lastMessage(c)
+	if last.Content != `Let me check one thing. Booked for {"q0":"Tuesday","q1":"after lunch"}` || c.Question.pending() {
+		t.Fatalf("reply %q, card %+v", last.Content, c.Question)
+	}
+	if n := slices.IndexFunc(c.Messages, func(m Message) bool { return m.Kind == "question" }); n != len(c.Messages)-2 {
+		t.Fatalf("the question message is at %d of %d: it belongs before the reply", n, len(c.Messages))
+	}
+	h.noCard(c.ID) // idle
+	// The card is closed: a second answer is stale.
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-1","answers":{"q0":"Monday"}}`); code != 409 {
+		t.Fatalf("a second answer: %d, want 409", code)
+	}
+}
+
+// Stale, foreign and malformed answers are refused and leave the card
+// waiting; Skip ends it with no answers.
+func TestIntegrationAgentEngineClarifyRefusesStaleAndBadAnswers(t *testing.T) {
+	h := newEngineHarness(t)
+	multi := obj{"qid": "q0", "question": "Which days?", "choices": []string{"Mon", "Tue", "Wed"}, "recommended": nil, "multi_select": true}
+	single := obj{"qid": "q1", "question": "Which room?", "choices": []string{"A", "B"}, "recommended": nil, "multi_select": false}
+	c := h.chat("Plan the week", "supervised", "ask-bad", lines(ask("req-9", 600_000, multi, single), reply("Skipped: {{last_answers}}", 0)))
+	c = h.waiting(c.ID, "req-9")
+	path := "/chats/" + c.ID + "/answer"
+	for name, tc := range map[string]struct {
+		body string
+		code int
+	}{
+		"another request":            {`{"requestId":"req-8","answers":{"q0":["Mon"]}}`, 409},
+		"no request":                 {`{"answers":{"q0":["Mon"]}}`, 400},
+		"unknown qid":                {`{"requestId":"req-9","answers":{"q7":"Mon"}}`, 400},
+		"a list for a single choice": {`{"requestId":"req-9","answers":{"q1":["A","B"]}}`, 400},
+		"two typed items":            {`{"requestId":"req-9","answers":{"q0":["Mon","Fri","Sun"]}}`, 400},
+		"a number":                   {`{"requestId":"req-9","answers":{"q1":7}}`, 400},
+		"too long":                   {`{"requestId":"req-9","answers":{"q1":"` + strings.Repeat("x", maxAnswerRunes+1) + `"}}`, 400},
+	} {
+		if code, body := h.post(path, tc.body); code != tc.code {
+			t.Errorf("%s: %d %s, want %d", name, code, body, tc.code)
+		}
+	}
+	if code, body := serveAs(t, h.s, "user-b", "POST", path, `{"requestId":"req-9","answers":{"q0":["Mon"]}}`); code != 404 {
+		t.Fatalf("another account: %d %s, want 404", code, body)
+	}
+	c = h.waiting(c.ID, "req-9")
+	if len(h.clarifyAnswers()) != 0 || len(questionMessages(c)) != 0 {
+		t.Fatal("a refused answer reached the worker or the thread")
+	}
+	if code, body := h.post(path, `{"requestId":"req-9","skip":true}`); code != 200 {
+		t.Fatalf("skip: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if got := h.clarifyAnswers(); len(got) != 1 || got[0].Outcome != outcomeCancelled || len(got[0].Answers) != 0 {
+		t.Fatalf("clarify.answer after Skip %+v", got)
+	}
+	if asked := questionMessages(c); len(asked) != 1 || asked[0].Question.Outcome != outcomeCancelled || lastMessage(c).Content != "Skipped: {}" {
+		t.Fatalf("after Skip: %+v, reply %q", asked, lastMessage(c).Content)
+	}
+}
+
+// A multi-select answer with one typed item reaches the worker as a list.
+func TestIntegrationAgentEngineClarifyMultiSelect(t *testing.T) {
+	h := newEngineHarness(t)
+	multi := obj{"qid": "q0", "question": "Which days?", "choices": []string{"Mon", "Tue", "Wed"}, "recommended": nil, "multi_select": true}
+	c := h.chat("Plan the week", "supervised", "ask-multi", lines(ask("req-m", 600_000, multi), reply("Ok {{last_answers}}", 0)))
+	h.waiting(c.ID, "req-m")
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-m","answers":{"q0":["Tue","Mon","Tue","Sunday"]}}`); code != 200 {
+		t.Fatalf("answer: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if lastMessage(c).Content != `Ok {"q0":["Tue","Mon","Sunday"]}` {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+}
+
+// Stop while the card waits: the run stops, the card closes "stopped" in
+// the thread before the notice, the worker is told (and closes its wait
+// cancelled, which changes nothing more), and a late answer is stale.
+func TestIntegrationAgentEngineClarifyStopDuringTheWait(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "auto", "ask-stop", lines(ask("req-s", 600_000), reply("never", 0)))
+	c = h.waiting(c.ID, "req-s")
+	run := c.AgentRunID
+	if code, body := h.post("/chats/"+c.ID+"/stop", ""); code != 200 {
+		t.Fatalf("stop: %d %s", code, body)
+	}
+	if stops := h.kit.WaitReceived("run.stop", 1, 10*time.Second); stops[0].Run != run {
+		t.Fatalf("run.stop for %s, want %s", stops[0].Run, run)
+	}
+	time.Sleep(500 * time.Millisecond) // the worker's clarify.closed and run.done reach the follower
+	c = h.wait(c.ID, "stopped", statusIs("stopped"))
+	asked := questionMessages(c)
+	if c.Question.pending() || len(asked) != 1 || asked[0].Question.Outcome != outcomeStopped || lastMessage(c).Content != tr("", txtStopped) {
+		t.Fatalf("after Stop: card %+v, questions %+v, last %q", c.Question, asked, lastMessage(c).Content)
+	}
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-s","answers":{"q0":"Monday"}}`); code != 409 {
+		t.Fatalf("an answer after Stop: %d, want 409", code)
+	}
+	if len(h.clarifyAnswers()) != 0 {
+		t.Fatal("an answer reached a stopped run")
+	}
+	h.noCard(c.ID) // stopped
+}
+
+// Delete while the card waits: the run is stopped, and an answer finds no
+// chat.
+func TestIntegrationAgentEngineClarifyDeleteDuringTheWait(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-delete", lines(ask("req-d", 600_000), reply("never", 0)))
+	c = h.waiting(c.ID, "req-d")
+	if code, body := serve(t, h.s, "DELETE", "/chats/"+c.ID, ""); code != 204 {
+		t.Fatalf("delete: %d %s", code, body)
+	}
+	if stops := h.kit.WaitReceived("run.stop", 1, 10*time.Second); stops[0].Run != c.AgentRunID {
+		t.Fatalf("run.stop for %s, want %s", stops[0].Run, c.AgentRunID)
+	}
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-d","answers":{"q0":"Monday"}}`); code != 404 {
+		t.Fatalf("an answer after Delete: %d, want 404", code)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if len(h.clarifyAnswers()) != 0 {
+		t.Fatal("an answer reached a deleted chat's run")
+	}
+}
+
+// The worker dies while the card waits: the run fails with Try again and
+// the card closes; Retry runs the request again.
+func TestIntegrationAgentEngineClarifyWorkerExitDuringTheWait(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-exit", lines(ask("req-x", 600_000), reply("never", 0)))
+	c = h.waiting(c.ID, "req-x")
+	w, ok := h.e.sup.Worker("user-a")
+	if !ok {
+		t.Fatal("no worker")
+	}
+	proc, err := os.FindProcess(w.PID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	c = h.wait(c.ID, "failed", statusIs("failed"))
+	asked := questionMessages(c)
+	if c.Error != tr("", txtAgentLost) || c.ErrorAction != ActionRetry || c.Question.pending() || c.AgentRunID != "" ||
+		len(asked) != 1 || asked[0].Question.Outcome != outcomeStopped {
+		t.Fatalf("after the exit: %q %q card %+v questions %+v", c.Error, c.ErrorAction, c.Question, asked)
+	}
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-x","answers":{"q0":"Monday"}}`); code != 409 {
+		t.Fatalf("an answer after the exit: %d, want 409", code)
+	}
+	h.noCard(c.ID) // failed
+	if code, body := h.post("/chats/"+c.ID+"/retry", "{}"); code != 200 {
+		t.Fatalf("retry: %d %s", code, body)
+	}
+	h.kit.WaitReceived("run.start", 2, 20*time.Second)
+}
+
+// The lease is lost while the card waits (the run is followed by another
+// API process, which is gone): a lane re-claims the expired row, Lost
+// fails it with Try again and clears the card, and the worker is told to
+// stop.
+func TestIntegrationAgentEngineClarifyLeaseLossDuringTheWait(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.RenewEvery = time.Hour // this follower never renews
+	c := h.chat("Book my haircut", "supervised", "ask-lease", lines(ask("req-l", 600_000), reply("never", 0)))
+	c = h.waiting(c.ID, "req-l")
+	if err := h.db.Exec("UPDATE agent_conversations SET agent_instance = 'other:1', lease_until = now() - interval '1 minute' WHERE id = ?", c.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	c = h.wait(c.ID, "failed", statusIs("failed"))
+	asked := questionMessages(c)
+	if c.Error != tr("", txtAgentLost) || c.ErrorAction != ActionRetry || c.Question.pending() || len(asked) != 1 || asked[0].Question.Outcome != outcomeStopped {
+		t.Fatalf("after the lost lease: %q %q card %+v questions %+v", c.Error, c.ErrorAction, c.Question, asked)
+	}
+	h.kit.WaitReceived("run.stop", 1, 10*time.Second)
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-l","answers":{"q0":"Monday"}}`); code != 409 {
+		t.Fatalf("an answer after the lost lease: %d, want 409", code)
+	}
+}
+
+// The follower keeps renewing the lease while the card waits, so no lane
+// takes the run from it.
+func TestIntegrationAgentEngineClarifyWaitKeepsTheLease(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.RenewEvery = 100 * time.Millisecond
+	c := h.chat("Book my haircut", "supervised", "ask-renew", lines(ask("req-r", 600_000), reply("Done.", 0)))
+	c = h.waiting(c.ID, "req-r")
+	// Shorten the lease as if time passed: only the follower's renewal
+	// brings it back.
+	if err := h.db.Exec("UPDATE agent_conversations SET lease_until = now() + interval '2 seconds' WHERE id = ?", c.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	h.wait(c.ID, "renewed", func(c Conversation) bool { return c.LeaseUntil != nil && time.Until(*c.LeaseUntil) > 2*time.Minute })
+	time.Sleep(2500 * time.Millisecond)
+	c = h.waiting(c.ID, "req-r")
+	if n := len(h.kit.ReceivedOf("run.stop")); n != 0 {
+		t.Fatalf("%d run.stops while the card waited", n)
+	}
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-r","answers":{"q0":"Monday"}}`); code != 200 {
+		t.Fatalf("answer: %d %s", code, body)
+	}
+	h.wait(c.ID, "replied", statusIs("idle"))
+}
+
+// A card nobody answers times out in the worker: the card closes "timed
+// out" in the thread and the same run goes on to its reply.
+func TestIntegrationAgentEngineClarifyTimeoutLeavesTheRunGoing(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-timeout", lines(ask("req-t", 1500), reply("I went with Monday.", 0)))
+	h.waiting(c.ID, "req-t")
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	asked := questionMessages(c)
+	if len(asked) != 1 || asked[0].Question.Outcome != outcomeTimedOut || !strings.Contains(asked[0].Content, "(not answered in time)") ||
+		lastMessage(c).Content != "I went with Monday." || len(h.kit.ReceivedOf("run.start")) != 1 {
+		t.Fatalf("after the timeout: %+v, reply %q", asked, lastMessage(c).Content)
+	}
+}
+
+// A message typed while the card waits answers every question (send and
+// steer); a repeated send of it is not answered twice.
+func TestIntegrationAgentEngineClarifyTypedMessageAnswers(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-typed", lines(ask("req-y", 600_000), reply("Ok {{last_answers}}", 0)))
+	before := len(h.waiting(c.ID, "req-y").Messages)
+	send := `{"content":"Tuesday after lunch","requestId":"typed-1"}`
+	code, body := h.post("/chats/"+c.ID+"/messages", send)
+	if code != 200 {
+		t.Fatalf("send: %d %s", code, body)
+	}
+	if code, body := h.post("/chats/"+c.ID+"/messages", send); code != 200 {
+		t.Fatalf("the same send again: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	got := h.clarifyAnswers()
+	if len(got) != 1 || got[0].Answers["q0"] != "Tuesday after lunch" || got[0].Answers["q1"] != "Tuesday after lunch" || got[0].Outcome != outcomeSubmitted {
+		t.Fatalf("clarify.answer %+v", got)
+	}
+	asked := questionMessages(c)
+	if len(asked) != 1 || asked[0].RequestID != "typed-1" || len(c.Messages) != before+2 {
+		t.Fatalf("messages %+v (%d before)", c.Messages, before)
+	}
+	if lastMessage(c).Content != `Ok {"q0":"Tuesday after lunch","q1":"Tuesday after lunch"}` {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+
+	// steer while a card waits answers it too.
+	c = h.chat("Book my haircut", "supervised", "ask-steer", lines(ask("req-z", 600_000), reply("Ok {{last_answers}}", 0)))
+	h.waiting(c.ID, "req-z")
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"Monday"}`); code != 200 {
+		t.Fatalf("steer: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if lastMessage(c).Content != `Ok {"q0":"Monday","q1":"Monday"}` || len(h.kit.ReceivedOf("run.steer")) != 0 {
+		t.Fatalf("steer reply %q, %d run.steers", lastMessage(c).Content, len(h.kit.ReceivedOf("run.steer")))
+	}
+}
+
+// The worker no longer waits when the answer arrives (the card closed in
+// the worker first): the answer is kept as undelivered and the person
+// gets 409.
+func TestIntegrationAgentEngineClarifyUndeliveredAnswer(t *testing.T) {
+	h := newEngineHarness(t)
+	// The fake closes its wait without telling Go (no clarify.closed) and
+	// hangs, so Go still shows the card the worker no longer waits on.
+	c := h.chat("Book my haircut", "supervised", "ask-gone", lines(
+		obj{"type": "event", "kind": "clarify.request", "payload": obj{"request_id": "req-g", "questions": dayQuestions, "timeout_s": 600}},
+		obj{"fake": "hang"},
+	))
+	h.waiting(c.ID, "req-g")
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-g","answers":{"q0":"Monday"}}`); code != 409 {
+		t.Fatalf("an undelivered answer: %d, want 409", code)
+	}
+	c = h.wait(c.ID, "kept the answer", func(c Conversation) bool { return len(questionMessages(c)) == 1 })
+	if asked := questionMessages(c); asked[0].Question.Outcome != outcomeUndelivered || c.Question.pending() || c.Status != "running" {
+		t.Fatalf("after an undelivered answer: %+v card %+v status %s", asked, c.Question, c.Status)
+	}
+	h.post("/chats/"+c.ID+"/stop", "")
+}
+
+// A sub-task shows as an activity line; what it read outside taints the
+// chat (via "subagent"), so the run's direct proposal is held in Auto.
+func TestIntegrationAgentEngineChildTaintHoldsADirectProposal(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.ActivityEvery = 50 * time.Millisecond
+	page := obj{"kind": "web", "tool": "web_extract", "host": "news.example"}
+	c := h.chat("Read the page, then add Buy milk", "auto", "child", lines(
+		obj{"fake": "subagent", "goal": "Read the news page", "child": "child-1", "subagent_id": "sa-1", "taint": []obj{page}, "ms": 400},
+		pause(400),
+		toolCallLine("call_p", "propose_changes", buyMilk(true), 1),
+		reply("I drafted the change.", 0),
+	))
+	h.wait(c.ID, "showed the sub-task", func(c Conversation) bool {
+		for _, l := range c.Activity.Lines {
+			if l.Kind == "subagent" && l.Label == "Sub-task: Read the news page" && l.State == "done" {
+				return true
+			}
+		}
+		return false
+	})
+	c = h.wait(c.ID, "held the proposal", ended)
+	want := TaintSource{Kind: "web", Tool: "web_extract", Host: "news.example", Via: "subagent", Child: "child-1"}
+	if c.Status != "approval" || items(h.db) != 0 || !slices.Contains(c.TaintedSources, want) {
+		t.Fatalf("status %s, %d items, tainted_sources %+v", c.Status, items(h.db), c.TaintedSources)
+	}
+	if holdReason(&c, c.Plan, nil) != heldTainted {
+		t.Fatalf("held for %q", holdReason(&c, c.Plan, nil))
+	}
+	h.noCard(c.ID) // approval
+}
+
+// A sub-task's propose_changes is refused in Go too (the worker's gate
+// blocks it first): children read, never propose.
+func TestIntegrationAgentEngineChildCannotPropose(t *testing.T) {
+	h := newEngineHarness(t)
+	call := toolCallLine("call_c", "propose_changes", buyMilk(true), 1)
+	call["subagent"] = "child-1"
+	c := h.chat("Add Buy milk", "auto", "child-propose", lines(call, reply("Nothing to add.", 0)))
+	c = h.wait(c.ID, "replied", ended)
+	results := h.toolResults()
+	if c.Status != "idle" || len(c.Plan) != 0 || items(h.db) != 0 || len(results) != 1 || !strings.Contains(string(results[0].Result), childProposal) {
+		t.Fatalf("status %s plan %+v results %+v", c.Status, c.Plan, results)
+	}
+}
+
+// With the no-persist switch off (the default), Sensitive and photo chats
+// run classic whatever their engine choice, and Available says why.
+func TestIntegrationAgentEngineSensitiveAndPhotoChatsStayClassic(t *testing.T) {
+	h := newEngineHarness(t)
+	photoMessage := func(c *Conversation) { c.Messages[0].ImageIDs = []string{"img_1"} }
+	receipt := func(c *Conversation) { c.ImageReview = &ImageReview{Status: "confirmed"} }
+	cases := map[string]func(*Conversation){
+		"sensitive":    func(c *Conversation) { c.Sensitive = true },
+		"photo phase":  func(c *Conversation) { c.Phase = "extract" },
+		"photo in it":  photoMessage,
+		"receipt chat": receipt,
+	}
+	reasons := map[string]string{"sensitive": "Sensitive chats use the classic engine", "photo phase": "Photos and receipts use the classic engine",
+		"photo in it": "Photos and receipts use the classic engine", "receipt chat": "Photos and receipts use the classic engine"}
+	for _, flag := range []bool{false, true} {
+		h.s.SetSensitiveNoPersist(flag)
+		for name, edit := range cases {
+			if flag && name == "sensitive" {
+				continue // the switch is for Sensitive chats only
+			}
+			c := h.chatWith("Add Buy milk", "supervised", "classic-"+name, lines(reply("agent", 0)), edit)
+			c = h.wait(c.ID, "claimed", func(c Conversation) bool { return c.RunEngine != "" })
+			if c.RunEngine != engineClassic {
+				t.Errorf("%s (switch %v): run engine %q", name, flag, c.RunEngine)
+			}
+			if err := h.e.Available(context.Background(), "user-a", &c); err == nil || err.Error() != reasons[name] {
+				t.Errorf("%s (switch %v): Available %v", name, flag, err)
+			}
+			h.wait(c.ID, "ended", ended)
+		}
+	}
+	if n := len(h.kit.ReceivedOf("run.start")); n != 0 {
+		t.Fatalf("%d run.starts for classic chats", n)
+	}
+}
+
+// With the test-only switch on, a Sensitive plan turn runs on the agent
+// engine as a no-persist run: flags.no_persist, toolsets timely and todo,
+// the whole conversation as history every turn, and the model's Sensitive
+// grant.
+func TestIntegrationAgentEngineSensitiveNoPersistRun(t *testing.T) {
+	h := newEngineHarness(t)
+	var mu sync.Mutex
+	var asked []RunModelOptions
+	h.e.opts.Model = func(ctx context.Context, uid, provider, model string, opts RunModelOptions) (any, error) {
+		mu.Lock()
+		asked = append(asked, opts)
+		mu.Unlock()
+		return testModel(ctx, uid, provider, model, opts)
+	}
+	models := func() []RunModelOptions { mu.Lock(); defer mu.Unlock(); return slices.Clone(asked) }
+	h.s.SetSensitiveNoPersist(true)
+	c := h.chatWith("first", "supervised", "np", lines(reply("One.", 0)), func(c *Conversation) { c.Sensitive, c.WebSearch = true, true })
+	if err := h.e.Available(context.Background(), "user-a", &c); err != nil {
+		t.Fatalf("Available with the switch on: %v", err)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if c.RunEngine != engineAgent {
+		t.Fatalf("run engine %q", c.RunEngine)
+	}
+	if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"second"}`); code != 200 {
+		t.Fatalf("send: %d %s", code, body)
+	}
+	starts := h.kit.WaitReceived("run.start", 2, 20*time.Second)
+	h.wait(c.ID, "replied again", func(c Conversation) bool { return c.Status == "idle" && len(c.Messages) == 4 })
+	var second struct {
+		Toolsets []string            `json:"toolsets"`
+		History  []map[string]string `json:"history"`
+		Reseed   bool                `json:"reseed"`
+		System   string              `json:"system_text"`
+		Flags    struct {
+			NoPersist bool `json:"no_persist"`
+			Sensitive bool `json:"sensitive"`
+			Web       bool `json:"web"`
+			Learning  bool `json:"learning_writes"`
+		} `json:"flags"`
+	}
+	if err := starts[1].Decode(&second); err != nil {
+		t.Fatal(err)
+	}
+	if !second.Flags.NoPersist || !second.Flags.Sensitive || second.Flags.Web || second.Flags.Learning || !slices.Equal(second.Toolsets, []string{"timely", "todo"}) || second.Reseed || strings.Contains(second.System, askHint) {
+		t.Fatalf("second run.start %+v", second)
+	}
+	if len(second.History) != 2 || second.History[0]["content"] != "first" || second.History[1]["content"] != "One." {
+		t.Fatalf("history %+v: a no-persist run sends the whole conversation every turn", second.History)
+	}
+	if got := models(); len(got) < 3 || slices.ContainsFunc(got, func(o RunModelOptions) bool { return !o.Sensitive }) {
+		t.Fatalf("model options %+v, want Sensitive every time", got)
+	}
+	// An ordinary chat beside it neither sends no_persist nor asks for the
+	// Sensitive grant.
+	plain := h.chat("hello", "supervised", "plain", lines(reply("Hi.", 0)))
+	h.wait(plain.ID, "replied", statusIs("idle"))
+	got := models()
+	if s := h.runStart(plain.ID); slices.Equal(s.Toolsets, []string{"timely", "todo"}) || got[len(got)-1].Sensitive {
+		t.Fatalf("plain chat run.start %+v, model %+v", s, got[len(got)-1])
+	}
+}
+
+// cancelAfterCommit simulates the person's connection dropping once the
+// answer is committed: it cancels the request context, then calls the real
+// engine with whatever context the service hands it.
+type cancelAfterCommit struct {
+	AgentEngine
+	cancel context.CancelFunc
+	err    error
+}
+
+func (e *cancelAfterCommit) Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	e.cancel()
+	if e.err != nil {
+		return e.err
+	}
+	return e.AgentEngine.Answer(ctx, uid, cid, runID, requestID, answers, outcome)
+}
+
+// The person's request ends after the answer is committed (the phone drops
+// the connection): the answer still reaches the run, which goes on with it.
+func TestIntegrationAgentEngineClarifyAnswerSurvivesACancelledRequest(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-cancelled", lines(ask("req-x", 600_000), reply("Ok {{last_answers}}", 0)))
+	h.waiting(c.ID, "req-x")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.s.SetAgentEngine(&cancelAfterCommit{AgentEngine: h.e, cancel: cancel})
+	answers := func(ChatQuestion) (map[string]any, error) { return map[string]any{"q0": "Monday"}, nil }
+	if _, err := h.s.answerQuestion(ctx, "user-a", c.ID, "req-x", answers, outcomeSubmitted, ""); err != nil {
+		t.Fatalf("an answer whose request ended: %v", err)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	asked := questionMessages(c)
+	if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) || len(h.clarifyAnswers()) != 1 {
+		t.Fatalf("after the answer: %+v, reply %q, %d clarify.answer", asked, lastMessage(c).Content, len(h.clarifyAnswers()))
+	}
+}
+
+// An answer that could not be sent (the worker did not reply) puts the card
+// back, so the person can answer again, instead of closing it unseen.
+func TestIntegrationAgentEngineClarifyUnsentAnswerRestoresTheCard(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-unsent", lines(ask("req-u", 600_000), reply("Ok {{last_answers}}", 0)))
+	waiting := h.waiting(c.ID, "req-u")
+	h.s.SetAgentEngine(&cancelAfterCommit{AgentEngine: h.e, cancel: func() {}, err: context.DeadlineExceeded})
+	answers := func(ChatQuestion) (map[string]any, error) { return map[string]any{"q0": "Monday"}, nil }
+	if _, err := h.s.answerQuestion(context.Background(), "user-a", c.ID, "req-u", answers, outcomeSubmitted, ""); err == nil {
+		t.Fatal("an answer that was not sent reported success")
+	}
+	c = h.wait(c.ID, "card back", func(c Conversation) bool { return c.Question.RequestID == "req-u" })
+	if len(questionMessages(c)) != 0 || len(c.Messages) != len(waiting.Messages) || c.Status != "running" {
+		t.Fatalf("after an unsent answer: %d question messages, %d messages (was %d), status %s", len(questionMessages(c)), len(c.Messages), len(waiting.Messages), c.Status)
+	}
+	// Answering again goes through.
+	h.s.SetAgentEngine(h.e)
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-u","answers":{"q0":"Tuesday"}}`); code != 200 {
+		t.Fatalf("answering again: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if !strings.Contains(lastMessage(c).Content, `"q0":"Tuesday"`) {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+}
+
+// lostAck delivers the answer to the worker for real, then reports that no
+// ack came (after wait): the worker took the answer, Go does not know it.
+type lostAck struct {
+	e    *WorkerEngine
+	wait time.Duration
+}
+
+func (l *lostAck) Available(ctx context.Context, uid string, c *Conversation) error {
+	return l.e.Available(ctx, uid, c)
+}
+func (l *lostAck) Start(ctx context.Context, c *Conversation) error { return l.e.Start(ctx, c) }
+func (l *lostAck) Lost(ctx context.Context, c *Conversation) error  { return l.e.Lost(ctx, c) }
+func (l *lostAck) Stop(uid, cid, runID string)                      { l.e.Stop(uid, cid, runID) }
+func (l *lostAck) Steer(ctx context.Context, uid, cid, runID, text string) error {
+	return l.e.Steer(ctx, uid, cid, runID, text)
+}
+func (l *lostAck) Forget(uid, cid string) { l.e.Forget(uid, cid) }
+func (l *lostAck) Closed(runID, requestID string) string {
+	return l.e.Closed(runID, requestID)
+}
+func (l *lostAck) Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	if err := l.e.Answer(ctx, uid, cid, runID, requestID, answers, outcome); err != nil {
+		return err
+	}
+	time.Sleep(l.wait)
+	return context.DeadlineExceeded
+}
+
+// The worker took the answer but its ack missed the timeout: the card does
+// not come back (the run goes on with the first answer), the thread keeps the
+// answer the run used, and a second answer is refused. Both orders of the
+// worker's clarify.closed against the failed Answer end the same way.
+func TestIntegrationAgentEngineClarifyLostAckKeepsTheAnswerTheRunUsed(t *testing.T) {
+	for name, wait := range map[string]time.Duration{"closed first": 500 * time.Millisecond, "closed after": 0} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			c := h.chat("Book my haircut", "supervised", "ask-lost-"+strings.ReplaceAll(name, " ", "-"), lines(ask("req-l", 600_000), pause(1500), reply("Ok {{last_answers}}", 0)))
+			h.waiting(c.ID, "req-l")
+			h.s.SetAgentEngine(&lostAck{e: h.e, wait: wait})
+			if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-l","answers":{"q0":"Monday"}}`); code != 200 && code != 503 {
+				t.Fatalf("a lost ack: %d", code)
+			}
+			h.s.SetAgentEngine(h.e)
+			c = h.wait(c.ID, "answer kept, card gone", func(c Conversation) bool {
+				return len(questionMessages(c)) == 1 && !c.Question.pending()
+			})
+			if asked := questionMessages(c); asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" {
+				t.Fatalf("the thread's answer: %+v", asked[0].Question)
+			}
+			if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-l","answers":{"q0":"Tuesday"}}`); code != 409 {
+				t.Fatalf("a second answer: %d, want 409", code)
+			}
+			c = h.wait(c.ID, "replied", statusIs("idle"))
+			asked := questionMessages(c)
+			if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) {
+				t.Fatalf("final thread: %+v, reply %q", asked, lastMessage(c).Content)
+			}
+		})
+	}
+}
+
+// A Skip whose ack was lost: the worker took it ("cancelled"), so the person
+// gets 200 and the thread says skipped, not "not answered in time".
+func TestIntegrationAgentEngineClarifySkipWithALostAckIsDelivered(t *testing.T) {
+	for name, wait := range map[string]time.Duration{"closed first": 500 * time.Millisecond, "closed after": 0} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			c := h.chat("Book my haircut", "supervised", "ask-skip-lost-"+strings.ReplaceAll(name, " ", "-"), lines(ask("req-s", 600_000), pause(1500), reply("Ok {{last_answers}}", 0)))
+			h.waiting(c.ID, "req-s")
+			h.s.SetAgentEngine(&lostAck{e: h.e, wait: wait})
+			if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-s","skip":true}`); code != 200 {
+				t.Fatalf("a skip with a lost ack: %d %s, want 200", code, body)
+			}
+			h.s.SetAgentEngine(h.e)
+			c = h.wait(c.ID, "replied", statusIs("idle"))
+			asked := questionMessages(c)
+			if len(asked) != 1 || asked[0].Question.Outcome != outcomeCancelled || strings.Contains(asked[0].Content, "not answered in time") {
+				t.Fatalf("the thread's skip: %+v", asked)
+			}
+		})
+	}
+}
+
+// An answer whose ack was lost, when the run used it and ended before the
+// request gave up: the person gets 200, not "try again".
+func TestIntegrationAgentEngineClarifyLostAckAfterTheRunEndedIsDelivered(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-lost-ended", lines(ask("req-x", 600_000), reply("Ok {{last_answers}}", 0)))
+	h.waiting(c.ID, "req-x")
+	h.s.SetAgentEngine(&lostAck{e: h.e, wait: 2 * time.Second})
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-x","answers":{"q0":"Monday"}}`); code != 200 {
+		t.Fatalf("a lost ack, run ended meanwhile: %d %s, want 200", code, body)
+	}
+	h.s.SetAgentEngine(h.e)
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	asked := questionMessages(c)
+	if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) {
+		t.Fatalf("final thread: %+v, reply %q", asked, lastMessage(c).Content)
+	}
+}
+
+// lateFirst is a first answer whose delivery lags: its Answer reports no ack
+// at once (the 10 s limit passed while the write was in progress) and the
+// answer reaches the worker only just before the next Answer is sent.
+type lateFirst struct {
+	*WorkerEngine
+	settle  time.Duration
+	mu      sync.Mutex
+	pending func()
+	calls   int
+}
+
+func (l *lateFirst) Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	l.mu.Lock()
+	l.calls++
+	first := l.calls == 1
+	pending := l.pending
+	l.pending = nil
+	l.mu.Unlock()
+	if first {
+		l.mu.Lock()
+		l.pending = func() {
+			_ = l.WorkerEngine.Answer(context.WithoutCancel(ctx), uid, cid, runID, requestID, answers, outcome)
+		}
+		l.mu.Unlock()
+		return context.DeadlineExceeded
+	}
+	if pending != nil {
+		pending()
+		time.Sleep(l.settle)
+	}
+	return l.WorkerEngine.Answer(ctx, uid, cid, runID, requestID, answers, outcome)
+}
+
+// The first answer reaches the worker late: after Answer gave up, the card
+// came back and the person answered again. The worker takes the first one; the
+// second is refused, and the thread shows the answer the run used, not the
+// one it did not. Both orders of the worker's clarify.closed against the
+// second answer's refusal end the same way.
+func TestIntegrationAgentEngineClarifyLateFirstAnswerStaysTheOneTheRunUsed(t *testing.T) {
+	for name, settle := range map[string]time.Duration{"closed first": 500 * time.Millisecond, "closed after": 0} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			c := h.chat("Book my haircut", "supervised", "ask-late-"+strings.ReplaceAll(name, " ", "-"), lines(ask("req-z", 600_000), pause(1500), reply("Ok {{last_answers}}", 0)))
+			h.waiting(c.ID, "req-z")
+			h.s.SetAgentEngine(&lateFirst{WorkerEngine: h.e, settle: settle})
+			if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-z","answers":{"q0":"Monday"}}`); code != 503 {
+				t.Fatalf("the first answer: %d %s, want 503", code, body)
+			}
+			h.wait(c.ID, "card back", func(c Conversation) bool { return c.Question.RequestID == "req-z" })
+			if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-z","answers":{"q0":"Tuesday"}}`); code != 409 {
+				t.Fatalf("the second answer: %d %s, want 409", code, body)
+			}
+			h.s.SetAgentEngine(h.e)
+			c = h.wait(c.ID, "the run's answer kept", func(c Conversation) bool {
+				asked := questionMessages(c)
+				return len(asked) == 1 && asked[0].Question.Outcome == outcomeSubmitted && asked[0].Question.Answers["q0"] == "Monday" && !c.Question.pending()
+			})
+			c = h.wait(c.ID, "replied", statusIs("idle"))
+			asked := questionMessages(c)
+			if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" || !strings.Contains(asked[0].Content, "Monday") || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) {
+				t.Fatalf("final thread: %+v, reply %q", asked, lastMessage(c).Content)
+			}
+		})
+	}
+}
+
+// An answer for a run this process does not follow (another API process on
+// the same tables runs it) asked no worker: the card goes back, 503, and the
+// run's own process can still take the answer.
+func TestIntegrationAgentEngineClarifyAnswerForARunElsewhereRestoresTheCard(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-elsewhere", lines(ask("req-e", 600_000), reply("Ok {{last_answers}}", 0)))
+	c = h.waiting(c.ID, "req-e")
+	h.e.mu.Lock()
+	r := h.e.runs[c.AgentRunID]
+	delete(h.e.runs, c.AgentRunID)
+	h.e.mu.Unlock()
+	if code, _ := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-e","answers":{"q0":"Monday"}}`); code != 503 {
+		t.Fatalf("an answer for a run followed elsewhere: %d, want 503", code)
+	}
+	c = h.wait(c.ID, "card back", func(c Conversation) bool { return c.Question.RequestID == "req-e" })
+	if len(questionMessages(c)) != 0 || c.Status != "running" {
+		t.Fatalf("%d question messages, status %s", len(questionMessages(c)), c.Status)
+	}
+	h.e.mu.Lock()
+	h.e.runs[c.AgentRunID] = r
+	h.e.mu.Unlock()
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-e","answers":{"q0":"Tuesday"}}`); code != 200 {
+		t.Fatalf("answering again: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if !strings.Contains(lastMessage(c).Content, `"q0":"Tuesday"`) {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+}
+
+// The worker ends a wait the same way for a Stop (and for the API's shutdown)
+// as for a Skip. When Timely stopped the run, the card closes "stopped", not
+// as something the person skipped.
+func TestIntegrationAgentEngineClarifyClosedByAStopIsNotASkip(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "auto", "ask-stopped-closed", lines(ask("req-k", 600_000), reply("never", 0)))
+	c = h.waiting(c.ID, "req-k")
+	h.e.mu.Lock()
+	r := h.e.runs[c.AgentRunID]
+	h.e.mu.Unlock()
+	h.e.stopWorkerRun(r, "stop")
+	c = h.wait(c.ID, "closed", func(c Conversation) bool { return len(questionMessages(c)) == 1 })
+	if asked := questionMessages(c); asked[0].Question.Outcome != outcomeStopped || !strings.Contains(asked[0].Content, "(stopped before an answer)") {
+		t.Fatalf("the card closed as %+v", asked[0])
+	}
+}
+
+// Three chats waiting on cards fill the account's run cap: the fourth chat's
+// error says so, not that this chat is busy.
+func TestIntegrationAgentEngineAccountRunCapNamesTheOtherChats(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Plan my week", "supervised", "cap", lines(obj{"fake": "refuse", "code": "busy", "message": "the account already has 3 live runs"}))
+	c = h.wait(c.ID, "refused", statusIs("failed"))
+	if c.Error != engineBusyAccount || c.ErrorAction != ActionRetry {
+		t.Fatalf("error %q action %q", c.Error, c.ErrorAction)
+	}
+	c = h.chat("Plan my week", "supervised", "cap-chat", lines(obj{"fake": "refuse", "code": "busy", "message": "this conversation already has a live run"}))
+	c = h.wait(c.ID, "refused", statusIs("failed"))
+	if c.Error != engineBusy {
+		t.Fatalf("error %q", c.Error)
+	}
+}
+
+// failSavesOf makes the database refuse the first n updates of the chat table
+// that match when (a SQL condition on OLD and NEW), then let every later one
+// through: a blip of a second or so. The counter is a sequence, which an
+// aborted statement does not roll back; it is read only inside the match,
+// because Postgres may evaluate the operands of one AND in any order.
+func failSavesOf(t *testing.T, h *engineHarness, name, when string, n int) {
+	t.Helper()
+	for _, q := range []string{
+		"CREATE SEQUENCE " + name + "_seq",
+		"CREATE FUNCTION " + name + "_fn() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN " +
+			"IF " + when + " THEN IF nextval('" + name + "_seq') <= " + strconv.Itoa(n) + " THEN RAISE EXCEPTION 'blip: database unavailable'; END IF; END IF; RETURN NEW; END $f$",
+		"CREATE TRIGGER " + name + "_trg BEFORE UPDATE ON agent_conversations FOR EACH ROW EXECUTE FUNCTION " + name + "_fn()",
+	} {
+		if err := h.db.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// The card's save fails twice in a row (a blip). The worker sends nothing
+// while it waits on the card, so nothing else wakes the follower: it must
+// retry the save by itself, or the person never sees a card the run waits on
+// (Q-4.3) until the wait times out.
+func TestIntegrationAgentEngineClarifyCardSaveRetriesThroughABlip(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.ActivityEvery = 100 * time.Millisecond
+	failSavesOf(t, h, "blip_card", "NEW.question->>'requestId' = 'req-p' AND COALESCE(OLD.question->>'requestId', '') <> 'req-p'", 2)
+	c := h.chat("Book my haircut", "supervised", "ask-blip", lines(ask("req-p", 20_000), reply("Booked {{last_answers}}", 0)))
+	c = h.wait(c.ID, "the card reached the row while the worker waited on it", func(c Conversation) bool {
+		return c.Status == "running" && c.Question.RequestID == "req-p"
+	})
+	code, body := serve(t, h.s, "POST", "/chats/"+c.ID+"/answer", `{"requestId":"req-p","answers":{"q0":"Monday","q1":"no"}}`)
+	if code != 200 {
+		t.Fatalf("answer: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if got := h.questionPushes(c.ID); got != 1 {
+		t.Fatalf("%d pushes for the card, want 1", got)
+	}
+}
+
+// The close's save (clarify.closed, the wait timed out) fails once. The card
+// must still leave the row, with the worker's outcome, while the run goes on.
+func TestIntegrationAgentEngineClarifyCloseSaveRetriesThroughABlip(t *testing.T) {
+	h := newEngineHarness(t)
+	h.e.opts.ActivityEvery = 100 * time.Millisecond
+	failSavesOf(t, h, "blip_close", "OLD.question->>'requestId' = 'req-q' AND COALESCE(NEW.question->>'requestId', '') <> 'req-q'", 1)
+	c := h.chat("Book my haircut", "supervised", "ask-blip-close", lines(ask("req-q", 500), pause(6000), reply("I went with Monday.", 0)))
+	h.waiting(c.ID, "req-q")
+	c = h.wait(c.ID, "the card closed as timed out while the run still goes on", func(c Conversation) bool {
+		return c.Status == "running" && c.Question.RequestID == "" && len(questionMessages(c)) == 1
+	})
+	if asked := questionMessages(c); asked[0].Question.Outcome != outcomeTimedOut {
+		t.Fatalf("the card closed as %+v", asked[0].Question)
+	}
+}
+
+// A message typed on a screen that has not shown the card yet (or that shows
+// another card) is not the answer to it: the person has not read the question
+// (send and steer both). A message that names the card it read answers it.
+func TestIntegrationAgentEngineClarifyMessageAnswersOnlyTheCardItsSenderRead(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-seen", lines(ask("req-s", 600_000), reply("Ok {{last_answers}}", 0)))
+	c = h.waiting(c.ID, "req-s")
+	before := len(c.Messages)
+	for _, tc := range []struct{ path, body string }{
+		{"/messages", `{"content":"make it 30 minutes","requestId":"m-1","questionRequestId":""}`},
+		{"/messages", `{"content":"make it 30 minutes","requestId":"m-2","questionRequestId":"req-old"}`},
+		{"/steer", `{"text":"make it 30 minutes","questionRequestId":""}`},
+		{"/steer", `{"text":"make it 30 minutes","questionRequestId":"req-old"}`},
+	} {
+		if code, body := h.post("/chats/"+c.ID+tc.path, tc.body); code != 409 || !strings.Contains(string(body), "Timely just asked you a question. Read it first.") {
+			t.Fatalf("%s %s: %d %s, want 409 telling the person a question waits", tc.path, tc.body, code, body)
+		}
+	}
+	c = h.waiting(c.ID, "req-s")
+	if len(c.Messages) != before || len(h.clarifyAnswers()) != 0 || len(h.kit.ReceivedOf("run.steer")) != 0 {
+		t.Fatalf("a message nobody read answered the card: %d messages (%d before), answers %+v", len(c.Messages), before, h.clarifyAnswers())
+	}
+	if code, body := h.post("/chats/"+c.ID+"/steer", `{"text":"Monday","questionRequestId":"req-s"}`); code != 200 {
+		t.Fatalf("steer naming the card: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if lastMessage(c).Content != `Ok {"q0":"Monday","q1":"Monday"}` {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+}

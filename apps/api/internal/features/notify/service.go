@@ -1077,6 +1077,10 @@ func notificationPushMessage(ntf *models.Notification, token string, settings mo
 			body = "Your assistant needs attention."
 		default:
 			body = "Your assistant has finished."
+			if ntf.Data.String("question") != "" {
+				// A question card the run waits on (status running).
+				body = "Your assistant has a question."
+			}
 		}
 	}
 	data := map[string]any{

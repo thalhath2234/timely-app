@@ -17,7 +17,66 @@ import (
 // ErrAgentEngineUnsupported means the run's provider cannot drive the agent
 // engine, so the chat stays on the classic engine: Claude Code and Codex when
 // the loopback model gateway (gateway.go) is not running.
-var ErrAgentEngineUnsupported = errors.New("Claude Code and Codex use the classic engine until a later update")
+var ErrAgentEngineUnsupported = errors.New("The model gateway is not running, so Claude Code and Codex use the classic engine")
+
+// errSignInToken is a Claude Code sign-in token pasted where an Anthropic API
+// key goes (Q-4.1). Hermes would take it down its Claude Code OAuth path
+// (Bearer auth, the Claude Code identity, the oauth betas;
+// hermes:agent/anthropic_credentials.py _is_oauth_token), which Timely never
+// uses, so it is refused when saved and when a run asks for it.
+var errSignInToken = errors.New("This is a Claude Code sign-in token, not an API key. Paste an Anthropic API key, or connect Claude Code itself in Settings → Agent")
+
+// signInToken reports a Claude Code OAuth token, which is never an API key:
+// "sk-ant-oat..." on any provider, and for Anthropic every key Hermes' own
+// classifier (_is_oauth_token) calls OAuth. The Console key families
+// (sk-ant-api, -usr, -svc, -admin) are API keys; any other "sk-ant-" key, an
+// "eyJ" JWT and a "cc-" token are not (unknown sk-ant- prefixes count as OAuth
+// in Hermes on purpose, so prefixes Anthropic ships later keep working there).
+// The worker keeps the same rule (timely_agent policy.is_oauth_key).
+func signInToken(provider, key string) bool {
+	key = strings.TrimSpace(key)
+	if strings.HasPrefix(key, "sk-ant-oat") {
+		return true
+	}
+	if provider != "anthropic" {
+		return false
+	}
+	for _, api := range []string{"sk-ant-api", "sk-ant-usr", "sk-ant-svc", "sk-ant-admin"} {
+		if strings.HasPrefix(key, api) {
+			return false
+		}
+	}
+	for _, oauth := range []string{"sk-ant-", "eyJ", "cc-"} {
+		if strings.HasPrefix(key, oauth) {
+			return true
+		}
+	}
+	return false
+}
+
+// agentProviderIDs are the only Hermes provider ids Timely ever sends in
+// run.start (Q-4.1): every id hermesProvider can produce, all of them API-key
+// rows of hermes:hermes_cli/auth.py (_REGISTRY_ROWS), plus "openrouter" and
+// "custom" (the CLI and Sensitive gateway, Mistral, local Ollama). None is an
+// OAuth provider (nous, openai-codex, xai-oauth, qwen-oauth, minimax-oauth,
+// copilot...), so Hermes never signs in on the person's behalf. The worker
+// keeps its own copy of this list (timely_agent) and refuses anything else.
+var agentProviderIDs = map[string]bool{
+	"custom": true, "openrouter": true, "anthropic": true, "openai-api": true, "gemini": true, "deepseek": true,
+	"xai": true, "zai": true, "kimi-coding": true, "kimi-coding-cn": true, "nvidia": true,
+	"opencode-zen": true, "opencode-go": true, "ollama-cloud": true,
+}
+
+// AgentRunOptions are what a run asks of its model beyond provider and model.
+type AgentRunOptions struct {
+	// Sensitive sends every model call through the loopback gateway, whatever
+	// the provider, so the classic Completer makes it with Sensitive
+	// messages and no web search: zero data retention on OpenRouter, the
+	// CLIs' Sensitive arguments (plan 5.6, phase 4 decision 11). Like classic
+	// Sensitive and CLI runs, such a run does not stream and reports no
+	// tokens.
+	Sensitive bool
+}
 
 // unsupportedError is ErrAgentEngineUnsupported with a reason of its own.
 type unsupportedError struct{ reason string }
@@ -108,21 +167,41 @@ func hermesProvider(id, base string) string {
 	return id // anthropic, gemini, deepseek, xai, zai, nvidia, opencode-zen, opencode-go
 }
 
-// AgentModel returns the credentials a run on the agent engine uses for the
-// provider and model the chat fixed at claim: every API-key provider in the
-// registry and OpenRouter, with the account's decrypted key. An empty model
-// takes the account's chosen model for that provider, as Completer does, so
-// both engines run the same model. Claude Code and Codex go through the
-// loopback gateway (cliAgentModel), or return ErrAgentEngineUnsupported
-// without one.
+// AgentModel is AgentModelFor with no options: a run that is not Sensitive.
 func (s *Service) AgentModel(ctx context.Context, userID, provider, model string) (AgentModel, error) {
+	return s.AgentModelFor(ctx, userID, provider, model, AgentRunOptions{})
+}
+
+// AgentModelFor returns the credentials a run on the agent engine uses for
+// the provider and model the chat fixed at claim: every API-key provider in
+// the registry and OpenRouter, with the account's decrypted key. An empty
+// model takes the account's chosen model for that provider, as Completer
+// does, so both engines run the same model. Claude Code and Codex, and every
+// provider on a Sensitive run, go through the loopback gateway
+// (gatewayAgentModel), or return ErrAgentEngineUnsupported without one. The
+// provider id it returns is always one of agentProviderIDs.
+func (s *Service) AgentModelFor(ctx context.Context, userID, provider, model string, opts AgentRunOptions) (AgentModel, error) {
+	m, err := s.agentModel(ctx, userID, provider, model, opts)
+	if err != nil {
+		return AgentModel{}, err
+	}
+	if !agentProviderIDs[m.Provider] {
+		// A second line behind hermesProvider: never hand the worker a
+		// provider Hermes could sign in to by itself (Q-4.1).
+		return AgentModel{}, unsupportedError{fmt.Sprintf("%s cannot run on the new engine", provider)}
+	}
+	return m, nil
+}
+
+func (s *Service) agentModel(ctx context.Context, userID, provider, model string, opts AgentRunOptions) (AgentModel, error) {
+	cli := provider == ClaudeCLI || provider == CodexCLI
 	switch {
-	case provider == ClaudeCLI || provider == CodexCLI:
-		return s.cliAgentModel(ctx, userID, provider, model)
 	case provider == "":
 		return AgentModel{}, errors.New("This run has no AI provider. Try again")
-	case provider != OpenRouter && apiProviderByID(provider) == nil:
+	case !cli && provider != OpenRouter && apiProviderByID(provider) == nil:
 		return AgentModel{}, fmt.Errorf("Unknown AI provider %q. Pick one in Settings → Agent", provider)
+	case cli || opts.Sensitive:
+		return s.gatewayAgentModel(ctx, userID, provider, model, opts.Sensitive)
 	}
 	db := s.db.WithContext(ctx)
 	if provider == OpenRouter {
@@ -143,27 +222,47 @@ func (s *Service) AgentModel(ctx context.Context, userID, provider, model string
 	return s.apiAgentModel(spec, row, model)
 }
 
-// cliAgentModel sends a Claude Code or Codex run through the loopback
-// gateway: Hermes calls it as a custom OpenAI-compatible endpoint with a
-// secret for this account, provider and model, and the gateway answers
-// with the CLI's Completer. Without a gateway the chat stays classic.
-func (s *Service) cliAgentModel(ctx context.Context, userID, provider, model string) (AgentModel, error) {
+// gatewayAgentModel sends a run through the loopback gateway: Hermes calls
+// it as a custom OpenAI-compatible endpoint with a secret for this account,
+// provider, model and Sensitive flag, and the gateway answers with the
+// account's classic Completer. Claude Code and Codex always come here; other
+// providers only on a Sensitive run. Without a gateway the chat stays
+// classic.
+func (s *Service) gatewayAgentModel(ctx context.Context, userID, provider, model string, sensitive bool) (AgentModel, error) {
 	if s.gateway == nil {
+		if sensitive && provider != ClaudeCLI && provider != CodexCLI {
+			return AgentModel{}, unsupportedError{"The model gateway is not running, so Sensitive chats use the classic engine"}
+		}
 		return AgentModel{}, ErrAgentEngineUnsupported
 	}
-	if model == "" {
+	if spec := apiProviderByID(provider); spec != nil {
+		row, found, err := s.apiRow(s.db.WithContext(ctx), userID, provider)
+		if err != nil {
+			return AgentModel{}, err
+		}
+		if !found {
+			return AgentModel{}, fmt.Errorf("%s is not connected. Add its key in Settings → Agent", spec.Label)
+		}
+		if key, err := s.apiKey(row); err == nil && signInToken(provider, key) {
+			return AgentModel{}, errSignInToken
+		}
+		if model == "" {
+			model = row.Model
+		}
+	} else if model == "" {
 		row, err := s.load(s.db.WithContext(ctx), userID)
 		if err != nil {
 			return AgentModel{}, err
 		}
 		model = s.chatModel(row, provider)
 	}
-	// The same checks the classic engine makes: CLI on, found, connected.
+	// The same checks the classic engine makes: CLI on, found, connected;
+	// key set and readable, model chosen.
 	if _, err := s.gateway.completer(ctx, userID, provider, model); err != nil {
 		return AgentModel{}, err
 	}
 	return AgentModel{Provider: "custom", Model: model, BaseURL: s.gateway.BaseURL(),
-		APIKey: s.gateway.grant(userID, provider, model), APIMode: apiModeChat}, nil
+		APIKey: s.gateway.grant(userID, provider, model, sensitive), APIMode: apiModeChat}, nil
 }
 
 // openRouterAgentModel is OpenRouter direct: the account's key, the chat
@@ -196,6 +295,9 @@ func (s *Service) apiAgentModel(spec *apiProvider, row APIKey, model string) (Ag
 	key, err := s.apiKey(row)
 	if err != nil {
 		return AgentModel{}, err
+	}
+	if signInToken(spec.ID, key) {
+		return AgentModel{}, errSignInToken
 	}
 	if key == "" && !spec.KeyOptional {
 		return AgentModel{}, fmt.Errorf("Add %s in Settings → Agent", apiKeyName(spec))

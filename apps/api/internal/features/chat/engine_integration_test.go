@@ -48,7 +48,7 @@ func engineCatalog(tx *gorm.DB) agent.Catalog {
 }
 
 // testModel is run.start's model in these tests: nothing ever calls it.
-func testModel(context.Context, string, string, string) (any, error) {
+func testModel(context.Context, string, string, string, RunModelOptions) (any, error) {
 	return map[string]any{"provider": "custom", "model": "stub-model", "base_url": "http://127.0.0.1:9/v1", "api_key": "sk-test", "api_mode": "chat_completions"}, nil
 }
 
@@ -104,7 +104,7 @@ func newEngineHarness(t *testing.T) *engineHarness {
 
 // newEngineHarnessWith runs the engine on the supervisor cfg describes (the
 // fake worker, or the real one in engine_realworker_test.go).
-func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context.Context, string, string, string) (any, error)) *engineHarness {
+func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context.Context, string, string, string, RunModelOptions) (any, error)) *engineHarness {
 	t.Helper()
 	db := integrationDB(t)
 	s := New(db, engineCatalog, nil)
@@ -358,7 +358,10 @@ func TestIntegrationAgentEngineStreamsAReply(t *testing.T) {
 	if start.SystemHash != blockHash(start.SystemText) || !strings.HasPrefix(start.SystemText, instruction) {
 		t.Error("system_text is the Timely block with its hash")
 	}
-	if strings.Join(start.Toolsets, ",") != "timely,todo,skills" || start.Permission != "supervised" || len(start.Budgets) != 0 {
+	if !strings.HasSuffix(start.SystemText, askHint) {
+		t.Error("a run that may ask has the question card and sub-task line at the end of its block")
+	}
+	if strings.Join(start.Toolsets, ",") != "timely,todo,skills,clarify,delegation" || start.Permission != "supervised" || len(start.Budgets) != 0 {
 		t.Errorf("toolsets %v permission %s budgets %v", start.Toolsets, start.Permission, start.Budgets)
 	}
 	if start.Flags["learning_writes"] || start.Flags["web"] || start.Flags["sensitive"] || start.Flags["from_bot"] || start.Flags["answer_only"] {
@@ -893,6 +896,43 @@ func TestIntegrationAgentEngineLeftoverSteerSupersedesAHeldProposal(t *testing.T
 	c = h.wait(c.ID, "answered", statusIs("idle"))
 	if items(h.db) != 0 || len(c.Plan) != 0 {
 		t.Fatalf("%d items, plan %+v", items(h.db), c.Plan)
+	}
+}
+
+// A turn the model could not answer ends with Hermes' own advice as its final
+// response ("start a clean session with /new ... run `hermes doctor`"). That
+// is never the chat's reply: the run fails with the error and Try again, or
+// with Settings when the error names it (a CLI disconnected in Settings).
+func TestIntegrationAgentEngineFailedTurnIsNotAReply(t *testing.T) {
+	const advice = "custom rejected this request as malformed, so the model didn't answer. Start a clean session with /new or switch models with /model; if it keeps happening, run `hermes doctor`.\n\nProvider said: HTTP 400: bad request"
+	failed := func(final, err string) []byte {
+		return lines(obj{"type": "run.done", "final_response": final, "completed": false, "interrupted": false, "turn_exit_reason": "error",
+			"tokens": obj{}, "estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}, "error": err})
+	}
+	h := newEngineHarness(t)
+	// err is what the worker reports (Hermes puts its status code in front of a
+	// gateway error); want is what the person reads.
+	for name, tc := range map[string]struct{ err, want, action string }{
+		"retry":    {"HTTP 424: Claude failed: exit status 1", "Claude failed: exit status 1", ActionRetry},
+		"settings": {"HTTP 400: Claude Code is not connected. Connect it in Settings → Agent", "Claude Code is not connected. Connect it in Settings → Agent", ActionSettings},
+	} {
+		c := h.chat("Plan my week", "supervised", "failed-"+name, failed(advice, tc.err))
+		c = h.wait(c.ID, "failed", statusIs("failed"))
+		if c.Error != tc.want || c.ErrorAction != tc.action {
+			t.Fatalf("%s: error %q action %q", name, c.Error, c.ErrorAction)
+		}
+		for _, m := range c.Messages {
+			if strings.Contains(m.Content, "hermes doctor") || strings.Contains(m.Content, "/new") {
+				t.Fatalf("%s: Hermes' advice became a message: %q", name, m.Content)
+			}
+		}
+	}
+	// A partial turn (out of iterations) reports its closing text as the error
+	// too: that text stays the reply.
+	c := h.chat("Plan my week", "supervised", "partial", failed("I ran out of steps.", "I ran out of steps."))
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if lastMessage(c).Content != "I ran out of steps." {
+		t.Fatalf("partial turn: last message %q", lastMessage(c).Content)
 	}
 }
 

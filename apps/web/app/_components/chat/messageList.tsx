@@ -24,6 +24,7 @@ import { timeOfDay } from "./chatMeta";
 import { AutoAppliedCard, autoCardArchives } from "./agentRun";
 import type { LearningEvent } from "@timely/contract/agentLearning";
 import TurnLearning from "./turnLearning";
+import { ClosedQuestionCard } from "./questionCard";
 import { learningAnchors, looseLearning, turnLearning } from "./learningView";
 
 function NoticeIcon({ content }: { content: string }) {
@@ -247,6 +248,19 @@ export default function MessageList({
               />
             ) : m.kind === "archive" ? (
               <Archive message={m} />
+            ) : m.kind === "question" ? (
+              m.question ? (
+                <div className="flex gap-3">
+                  <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-foreground">
+                    <TimelyLogo size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <ClosedQuestionCard card={m.question} at={m.createdAt} />
+                  </div>
+                </div>
+              ) : (
+                <Notice message={m} />
+              )
             ) : m.proposal && m.autoApplied ? (
               <AutoAppliedCard
                 chat={chat}
@@ -332,7 +346,7 @@ export default function MessageList({
                 className={cn(
                   "-mt-3",
                   !isUser &&
-                    !m.kind &&
+                    (!m.kind || m.kind === "question") &&
                     !(m.proposal && m.autoApplied) &&
                     "pl-10",
                 )}

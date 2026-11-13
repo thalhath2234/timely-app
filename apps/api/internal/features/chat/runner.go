@@ -148,7 +148,7 @@ func (s *Service) work(ctx context.Context) {
 			// A fresh run picks its engine now; a resumed lease keeps the one
 			// it started on. No agent run is live yet.
 			if c.Status == "queued" {
-				c.RunEngine = runEngine(tx, &c)
+				c.RunEngine = runEngine(tx, &c, s.sensitiveNoPersist)
 				c.AgentRunID, c.AgentInstance = "", ""
 			}
 			// One expired lease can be safely resumed: writes and checkpoints commit together.

@@ -133,6 +133,7 @@ type fakeAPI struct {
 	accounts  []string          // tokens, in sign-up order
 	tasks     map[string]int    // token -> tasks it made
 	chatOwner map[string]string // chat id -> token
+	stops     int
 }
 
 func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +187,9 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if c["status"] == "queued" {
 			c["status"] = "running"
 			c["activity"] = map[string]any{"lines": []any{map[string]any{"id": "call_1", "kind": "tool", "label": "List tasks"}}}
+		} else if c["status"] == "running" && strings.Contains(c["messages"].([]any)[0].(map[string]any)["content"].(string), "ASK") {
+			// The agent engine asks on a question card and waits.
+			c["question"] = map[string]any{"requestId": "req_1", "questions": []any{map[string]any{"qid": "q0", "question": "Which day suits you?"}}}
 		} else if c["status"] == "running" {
 			c["status"] = "approval"
 			c["activity"] = map[string]any{}
@@ -193,6 +197,13 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"steps": []any{map[string]any{"tool": "create_task", "summary": "Add", "status": "pending"}}})
 			c["plan"] = []any{map[string]any{"tool": "create_task", "summary": "Add", "status": "pending"}}
 		}
+		send(200, c)
+	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/stop"):
+		f.stops++
+		c := f.chats[strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/chats/"), "/stop")]
+		c["status"], c["question"] = "stopped", map[string]any{}
+		c["messages"] = append(c["messages"].([]any), map[string]any{"role": "assistant", "kind": "question",
+			"content": "Timely asked:\n- Which day suits you?\n  Answer: (stopped before an answer)"})
 		send(200, c)
 	case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/approve"):
 		f.approvals++
@@ -247,6 +258,31 @@ func TestRunAgainstAFakeAPI(t *testing.T) {
 		}
 	}
 	if !strings.Contains(report, "| tasks | 0/1 | 1/1 |") || !strings.Contains(report, "1 of 1 scenarios ended differently") {
+		t.Fatalf("report:\n%s", report)
+	}
+}
+
+// A question card is the agent engine's way to ask: nobody answers a
+// scenario, so the harness stops the run there, and the closed card counts
+// as the turn's reply (as classic's question reply would).
+func TestAQuestionCardStopsTheRunAndCountsAsTheReply(t *testing.T) {
+	fake := &fakeAPI{chats: map[string]map[string]any{}}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	cfg := Config{API: srv.URL, Provider: "openrouter", Model: "m", Key: "k", Permission: "supervised", Timeout: 5 * time.Second, Poll: time.Millisecond}
+	ctx := context.Background()
+	c, _, _, err := Signup(ctx, cfg, "agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := Scenario{ID: "questions-01", Category: "questions", Message: "ASK me which day",
+		Expect: Expect{Outcome: "reply", ReplyAny: []string{"which day"}}}
+	r := RunScenario(ctx, cfg, c, "agent", s)
+	if !r.Pass || r.Status != "stopped" || fake.stops != 1 || len(r.Asked) != 1 || r.Asked[0] != "Which day suits you?" {
+		t.Fatalf("result: %+v (stops %d)", r, fake.stops)
+	}
+	report := Markdown([]EngineRun{{Engine: "classic", Results: []Result{{ID: s.ID, Category: s.Category, Status: "idle", Replies: []string{"Which day?"}, Pass: true}}}, {Engine: "agent", Results: []Result{r}}}, []Scenario{s})
+	if !strings.Contains(report, "PASS reply (question card)") || !strings.Contains(report, "0 of 1 scenarios ended differently") {
 		t.Fatalf("report:\n%s", report)
 	}
 }

@@ -19,6 +19,12 @@
 (* Either engine writes the person's data only through a proposal and the  *)
 (* model-free apply (ADR 0007): a turn writes nothing itself.              *)
 (*                                                                         *)
+(* Phase 4 (Q-4.3): an agent run may wait on a question card. The follower *)
+(* writes the card (Ask) and clears it when the worker's wait ends         *)
+(* (CloseQuestion) through its fenced save; the row stays running, so the  *)
+(* claim, the lease, Stop, Delete and Lost treat the wait as any live run. *)
+(* The person's answer (Answer) is fenced on the run that asked.           *)
+(*                                                                         *)
 (* Every action below is ONE database transaction (or one statement) in    *)
 (* the code; the comment on each action names it. See ../SKILL.md for the *)
 (* coverage record.                                                        *)
@@ -51,7 +57,9 @@ CONSTANTS
     CheckpointFenced,      \* checkpoint(): latest.Lease != c.Lease || latest.Status != "running"
     CheckpointReadsLatest, \* checkpoint(): fn(tx, &latest); tx.Save(&latest)
     RetryKeepsDone,        \* retry(): only steps with Status != "done" go back to pending
-    HoldsSupervised        \* holdReason(): mode == agent.Supervised holds the proposal
+    HoldsSupervised,       \* holdReason(): mode == agent.Supervised holds the proposal
+    AnswerFenced,          \* questionOpen(): running, the row names the run that asked, same request
+    MaxAsks                \* bound on question cards the agent asks
 
 Steps == 1..NSteps
 NoLease == 0
@@ -74,11 +82,19 @@ VARIABLES
     doneNotices,      \* ghost: "Done" notices published (notify txtPushComplete)
     unapproved,       \* ghost: the proposal was recorded in Supervised, no Approve since
     wroteUnapproved,  \* ghost: a step write committed while unapproved
-    stops, retries, crashes, sends, switches
+    stops, retries, crashes, sends, switches,
+    seen,       \* the run whose question card the person's screen shows (NoRun: none)
+    seenEnded,  \* ghost: the row recorded the end of run `seen` (Stop, Delete, Lost, a failure)
+    answeredEnded, \* ghost: an answer reached a run after seenEnded
+    asks        \* question cards asked so far
+
+\* The question-card variables, unchanged by every action that is not about
+\* a card or a run's end.
+qvars == <<seen, seenEnded, answeredEnded, asks>>
 
 vars == <<row, mem, pc, cursor, fol, writes, nextLease, proposals, halted,
           wroteWhileHalted, doneNotices, unapproved, wroteUnapproved,
-          stops, retries, crashes, sends, switches>>
+          stops, retries, crashes, sends, switches, seen, seenEnded, answeredEnded, asks>>
 
 \* Step statuses: "pending" | "done" | "failed" | "archived"
 \* ("archived" stands for archivePlan, and for a chat with no plan yet: the
@@ -91,7 +107,8 @@ RowType == [status : {"approval", "queued", "running", "stopped", "failed", "idl
             deleted: BOOLEAN,
             mode   : Modes,       \* permission
             engine : {"classic", "agent"},  \* run_engine
-            run    : 0..MaxLeases]          \* agent_run_id (NoRun = "")
+            run    : 0..MaxLeases,          \* agent_run_id (NoRun = "")
+            question : 0..MaxLeases]        \* question.run: the run whose card waits (NoRun = {})
 
 \* A follower: the run it follows (named by the lease Start held), the lease
 \* it renews (r.lease; Lost may move it), and the lane whose API process it
@@ -106,6 +123,9 @@ TypeOK ==
     /\ \A f \in fol : f \in FollowerType
     /\ writes \in [Steps -> Nat]
     /\ proposals \in 0..1
+    /\ seen \in 0..MaxLeases
+    /\ seenEnded \in BOOLEAN
+    /\ asks \in 0..MaxAsks
 
 NoPlan == [i \in Steps |-> "archived"]
 Fresh == [i \in Steps |-> "pending"]
@@ -113,7 +133,7 @@ Fresh == [i \in Steps |-> "pending"]
 \* A proposal waiting for approval (finishTurn: Status = "approval").
 Waiting == [status |-> "approval", phase |-> "apply", lease |-> NoLease,
             expired |-> FALSE, plan |-> Fresh, deleted |-> FALSE,
-            mode |-> Mode, engine |-> "classic", run |-> NoRun]
+            mode |-> Mode, engine |-> "classic", run |-> NoRun, question |-> NoRun]
 \* A new message, before any turn ran (create/send: queued, plan phase).
 Asked == [Waiting EXCEPT !.status = "queued", !.phase = "plan", !.plan = NoPlan]
 
@@ -132,6 +152,7 @@ Init ==
     /\ unapproved = (row = Waiting /\ Mode = "supervised")
     /\ wroteUnapproved = FALSE
     /\ stops = 0 /\ retries = 0 /\ crashes = 0 /\ sends = 0 /\ switches = 0
+    /\ seen = NoRun /\ seenEnded = FALSE /\ answeredEnded = FALSE /\ asks = 0
 
 -----------------------------------------------------------------------------
 (* Lane: claim (runner.go work, the claim Transaction)                       *)
@@ -176,6 +197,7 @@ Claim(w) ==
     /\ nextLease' = nextLease + 1
     /\ UNCHANGED <<fol, writes, proposals, halted, wroteWhileHalted, doneNotices,
                    unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* Without the row lock the claim is a read, then a whole-row tx.Save(&c)
 \* of what was read.
@@ -187,6 +209,7 @@ ClaimRead(w) ==
     /\ pc' = [pc EXCEPT ![w] = "claiming"]
     /\ UNCHANGED <<row, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 ClaimWrite(w) ==
     /\ pc[w] = "claiming"
@@ -201,6 +224,7 @@ ClaimWrite(w) ==
     /\ nextLease' = nextLease + 1
     /\ UNCHANGED <<fol, writes, proposals, halted, wroteWhileHalted, doneNotices,
                    unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 -----------------------------------------------------------------------------
 (* Leases (keepLease, renewLease, and time passing)                          *)
@@ -214,6 +238,7 @@ Expire ==
     /\ row' = [row EXCEPT !.expired = TRUE]
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* keepLease (runClassic): UPDATE ... WHERE id AND user_id AND lease = ? AND
 \* status = 'running'. It does not look at lease_until, so a slow holder can
@@ -227,6 +252,7 @@ Renew(w) ==
     /\ row' = [row EXCEPT !.expired = FALSE]
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* WorkerEngine.renew -> renewLease: the same UPDATE as keepLease, every 20 s,
 \* with the follower's current lease (r.lease).
@@ -239,6 +265,7 @@ FollowerRenew(f) ==
     /\ row' = [row EXCEPT !.expired = FALSE]
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 -----------------------------------------------------------------------------
 (* Lane: one plan step (runner.go apply, the step Transaction)               *)
@@ -257,6 +284,7 @@ SkipDone(w) ==
     /\ cursor' = [cursor EXCEPT ![w] = @ + 1]
     /\ UNCHANGED <<row, mem, pc, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 Write(i) == writes' = [writes EXCEPT ![i] = @ + 1]
 
@@ -307,6 +335,7 @@ StepTx(w) ==
                 /\ UNCHANGED <<cursor, writes, wroteWhileHalted, wroteUnapproved>>
     /\ UNCHANGED <<fol, nextLease, proposals, halted, doneNotices, unapproved,
                    stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 -----------------------------------------------------------------------------
 (* Checkpoints (service.go checkpoint)                                       *)
@@ -333,6 +362,7 @@ FinishApply(w) ==
     /\ pc' = [pc EXCEPT ![w] = "idle"]
     /\ UNCHANGED <<mem, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 FirstNotDone(p) == CHOOSE i \in Steps : p[i] # "done" /\ \A j \in 1..(i - 1) : p[j] = "done"
 
@@ -350,6 +380,7 @@ FailRun(w) ==
     /\ pc' = [pc EXCEPT ![w] = "idle"]
     /\ UNCHANGED <<mem, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 -----------------------------------------------------------------------------
 (* The end of a turn (toolcall.go finishTurn), on either engine              *)
@@ -371,12 +402,13 @@ Statuses(base) ==
 EndTurn(l, base) ==
     IF ~Allowed(l)
     THEN UNCHANGED <<row, proposals, unapproved>>
-    ELSE \/ /\ row' = [base EXCEPT !.status = "idle", !.expired = FALSE, !.run = NoRun]
+    ELSE \/ /\ row' = [base EXCEPT !.status = "idle", !.expired = FALSE, !.run = NoRun,
+                                     !.question = NoRun]
             /\ UNCHANGED <<proposals, unapproved>>
          \/ /\ proposals = 0
             /\ \E s \in Statuses(base) :
                  row' = [base EXCEPT !.status = s, !.phase = "apply", !.plan = Fresh,
-                                     !.expired = FALSE, !.run = NoRun]
+                                     !.expired = FALSE, !.run = NoRun, !.question = NoRun]
             /\ proposals' = proposals + 1
             \* Ghost: recorded while the stored row says Supervised.
             /\ unapproved' = (row.mode = "supervised")
@@ -389,6 +421,7 @@ PlanRun(w) ==
     /\ pc' = [pc EXCEPT ![w] = "idle"]
     /\ UNCHANGED <<mem, cursor, fol, writes, nextLease, halted, wroteWhileHalted,
                    doneNotices, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 -----------------------------------------------------------------------------
 (* The agent engine (engine.go, engine_agent.go)                             *)
@@ -411,6 +444,7 @@ StartRun(w) ==
           /\ UNCHANGED <<row, fol>>
     /\ UNCHANGED <<mem, cursor, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* lostAgentRun -> WorkerEngine.Lost, for a re-claimed agent row (c carries
 \* the new lease). When this process still follows the run named on the row,
@@ -424,14 +458,18 @@ Lost(w) ==
             /\ f.run = mem[w].run
             /\ fol' = (fol \ {f}) \cup {[f EXCEPT !.lease = mem[w].lease]}
             /\ pc' = [pc EXCEPT ![w] = "idle"]
-            /\ UNCHANGED row
+            /\ UNCHANGED <<row, seenEnded>>
        \/ /\ IF Allowed(mem[w].lease)
-             THEN row' = [Base(mem[w]) EXCEPT !.run = NoRun, !.expired = FALSE]
-             ELSE UNCHANGED row
+             THEN \* clearRun also closes a waiting question card
+                  /\ row' = [Base(mem[w]) EXCEPT !.run = NoRun, !.expired = FALSE,
+                                                 !.question = NoRun]
+                  /\ seenEnded' = (seenEnded \/ (mem[w].run # NoRun /\ mem[w].run = seen))
+             ELSE UNCHANGED <<row, seenEnded>>
           /\ pc' = [pc EXCEPT ![w] = "fail"]
           /\ UNCHANGED fol
     /\ UNCHANGED <<mem, cursor, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED <<seen, answeredEnded, asks>>
 
 \* The follower ends the run: run.done -> finishTurn under r.lease (a reply
 \* or a proposal), or e.stopped / e.fail (Stop the worker saw first, a
@@ -442,14 +480,69 @@ FollowerEnd(f) ==
     /\ f \in fol
     /\ fol' = fol \ {f}
     /\ LET b == row IN
-       \/ EndTurn(f.lease, b)
+       \/ /\ EndTurn(f.lease, b)
+          /\ UNCHANGED seenEnded
        \/ /\ \E s \in {"failed", "stopped"} :
                IF Allowed(f.lease)
-               THEN row' = [b EXCEPT !.status = s, !.expired = FALSE, !.run = NoRun]
-               ELSE UNCHANGED row
+               THEN \* endRun closes a waiting question card
+                    /\ row' = [b EXCEPT !.status = s, !.expired = FALSE, !.run = NoRun,
+                                        !.question = NoRun]
+                    /\ seenEnded' = (seenEnded \/ f.run = seen)
+               ELSE UNCHANGED <<row, seenEnded>>
           /\ UNCHANGED <<proposals, unapproved>>
     /\ UNCHANGED <<mem, pc, cursor, writes, nextLease, halted, wroteWhileHalted,
                    doneNotices, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED <<seen, answeredEnded, asks>>
+
+-----------------------------------------------------------------------------
+(* Question cards (phase 4, Q-4.3; question.go, engine_agent.go)             *)
+
+\* WorkerEngine.ask -> flush: the worker's clarify.request. The card goes on
+\* the row (question.run = the run) in the follower's fenced save under its
+\* current lease, with one push; the person's screen shows it.
+Ask(f) ==
+    /\ f \in fol
+    /\ asks < MaxAsks
+    /\ Allowed(f.lease)
+    /\ row.question = NoRun
+    /\ row' = [row EXCEPT !.question = f.run, !.expired = FALSE]
+    /\ seen' = f.run
+    \* A run Ask names is live (its lease is fresh), so nothing has ended it.
+    /\ seenEnded' = FALSE
+    /\ asks' = asks + 1
+    /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches,
+                   answeredEnded>>
+
+\* WorkerEngine.closeAsked: the worker's clarify.closed (timed out, or
+\* cancelled). A card still on the row closes in the follower's fenced save;
+\* a fenced save writes nothing.
+CloseQuestion(f) ==
+    /\ f \in fol
+    /\ row.question = f.run
+    /\ Allowed(f.lease)
+    /\ row' = [row EXCEPT !.question = NoRun, !.expired = FALSE]
+    /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
+
+\* answerQuestion (POST /chats/:id/answer, and send/steer while a card
+\* waits): under the row lock, questionOpen checks the card the screen shows
+\* still waits on the live run the row names; the card closes in the same
+\* transaction, then clarify.answer goes to that run. Without the fence the
+\* answer goes to the run the card named, whatever happened since.
+Answer ==
+    /\ ~row.deleted
+    /\ seen # NoRun
+    /\ AnswerFenced => (row.status = "running" /\ row.run # NoRun /\ row.question = row.run
+                         /\ row.question = seen)
+    /\ row' = [row EXCEPT !.question = NoRun]
+    /\ answeredEnded' = (answeredEnded \/ seenEnded)
+    /\ seen' = NoRun
+    /\ seenEnded' = FALSE
+    /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches,
+                   asks>>
 
 -----------------------------------------------------------------------------
 (* Process deaths                                                            *)
@@ -464,6 +557,7 @@ Crash(w) ==
     /\ crashes' = crashes + 1
     /\ UNCHANGED <<row, mem, cursor, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* The API process that runs a follower dies while its lanes are idle.
 FollowerCrash(f) ==
@@ -473,6 +567,7 @@ FollowerCrash(f) ==
     /\ crashes' = crashes + 1
     /\ UNCHANGED <<row, mem, pc, cursor, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, sends, switches>>
+    /\ UNCHANGED qvars
 
 -----------------------------------------------------------------------------
 (* The person (service.go change()/save(): lock the row, edit, save)         *)
@@ -485,6 +580,7 @@ Approve ==
     /\ unapproved' = FALSE
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, wroteWhileHalted,
                    doneNotices, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* stop(): ends the run, clears the lease and the agent run; the engine's
 \* Stop sends run.stop after the commit.
@@ -493,11 +589,13 @@ Stop ==
     /\ stops < MaxStops
     /\ row.status \in {"queued", "running", "approval"}
     /\ row' = [row EXCEPT !.status = "stopped", !.lease = NoLease, !.expired = FALSE,
-                          !.run = NoRun]
+                          !.run = NoRun, !.question = NoRun]
     /\ halted' = TRUE
     /\ stops' = stops + 1
+    /\ seenEnded' = (seenEnded \/ (row.run # NoRun /\ row.run = seen))
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, retries, crashes, sends, switches>>
+    /\ UNCHANGED <<seen, answeredEnded, asks>>
 
 \* retry(): the agent run it had is over. A Retry of an apply whose every
 \* step is done finishes the apply (no step left to write); one with steps
@@ -508,19 +606,21 @@ Retry ==
     /\ retries < MaxRetries
     /\ row.status \in {"failed", "stopped"}
     /\ IF row.phase = "apply" /\ \A i \in Steps : row.plan[i] = "done"
-       THEN /\ row' = [row EXCEPT !.status = "queued", !.run = NoRun]
+       THEN /\ row' = [row EXCEPT !.status = "queued", !.run = NoRun, !.question = NoRun]
             /\ UNCHANGED halted
        ELSE IF row.phase = "apply" /\ \E i \in Steps : row.plan[i] # "archived"
-       THEN /\ row' = [row EXCEPT !.status = "approval", !.run = NoRun,
+       THEN /\ row' = [row EXCEPT !.status = "approval", !.run = NoRun, !.question = NoRun,
                        !.plan = [i \in Steps |->
                                    IF RetryKeepsDone /\ row.plan[i] = "done"
                                    THEN "done" ELSE "pending"]]
             /\ UNCHANGED halted
-       ELSE /\ row' = [row EXCEPT !.status = "queued", !.phase = "plan", !.run = NoRun]
+       ELSE /\ row' = [row EXCEPT !.status = "queued", !.phase = "plan", !.run = NoRun,
+                                    !.question = NoRun]
             /\ halted' = FALSE
     /\ retries' = retries + 1
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* send(): a new message when no run is busy. archivePlan moves the plan into
 \* history; the new request starts in the plan phase. Like a Retry that
@@ -535,6 +635,7 @@ Send ==
     /\ sends' = sends + 1
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, switches>>
+    /\ UNCHANGED qvars
 
 \* reject(): discard the proposal waiting for approval.
 Reject ==
@@ -545,6 +646,7 @@ Reject ==
     /\ halted' = TRUE
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* receipts.go discardReview(): no busy check, so it can land mid-apply of a
 \* receipt plan. Like Stop, it clears the lease; the plan is archived.
@@ -555,6 +657,7 @@ DiscardReview ==
     /\ halted' = TRUE
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
 
 \* configure() (PATCH /chats/:id {permission}): any time, even mid-run. It
 \* changes only the mode: a looser mode approves nothing already waiting.
@@ -565,6 +668,7 @@ SetPermission ==
     /\ switches' = switches + 1
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends>>
+    /\ UNCHANGED qvars
 
 \* steer() (POST /chats/:id/steer) locks the row and adds a message only while
 \* an agent run is live; it touches no field modelled here, so it is a
@@ -580,8 +684,27 @@ Delete ==
     /\ AllowDelete
     /\ ~row.deleted
     /\ row' = [row EXCEPT !.deleted = TRUE]
+    /\ seenEnded' = (seenEnded \/ (row.run # NoRun /\ row.run = seen))
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED <<seen, answeredEnded, asks>>
+
+\* restoreQuestion: the answer committed (Answer) but the worker did not reply
+\* to clarify.answer, so under the row lock the card goes back on the row, for
+\* the person to answer again, only while the row still names the same running
+\* run and no card took its place. Stop, Delete, Lost and a failure clear the
+\* run from the row, so the card never comes back for a run they ended.
+ReopenQuestion ==
+    /\ ~row.deleted
+    /\ asks > 0
+    /\ seen = NoRun
+    /\ row.status = "running" /\ row.run # NoRun /\ row.question = NoRun
+    /\ row' = [row EXCEPT !.question = row.run]
+    /\ seen' = row.run
+    /\ seenEnded' = FALSE
+    /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches,
+                   answeredEnded, asks>>
 
 -----------------------------------------------------------------------------
 
@@ -591,8 +714,9 @@ Next ==
          \/ SkipDone(w) \/ StepTx(w) \/ FinishApply(w) \/ FailRun(w)
          \/ PlanRun(w) \/ StartRun(w) \/ Lost(w) \/ Crash(w)
     \/ \E f \in fol : FollowerRenew(f) \/ FollowerEnd(f) \/ FollowerCrash(f)
+                     \/ Ask(f) \/ CloseQuestion(f)
     \/ Expire \/ Approve \/ Stop \/ Retry \/ Send \/ Reject \/ DiscardReview
-    \/ SetPermission \/ Steer \/ Delete
+    \/ SetPermission \/ Steer \/ Delete \/ Answer \/ ReopenQuestion
 
 Spec == Init /\ [][Next]_vars
 
@@ -620,6 +744,10 @@ DoneMeansComplete ==
 \* A proposal recorded while the chat is Supervised never changes the
 \* person's data before the person approves it (plan 5.5b).
 SupervisedHolds == ~wroteUnapproved
+
+\* No answer to a question card reaches a run after Stop, Delete or Lost
+\* (or a failure) ended it (phase 4 decision 2).
+NoAnswerAfterEnd == ~answeredEnded
 
 Symm == Permutations(Workers)
 =============================================================================

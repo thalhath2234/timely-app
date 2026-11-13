@@ -31,7 +31,29 @@ type workerEvent struct {
 		// result (PROTOCOL.md section 5).
 		Risk     string   `json:"risk"`
 		Findings []string `json:"findings"`
+		// clarify.request and clarify.closed (phase 4, PROTOCOL.md 11.2).
+		RequestID string           `json:"request_id"`
+		Questions []workerQuestion `json:"questions"`
+		TimeoutS  int              `json:"timeout_s"`
+		Outcome   string           `json:"outcome"`
+		// Answers: a submitted clarify.closed names the answers the run used.
+		Answers map[string]any `json:"answers"`
+		// subagent (phase 4, PROTOCOL.md 11.3): a sub-task starts or stops.
+		Phase          string `json:"phase"`
+		SubagentID     string `json:"subagent_id"`
+		ChildSessionID string `json:"child_session_id"`
+		Goal           string `json:"goal"`
+		Status         string `json:"status"`
 	} `json:"payload"`
+}
+
+// workerQuestion is one question of a clarify.request.
+type workerQuestion struct {
+	QID         string   `json:"qid"`
+	Question    string   `json:"question"`
+	Choices     []string `json:"choices"`
+	Recommended *int     `json:"recommended"`
+	MultiSelect bool     `json:"multi_select"`
 }
 
 // outputRisk is the log line for a tool.output_risk event: Hermes' advisory
@@ -132,9 +154,50 @@ func (l *liveRun) event(ev workerEvent, at time.Time) (changed bool, delta *live
 		l.statuses++
 		l.add(ActivityLine{ID: fmt.Sprintf("status-%d", l.statuses), Kind: "status", Label: clip(text, 200), State: "done", At: at})
 		return true, nil
+	case "subagent":
+		return l.subagent(ev, at), nil
 	}
-	// approval.request, learning and subagent events belong to later phases.
+	// approval.request and learning events belong to later phases (the
+	// question card of clarify.request is the follower's, ask).
 	return false, nil
+}
+
+// subagent is a sub-task's activity line (phase 4): "Sub-task: <goal>",
+// running from its start event until its stop event.
+func (l *liveRun) subagent(ev workerEvent, at time.Time) bool {
+	p := ev.Payload
+	key := p.SubagentID
+	if key == "" {
+		key = p.ChildSessionID
+	}
+	if key == "" {
+		return false
+	}
+	id := "subagent-" + clip(key, 80)
+	state := "running"
+	if p.Phase == "stop" {
+		state = "done"
+		switch p.Status {
+		case "failed", "error", "interrupted", "timeout":
+			state = "failed"
+		}
+	}
+	for i := len(l.lines) - 1; i >= 0; i-- {
+		if l.lines[i].ID == id {
+			if l.lines[i].State == state {
+				return false
+			}
+			l.lines[i].State = state
+			return true
+		}
+	}
+	goal := strings.TrimSpace(strings.Join(strings.Fields(dropNUL(p.Goal)), " "))
+	label := "Sub-task"
+	if goal != "" {
+		label = "Sub-task: " + clip(goal, 200)
+	}
+	l.add(ActivityLine{ID: id, Kind: "subagent", Label: label, State: state, At: at})
+	return true
 }
 
 // closeThinking marks the open "Thinking" line done.
@@ -179,6 +242,11 @@ func toolLabel(tool string) string {
 		return "Preparing changes"
 	case targetTool:
 		return "Finding the item"
+	case "clarify":
+		// Not "Clarify": that word is the Inbox step (CONTEXT.md).
+		return "Asking you a question"
+	case "delegate_task":
+		return "Handing work to sub-tasks"
 	case "":
 		return "Tool"
 	}

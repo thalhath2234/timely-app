@@ -169,13 +169,23 @@ proc_env() { tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | grep "^$2=" | cut -
 cmd_doctor() {
   DOCTOR_FAIL=0
   local api_pid web_pid health
-  api_pid=$(listener_pid "$API_PORT"); web_pid=$(listener_pid "$WEB_PORT")
+  local api_env_pid
+  api_pid=$(listener_pid "$API_PORT"); web_pid=$(listener_pid "$WEB_PORT"); api_env_pid=$api_pid
+  if [[ -z "$api_pid" ]] && session_alive "$(saved_sid api)"; then
+    # The API marks itself non-dumpable (internal/procguard), so its /proc
+    # files are root-owned and ss cannot name the listener. Use the binary
+    # air runs in this skill's api session, and air's own environment and
+    # cwd, which the binary inherits.
+    api_pid=$(pgrep -s "$(saved_sid api)" -f 'apps/api/tmp/main' | head -1 || true)
+    api_env_pid=$(pgrep -s "$(saved_sid api)" -x air | head -1 || true)
+    [[ -n "$api_pid" ]] && ! ss -ltnH "sport = :$API_PORT" 2>/dev/null | grep -q . && api_pid=""
+  fi
   echo "verify-timely doctor  (src $SRC, worktree $WT, schema $SCHEMA)"
   check "API :$API_PORT is listening"                      test -n "$api_pid"
   check "API listener is in this skill's api session"      test -n "$api_pid" -a "$(sid_of "${api_pid:-0}")" == "$(saved_sid api)"
-  check "API runs from the scratch worktree"                bash -c "[[ \"\$(readlink /proc/$api_pid/cwd)\" == '$WT/apps/api' ]]"
-  check "API env DB_SCHEMA=$SCHEMA"                         test "$(proc_env "${api_pid:-0}" DB_SCHEMA)" == "$SCHEMA"
-  check "API env API_PORT=$API_PORT"                        test "$(proc_env "${api_pid:-0}" API_PORT)" == "$API_PORT"
+  check "API runs from the scratch worktree"                bash -c "[[ \"\$(readlink /proc/${api_env_pid:-0}/cwd)\" == '$WT/apps/api' ]]"
+  check "API env DB_SCHEMA=$SCHEMA"                         test "$(proc_env "${api_env_pid:-0}" DB_SCHEMA)" == "$SCHEMA"
+  check "API env API_PORT=$API_PORT"                        test "$(proc_env "${api_env_pid:-0}" API_PORT)" == "$API_PORT"
   health=$(curl -fsS --max-time 5 "http://127.0.0.1:$API_PORT/health" 2>/dev/null || true)
   check "API /health status ok, db ok"                      bash -c "grep -q '\"status\":\"ok\"' <<<'$health' && grep -q '\"db\":\"ok\"' <<<'$health'"
   check "API /health registrationOpen true"                 bash -c "grep -q '\"registrationOpen\":true' <<<'$health'"

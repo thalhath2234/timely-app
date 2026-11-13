@@ -7,11 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v5"
+	"timely-api/internal/features/chat"
 )
 
 // noNetwork fails every request: these tests never reach a provider.
@@ -191,7 +195,7 @@ func TestAgentModelLeavesCLIProvidersOnClassic(t *testing.T) {
 	s := agentTestService(t) // no database: these answers come before any read
 	for _, p := range []string{ClaudeCLI, CodexCLI} {
 		_, err := s.AgentModel(context.Background(), "u", p, "")
-		if !errors.Is(err, ErrAgentEngineUnsupported) || err.Error() != "Claude Code and Codex use the classic engine until a later update" {
+		if !errors.Is(err, ErrAgentEngineUnsupported) || err.Error() != "The model gateway is not running, so Claude Code and Codex use the classic engine" {
 			t.Errorf("%s: %v", p, err)
 		}
 	}
@@ -280,5 +284,189 @@ func TestIntegrationAgentModel(t *testing.T) {
 	}
 	if _, err := s.AgentModel(ctx, "user-a", "anthropic", ""); err == nil || !strings.Contains(err.Error(), "not connected") {
 		t.Fatalf("no fallback to another provider: %v", err)
+	}
+}
+
+// Q-4.1: every provider id Timely can put in run.start is an API-key row of
+// Hermes' registry, "openrouter" or "custom"; none is an OAuth provider, so
+// Hermes never signs in for the person. The walk covers every registry entry
+// at every listed endpoint and every route, OpenRouter, both CLIs and a
+// Sensitive run on each.
+func TestAgentModelSendsNoOAuthProvider(t *testing.T) {
+	s := agentTestService(t)
+	s.privateOllama = true
+	oauth := map[string]bool{"nous": true, "openai-codex": true, "xai-oauth": true, "qwen-oauth": true, "minimax-oauth": true,
+		"copilot": true, "copilot-acp": true, "google-gemini-cli": true}
+	if auth, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "agent", "hermes", "hermes_cli", "auth.py")); err == nil {
+		// Every OAuth row in the vendored Hermes, so a sync that adds one is
+		// checked too.
+		for _, m := range regexp.MustCompile(`ProviderConfig\(\s*"([a-z0-9-]+)",\s*"[^"]*",\s*"(oauth[a-z_]*|external_process)"`).FindAllSubmatch(auth, -1) {
+			oauth[string(m[1])] = true
+		}
+	}
+	for id := range agentProviderIDs {
+		if oauth[id] {
+			t.Errorf("the allowlist holds the OAuth provider %q", id)
+		}
+	}
+	seen := map[string]bool{}
+	check := func(where string, m AgentModel) {
+		t.Helper()
+		seen[m.Provider] = true
+		if !agentProviderIDs[m.Provider] || oauth[m.Provider] {
+			t.Errorf("%s sends Hermes provider %q", where, m.Provider)
+		}
+	}
+	for _, spec := range apiProviders {
+		bases := []string{""}
+		for _, e := range spec.Endpoints {
+			bases = append(bases, e.BaseURL)
+		}
+		models := []string{"stand-in-model", "gpt-5", "claude-sonnet-5", "glm-5.3", "minimax-m3"}
+		for _, model := range models {
+			s.models.effort[model] = false // Anthropic's effort probe stays off the network
+		}
+		for _, base := range bases {
+			if id := hermesProvider(spec.ID, base); !agentProviderIDs[id] {
+				t.Errorf("hermesProvider(%s, %q) = %q, not allowlisted", spec.ID, base, id)
+			}
+			for _, model := range models {
+				m, err := s.apiAgentModel(spec, APIKey{Provider: spec.ID, Key: sealed(t, s, "sk-stand-in"), BaseURL: base}, model)
+				if err != nil {
+					continue // a route Timely does not run (checked elsewhere)
+				}
+				check(spec.ID+" "+base+" "+model, m)
+			}
+		}
+	}
+	m, err := s.openRouterAgentModel(Settings{UserID: "u", OpenRouterKey: sealed(t, s, "sk-or-stand-in")}, "x/y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("openrouter", m)
+
+	fake := &gatewayFake{reply: chat.WireMessage{Role: "assistant", Content: "Hi."}}
+	g, err := newGateway(func(context.Context, string, string, string) (chat.Completer, error) { return fake, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = g.Close(context.Background()) })
+	s.gateway = g
+	for _, p := range []string{ClaudeCLI, CodexCLI, OpenRouter} {
+		for _, sensitive := range []bool{false, true} {
+			if p == OpenRouter && !sensitive {
+				continue // direct: covered above, and it needs the database
+			}
+			m, err := s.AgentModelFor(context.Background(), "u", p, "m", AgentRunOptions{Sensitive: sensitive})
+			if err != nil {
+				t.Fatalf("%s sensitive=%v: %v", p, sensitive, err)
+			}
+			check(p, m)
+		}
+	}
+	for _, want := range []string{"custom", "openrouter", "anthropic", "openai-api", "kimi-coding", "ollama-cloud"} {
+		if !seen[want] {
+			t.Errorf("the walk never produced %q; is it still reachable?", want)
+		}
+	}
+}
+
+// Q-4.1: a Claude Code sign-in token is not an Anthropic API key. That is
+// every key Hermes' own classifier (_is_oauth_token) sends down its Claude Code
+// OAuth path: sk-ant-oat, any other sk-ant-* outside the Console families, an
+// eyJ JWT and a cc- token. Saving one is refused before anything is stored or
+// sent, and a run with one already stored never reaches the worker.
+func TestAnthropicSignInTokenIsRefused(t *testing.T) {
+	s := agentTestService(t)
+	s.models.effort["claude-sonnet-5"] = true
+	for _, token := range []string{"sk-ant-oat01-stand-in-token-value", "sk-ant-sid01-stand-in", "sk-ant-stand-in", "eyJhbGciOiJIUzI1NiJ9.stand-in.sig", "cc-stand-in-0000"} {
+		if _, err := s.apiAgentModel(apiProviderByID("anthropic"), APIKey{Key: sealed(t, s, token), Model: "claude-sonnet-5"}, ""); !errors.Is(err, errSignInToken) {
+			t.Errorf("AgentModel with a stored %q: %v", token, err)
+		}
+		e := echo.New()
+		s.Routes(e.Group("")) // no database: the token is refused before any read
+		for _, key := range []string{token, "  " + token + "\n"} {
+			body, _ := json.Marshal(map[string]string{"key": key})
+			req := httptest.NewRequest(http.MethodPost, "/agent/providers/anthropic/key", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Claude Code sign-in token, not an API key") {
+				t.Errorf("saving %q: %d %s", key, rec.Code, rec.Body.String())
+			}
+		}
+	}
+	// The Console key families are API keys.
+	for _, key := range []string{"sk-ant-api03-stand-in", "sk-ant-usr01-stand-in", "sk-ant-svc01-stand-in", "sk-ant-admin01-stand-in"} {
+		if _, err := s.apiAgentModel(apiProviderByID("anthropic"), APIKey{Key: sealed(t, s, key), Model: "claude-sonnet-5"}, ""); err != nil {
+			t.Errorf("a real API key %q was refused: %v", key, err)
+		}
+	}
+	// Another provider's key that happens to look like a JWT is that
+	// provider's business: Hermes' classifier reads only Anthropic's.
+	if signInToken("deepseek", "eyJhbGciOiJIUzI1NiJ9.stand-in.sig") || signInToken("deepseek", "cc-x") {
+		t.Error("a non-Anthropic key was taken for a Claude Code token")
+	}
+	if !signInToken("deepseek", "sk-ant-oat01-x") {
+		t.Error("an sk-ant-oat token is refused on any provider")
+	}
+}
+
+// TestIntegrationAgentModelForSensitive reads stored stand-in keys
+// (make test-chat-integration): a Sensitive run on an API-key provider or
+// OpenRouter gets the gateway with the account's model, an ordinary run the
+// provider direct, and a stored Claude Code sign-in token is refused either
+// way (Q-4.1).
+func TestIntegrationAgentModelForSensitive(t *testing.T) {
+	db := integrationDB(t)
+	s := New(db, nil, nil)
+	s.models.client = &http.Client{Transport: noNetwork{t}}
+	s.models.effort["claude-sonnet-5"] = true
+	ctx := context.Background()
+	for _, row := range []APIKey{
+		{UserID: "user-a", Provider: "deepseek", Key: sealed(t, s, "sk-deepseek-stand-in"), KeyHint: "…t-in", Model: "deepseek-v4-flash"},
+		{UserID: "user-a", Provider: "anthropic", Key: sealed(t, s, "sk-ant-oat01-stand-in-token"), KeyHint: "…oken", Model: "claude-sonnet-5"},
+	} {
+		if err := s.saveAPIRow(&row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.update("user-a", func(row *Settings) error {
+		row.OpenRouterKey = sealed(t, s, "sk-or-stand-in")
+		row.OpenRouterChatModel = "moonshotai/kimi-k3"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	g, err := s.StartAgentGateway()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = g.Close(context.Background()) })
+
+	direct, err := s.AgentModel(ctx, "user-a", "deepseek", "")
+	if err != nil || direct.Provider != "deepseek" || direct.APIKey != "sk-deepseek-stand-in" {
+		t.Fatalf("ordinary deepseek = %v, %v", direct, err)
+	}
+	for p, model := range map[string]string{"deepseek": "deepseek-v4-flash", OpenRouter: "moonshotai/kimi-k3"} {
+		m, err := s.AgentModelFor(ctx, "user-a", p, "", AgentRunOptions{Sensitive: true})
+		if err != nil {
+			t.Fatalf("Sensitive %s: %v", p, err)
+		}
+		if m.Provider != "custom" || m.BaseURL != g.BaseURL() || m.Model != model || !strings.HasPrefix(m.APIKey, "tgw-") || m.Reasoning != nil {
+			t.Fatalf("Sensitive %s did not get the gateway: %v", p, m)
+		}
+		who, ok := g.grants[m.APIKey]
+		if !ok || !who.sensitive || who.provider != p || who.uid != "user-a" {
+			t.Fatalf("Sensitive %s grant %+v", p, who)
+		}
+	}
+	if _, err := s.AgentModelFor(ctx, "user-b", "deepseek", "", AgentRunOptions{Sensitive: true}); err == nil || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("another account's key served a Sensitive run: %v", err)
+	}
+	for _, sensitive := range []bool{false, true} {
+		if _, err := s.AgentModelFor(ctx, "user-a", "anthropic", "", AgentRunOptions{Sensitive: sensitive}); !errors.Is(err, errSignInToken) {
+			t.Errorf("stored sign-in token, sensitive=%v: %v", sensitive, err)
+		}
 	}
 }

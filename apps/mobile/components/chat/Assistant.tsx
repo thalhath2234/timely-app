@@ -2,6 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import { PROVIDER_LABELS, type ProviderId } from "../../lib/api/agentProviders";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -34,6 +35,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FS from "expo-file-system/legacy";
 import { useAuth } from "../../lib/auth/AuthProvider";
 import {
+  answerQuestion,
   chatRequest,
   configureChatAgent,
   deleteChat,
@@ -77,9 +79,18 @@ import {
 } from "../../lib/hooks";
 import { offersDontLearn } from "../../lib/chat/learning";
 import { getLearningEvents } from "../../lib/api/learning";
+import { ApiError } from "../../lib/api/client";
 import { chipUndoAlso } from "@timely/contract/agentLearning";
 import { ChatMenuSheet } from "./LearningCards";
-import type { PermissionMode } from "@timely/contract/agentChat";
+import {
+  QUESTION_CARD_TITLES,
+  questionCardState,
+  questionWaiting,
+  type PermissionMode,
+  type QuestionAnswer,
+} from "@timely/contract/agentChat";
+import { QUESTION_PLACEHOLDER, QUESTION_WAITING_LINE } from "../../lib/chat/question";
+import QuestionCard from "./QuestionCard";
 import {
   agentRunLive,
   composerMode,
@@ -104,6 +115,9 @@ import { Action, IconButton } from "./shared";
 import TimelyLogo from "../ui/TimelyLogo";
 
 type Page = "chat" | "history" | "proposal" | "receipt";
+
+/** A chat deleted on another device: its detail answers 404 for good. */
+const isChatGone = (reason: unknown) => reason instanceof ApiError && reason.status === 404;
 
 export default function Assistant() {
   const assistant = useAssistant();
@@ -150,6 +164,8 @@ export default function Assistant() {
     refetchOnMount: "always",
     queryKey: detailKey,
     queryFn: () => chatRequest<Chat>(`/${encodeURIComponent(id ?? "")}`),
+    // A chat deleted on another device answers 404 for good.
+    retry: (count, reason) => !isChatGone(reason) && count < 3,
     enabled: !!id && assistant.visible && assistant.foreground && !offline,
     initialData: id ? assistant.cache.conversations[id] : undefined,
     refetchInterval: (q) =>
@@ -169,8 +185,12 @@ export default function Assistant() {
     refetchInterval:
       assistant.foreground && !offline && page === "history" ? 5000 : 15000,
   });
-  const chat = id ? query.data : undefined;
+  // Deleted elsewhere: the cached copy is stale, the screen shows its not-found card.
+  const gone = isChatGone(query.error);
+  const chat = id && !gone ? query.data : undefined;
   const busy = isBusy(chat?.status);
+  // The live run waits on a question card; a message sent now answers it.
+  const asking = questionWaiting(chat);
   // What the agent learned in this chat (plan 9b.4): an older server
   // without /agent/learning answers 404 and no chip or card shows.
   const learningSettings = useLearningSettingsQuery(
@@ -351,9 +371,43 @@ export default function Assistant() {
   useEffect(() => {
     scroll.current?.scrollTo({ y: 0, animated: false });
   }, [page]);
+  // A question card arrives with the run still "running" and no new message,
+  // and it lays out after the effect runs: for a moment keep the thread at its
+  // end so the card, and its buttons, end up in view. A card taller than most
+  // of the screen shows its top first (its title, the time left and the first
+  // question), as on the web.
+  const followCardUntil = useRef(0);
+  const viewportHeight = useRef(0);
+  const cardBox = useRef<{ y: number; height: number } | null>(null);
+  const followCard = () => {
+    if (page !== "chat" || Date.now() >= followCardUntil.current) return;
+    const box = cardBox.current;
+    if (box && viewportHeight.current > 0 && box.height > viewportHeight.current * 0.6)
+      scroll.current?.scrollTo({ y: Math.max(0, box.y - 8), animated: false });
+    else scroll.current?.scrollToEnd({ animated: false });
+  };
+  const questionId = asking ? chat?.question?.requestId : undefined;
+  // The card closed (time limit, Stop on another device, an answer from the web) while the screen
+  // reader had it: the card unmounts under the person, so say how it closed, as the web does with a
+  // polite status. The newest question message holds the outcome.
+  const shownQuestion = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (page === "chat") scroll.current?.scrollToEnd({ animated: true });
-  }, [chat?.messages?.length, chat?.status]);
+    const was = shownQuestion.current;
+    shownQuestion.current = questionId;
+    if (!was || was === questionId) return;
+    const closed = [...(chat?.messages ?? [])].reverse().find((m) => m.kind === "question");
+    if (closed?.question?.requestId !== was) return;
+    AccessibilityInfo.announceForAccessibility(
+      `Question closed: ${QUESTION_CARD_TITLES[questionCardState(closed.question.outcome)]}`,
+    );
+  }, [questionId, chat?.messages]);
+  useEffect(() => {
+    cardBox.current = null;
+    if (questionId) followCardUntil.current = Date.now() + 1500;
+  }, [questionId]);
+  useEffect(() => {
+    if (page === "chat" && !questionId) scroll.current?.scrollToEnd({ animated: true });
+  }, [chat?.messages?.length, chat?.status, questionId]);
 
   const scope = { id: `chat:${id}` };
   const mutation = useMutation({
@@ -498,6 +552,23 @@ export default function Assistant() {
       void query.refetch();
     },
   });
+  // The question card's Send answer and Skip; a card that closed meanwhile
+  // (409) refetches, so the thread shows how it closed.
+  const answerMutation = useMutation({
+    scope,
+    mutationFn: (input: { requestId: string; answers?: Record<string, QuestionAnswer>; skip?: boolean }) =>
+      answerQuestion(id ?? "", input),
+    onSuccess: (next) => {
+      queryClient.setQueryData(detailKey, next);
+      void queryClient.invalidateQueries({ queryKey: listKey });
+      setError("");
+    },
+    // The reason shows on the card it was for (QuestionCard's error), not
+    // screen-wide: a card that closed meanwhile says how in the thread.
+    onError: () => {
+      void query.refetch();
+    },
+  });
   // "Don't learn from this chat"; the answer is the whole chat.
   const noLearningMutation = useMutation({
     scope,
@@ -623,7 +694,7 @@ export default function Assistant() {
     runningAction.current = true;
     setError("");
     try {
-      const next = await steerChat(id, text);
+      const next = await steerChat(id, text, questionId ?? "");
       queryClient.setQueryData(detailKey, next);
       assistant.updateCache((cache) => ({
         ...cache,
@@ -698,6 +769,9 @@ export default function Assistant() {
           content: draft.text.trim(),
           imageIds,
           requestId,
+          // The card this screen shows: a message answers only a card its
+          // sender read (409 when another one waits).
+          ...(id ? { questionRequestId: questionId ?? "" } : {}),
           botTags: liveBotTags(draft.text, draft.botTags, bots).map(
             (tag) => tag.id,
           ),
@@ -1020,11 +1094,13 @@ export default function Assistant() {
           : chat?.title || "New conversation";
   const subtitle = offline
     ? "Offline · drafts and cached history"
-    : busy
+    : page === "history"
+      ? `${list.data?.length ?? 0} ${list.data?.length === 1 ? "conversation" : "conversations"}`
+      : asking && page === "chat"
+      ? QUESTION_WAITING_LINE
+      : busy
       ? phaseLabel(chat?.phase)
-      : page === "history"
-        ? `${list.data?.length ?? 0} ${list.data?.length === 1 ? "conversation" : "conversations"}`
-        : page === "receipt"
+      : page === "receipt"
           ? "Step 1 of 2 · Check details"
           : receiptConfirmation
             ? "Step 2 of 2 · Confirm and save"
@@ -1047,6 +1123,7 @@ export default function Assistant() {
           subtitle={subtitle}
           status={page === "chat" && !preview ? chat?.status : undefined}
           phase={chat?.phase}
+          question={chat?.question}
           back={page !== "chat" || !!preview}
           onBack={close}
           onTitlePress={
@@ -1143,6 +1220,11 @@ export default function Assistant() {
               ref={scroll}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.content}
+              onContentSizeChange={followCard}
+              onLayout={(e) => {
+                viewportHeight.current = e.nativeEvent.layout.height;
+                followCard();
+              }}
             >
               {page === "receipt" && chat && review?.receipt ? (
                 <ReceiptReview
@@ -1328,6 +1410,30 @@ export default function Assistant() {
                   ) : chat ? (
                     <RunStatus chat={chat} />
                   ) : null}
+                  {asking && chat?.question?.requestId ? (
+                    <View
+                      onLayout={(e) => {
+                        const { y, height } = e.nativeEvent.layout;
+                        cardBox.current = { y, height };
+                        followCard();
+                      }}
+                    >
+                    <QuestionCard
+                      key={chat.question.requestId}
+                      question={chat.question}
+                      sending={answerMutation.isPending ? (answerMutation.variables?.skip ? "skip" : "answer") : null}
+                      error={
+                        answerMutation.isError && answerMutation.variables?.requestId === chat.question.requestId
+                          ? answerMutation.error.message
+                          : undefined
+                      }
+                      onAnswer={
+                        offline ? undefined : (answers) => answerMutation.mutate({ requestId: chat.question!.requestId!, answers })
+                      }
+                      onSkip={offline ? undefined : () => answerMutation.mutate({ requestId: chat.question!.requestId!, skip: true })}
+                    />
+                    </View>
+                  ) : null}
                   {chat ? (
                     <FailureCard
                       chat={chat}
@@ -1356,7 +1462,9 @@ export default function Assistant() {
                 placeholder={
                   draft.images.length
                     ? "Add a note (optional)…"
-                    : steering
+                    : asking
+                      ? QUESTION_PLACEHOLDER
+                      : steering
                       ? "Add something while it works…"
                       : chat?.status === "approval"
                         ? isBotPlan(chat.plan)
@@ -1389,6 +1497,7 @@ export default function Assistant() {
                 onSend={() => void send()}
                 onStop={() => act("/stop")}
                 steering={steering}
+                answering={asking}
                 permissionHint={permissionHint(permission)}
                 hasDraft={hasDraft}
                 onDiscardDraft={() => setConfirmDiscard(true)}

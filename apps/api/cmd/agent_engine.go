@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,14 +54,17 @@ func newAgentEngine(db *gorm.DB, chatService *chat.Service, catalog func() agent
 	prefs := func(ctx context.Context, uid string) (learning.Prefs, error) { return learn.Prefs(ctx, uid) }
 	cfg.Account = accountSettings(db, prefs, providers.WebToolKeys)
 	engine := chat.NewWorkerEngine(chatService, chat.WorkerEngineOptions{
-		Model: func(ctx context.Context, uid, providerID, model string) (any, error) {
-			return providers.AgentModel(ctx, uid, providerID, model)
-		},
+		Model:       agentRunModel(providers),
 		Unsupported: func(err error) bool { return errors.Is(err, provider.ErrAgentEngineUnsupported) },
 		HostAllowed: agenthost.HostAccounts(os.Getenv),
 		Learning:    runLearningPrefs(prefs),
 		Fetch:       webFetcher(os.Getenv),
+		// 10 minutes; a test API may shorten it (phase 4 decision 3).
+		ClarifyTimeout: clarifyTimeout(os.Getenv),
 	})
+	// Sensitive chats stay on classic (Q-4.2); a test API may run them as
+	// no-persist runs on the agent engine (phase 4 decision 10).
+	chatService.SetSensitiveNoPersist(sensitiveNoPersist(os.Getenv))
 	cfg.Handler = workerMux(func(w *agenthost.Worker, m agenthost.Message) bool { return learn.HandleWorker(w, m) }, engine.Handle)
 	cfg.OnExit = engine.WorkerExited
 	cfg.OnReady = func(w *agenthost.Worker) { learn.AfterReady(w) }
@@ -149,6 +153,46 @@ func webFetcher(getenv func(string) string) chat.PageFetcher {
 	return chat.FixtureFetcher(dir)
 }
 
+// agentRunModel is WorkerEngineOptions.Model: the run's credentials from the
+// provider service, through the gateway's Sensitive grant for a Sensitive
+// (no-persist) run (phase 4 decision 11).
+func agentRunModel(providers *provider.Service) func(context.Context, string, string, string, chat.RunModelOptions) (any, error) {
+	return func(ctx context.Context, uid, providerID, model string, opts chat.RunModelOptions) (any, error) {
+		return providers.AgentModelFor(ctx, uid, providerID, model, provider.AgentRunOptions{Sensitive: opts.Sensitive})
+	}
+}
+
+// testOnly reads a test switch: honoured only when DB_SCHEMA is also set,
+// so a shipped API (one schema) never sees it.
+func testOnly(getenv func(string) string, name string) string {
+	if strings.TrimSpace(getenv("DB_SCHEMA")) == "" {
+		return ""
+	}
+	return strings.TrimSpace(getenv(name))
+}
+
+// sensitiveNoPersist is TIMELY_AGENT_SENSITIVE_NO_PERSIST (1 or true) on a
+// test API: Sensitive plan turns then follow the chat's engine as no-persist
+// runs. Off by default and on every install (Q-4.2).
+func sensitiveNoPersist(getenv func(string) string) bool {
+	on, err := strconv.ParseBool(testOnly(getenv, "TIMELY_AGENT_SENSITIVE_NO_PERSIST"))
+	if err == nil && on {
+		log.Printf("agent engine: Sensitive chats run on the agent engine as no-persist runs (TIMELY_AGENT_SENSITIVE_NO_PERSIST, test only)")
+	}
+	return err == nil && on
+}
+
+// clarifyTimeout is how long a question card waits: 10 minutes, or
+// TIMELY_AGENT_CLARIFY_TIMEOUT_S seconds (1 to 86,400) on a test API. 0
+// leaves the engine's default.
+func clarifyTimeout(getenv func(string) string) time.Duration {
+	n, err := strconv.Atoi(testOnly(getenv, "TIMELY_AGENT_CLARIFY_TIMEOUT_S"))
+	if err != nil || n < 1 || n > 86400 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
+}
+
 // afterAgentAccountDelete is the agent's part of deleting an account (plan
 // 6.6): the worker stops, no new one starts, and the home goes to .trash and
 // is deleted. Learning rows go with the user row (FK cascade).
@@ -196,6 +240,9 @@ func timelyTools(catalog func() agent.Catalog) func(context.Context) (string, js
 //   - web: the account's keyed backend for search and extract, or timely
 //     (the chat provider's own search through Go, Q-3.8); the key goes in
 //     the worker's environment under its Hermes name.
+//   - clarify and delegation (phase 4): question cards and sub-tasks; each
+//     chat run's run.start offers them only when it may ask (not an
+//     answer-only or no-persist run; bots never).
 //
 // No provider keys go into the worker's environment: auxiliary calls use
 // the run's own credentials (PROTOCOL.md section 9.8).
@@ -217,7 +264,7 @@ func accountSettings(db *gorm.DB, prefs func(context.Context, string) (learning.
 				toolsets = append(toolsets, "session_search")
 			}
 		}
-		toolsets = append(toolsets, "web")
+		toolsets = append(toolsets, "web", "clarify", "delegation")
 		disabled, enabled := p.SkillsDisabled, p.SkillsEnabled
 		if disabled == nil {
 			disabled = []string{}

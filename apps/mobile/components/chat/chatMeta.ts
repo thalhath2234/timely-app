@@ -16,6 +16,7 @@ import {
   ListChecks,
   LoaderCircle,
   MapPin,
+  MessageCircleQuestionMark,
   Search,
   Sun,
   Table2,
@@ -25,6 +26,7 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react-native";
+import { QUESTION_STATUS_WORD, questionWaiting, type ChatQuestion } from "@timely/contract/agentChat";
 import type { Chat } from "../../lib/chat/types";
 import type { ThemeColors } from "../../lib/theme";
 import { isRemoval, stepIconKind, type StepIconKind } from "./stepTarget";
@@ -73,12 +75,18 @@ export function toneColor(tone: Tone, colors: ThemeColors) {
       return colors.mutedForeground;
   }
 }
-export function statusMeta(status: string): {
+/** A chat's status word, tone and icon; a run waiting on a question card reads "Needs your answer". */
+export function statusMeta(
+  status: string,
+  question?: ChatQuestion | null,
+): {
   label: string;
   tone: Tone;
   icon: LucideIcon;
   spin?: boolean;
 } {
+  if (questionWaiting({ status, question }))
+    return { label: QUESTION_STATUS_WORD, tone: "warning", icon: MessageCircleQuestionMark };
   switch (status) {
     case "queued":
       return { label: "Queued", tone: "primary", icon: Clock };
@@ -243,7 +251,7 @@ export function groupChats(chats: Chat[], now = new Date()): ChatGroup[] {
     { label: "Earlier", items: [] },
   ];
   for (const chat of chats) {
-    if (["approval", "choose", "failed"].includes(chat.status)) {
+    if (["approval", "choose", "failed"].includes(chat.status) || questionWaiting(chat)) {
       groups[0].items.push(chat);
       continue;
     }

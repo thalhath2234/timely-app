@@ -336,6 +336,11 @@ func (s *Service) setAPIKey(c *echo.Context) error {
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
+	if signInToken(id, in.Key) {
+		// Q-4.1: a Claude Code sign-in token is not an API key, and the agent
+		// engine would hand it to Hermes' OAuth path.
+		return echo.NewHTTPError(400, errSignInToken.Error())
+	}
 	ctx := c.Request().Context()
 	row, found, err := s.apiRow(s.db, user(c), id)
 	if err != nil {

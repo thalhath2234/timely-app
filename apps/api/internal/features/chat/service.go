@@ -37,8 +37,17 @@ type Service struct {
 	// stopLearning tells the worker a chat no longer learns, or with
 	// searchOnly no longer searches past chats (SetStopLearning).
 	stopLearning func(uid, cid string, searchOnly bool)
-	wg           sync.WaitGroup
+	// sensitiveNoPersist lets Sensitive plan turns follow the chat's engine
+	// choice, as no-persist runs on the agent engine (phase 4 decision 10).
+	// Test-only: cmd sets it only when DB_SCHEMA is set (Q-4.2).
+	sensitiveNoPersist bool
+	wg                 sync.WaitGroup
 }
+
+// SetSensitiveNoPersist lets Sensitive chats run on the agent engine as
+// no-persist runs (flags.no_persist, phase 4 decision 10). Off, the default,
+// they always run classic (Q-4.2); photo chats run classic either way.
+func (s *Service) SetSensitiveNoPersist(on bool) { s.sensitiveNoPersist = on }
 
 // SetRehearsal supplies a catalog without live side effects (no realtime
 // broadcasts) for rehearsing proposals in a rolled-back transaction.
@@ -83,6 +92,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.PATCH("/chats/:id", s.configure)
 	g.POST("/chats/:id/similar", s.similar)
 	g.POST("/chats/:id/steer", s.steer)
+	g.POST("/chats/:id/answer", s.answer)
 	g.POST("/chats/:id/undo", s.undo)
 	g.GET("/agent/chat-settings", s.getChatSettings)
 	g.PATCH("/agent/chat-settings", s.patchChatSettings)
@@ -101,7 +111,7 @@ func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
 }
 func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "question", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
 	}
@@ -117,11 +127,15 @@ func (s *Service) get(c *echo.Context) error {
 }
 
 type sendInput struct {
-	RequestID string        `json:"requestId"`
-	ImageIDs  []string      `json:"imageIds"`
-	Content   string        `json:"content"`
-	Context   []ContextChip `json:"context"`
-	WebSearch bool          `json:"webSearch"`
+	RequestID string `json:"requestId"`
+	// QuestionRequestID is the question card the sender's screen shows ("" for
+	// none; absent from clients that do not say): a message typed while a
+	// card waits answers it only when the sender read that card.
+	QuestionRequestID *string       `json:"questionRequestId"`
+	ImageIDs          []string      `json:"imageIds"`
+	Content           string        `json:"content"`
+	Context           []ContextChip `json:"context"`
+	WebSearch         bool          `json:"webSearch"`
 	// Device IANA timezone. The agent uses it when no timezone is saved in
 	// Working hours; invalid values are ignored.
 	Timezone string `json:"timezone"`
@@ -359,6 +373,28 @@ func (s *Service) send(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// A message typed while a question card waits is its answer (phase 4
+	// decision 4); when the card closed meanwhile it is sent as usual.
+	for card := true; ; card = false {
+		err := s.sendMessage(c, in, tags, card)
+		if !errors.Is(err, errAnswerByMessage) {
+			return err
+		}
+		row, stale, err := s.answerByMessage(c, in.Content, in.RequestID, in.QuestionRequestID)
+		if stale {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		s.fillImages(&row)
+		return c.JSON(200, row)
+	}
+}
+
+// sendMessage is send's transaction. card lets a text message answer a
+// waiting question card (errAnswerByMessage) instead of being refused.
+func (s *Service) sendMessage(c *echo.Context, in sendInput, tags []string, card bool) error {
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if strings.TrimSpace(in.Content) == "" {
 			in.Content = "Process these images"
@@ -366,12 +402,15 @@ func (s *Service) send(c *echo.Context) error {
 		if in.RequestID != "" {
 			for _, existing := range row.Messages {
 				if existing.RequestID == in.RequestID {
-					if existing.Content != in.Content {
+					if existing.Content != in.Content && existing.Kind != "question" {
 						return echo.NewHTTPError(409, "Request ID was already used for another message")
 					}
 					return errAlreadySent
 				}
 			}
+		}
+		if card && row.Status == "running" && row.Question.pending() && len(in.ImageIDs) == 0 && in.Receipt == nil {
+			return errAnswerByMessage
 		}
 		if busy(row) {
 			return echo.NewHTTPError(409, "Stop or wait for the current run before sending another message")
@@ -499,6 +538,8 @@ func (s *Service) stop(c *echo.Context) error {
 				m.Cut = true
 				row.Messages = append(row.Messages, m)
 			}
+			// A question card the run waited on closes unanswered.
+			closeQuestion(row, nil, outcomeStopped)
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
 			// The cut reply and the notice belong to the stopped run, so what
 			// it learned shows under them, not under a later reply.
@@ -674,6 +715,7 @@ func (s *Service) retry(c *echo.Context) error {
 		row.Unread = false
 		// A retried run starts afresh; an agent run it had is over.
 		row.AgentRunID, row.AgentInstance = "", ""
+		closeQuestion(row, nil, outcomeStopped)
 		if row.Phase == "apply" && len(row.Plan) > 0 && !hasPending(row.Plan) {
 			// Stopped after the last change was saved: finish the apply, which
 			// continues with the next batch or says the request is done.
@@ -853,6 +895,8 @@ func (s *Service) newChatPermission(uid, asked string) (string, error) {
 func (s *Service) steer(c *echo.Context) error {
 	var in struct {
 		Text string `json:"text"`
+		// The card the sender's screen shows (see sendInput).
+		QuestionRequestID *string `json:"questionRequestId"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid message")
@@ -873,6 +917,11 @@ func (s *Service) steer(c *echo.Context) error {
 		if row.Status != "running" || row.AgentRunID == "" {
 			return echo.NewHTTPError(409, "Nothing is running in this chat")
 		}
+		if row.Question.pending() {
+			// The run waits on a question card: this message answers it
+			// (phase 4 decision 4).
+			return errAnswerByMessage
+		}
 		runID = row.AgentRunID
 		m := message("user", in.Text)
 		m.Kind = "steer"
@@ -880,6 +929,14 @@ func (s *Service) steer(c *echo.Context) error {
 		row.Revision++
 		return tx.Save(&row).Error
 	})
+	if errors.Is(err, errAnswerByMessage) {
+		answered, _, err := s.answerByMessage(c, in.Text, "", in.QuestionRequestID)
+		if err != nil {
+			return err
+		}
+		s.fillImages(&answered)
+		return c.JSON(200, answered)
+	}
 	if err != nil {
 		return err
 	}
@@ -997,7 +1054,12 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	c.Unread = true
 	kind := "chat"
 	key := fmt.Sprintf("%s:%d:%s", c.ID, c.Revision, c.Status)
-	n := models.Notification{ID: id("ntf_"), UserID: c.UserID, Category: "agent", Title: c.Title, Body: body, EntityType: &kind, EntityID: &c.ID, DedupeKey: &key, Data: models.JobPayload{"status": c.Status}, CreatedAt: time.Now().UTC()}
+	data := models.JobPayload{"status": c.Status}
+	if c.Status == "running" && c.Question.RequestID != "" {
+		// A question card: the push says so instead of "finished".
+		data["question"] = c.Question.RequestID
+	}
+	n := models.Notification{ID: id("ntf_"), UserID: c.UserID, Category: "agent", Title: c.Title, Body: body, EntityType: &kind, EntityID: &c.ID, DedupeKey: &key, Data: data, CreatedAt: time.Now().UTC()}
 	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&n)
 	if result.Error != nil {
 		return result.Error

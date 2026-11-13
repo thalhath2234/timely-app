@@ -30,14 +30,19 @@
 #   learning              timely_learning stages or blocks the write (9b.2); in bot runs every write is staged
 #   timely-skills-readonly  skill_manage on a Timely skill (skills.external_dirs) is blocked (9.1)
 #   session-taint         a hit from a tainted or bot-started conversation taints the session
-#   delegate-cap          at most 3 children with a shared budget; a child's taint taints the parent
+#   delegate-cap          at most 3 children per run in total, 60 child tool calls shared, joined in the
+#                         call (no background), no grandchildren; children cannot propose, search past
+#                         chats or save; no `images` argument (a file or URL the child would read
+#                         with no taint); a child's taint taints the parent (via: subagent)
 #   web-toggle            blocked when the chat's web toggle is off, in Sensitive and in answer-only runs
 #   bot-egress            bot egress policy (7.5); Reads hosts go through the polite fetcher
 #   xai-key               offered only when the account has an xAI key
 #   host-path-approve     a local host path argument needs approval
 #   urls-only             bot runs accept URLs only
 #   skills-folder-allow   no approval needed inside the account's own skills folder
-#   clarify-card          the gate turns the call into a Timely card (phase 4, Q-4.3)
+#   clarify-card          the call becomes a Timely question card the run waits on (phase 4, Q-4.3):
+#                         clarify_callback sends clarify.request and blocks until clarify.answer,
+#                         run.stop, shutdown or clarify_timeout_s
 #   no-secret-capture     skill secret capture is off
 #   private-target        a URL in the arguments (literal, or a name resolving) to a private, loopback,
 #                         link-local or CGNAT/Tailscale address is blocked; Hermes' local browser ignores
@@ -109,11 +114,12 @@ tools:
     note: "Agent-loop tool: the agent's run plan, not Timely tasks"
   clarify@core:
     toolset: clarify
-    chat: block
+    chat: allow
     bot: block
     phase: 4
     gates: [clarify-card]
-    note: "Phase 4 turns it into a Timely card (Q-4.3)"
+    schema: "060490af42b1acd3ef6201082cffc8e6a2bc94e9fe32fe97ee6b2190a4597f33"
+    note: "A question card the run waits on (Q-4.3); blocked in bot and from_bot runs"
   delegate_task@core:
     toolset: delegation
     chat: allow

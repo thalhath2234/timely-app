@@ -294,8 +294,11 @@ func TestIntegrationIconJob(t *testing.T) {
 		}
 	}
 
-	// Only the database failing fails the job.
-	must(t, db.Exec(`ALTER TABLE bot_site_icons RENAME TO bot_site_icons_gone`).Error)
+	// Only the database failing fails the job. A renamed column, not a
+	// renamed table: the test schema's search_path ends in public, so with
+	// the table gone the write would reach public.bot_site_icons when the
+	// database has one (a shared dev database does) and succeed there.
+	must(t, db.Exec(`ALTER TABLE bot_site_icons RENAME COLUMN body TO body_gone`).Error)
 	if job := run("plain.example", ""); job.Status != models.JobPending || job.LastError == nil {
 		t.Fatalf("a database error: job %s %v", job.Status, job.LastError)
 	}

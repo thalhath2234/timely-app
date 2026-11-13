@@ -1,8 +1,18 @@
 "use client";
 import { useState } from "react";
-import { Check, ChevronRight, Undo2, X } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  MessageCircleQuestionMark,
+  Undo2,
+  X,
+} from "lucide-react";
 import { planGroups } from "@timely/contract/changeReview";
-import type { ActivityLine, ReplyDraft } from "@timely/contract/agentChat";
+import {
+  questionWaiting,
+  type ActivityLine,
+  type ReplyDraft,
+} from "@timely/contract/agentChat";
 import TimelyLogo, {
   LogoSpinner,
   SPINNER_LOOP_SECONDS,
@@ -13,6 +23,7 @@ import ChangeCards from "./changeCards";
 import ChatText from "./chatText";
 import { isBusy } from "./chatMeta";
 import { modeName } from "./permissionPicker";
+import { QUESTION_WAITING_LINE } from "./questionDraft";
 
 /**
  * What a live agent run shows (plan 5.5b, Q-2.5): the lines of what it is
@@ -26,7 +37,21 @@ const eyebrow =
 /** How many of a run's newest lines show; earlier ones fold into a count. */
 const SHOWN_LINES = 6;
 
-function LineIcon({ state }: { state: ActivityLine["state"] }) {
+function LineIcon({
+  state,
+  waiting = false,
+}: {
+  state: ActivityLine["state"];
+  /** The run waits on the person's answer: a running line does not spin. */
+  waiting?: boolean;
+}) {
+  if (state === "running" && waiting)
+    return (
+      <MessageCircleQuestionMark
+        aria-hidden
+        className="size-3.5 shrink-0 text-muted-foreground"
+      />
+    );
   if (state === "running")
     return <LogoSpinner size={14} tone="mono" label="Running" />;
   if (state === "failed")
@@ -34,32 +59,57 @@ function LineIcon({ state }: { state: ActivityLine["state"] }) {
   return <Check aria-hidden className="size-3.5 shrink-0 text-success-text" />;
 }
 
-/** The busy card of an agent run: what it is doing, line by line. */
+/** "Sub-task: <goal>": the prefix muted, the goal as the line's text, up to
+ * two lines (a touch screen has no tooltip to read the rest). */
+function LineLabel({ line }: { line: ActivityLine }) {
+  const prefix = "Sub-task:";
+  if (line.kind !== "subagent" || !line.label.startsWith(prefix))
+    return <span className="min-w-0 truncate">{line.label}</span>;
+  return (
+    <span className="min-w-0 line-clamp-2 break-words" title={line.label}>
+      <span className="text-muted-foreground">{prefix}</span>
+      {line.label.slice(prefix.length)}
+    </span>
+  );
+}
+
+/** The busy card of an agent run: what it is doing, line by line. While
+ * the run waits on a question card it says so instead of "Working". */
 export function RunActivity({ chat }: { chat: Chat }) {
   const lines = chat.activity?.lines ?? [];
   const shown = lines.slice(-SHOWN_LINES);
   const hidden = lines.length - shown.length;
+  const asking = questionWaiting(chat);
   return (
     <section
       role="status"
       aria-label="What Timely is doing"
+      data-state={asking ? "question" : "working"}
       className="mt-5 rounded-xl border border-border bg-card px-3.5 py-3 text-sm"
     >
       <div className="flex items-center gap-3">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <TimelyLogo
-            size={16}
-            animated
-            duration={SPINNER_LOOP_SECONDS}
-            tone="mono"
-          />
+          {asking ? (
+            <MessageCircleQuestionMark aria-hidden className="size-4" />
+          ) : (
+            <TimelyLogo
+              size={16}
+              animated
+              duration={SPINNER_LOOP_SECONDS}
+              tone="mono"
+            />
+          )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-medium">Working</p>
-          <p className="text-xs text-muted-foreground">
-            This keeps running on the server. You can leave and come back, or
-            reply to steer it.
+          <p className="font-medium">
+            {asking ? QUESTION_WAITING_LINE : "Working"}
           </p>
+          {!asking && (
+            <p className="text-xs text-muted-foreground">
+              This keeps running on the server. You can leave and come back, or
+              reply to steer it.
+            </p>
+          )}
         </div>
       </div>
       {shown.length > 0 && (
@@ -72,6 +122,7 @@ export function RunActivity({ chat }: { chat: Chat }) {
           {shown.map((line) => (
             <li
               key={line.id}
+              data-kind={line.kind}
               className={cn(
                 "flex min-w-0 items-center gap-2 text-[13px] leading-[18px]",
                 line.state === "failed"
@@ -82,9 +133,9 @@ export function RunActivity({ chat }: { chat: Chat }) {
               )}
             >
               <span className="flex w-3.5 shrink-0 justify-center">
-                <LineIcon state={line.state} />
+                <LineIcon state={line.state} waiting={asking} />
               </span>
-              <span className="min-w-0 truncate">{line.label}</span>
+              <LineLabel line={line} />
             </li>
           ))}
         </ol>

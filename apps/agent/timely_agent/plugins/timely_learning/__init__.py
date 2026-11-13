@@ -177,6 +177,12 @@ def external_skill(name: str) -> bool:
 
 def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> dict | None:
     args = args if isinstance(args, dict) else {}
+    if tool_name in LEARNING_TOOLS or tool_name == SEARCH_TOOL:
+        # A sub-task never saves or searches past chats (phase 4). timely_gate blocks it too; this
+        # hook may run first, and it must not stage the write before that block lands.
+        from timely_agent import bridge, policy
+        if bridge.current_child(bridge.current_run.get(), str(_.get("session_id") or "")):
+            return {"action": "block", "message": policy.CHILD_BLOCKED[tool_name]}
     try:
         if tool_name == "skill_manage":
             for name in _skill_targets(args):
@@ -460,7 +466,7 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
     host = policy.taint_host(args)
     if host:
         source["host"] = host
-    bridge.report_taint(run, [source])
+    bridge.report_taint(run, [source], str(_.get("session_id") or ""))
 
 
 def _report_pass_skill(session_id: str) -> None:
@@ -543,7 +549,7 @@ def _search_taint(result, session_id: str) -> None:
         return
     sources = [{"kind": "session", "tool": SEARCH_TOOL, "session": sid} for sid in hits]
     if run is not None:
-        bridge.report_taint(run, sources)
+        bridge.report_taint(run, sources, session_id)
     elif view.state is not None:
         view.state.add_taint(sources)
 

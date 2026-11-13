@@ -6,6 +6,9 @@ import { createServer } from "node:http";
 import { resolve, dirname } from "node:path";
 import assert from "node:assert/strict";
 const root = process.cwd();
+// AUDIT_PORT moves it off :4002 while a worktree's web server holds that port.
+const port = Number(process.env.AUDIT_PORT || 4002);
+const origin = `http://localhost:${port}`;
 const mobile = resolve(root, "apps/mobile");
 const requireMobile = createRequire(resolve(mobile, "package.json"));
 const requireWeb = createRequire(resolve(root, "apps/web/package.json"));
@@ -39,7 +42,7 @@ stub(
 );
 stub(
   "lib/api/client",
-  'export const api=async()=>fetch("/receipt.jpg"); export const getApiUrl=async()=>""; export const tunnelHeaders=()=>({});',
+  'export class ApiError extends Error{constructor(message,status,code){super(message);this.status=status;this.code=code;}} export const api=async()=>fetch("/receipt.jpg"); export const getApiUrl=async()=>""; export const tunnelHeaders=()=>({});',
 );
 stub(
   "components/docs/RichDoc",
@@ -72,6 +75,7 @@ export const SheetOption=({children,onSelect,leading})=><Pressable accessibility
 stub(
   "lib/api/chat",
   `
+import {ApiError} from "./client";
 const now=Date.now();
 const iso=(minutesAgo)=>new Date(now-minutesAgo*60000).toISOString();
 const plan=()=>[
@@ -85,6 +89,21 @@ const feedRead={index:1,watchId:"",ok:true,kind:"feed",read:"",site:"go.dev",sum
 const goFeed={id:"bot_gonews_w",kind:"feed",site:"go.dev",title:"go.dev · Feed",summary:"12 posts",value:null,currency:"",excerpt:"",items:[{title:"Go 1.26 is released",url:"https://go.dev/blog/go1.26",publishedAt:iso(60*26)}],lastChangedAt:iso(60*26)};
 const botAnswer=(id,name,status,fresh,freshLine,over={})=>({bot:{id,name,status,pauseReason:status==="paused"?"user":null,health:{code:"working",line:""}},fresh,freshLine,checkedAt:iso(1),nextCheckAt:iso(-55),watches:[],findings:[],alertsToday:0,...over});
 const botStep=(watches,preview)=>({tool:"create_bot",summary:"Make a bot that watches the earbuds' price",status:"pending",arguments:{name:"Pixel Buds Pro 2 under ₹18,000",description:"tell me when these earbuds drop",intervalMinutes:0,watches},preview});
+// Question cards (phase 4): a run that waits on one, and cards whose wait ended.
+const questions3=[
+ {qid:"q0",question:"Which day works for the offsite?",choices:["Mon","Tue","Wed"],recommended:1,multiSelect:false},
+ {qid:"q1",question:"Which rooms should I hold? <a href='https://evil.example'>click</a>",choices:["Main hall","Garden","Library"],recommended:null,multiSelect:true},
+ {qid:"q2",question:"Anything else I should know?",choices:null,recommended:null,multiSelect:false},
+];
+const asking=(id,title,requestId,questions)=>({id,title,status:"running",phase:"plan",webSearch:false,engine:"",runEngine:"agent",permission:"supervised",context:[],revision:3,unread:true,error:"",createdAt:iso(6),updatedAt:iso(0),plan:[],
+ activity:{run:"run_"+id,draft:"",lines:[
+  {id:"l1",kind:"tool",label:"Read your calendar",state:"done",at:iso(5)},
+  {id:"l2",kind:"subagent",label:"Sub-task: Compare the two venues' prices",state:"done",at:iso(4)},
+  {id:"l3",kind:"subagent",label:"Sub-task: Check who is away that week",state:"running",at:iso(3)},
+ ]},
+ question:{requestId,run:"run_"+id,questions,askedAt:iso(1),expiresAt:new Date(now+9*60000).toISOString()},
+ messages:[{id:id+"1",role:"user",content:"Plan the team offsite for next week.",createdAt:iso(6)}]});
+const closedQuestion=(id,outcome,answers)=>({id,role:"assistant",kind:"question",engine:"agent",agentRun:"run_"+id,content:"Timely asked: …",createdAt:iso(28),question:{requestId:"req-"+id,questions:questions3,answers,outcome}});
 const chats={
  budget:{id:"budget",title:"Build a project budget",status:"approval",phase:"apply",webSearch:false,context:[{kind:"project",label:"PDF tool",value:"projects/pdf"},{kind:"selection",label:"Cells B2:C4",value:"B2:C4"}],revision:2,unread:true,error:"",createdAt:iso(40),updatedAt:iso(3),plan:plan(),messages:[
   {id:"m1",role:"user",content:"Create a budget sheet for the PDF tool project.",createdAt:iso(40)},
@@ -109,6 +128,21 @@ const chats={
  ]},
  learned:{id:"learned",title:"Import my bank CSV",status:"idle",phase:"plan",webSearch:false,engine:"",runEngine:"agent",context:[],revision:3,unread:false,error:"",createdAt:iso(12),updatedAt:iso(11),plan:[],messages:[{id:"lr1",role:"user",content:"Import this month's bank CSV into my budget sheet",createdAt:iso(12)},{id:"lr2",role:"assistant",engine:"agent",agentRun:"run_l1",content:"Imported 42 rows into Budget. I noted how your bank lays out its CSV, so next time is quicker.",createdAt:iso(11)}]},
  running:{id:"running",title:"Plan my week",status:"running",phase:"plan",webSearch:false,context:[],revision:1,unread:false,error:"",createdAt:iso(1),updatedAt:iso(1),plan:[],messages:[{id:"r1",role:"user",content:"Help me plan this week.",createdAt:iso(1)}]},
+ asking:asking("asking","Team offsite","req-q",questions3),
+ // A long thread, so the tall card below it has to be scrolled to.
+ asktall:{...asking("asktall","Plan the offsite in detail","req-tall",questions3),messages:Array.from({length:10},(_,i)=>({id:"tall"+i,role:i%2?"assistant":"user",content:i%2?"Here is what I found for that part of the plan. The hall seats sixty, the garden is free on Tuesday and the library needs a day's notice before anyone can use it.":"Please check the next part of the plan for the offsite and tell me what is left open.",createdAt:iso(60-i)}))},
+ asklong:asking("asklong","Name the colour","req-long",[{qid:"q0",question:"Which one?",choices:["supercalifragilisticexpialidocioussupercalifragilisticexpialidociousword","Plain"],recommended:null,multiSelect:false}]),
+ askdel:asking("askdel","Sort out the garage","req-del",[questions3[0]]),
+ askskip:asking("askskip","Dentist visit","req-s",[questions3[0]]),
+ asktype:asking("asktype","Book the flights","req-t",[questions3[2]]),
+ asklate:{...asking("asklate","Pick a caterer","req-late",[questions3[0]]),question:{requestId:"req-late",run:"run_asklate",questions:[questions3[0]],askedAt:iso(9),expiresAt:new Date(now+40000).toISOString()}},
+ asked:{id:"asked",title:"Earlier questions",status:"idle",phase:"plan",webSearch:false,engine:"",runEngine:"agent",context:[],revision:7,unread:false,error:"",createdAt:iso(30),updatedAt:iso(29),plan:[],messages:[
+  {id:"k1",role:"user",content:"Plan the team offsite.",createdAt:iso(30)},
+  closedQuestion("k2","submitted",{q0:"Tue",q1:["Main hall","Garden"],q2:"Vegetarian lunch, please"}),
+  closedQuestion("k3","cancelled",{}),
+  closedQuestion("k4","timed_out",{}),
+  closedQuestion("k5","stopped",{}),
+ ]},
 };
 window.auditChats=chats;
 const learnEvent=(over)=>({id:"",kind:"skill",action:"created",subject:"",before:"",after:"",origin:"chat",conversationId:"learned",runId:"run_l1",botId:"",taintedSources:[],status:"applied",ledgerEntryId:"",pendingId:"",summary:"",createdAt:iso(11),updatedAt:iso(11),...over});
@@ -116,13 +150,20 @@ window.auditLearning={learned:[
  learnEvent({id:"lev1",subject:"bank-csv-import",after:"Read the CSV's Date, Description and Amount columns",ledgerEntryId:"led1",summary:"How to import your bank's CSV"}),
  learnEvent({id:"lev2",action:"patched",subject:"flipkart-price-read",status:"staged",pendingId:"lp1",taintedSources:[{kind:"web",tool:"web_extract",host:"flipkart.com"}],summary:"Read the deal price, not the struck-out M.R.P."}),
 ]};
-const summary=(c)=>({id:c.id,title:c.title,status:c.status,phase:c.phase,webSearch:c.webSearch,revision:c.revision,unread:c.unread,error:c.error,createdAt:c.createdAt,updatedAt:c.updatedAt});
+const summary=(c)=>({id:c.id,title:c.title,status:c.status,phase:c.phase,webSearch:c.webSearch,revision:c.revision,unread:c.unread,error:c.error,question:c.question||{},createdAt:c.createdAt,updatedAt:c.updatedAt});
+// POST /answer, and a steer while a card waits: the card closes into the thread (Go's closeQuestion).
+function closeCard(chat,answers,outcome){
+ const q=chat.question;
+ chat.messages.push({id:"qa"+Date.now(),role:"assistant",kind:"question",engine:"agent",agentRun:q.run,content:"Timely asked: …",createdAt:iso(0),question:{requestId:q.requestId,questions:q.questions,answers,outcome}});
+ chat.question={};chat.revision++;
+}
 export const uploadChatImage=async()=>({id:"photo",expiresAt:"2099-01-01"});
 export const renameChat=(id,title)=>chatRequest("/"+id,"PATCH",{title});
 export const deleteChat=(id)=>chatRequest("/"+id,"DELETE");
 export const configureChatAgent=(id,patch)=>chatRequest("/"+id,"PATCH",patch);
-export const steerChat=(id,text)=>chatRequest("/"+id+"/steer","POST",{text});
+export const steerChat=(id,text,questionRequestId="")=>chatRequest("/"+id+"/steer","POST",{text,questionRequestId});
 export const setChatNoLearning=(id,noLearning)=>chatRequest("/"+id,"PATCH",{noLearning});
+export const answerQuestion=(id,input)=>chatRequest("/"+id+"/answer","POST",input);
 export const undoChatChange=(id,revision,messageId)=>chatRequest("/"+id+"/undo","POST",{revision,messageId});
 export async function chatRequest(path,method="GET",body){
  window.auditActions.push({path,method,body,overlaps:method!=="GET"&&window.auditWrites>0});
@@ -136,7 +177,7 @@ async function answer(path,method,body){
  const action=match?match[2]:"";
  if(method==="POST"&&path===""){const id="new"+Date.now();chats[id]={id,title:body.content.slice(0,70),status:"queued",phase:"plan",webSearch:body.webSearch,context:body.context||[],revision:1,unread:false,error:"",createdAt:iso(0),updatedAt:iso(0),plan:[],messages:[{id:"u",role:"user",content:body.content,createdAt:iso(0)}]};return structuredClone(chats[id]);}
  if(!path)return Object.values(chats).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).map(summary);
- if(!chat)throw new Error("Conversation not found");
+ if(!chat||window.auditGone?.includes(chat.id))throw new ApiError("Conversation not found",404);
  if(method==="DELETE"){delete chats[chat.id];return;}
  if(method!=="GET")await new Promise(r=>setTimeout(r,window.auditLatency||0));
  if(method==="PATCH"&&window.auditFailPatch)throw new Error("Wait or stop before changing context");
@@ -146,6 +187,11 @@ async function answer(path,method,body){
  if(action==="/approve"){chat.status="running";chat.revision++;return structuredClone(chat);}
  if(action==="/retry"){chat.status="approval";chat.error="";chat.plan=chat.plan.map(s=>s.status==="done"?s:{...s,status:"pending",error:undefined});chat.revision++;return structuredClone(chat);}
  if(action==="/stop"){chat.status="stopped";chat.messages.push({id:"st"+Date.now(),role:"assistant",kind:"notice",content:"Stopped. Completed changes are kept.",createdAt:iso(0)});chat.revision++;return structuredClone(chat);}
+ if(action==="/answer"){
+  if(window.auditStaleAnswer||!chat.question?.requestId||chat.question.requestId!==body.requestId){if(chat.question?.requestId)closeCard(chat,{},"timed_out");throw new Error("This question was already closed");}
+  closeCard(chat,body.skip?{}:body.answers,body.skip?"cancelled":"submitted");return structuredClone(chat);
+ }
+ if(action==="/steer"&&chat.question?.requestId){closeCard(chat,Object.fromEntries(chat.question.questions.map(q=>[q.qid,body.text])),"submitted");return structuredClone(chat);}
  if(action==="/messages"){chat.messages.push({id:"u"+Date.now(),role:"user",content:body.content,createdAt:iso(0)});chat.status="queued";chat.revision++;return structuredClone(chat);}
  return structuredClone(chat);
 }`,
@@ -227,11 +273,11 @@ const server = createServer(async (req, res) => {
   }
   res.setHeader("content-type", "text/html");
   res.end(
-    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mobile assistant audit</title><style>html,body,#root{margin:0;height:100%;background:#111319}#root{max-width:430px;height:100%;margin:auto}</style><div id="root"></div><script src="/app.js"></script>',
+    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mobile assistant audit</title><style>html,body,#root{margin:0;height:100%;background:#111319}#root{max-width:430px;height:100%;margin:auto;display:flex;flex-direction:column}#root>*{flex:1;min-height:0}</style><div id="root"></div><script src="/app.js"></script>',
   );
-}).listen(4002, "0.0.0.0");
+}).listen(port, "0.0.0.0");
 console.log(
-  "Mobile assistant audit on :4002 (fixture APIs; native sheets substituted)",
+  `Mobile assistant audit on :${port} (fixture APIs; native sheets substituted)`,
 );
 if (!process.env.AUDIT_CHECK) process.on("SIGINT", () => process.exit(0));
 else {
@@ -249,7 +295,7 @@ else {
   const actions = () => page.evaluate(() => window.auditActions);
   try {
     // Welcome + composer
-    await page.goto("http://localhost:4002/");
+    await page.goto(`${origin}/`);
     await page.getByText("What would you like to make happen?").waitFor();
     await page.screenshot({ path: "/tmp/timely-mobile-welcome.png" });
     await page.getByLabel("Add current screen as context").click();
@@ -324,7 +370,7 @@ else {
       "reject not bound to revision",
     );
     // Failed run shows the failing step and retry resets it
-    await page.goto("http://localhost:4002/?chat=japanese");
+    await page.goto(`${origin}/?chat=japanese`);
     await page.getByText("Some changes did not finish").first().waitFor();
     await page.getByLabel("View changes").click();
     await page.getByText("Workspace name already exists").first().waitFor();
@@ -336,12 +382,12 @@ else {
     await page.getByLabel("Review unfinished changes").click();
     await page.getByLabel("Apply all").waitFor();
     // Running state: stop from the composer
-    await page.goto("http://localhost:4002/?chat=running");
+    await page.goto(`${origin}/?chat=running`);
     await page.getByText("Thinking it through…").first().waitFor();
     await page.getByLabel("Stop run").click();
     await page.getByText("Stopped. Completed changes are kept.").waitFor();
     // Settings in a saved chat change at once, without dimming the composer
-    await page.goto("http://localhost:4002/?chat=settings");
+    await page.goto(`${origin}/?chat=settings`);
     await page.getByText("Hey! What would you like to do?").waitFor();
     const search = page.getByLabel("Web search");
     // React Native Web ignores accessibilityState, so read the icon's tint.
@@ -442,7 +488,7 @@ else {
       problems.push("a send went out while a settings save was still running");
     assert.deepEqual(problems, [], "composer settings");
     // A bot proposal: its rows, the board card, what it reads and "That's not it".
-    await page.goto("http://localhost:4002/?chat=bot");
+    await page.goto(`${origin}/?chat=bot`);
     await page.getByText("New bot · Needs your OK").waitFor();
     await expect(page.getByLabel("Message the assistant")).toHaveAttribute(
       "placeholder",
@@ -492,7 +538,7 @@ else {
     );
     // Two watches: each watch's rules sit under its name; a feed's
     // "That's not it" starts a reply in words.
-    await page.goto("http://localhost:4002/?chat=botfeed");
+    await page.goto(`${origin}/?chat=botfeed`);
     await page.getByLabel("Review and apply").click();
     await page.getByText("Watch 2", { exact: true }).waitFor();
     await page.getByText("A new post", { exact: true }).waitFor();
@@ -507,12 +553,12 @@ else {
     );
     await expect(page.getByLabel("Message the assistant")).toBeFocused();
     // A failed reading says why.
-    await page.goto("http://localhost:4002/?chat=botfail");
+    await page.goto(`${origin}/?chat=botfail`);
     await page.getByLabel("Review and apply").click();
     await page.getByText("The site asks not to be read").first().waitFor();
     await expect(page.getByText(/^Right now it reads/)).toHaveCount(0);
     // A link proposal: the bot it passes to by name, never its id.
-    await page.goto("http://localhost:4002/?chat=botlink");
+    await page.goto(`${origin}/?chat=botlink`);
     await page.getByLabel("Review and apply").click();
     await page
       .getByText("Go release news · mentions release", { exact: false })
@@ -525,7 +571,7 @@ else {
       fullPage: true,
     });
     // A brief proposal: the bots it sums up, when it sends, no reading.
-    await page.goto("http://localhost:4002/?chat=botbrief");
+    await page.goto(`${origin}/?chat=botbrief`);
     await page.getByLabel("Review and apply").click();
     for (const text of [
       "Go news feed",
@@ -543,7 +589,7 @@ else {
     });
     // Tagged bots answer as cards under the reply: fresh, still checking,
     // and paused; Open bot goes to the bot's sheet.
-    await page.goto("http://localhost:4002/?chat=tag");
+    await page.goto(`${origin}/?chat=tag`);
     const goAnswer = page.getByLabel("Go news feed answers");
     await goAnswer.waitFor();
     for (const text of [
@@ -570,7 +616,7 @@ else {
       "/(app)/(tabs)/bots?bot=bot_gonews",
     );
     // The @-picker above the message box: pick, chip, send with botTags.
-    await page.goto("http://localhost:4002/?chat=tag");
+    await page.goto(`${origin}/?chat=tag`);
     const message = page.getByLabel("Message the assistant");
     await message.fill("@go");
     await page.getByLabel("Tag Go news feed").waitFor();
@@ -598,7 +644,7 @@ else {
     assert.equal(sent.body.content, "@Go news feed anything new?");
     // What the agent learned (plan 9b.4): the chip with Undo, the Keep /
     // Discard card, and "Don't learn from this chat" in the title's menu.
-    await page.goto("http://localhost:4002/?chat=learned");
+    await page.goto(`${origin}/?chat=learned`);
     await page.getByText("Learned: skill 'bank-csv-import' created").waitFor();
     await page.getByText("Keep what Timely learned?").waitFor();
     await page.screenshot({
@@ -635,6 +681,164 @@ else {
       path: "/tmp/timely-mobile-dont-learn.png",
       fullPage: true,
     });
+    // A question card the run waits on (phase 4, Q-4.3): "Needs your answer"
+    // in the history and the header, sub-task lines, the card's picks, the
+    // typed answers in a sheet, Send answer, Skip, a typed message, a stale
+    // answer, and the closed cards in the thread.
+    const questionShots = [];
+    await page.goto(`${origin}/`);
+    await page.getByLabel(/Chat history/).click();
+    const askingRow = page.getByLabel("Open Team offsite");
+    await askingRow.waitFor();
+    await askingRow.getByText("Needs your answer").waitFor();
+    await askingRow.click();
+    const card = page.getByTestId("question-card");
+    await card.waitFor();
+    // A card taller than most of the screen arrives with its top in view (title,
+    // time left, first question), not scrolled to its last options.
+    await page.goto(`${origin}/?chat=asktall`);
+    const tall = page.getByTestId("question-card");
+    await tall.waitFor();
+    await page.waitForTimeout(2200);
+    const tallTop = await tall.getByText("Timely needs an answer").boundingBox();
+    assert(
+      tallTop && tallTop.y >= 0 && tallTop.y < 200,
+      `a tall card did not show its top first: ${JSON.stringify(tallTop)}`,
+    );
+    await tall.getByText("Which day works for the offsite?").waitFor();
+    await page.screenshot({ path: "/tmp/timely-mobile-tall-card.png" });
+    await page.goto(`${origin}/`);
+    await page.getByLabel(/Chat history/).click();
+    await page.getByLabel("Open Team offsite").click();
+    await card.waitFor();
+    await page.getByText("Needs your answer", { exact: true }).first().waitFor();
+    await page.getByText("Waiting for your answer").first().waitFor();
+    await expect(page.getByLabel("Message the assistant")).toHaveAttribute(
+      "placeholder",
+      "Type your answer, or use the card above…",
+    );
+    await expect(page.getByTestId("activity-subagent")).toHaveCount(2);
+    await card.getByText("Timely needs an answer").waitFor();
+    await card.getByText(/^\d+ min left$/).waitFor();
+    await card.getByText("Question 1 of 3").waitFor();
+    await card.getByText("Recommended", { exact: true }).waitFor();
+    // The model's words stay plain text: no link is drawn.
+    await card.getByText("<a href='https://evil.example'>click</a>", { exact: false }).waitFor();
+    assert.equal(await card.locator("a").count(), 0, "a question drew a link");
+    const send = page.getByTestId("question-send");
+    await expect(send).toHaveAttribute("aria-disabled", "true");
+    await card.getByText("Answer at least one question, or skip.").waitFor();
+    await card.getByLabel("Tue (recommended)").click();
+    await expect(card.getByLabel("Tue (recommended)")).toHaveAttribute("aria-checked", "true");
+    await card.getByLabel("Main hall").click();
+    await card.getByLabel("Garden").click();
+    await expect(card.getByLabel("Garden")).toHaveAttribute("aria-checked", "true");
+    await card.getByRole("button", { name: "Other: type your own answer" }).last().click();
+    const other = page.getByRole("dialog", { name: "Other answer" });
+    await other.waitFor();
+    await other.getByTestId("question-sheet-input").fill("The roof terrace");
+    await other.getByTestId("question-sheet-done").click();
+    await expect(page.getByRole("dialog", { name: "Other answer" })).toHaveCount(0);
+    await card.getByText("Other: The roof terrace").waitFor();
+    await card.getByTestId("question-type").click();
+    const typed = page.getByRole("dialog", { name: "Your answer" });
+    await typed.getByTestId("question-sheet-input").fill("Vegetarian lunch, please");
+    await typed.getByTestId("question-sheet-done").click();
+    await card.getByText("Vegetarian lunch, please").waitFor();
+    await page.screenshot({ path: "/tmp/timely-mobile-question-waiting.png", fullPage: true });
+    questionShots.push("/tmp/timely-mobile-question-waiting.png");
+    await send.click();
+    await page.getByTestId("question-closed-answered").waitFor();
+    await expect(page.getByTestId("question-card")).toHaveCount(0);
+    const answered = (await actions()).find((a) => a.path === "/asking/answer");
+    assert(answered, "Send answer did not post /answer");
+    assert.deepEqual(answered.body, {
+      requestId: "req-q",
+      answers: { q0: "Tue", q1: ["Main hall", "Garden", "The roof terrace"], q2: "Vegetarian lunch, please" },
+    });
+    await page.getByTestId("question-closed-answered").getByText("Main hall, Garden, The roof terrace").waitFor();
+    // Skip closes the card with no answers.
+    await page.goto(`${origin}/?chat=askskip`);
+    await page.getByTestId("question-skip").click();
+    await page.getByTestId("question-closed-skipped").waitFor();
+    assert.deepEqual((await actions()).find((a) => a.path === "/askskip/answer").body, { requestId: "req-s", skip: true });
+    // A message typed while a card waits answers it (sent as a steer).
+    await page.goto(`${origin}/?chat=asktype`);
+    await page.getByTestId("question-card").waitFor();
+    await page.getByLabel("Message the assistant").fill("Window seats");
+    await page.getByText("What you send now answers Timely’s question.").waitFor();
+    await page.getByLabel("Send as your answer").click();
+    await page.getByTestId("question-closed-answered").getByText("Window seats").waitFor();
+    assert.deepEqual((await actions()).find((a) => a.path === "/asktype/steer").body, { text: "Window seats", questionRequestId: "req-t" });
+    // An answer to a card that closed meanwhile says so, and the thread shows how it closed.
+    await page.goto(`${origin}/?chat=asklate`);
+    await page.evaluate(() => (window.auditStaleAnswer = true));
+    const late = page.getByTestId("question-card");
+    await late.getByText(/^\d+ s left$/).waitFor();
+    await late.getByLabel("Mon").click();
+    await page.getByTestId("question-send").click();
+    await page.getByTestId("question-closed-expired").waitFor();
+    // The reason belongs to the card it was for: it goes with the card.
+    assert.equal(
+      await page.getByText("This question was already closed").count(),
+      0,
+      "a stale answer's alert stayed under the thread after its card closed",
+    );
+    await page.evaluate(() => (window.auditStaleAnswer = false));
+    // The history header counts conversations while a card waits; it does not claim the run is thinking.
+    await page.goto(`${origin}/?chat=asking`);
+    await page.getByTestId("question-card").waitFor();
+    await page.getByLabel(/Chat history/).click();
+    await page.getByText(/^\d+ conversations?$/).waitFor();
+    assert.equal(await page.getByText("Thinking it through…").count(), 0, "the history header says the run is thinking");
+    // A long unbroken choice wraps inside its row.
+    await page.goto(`${origin}/?chat=asklong`);
+    const longChoice = page.getByTestId("question-card").getByText(/^supercalifragilistic/);
+    await longChoice.waitFor();
+    const longBox = await longChoice.boundingBox();
+    const longCard = await page.getByTestId("question-card").boundingBox();
+    assert.ok(
+      longBox.x + longBox.width <= longCard.x + longCard.width + 1,
+      `a long choice runs past its card (${longBox.x + longBox.width} > ${longCard.x + longCard.width})`,
+    );
+    // A chat deleted on another device while its card waits: the card goes, the screen says it is gone.
+    await page.goto(`${origin}/?chat=askdel`);
+    await page.getByTestId("question-card").waitFor();
+    await page.evaluate(() => (window.auditGone = ["askdel"]));
+    await page.getByText("Couldn't load this conversation").waitFor({ timeout: 8000 });
+    await expect(page.getByTestId("question-card")).toHaveCount(0);
+    await page.evaluate(() => (window.auditGone = []));
+    // Every closed state, light and dark, at 390 wide.
+    for (const scheme of ["dark", "light"]) {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(`${origin}/?chat=asking`);
+      await page.getByTestId("question-card").waitFor();
+      await page.screenshot({ path: `/tmp/timely-mobile-question-waiting-${scheme}.png`, fullPage: true });
+      await page.goto(`${origin}/?chat=askskip`);
+      await page.getByTestId("question-send").evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await page.getByLabel("Wed").click();
+      await page.evaluate(() => (window.auditLatency = 5000));
+      await page.getByTestId("question-send").click();
+      await page.getByText("Sending your answer…").waitFor();
+      await page.getByTestId("question-card").screenshot({ path: `/tmp/timely-mobile-question-sending-${scheme}.png` });
+      await page.evaluate(() => (window.auditLatency = 0));
+      await page.getByTestId("question-closed-answered").last().waitFor();
+      await page.goto(`${origin}/?chat=asklong`);
+      await page.getByTestId("question-card").waitFor();
+      await page.screenshot({ path: `/tmp/timely-mobile-question-long-${scheme}.png` });
+      await page.goto(`${origin}/?chat=asked`);
+      for (const state of ["answered", "skipped", "expired", "stopped"]) await page.getByTestId(`question-closed-${state}`).waitFor();
+      await page.screenshot({ path: `/tmp/timely-mobile-question-closed-${scheme}.png`, fullPage: true });
+      await page.goto(`${origin}/`);
+      await page.getByLabel(/Chat history/).click();
+      await page.getByText("Needs you", { exact: true }).waitFor();
+      await page.screenshot({ path: `/tmp/timely-mobile-question-history-${scheme}.png` });
+      questionShots.push(
+        ...["waiting", "sending", "long", "closed", "history"].map((n) => `/tmp/timely-mobile-question-${n}-${scheme}.png`),
+      );
+    }
+    await page.emulateMedia({ colorScheme: "dark" });
     if (errors.length) throw new Error(errors.join("\n"));
     console.log(
       JSON.stringify({
@@ -654,6 +858,7 @@ else {
           "/tmp/timely-mobile-tag-picker.png",
           "/tmp/timely-mobile-learned.png",
           "/tmp/timely-mobile-dont-learn.png",
+          ...questionShots,
         ],
       }),
     );

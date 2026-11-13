@@ -32,8 +32,9 @@
 // "id" is the run.start's id; tool.call and gate.ask get a fresh "w-" id and
 // tool.call gets the run's session_key. String values may also use the
 // placeholders {{run}}, {{conversation_id}}, {{session_key}}, {{user_message}},
-// {{account}} and {{last_result}} (the last tool.result's result: a string
-// result as is, anything else as compact JSON). So a fixture recorded from the
+// {{account}}, {{last_result}} (the last tool.result's result: a string
+// result as is, anything else as compact JSON) and {{last_answers}} (the
+// answers of the last clarify.answer, as compact JSON). So a fixture recorded from the
 // real worker (make agent-record-fixtures) replays with Go's own run ids.
 //
 // After a tool.call the fake waits for its tool.result, and after a gate.ask
@@ -49,6 +50,13 @@
 //	{"fake": "sleep", "ms": 50}
 //	{"fake": "hang"}                               wait for run.stop (or shutdown)
 //	{"fake": "wait", "for": "approval.answer"}     wait for an approval.answer for this run, ack it ok
+//	{"fake": "clarify", "request_id": "req-1", "questions": [...], "timeout_ms": 600000}
+//	                                               phase 4: event clarify.request, wait for a clarify.answer
+//	                                               of that request (acked ok), run.stop or the timeout, then
+//	                                               event clarify.closed {submitted|cancelled|timed_out}
+//	{"fake": "subagent", "goal": "...", "child": "sess", "taint": [{...}], "ms": 0, "status": "completed"}
+//	                                               phase 4: event subagent start, a taint line of the
+//	                                               child's sources (via "subagent", child), event subagent stop
 //	{"fake": "crash", "code": 7}                   exit the worker process at once, mid-run
 //	{"fake": "refuse", "code": "busy", "message": "..."}   first line only: answer the run.start with an error
 //
@@ -70,7 +78,8 @@
 //
 // The fake also answers hello with a passing ready (FailSelfTest makes it
 // fail; WebBackends and SkillsUpstream fill its phase 3 fields), ping with pong, sends heartbeats, acks run.steer (recorded),
-// approval.answer and session.delete (busy while the conversation has a live
+// approval.answer, clarify.answer (ok only while that card waits;
+// bad_message without request_id) and session.delete (busy while the conversation has a live
 // run), refuses a second live run in one conversation or a fourth in the
 // account (busy) and a live run id (duplicate_run), and on shutdown or stdin
 // EOF interrupts its live runs and exits 0. It does not apply tool.result's

@@ -48,5 +48,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Tasks](./tasks.md) covers New task, the task list, and completing and reopening tasks.
 - [Calendar events](./calendar-events.md) covers creating an event from an empty week slot, placing a waiting task, and Auto-schedule.
 - [Files: docs](./files-docs.md) covers creating a doc, editing its title and body, and confirming the content persists.
+- [Agent engine: question cards, sub-tasks and CLI providers](./agent-question-cards.md) covers the card a run waits on (answer, several questions, a typed answer, Stop, Delete, timeout), sub-task lines and a sub-task's taint, and Claude Code and Codex on Engine = New. It needs the stub-model stack from "Agent engine runs" in `../SKILL.md`.
 
-Not mapped yet: Chat/assistant (needs an AI provider key in Settings → Agent, which a fresh account does not have), Projects, Today, Dashboard card editing, Sheets, Settings tabs, Notifications, and the help centre `/help`.
+Not mapped yet: the rest of Chat/assistant on Classic (needs an AI provider key in Settings → Agent, which a fresh account does not have), Projects, Today, Dashboard card editing, Sheets, Settings tabs, Notifications, and the help centre `/help`.

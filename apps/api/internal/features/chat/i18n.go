@@ -52,6 +52,7 @@ const (
 	txtAgentUnavailable     = "agentUnavailable"
 	txtUndone               = "undone"
 	txtSteered              = "steered"
+	txtPushQuestion         = "pushQuestion"
 )
 
 var texts = map[string]map[string]string{
@@ -99,6 +100,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "The new engine could not start: %s",
 		txtUndone:               "Undoing that change.",
 		txtSteered:              "Sent to the running reply.",
+		txtPushQuestion:         "Timely has a question.",
 	},
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
@@ -144,6 +146,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "新しいエンジンを開始できませんでした: %s",
 		txtUndone:               "その変更を元に戻しています。",
 		txtSteered:              "実行中の返信に送りました。",
+		txtPushQuestion:         "Timely から質問があります。",
 	},
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
@@ -189,6 +192,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "新引擎无法启动：%s",
 		txtUndone:               "正在撤销该更改。",
 		txtSteered:              "已发送给正在进行的回复。",
+		txtPushQuestion:         "Timely 有一个问题。",
 	},
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
@@ -234,6 +238,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "새 엔진을 시작할 수 없습니다: %s",
 		txtUndone:               "해당 변경을 되돌리는 중입니다.",
 		txtSteered:              "진행 중인 답변에 보냈습니다.",
+		txtPushQuestion:         "Timely에게 질문이 있습니다.",
 	},
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
@@ -279,6 +284,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "No se pudo iniciar el nuevo motor: %s",
 		txtUndone:               "Deshaciendo ese cambio.",
 		txtSteered:              "Enviado a la respuesta en curso.",
+		txtPushQuestion:         "Timely tiene una pregunta.",
 	},
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
@@ -324,6 +330,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "Le nouveau moteur n’a pas pu démarrer : %s",
 		txtUndone:               "Annulation de cette modification.",
 		txtSteered:              "Envoyé à la réponse en cours.",
+		txtPushQuestion:         "Timely a une question.",
 	},
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
@@ -369,6 +376,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "Die neue Engine konnte nicht starten: %s",
 		txtUndone:               "Diese Änderung wird rückgängig gemacht.",
 		txtSteered:              "An die laufende Antwort gesendet.",
+		txtPushQuestion:         "Timely hat eine Frage.",
 	},
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
@@ -414,6 +422,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "O novo motor não pôde iniciar: %s",
 		txtUndone:               "Desfazendo essa alteração.",
 		txtSteered:              "Enviado para a resposta em andamento.",
+		txtPushQuestion:         "O Timely tem uma pergunta.",
 	},
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
@@ -459,6 +468,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "Il nuovo motore non è riuscito ad avviarsi: %s",
 		txtUndone:               "Annullamento di questa modifica.",
 		txtSteered:              "Inviato alla risposta in corso.",
+		txtPushQuestion:         "Timely ha una domanda.",
 	},
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
@@ -504,6 +514,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "Не удалось запустить новый движок: %s",
 		txtUndone:               "Отменяю это изменение.",
 		txtSteered:              "Отправлено в текущий ответ.",
+		txtPushQuestion:         "У Timely есть вопрос.",
 	},
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
@@ -549,6 +560,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "تعذر تشغيل المحرك الجديد: %s",
 		txtUndone:               "جارٍ التراجع عن هذا التغيير.",
 		txtSteered:              "أُرسلت إلى الرد الجاري.",
+		txtPushQuestion:         "لدى Timely سؤال.",
 	},
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
@@ -594,6 +606,7 @@ var texts = map[string]map[string]string{
 		txtAgentUnavailable:     "नया इंजन शुरू नहीं हो सका: %s",
 		txtUndone:               "वह बदलाव वापस लिया जा रहा है।",
 		txtSteered:              "चल रहे जवाब को भेजा गया।",
+		txtPushQuestion:         "Timely का एक सवाल है।",
 	},
 }
 

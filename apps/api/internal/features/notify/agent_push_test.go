@@ -24,6 +24,20 @@ func TestAgentPushKeepsPrivateDetailsOffLockScreenAndTargetsChat(t *testing.T) {
 		}
 	}
 }
+// A question card's push (status running with the card's request id) says
+// the assistant has a question, not that it finished.
+func TestAgentQuestionPushSaysItHasAQuestion(t *testing.T) {
+	kind, cid := "chat", "chat-a"
+	n := &models.Notification{ID: "ntf-q", Category: "agent", Title: "Private plans", Body: "Timely has a question.", EntityType: &kind, EntityID: &cid, Data: models.JobPayload{"status": "running", "question": "0123456789abcdef0123456789abcdef"}}
+	if got := notificationPushMessage(n, "ExponentPushToken[test]", models.NotificationSettings{}).Body; got != "Your assistant has a question." {
+		t.Fatalf("question push body = %q", got)
+	}
+	n.Data = models.JobPayload{"status": "running"}
+	if got := notificationPushMessage(n, "ExponentPushToken[test]", models.NotificationSettings{}).Body; got != "Your assistant has finished." {
+		t.Fatalf("running push without a card = %q", got)
+	}
+}
+
 func TestReminderPushRetainsContentAndTaskTarget(t *testing.T) {
 	n := &models.Notification{ID: "ntf-a", Category: models.NotifyReminder, Title: "Reminder", Body: "A task", Data: models.JobPayload{"taskId": "task-a"}}
 	message := notificationPushMessage(n, "test", models.NotificationSettings{})

@@ -61,7 +61,7 @@ Output: `ok`, `home` (the account's `HERMES_HOME`), `account_dir` (`account-` + 
 - any of `HERMES_HOME`, `HERMES_MANAGED_DIR`, `HERMES_RUNTIME_DIR`, `HERMES_GATEWAY_LOCK_DIR`, `XDG_STATE_HOME`, `HOME` is missing;
 - `HERMES_HOME` is not absolute, not `<agent>/accounts/<dir>`, missing, or inside the real home's `.hermes`;
 - `HOME` is not `<HERMES_HOME>/home`, or `HERMES_MANAGED_DIR` is inside the account home;
-- any of these is present: `JWT_SECRET`, `DATABASE_URL`, `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `HERMES_YOLO`, `HERMES_SAFE_MODE`, `HERMES_CRON_SESSION`, `HERMES_ENABLE_PROJECT_PLUGINS`, `HERMES_CONFIG_BACKEND`, `HERMES_LANGUAGE`, `HERMES_BUNDLED_LOCALES`, `HERMES_MANAGED`, `HERMES_ACCEPT_HOOKS`, `HERMES_PROFILE`, `HERMES_YOLO_MODE`, `HERMES_ALLOW_PRIVATE_URLS`, `HERMES_ACP_AUTO_APPROVE`, any other `HERMES_*` name (only the ones named in this section, `HERMES_OPTIONAL_SKILLS` and `HERMES_EXEC_ASK` are allowed), or any name starting with `DB_`, `TIMELY_`, `API_`, `POSTGRES`, `PG`, or a messaging platform prefix (`TELEGRAM_`, `DISCORD_`, `SLACK_`, `WHATSAPP_`, `SIGNAL_`, `MATRIX_`, `MATTERMOST_`, `FEISHU_`, `LARK_`, `WECOM_`, `WEIXIN_`, `DINGTALK_`, `TEAMS_`, `MSGRAPH_`, `TWILIO_`, `IMESSAGE_`, `BLUEBUBBLES_`, `PHOTON_`, `LINE_`, `EMAIL_`, `SMTP_`, `IMAP_`, `QQ_`).
+- any of these is present: `JWT_SECRET`, `DATABASE_URL`, `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`, `HERMES_YOLO`, `HERMES_SAFE_MODE`, `HERMES_CRON_SESSION`, `HERMES_ENABLE_PROJECT_PLUGINS`, `HERMES_CONFIG_BACKEND`, `HERMES_LANGUAGE`, `HERMES_BUNDLED_LOCALES`, `HERMES_MANAGED`, `HERMES_ACCEPT_HOOKS`, `HERMES_PROFILE`, `HERMES_YOLO_MODE`, `HERMES_ALLOW_PRIVATE_URLS`, `HERMES_ACP_AUTO_APPROVE`, `ANTHROPIC_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR` (phase 4, Q-4.1: a Claude Code sign-in never reaches a worker), any other `HERMES_*` name (only the ones named in this section, `HERMES_OPTIONAL_SKILLS` and `HERMES_EXEC_ASK` are allowed), or any name starting with `DB_`, `TIMELY_`, `API_`, `POSTGRES`, `PG`, or a messaging platform prefix (`TELEGRAM_`, `DISCORD_`, `SLACK_`, `WHATSAPP_`, `SIGNAL_`, `MATRIX_`, `MATTERMOST_`, `FEISHU_`, `LARK_`, `WECOM_`, `WEIXIN_`, `DINGTALK_`, `TEAMS_`, `MSGRAPH_`, `TWILIO_`, `IMESSAGE_`, `BLUEBUBBLES_`, `PHOTON_`, `LINE_`, `EMAIL_`, `SMTP_`, `IMAP_`, `QQ_`).
 
 Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when the host sets it.
 
@@ -87,6 +87,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | `gate.verdict` | `id` (the worker's `gate.ask` id), `verdict` (`allow`, `block`, `approve`), `message`. Phase 2: Go answers `block` with "That isn't available in Timely yet" for every tool (section 9.7) | none |
 | `session.delete` | `id`, `conversation_id` | `ack` (`busy` error while the conversation has a live run). The worker deletes the session with Hermes' `delete_session` and its files under `sessions/` (Hermes' sweep: `<id>.json(l)`, `session_<id>.json` and every `request_dump_<id>_*.json`, which holds a failed request's whole body; also when the chat has no row), then merges the search index's segments (FTS5 `optimize`: a delete only adds a marker and keeps the words in live pages), rewrites `state.db` (`VACUUM`) and empties its WAL, so the chat's text leaves the home's files (the desktop's folder backup copies them raw); a busy database is left to the next export. A chat deleted while the account has no worker goes through `agent-forget` instead (section 10.8) |
 | `shutdown` | `grace` (seconds, default 5) | none: the worker waits up to `grace` for live runs, interrupts the rest (up to 2 s more), waits for a learning pass within what is left of `grace`, reports what learning changed (`learning` events), and exits 0. Go sends its own stop budget minus 3 s, so a worker following this exits before Go sends SIGTERM. The worker keeps reading during the grace (a live run may still need `tool.result`, `gate.verdict` or `approval.answer`, and `run.stop` still works) and refuses new work with `not_ready`; Go keeps stdin open and writes only those replies and run controls until the worker exits or the grace ends |
+| `clarify.answer` | phase 4: `id`, `run`, `request_id`, `answers` (`{qid: string \| [string] \| null}`), `outcome` (`submitted` or `cancelled`, default `submitted`), optional `notice` (section 11.2) | `ack` (`ok: false` when that request no longer waits: answered, timed out, stopped, its run is over, or it belongs to another run); `error` (`bad_message`) when `request_id` is missing or `answers` has another shape |
 | `learning.*`, `settings.update` | section 10.3 | `learning.result` or `error` |
 | `bot.run` | phase 6 | `error` `unsupported` |
 
@@ -104,9 +105,9 @@ Closing the worker's stdin is the lifeline: the worker interrupts live runs and 
 | `pong` | `id` (the ping's), `busy` |
 | `heartbeat` | `busy`; sent every 10 s after `ready` |
 | `event` | `run`, `kind`, `payload` (below) |
-| `tool.call` | `id`, `run`, `session_key`, `tool_call_id`, `name`, `args`, `tainted_sources` (the run's whole list), `batch_size` (calls in the assistant message this one came in), `sibling_tools` (the other tool names of that message, in order) (section 9.4) |
+| `tool.call` | `id`, `run`, `session_key`, `tool_call_id`, `name`, `args`, `tainted_sources` (the run's whole list), `batch_size` (calls in the assistant message this one came in), `sibling_tools` (the other tool names of that message, in order) (section 9.4), `subagent` (phase 4: the sub-task's session id when a child made the call; absent for the run itself, section 11.3) |
 | `gate.ask` | `id`, `run`, `tool_call_id`, `tool`, `args`, `tainted_sources`, `run_kind` (`chat` or `bot`) |
-| `taint` | `run`, `sources` (the new ones only, `[{kind, tool, host?, session?}]`; phase 2, section 9.4) |
+| `taint` | `run`, `sources` (the new ones only, `[{kind, tool, host?, session?, via?, child?}]`; phase 2, section 9.4; `via: "subagent"` and `child` from phase 4, section 11.3) |
 | `run.done` | `id` (the run.start's), `run`, `final_response`, `completed`, `interrupted`, `turn_exit_reason`, `tokens` `{input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, total_tokens}` (this turn only), `estimated_cost_usd` (this turn, or null), `turn_id`, `tainted_sources`, `history_seeded` (bool: this run wrote `run.start.history` into `state.db`), `pending_steer` (the `run.steer` text no tool batch took in, because it arrived while the last reply streamed; "" when none. Go makes it the person's next turn), optional `error` (the turn failed; `final_response` may be empty). `turn_exit_reason` is `end_turn` when the turn ended on a tool call after `end_turn` (section 9.5); that is not a Stop: `interrupted` is false |
 | `ack` | `id`, `ok` (bool) |
 | `learning` | `event` (section 10.2): one learned, staged or blocked change; not run-scoped |
@@ -127,9 +128,11 @@ Closing the worker's stdin is the lifeline: the worker interrupts live runs and 
 | `status` | `{kind, message}`: Hermes lifecycle notes (compaction, retries) |
 | `tool.output_risk` | `{tool_call_id, tool, risk, findings}`: Hermes' advisory threat scan of an untrusted result (`web_search`, `web_extract`, `browser_*`, `mcp_*`, and a Timely result that quotes outside text) found something (`risk` is never `low`; `findings` are Hermes' ids such as `prompt_injection`). Advisory only: the model reads the result wrapped as untrusted data either way; Go logs it |
 | `approval.request` | Hermes' approval data: `request_id`, `pattern_key`, `description`, `timeout_s` and the other scalar fields; answer with `approval.answer` |
-| `subagent` | phase 4 (learning changes are the top-level `learning` message, section 10.2) |
+| `clarify.request` | phase 4: `{request_id, questions: [{qid, question, choices, recommended, multi_select}], timeout_s}`; answer with `clarify.answer` (section 11.2) |
+| `clarify.closed` | phase 4: `{request_id, outcome, answers?}` (`answers` only for `submitted`: the answers the run used), once per `clarify.request`, however its wait ended (section 11.2) |
+| `subagent` | phase 4: `{phase: "start" \| "stop", subagent_id, child_session_id, goal, status?, tool_calls?}` (section 11.3). Learning changes are the top-level `learning` message (section 10.2) |
 
-**Gate.** Every tool call passes `timely_gate`. Messaging and never-offered tools are blocked locally; after `end_turn` every tool call is blocked (section 9.5); `propose_changes` is blocked unless it is the only call of its assistant message (section 9.4); `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `memory`, `session_search` and the `timely` toolset run without asking (other plugins can still block them: `timely_learning` blocks every `skill_manage` write to a Timely-shipped skill, decides every `skill_manage` and `memory` write (section 10.4), and refuses `session_search` without `flags.search_history`); everything else sends `gate.ask`. Go must answer within 25 s (Hermes' hook timeout is 30 s and fails closed); no answer means block. `approve` makes Hermes raise its approval gate (rule key `timely:<tool_call_id>`), which arrives as an `approval.request` event.
+**Gate.** Every tool call passes `timely_gate`. Messaging and never-offered tools are blocked locally; after `end_turn` every tool call is blocked (section 9.5); `propose_changes` is blocked unless it is the only call of its assistant message (section 9.4); `todo_list`, `skills_list`, `skill_view`, `skill_manage`, `memory`, `session_search` and the `timely` toolset run without asking (phase 4: `clarify` and `delegate_task` too, within section 11's rules; a sub-task's call first passes the child rules of section 11.3) (other plugins can still block them: `timely_learning` blocks every `skill_manage` write to a Timely-shipped skill, decides every `skill_manage` and `memory` write (section 10.4), and refuses `session_search` without `flags.search_history`); everything else sends `gate.ask`. Go must answer within 25 s (Hermes' hook timeout is 30 s and fails closed); no answer means block. `approve` makes Hermes raise its approval gate (rule key `timely:<tool_call_id>`), which arrives as an `approval.request` event.
 
 ## 6. Hello
 
@@ -195,7 +198,7 @@ The default `SOUL.md` makes the identity "Timely" (Q-2.6). Hermes still adds one
 
 - `batch_size` and `sibling_tools` come from the assistant message that produced the call. `timely_tools` records each model response's calls from Hermes' `post_api_request` hook (`assistant_message`), which fires before any tool of that response runs; a call id Hermes renamed because the conversation already used it (`call_1` -> `call_1_d2`) is matched to the latest response.
 - `propose_changes` that is not the only call of its message is blocked by `timely_gate` with "Call propose_changes alone, after all read tools finish" and never reaches Go (contract test 18a). The decision rests on the recorded message, so it never depends on whether a sibling ran first. Go keeps the same check on `batch_size` as a second line.
-- Taint: each `tool.result` with `outside: true` adds `{kind: "timely", tool}`; each call that ran (was not blocked) of a Hermes tool the worker's policy marks as a taint source adds `{kind, tool, host?}` (`timely_agent/policy.py` `TAINT_SOURCES`: web, browser, MCP, file, terminal, code, vision, delegation; phase 2 offers none of them). Phase 3: a `session_search` hit from a conversation in `run.start.tainted_conversations`, or one whose state in this worker already holds taint (a chat running at the same time read outside content after Go built the list), adds `{kind: "session", tool: "session_search", session: <id>}` (section 10.4). The list starts from `run.start.tainted_sources`, is append-only and deduplicated, and each new source is sent once as `taint`. Every `tool.call` and `run.done` carries the whole list (contract test 18b).
+- Taint: each `tool.result` with `outside: true` adds `{kind: "timely", tool}`; each call that ran (was not blocked) of a Hermes tool the worker's policy marks as a taint source adds `{kind, tool, host?}` (`timely_agent/policy.py` `TAINT_SOURCES`: web, browser, MCP, file, terminal, code, vision; phase 2 offers none of them; from phase 4 a sub-task's own sources reach the run with `via: "subagent"`, section 11.3). Phase 3: a `session_search` hit from a conversation in `run.start.tainted_conversations`, or one whose state in this worker already holds taint (a chat running at the same time read outside content after Go built the list), adds `{kind: "session", tool: "session_search", session: <id>}` (section 10.4). The list starts from `run.start.tainted_sources`, is append-only and deduplicated, and each new source is sent once as `taint`. Every `tool.call` and `run.done` carries the whole list (contract test 18b).
 
 ### 9.5 End of turn after a proposal (Q-2.4)
 
@@ -323,3 +326,64 @@ Same rules as `prepare`: one JSON object on stdout, logs on stderr.
 - `.timely/restored.json`: `{version, restored_at, skills, blocked, ledger_entries}`, written by `agent-import`: the skills a restore brought back (shown "restored, review" until turned on), the ones it blocked, and the ledger entries that came with it (an Undo of one recreates its skill turned off). In a backup.
 
 Every other file the worker reads in the home is Hermes' own (`memories/`, `skills/`, `pending/`, `state.db`, `.curator_backups/blobs/`).
+
+## 11. Phase 4: clarify, sub-tasks, no-persist, sign-ins
+
+Version stays 1; every field is additive and optional for an older peer. `docs/plans/2026-11-13-phase4-work-packages.md` contract 1 and the owner's answers Q-4.1 to Q-4.3.
+
+### 11.1 `run.start` additions
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `toolsets` | `[string]` | may now include `clarify` (chat runs that are not answer-only, not `from_bot`, not no-persist) and `delegation` (the same runs) |
+| `clarify_timeout_s` | number | how long a question card may wait, 1 to 86,400 seconds (Go sends 600; default 600). Anything else is `bad_message` |
+| `flags.no_persist` | bool | section 11.4. Test-only on the Go side (off by default, decision 10) |
+| `model.provider` | string | required; one of `custom`, `openrouter`, `anthropic`, `gemini`, `deepseek`, `xai`, `zai`, `nvidia`, `opencode-zen`, `opencode-go`, `ollama-cloud`, `openai-api`, `kimi-coding`, `kimi-coding-cn` (every id Go's `hermesProvider` produces). Anything else (a Hermes sign-in provider such as `openai-codex`, `nous`, `copilot`), a missing `model` or provider, or an `anthropic` key that is a Claude Code sign-in token (`sk-ant-oat…`) is `bad_message` (Q-4.1, section 11.5) |
+
+### 11.2 Clarify: a question card the run waits on (Q-4.3)
+
+The `clarify` toolset gives the agent Hermes' `clarify` tool and a `clarify_callback`. When the model calls it:
+
+1. After the stream text so far, the worker sends `event clarify.request` `{request_id (32 hex), questions, timeout_s}`. Each question is `{qid ("q0".."q4"), question, choices (the choices as shown, without Hermes' "(Recommended)" label, or null for an open question), recommended (0 when Hermes marks the first choice, else null), multi_select}`. One to five questions, up to four choices each; the person may also type an answer of their own ("Other"). The text is Hermes' display copy (secrets redacted); it may come from a tainted model, so it is plain text.
+2. The run's thread waits. The wait is Hermes' human-wait (no tool batch deadline counts it: `clarify` runs inline, never in parallel, before any deadline is armed) and the run stays live: `busy.runs` counts it, so the worker is never reaped while a card waits.
+3. It ends exactly once, and `event clarify.closed {request_id, outcome}` follows (a `submitted` close also carries `answers`, the ones the run used: when two answers raced, Go keeps the one the worker took in the thread):
+   - `clarify.answer` from Go: `outcome` as sent (`submitted`, or `cancelled` for Skip); `ack ok: true`. Answers for a `qid` the request did not ask are dropped. A string answers a single-select question (a choice, or typed text), a list a multi-select one, null skips it.
+   - `run.stop`: `cancelled` (notice "The person stopped this reply before answering."), then the run ends `run.done interrupted: true`.
+   - `shutdown`: a run waiting on a card is stopped at once (the person cannot answer within the grace): `cancelled`, then `run.done interrupted: true`.
+   - `clarify_timeout_s` passed: `timed_out`, with a notice telling the model to go on without the answer and ask in its reply if it still needs it. The turn goes on.
+   - no event channel: `undelivered`.
+4. The model reads Hermes' result `{responses: [{question, choices_offered, status: answered|skipped|unanswered, user_response}], outcome, notice?}` and the turn continues where it was: the same run, one `run.done`.
+
+A `clarify.answer` after the wait ended, for another run's request, or after the run is over gets `ack ok: false`. A `from_bot` run's `clarify` is blocked by `timely_gate` ("questions to the person are not available here"); a run without the toolset has no such tool. Bots never ask (`bot.run` stays `unsupported` until phase 6).
+
+### 11.3 Sub-tasks (`delegate_task`)
+
+With the `delegation` toolset the model can hand work to sub-tasks (children). The managed config floors: `delegation.max_concurrent_children: 3`, `max_spawn_depth: 1`, `orchestrator_enabled: false` (no grandchildren), `max_iterations: 20`, `child_timeout_seconds: 300` (Hermes: seconds without progress), `subagent_auto_approve: false`, and `provider`, `model`, `base_url`, `api_key` empty, so children run on the run's own model and credentials (the gateway grant for Claude Code and Codex) and can never pick a sign-in provider. Hermes' `max_async_children` is deprecated and ignored, so it is not set: the worker builds the agent with Hermes' joined delegation (the gateway inline mode), so `delegate_task` returns its children's results inside the call and no child outlives the run. `timely_gate` adds:
+
+- **Where:** only a `chat` run that is not `from_bot` and not no-persist ("sub-tasks are not available here").
+- **Caps:** at most 3 children per run in total, across every `delegate_task` call (a call that would pass 3 is refused whole: "this reply already used its 3 sub-tasks"); `background` is refused; every child of the run shares a pool of 60 tool calls, and a child's call past it is blocked ("The sub-task budget for this reply is used up. Finish with what you have.").
+- **No images:** `delegate_task` is refused when the call carries `images`, at the top level or in any `tasks[]` entry ("sub-tasks cannot be given images in Timely"): Hermes would read a local file into the child's first message and hand a URL to the provider, outside content with no taint source and a way past the chat's web setting. Photo chats stay on Classic.
+- **Children read, never propose:** in a child, `propose_changes`, `session_search`, `skill_manage`, `memory`, `clarify` and `delegate_task` are blocked; Timely read tools and `web` (when the run has it) go on as for the run itself. A child's Timely call reaches Go as `tool.call` under the parent's `run`, with `subagent` set to the child's session id.
+- **Taint:** each outside source a child adds (a `web_extract` host, a Timely `outside: true` result, any `TAINT_SOURCES` tool) is added to the parent's run with `via: "subagent"` and `child` (the child's session id), and sent as `taint` at once; `run.done.tainted_sources` lists them, and the parent's learning stages after them. `delegate_task` itself is no taint source: a child that read nothing outside adds none.
+- **Events:** `event subagent {phase: "start", subagent_id, child_session_id, goal}` when Hermes builds the child (goal cut to 200 characters), and `{phase: "stop", subagent_id, child_session_id, goal, status (completed, interrupted, failed, error), tool_calls}` when the call has its results.
+
+Children are Hermes sessions of their own (`parent_session_id` = the conversation) in `state.db`. `session.delete` removes them with the conversation (Hermes' `delete_session` cascades delegate children) and removes their live transcripts under `cache/delegation/live/`, which the worker records per conversation in `.timely/delegations.json` (section 11.6). `agent-forget` (section 10.8) does the same for a chat deleted while the account had no worker.
+
+### 11.4 No-persist runs (`flags.no_persist`, Q-4.2)
+
+Groundwork for Sensitive chats on the new engine; Sensitive and photo chats stay on classic, and Go sends the flag only when its test-only switch is on. The worker then:
+
+- takes only the toolsets `timely` and `todo` (anything else is `bad_message`);
+- builds a fresh agent for the turn, never cached and closed afterwards, with `session_db=None` (no `state.db` row or message), `skip_memory` (About you and Notes neither read nor written), no learning pass, no review counters, no learning feed diff and no request dump of a refused provider call (`sessions/request_dump_*`);
+- uses `run.start.history` as the whole conversation every turn (Go sends it all; `history_seeded` stays false);
+- keeps the run's records out of Hermes' log files (`logs/agent.log` would hold the person's message): while a no-persist run is live, Hermes' file logs take no record, and the worker's stderr takes none of the run's.
+
+Proof (`tests/contract/test_c_no_persist.py`): on a home that served the model endpoint before, two no-persist turns with tool calls change no path, size, mode, mtime or sha256 under the home, the session count is unchanged, no `learning` event is sent, and another chat's past-chat search finds nothing. On a home that never served the endpoint, Hermes notes what it learned about it (`context_length_cache.yaml`, `cache/local_endpoint_probes.json`, the hourly `cache/scratch/.last_prune`); none holds the chat's text. A zero-write cold home needs a per-run scratch `HERMES_HOME` (an open decision for the coordinator).
+
+### 11.5 Sign-ins (Q-4.1)
+
+API keys and the CLI providers through Go's gateway only. The managed floor `auth.adopt_external_logins: false` makes Hermes' one reader of the Claude Code login (`~/.claude/.credentials.json` and the macOS Keychain) answer "none", so an `anthropic` run without a key never borrows it. `ANTHROPIC_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CONFIG_DIR` in the worker environment are a refusal (section 2). The self-test check `no_sign_in` fails when `auth.json` or `.anthropic_oauth.json` exists in the home, when borrowing is on, or when the effective `model.provider`, `delegation.provider` or any `auxiliary.*.provider` is a sign-in provider or one outside section 11.1's list (`auto` and empty are fine).
+
+### 11.6 Files the worker keeps in the account home
+
+- `.timely/delegations.json`: `{<conversation id>: [<delegation id>]}`, the `cache/delegation/live/<id>/` folders of the chat's sub-tasks, so `session.delete` removes them. Never in an agent-state zip (caches are not exported).

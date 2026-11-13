@@ -73,6 +73,8 @@ type fakeEngine struct {
 	stopped     []string
 	steered     []string
 	forgotten   []string
+	answered    []string
+	answerErr   error
 }
 
 func (f *fakeEngine) Available(_ context.Context, _ string, _ *Conversation) error {
@@ -105,6 +107,13 @@ func (f *fakeEngine) Forget(_, cid string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.forgotten = append(f.forgotten, cid)
+}
+
+func (f *fakeEngine) Answer(_ context.Context, _, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answered = append(f.answered, cid+":"+runID+":"+requestID+":"+outcome+":"+string(raw(answers)))
+	return f.answerErr
 }
 
 func (f *fakeEngine) startedIDs() []string {
@@ -400,6 +409,38 @@ func TestIntegrationAgentEngineMigrations(t *testing.T) {
 	db.First(&back, "id = 'chat_old'")
 	if back.Permission != "auto" || back.Activity.Draft != "Sure" || len(back.Activity.Lines) != 1 || len(back.TaintedSources) != 1 {
 		t.Fatalf("round trip %+v %+v", back.Activity, back.TaintedSources)
+	}
+
+	// Phase 4: the question card column, '{}' by default, and its down step.
+	var question string
+	db.Raw("SELECT question::text FROM agent_conversations WHERE id = 'chat_old'").Scan(&question)
+	if question != "{}" || back.Question.pending() || string(raw(back.Question)) != "{}" {
+		t.Fatalf("question default %q, read %+v", question, back.Question)
+	}
+	asked := time.Now().UTC().Truncate(time.Second)
+	back.Question = ChatQuestion{RequestID: "req-1", Run: "run-1", Questions: []QuestionItem{{QID: "q0", Question: "Which day?", Choices: []string{"Mon", "Tue"}}}, AskedAt: &asked}
+	if err = db.Save(&back).Error; err != nil {
+		t.Fatal(err)
+	}
+	var again Conversation
+	db.First(&again, "id = 'chat_old'")
+	if again.Question.RequestID != "req-1" || len(again.Question.Questions) != 1 || again.Question.Questions[0].Choices[1] != "Tue" || !again.Question.AskedAt.Equal(asked) {
+		t.Fatalf("question round trip %+v", again.Question)
+	}
+	if err = goose.Down(sqlDB, "."); err != nil {
+		t.Fatal(err)
+	}
+	var columns int64
+	db.Raw("SELECT count(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'agent_conversations' AND column_name = 'question'", schema).Scan(&columns)
+	if columns != 0 {
+		t.Fatal("the down step kept agent_conversations.question")
+	}
+	if err = goose.Up(sqlDB, "."); err != nil {
+		t.Fatal(err)
+	}
+	db.Raw("SELECT question::text FROM agent_conversations WHERE id = 'chat_old'").Scan(&question)
+	if question != "{}" {
+		t.Fatalf("question after down and up %q", question)
 	}
 
 	if err = db.Exec("INSERT INTO agent_chat_settings (user_id) VALUES ('usr_migrate')").Error; err != nil {

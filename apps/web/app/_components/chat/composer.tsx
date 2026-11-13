@@ -81,6 +81,7 @@ export default function Composer({
   permission,
   busy,
   steering = false,
+  answering = false,
   pending,
   onSend,
   onStop,
@@ -109,6 +110,8 @@ export default function Composer({
   busy: boolean;
   /** A live agent run takes what is sent now as steering (Send beside Stop). */
   steering?: boolean;
+  /** The run waits on a question card: what is sent answers it. */
+  answering?: boolean;
   pending: boolean;
   onSend: () => void;
   onStop: () => void;
@@ -205,8 +208,9 @@ export default function Composer({
             }}
             className="max-h-48 min-h-14 w-full resize-none bg-transparent px-1.5 py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-0.5">
+          <div className="@container/tools flex items-center justify-between gap-2">
+            {/* The tool row wraps instead of painting over Stop and Send when it is narrower than its buttons. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-0.5">
               {permission && (
                 <ChatPermissionMenu
                   value={permission.value}
@@ -257,8 +261,10 @@ export default function Composer({
                 )}
               >
                 <Globe2 className="size-4" />
-                {/* Icon only on a phone-width window, so the row fits beside the permission chip. */}
-                <span className={permission ? "hidden sm:inline" : undefined}>
+                {/* Icon only while the row is narrow (its own width, not the window's), so it fits beside the permission chip and the Stop and Send buttons. */}
+                <span
+                  className={permission ? "hidden @md/tools:inline" : undefined}
+                >
                   {privateImages ? "Private image chat" : "Web search"}
                 </span>
                 {searchOn && <Check className="size-3" />}
@@ -284,7 +290,13 @@ export default function Composer({
               {(!busy || steering) && (
                 <button
                   type="button"
-                  aria-label={steering ? "Send to the run" : "Send message"}
+                  aria-label={
+                    answering
+                      ? "Send as your answer"
+                      : steering
+                        ? "Send to the run"
+                        : "Send message"
+                  }
                   disabled={!canSend || (steering && images.length > 0)}
                   onClick={onSend}
                   className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-opacity hover:bg-primary/90 disabled:opacity-30"

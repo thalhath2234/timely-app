@@ -84,7 +84,7 @@ def post_api_request(assistant_message: Any = None, **_: Any) -> None:
         return
     calls = _calls_of(assistant_message)
     if calls:
-        run.record_batch(calls)
+        run.record_batch(calls, bridge.current_child(run, str(_.get("session_id") or "")))
 
 
 def make_handler(name: str):
@@ -92,23 +92,27 @@ def make_handler(name: str):
         run = bridge.current_run.get()
         if run is None or bridge.ask is None:
             return _error(NO_RUN)
-        call_id = _current_call_id() or run.last_call(name)
-        batch = run.batch_for(call_id, name)
+        child = bridge.current_child(run)
+        call_id = _current_call_id() or run.last_call(name, child)
+        batch = run.batch_for(call_id, name, child)
         size, siblings = (batch.size, batch.siblings(call_id, name)) if batch else (1, [])
         if run.flush is not None:
             try:
                 run.flush()  # stream text written before the call reaches Go first
             except Exception:
                 logger.debug("flush before tool.call failed", exc_info=True)
-        reply = bridge.ask({
+        msg = {
             "type": "tool.call", "run": run.run_id, "session_key": run.session_key,
             "tool_call_id": call_id, "name": name, "args": args if isinstance(args, dict) else {},
             "tainted_sources": run.taint_snapshot(), "batch_size": size, "sibling_tools": siblings,
-        }, bridge.TOOL_ANSWER_TIMEOUT_S)
+        }
+        if child:
+            msg["subagent"] = child  # phase 4: a sub-task's call, under the parent's run
+        reply = bridge.ask(msg, bridge.TOOL_ANSWER_TIMEOUT_S)
         if not reply or reply.get("type") != "tool.result":
             return _error(NO_ANSWER)
         if reply.get("outside") is True:
-            run.note_outside(call_id, name)
+            run.note_outside(call_id, name, child)
             bridge.report_taint(run, [{"kind": "timely", "tool": name}])
         if reply.get("end_turn") is True:
             run.end_turn = True
@@ -126,7 +130,8 @@ def transform_tool_result(tool_name: str = "", result: Any = None, tool_call_id:
     if run is None or not isinstance(result, str):
         return None
     try:
-        if not run.take_outside(str(tool_call_id or ""), tool_name):
+        child = bridge.current_child(run, str(_.get("session_id") or ""))
+        if not run.take_outside(str(tool_call_id or ""), tool_name, child):
             return None
     except Exception:
         logger.exception("checking whether %s quoted outside text failed", tool_name)

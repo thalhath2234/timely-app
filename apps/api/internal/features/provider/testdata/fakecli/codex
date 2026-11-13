@@ -1,0 +1,28 @@
+#!/bin/sh
+# Fake codex CLI for the gateway tests (gateway_realworker_test.go and
+# cmd/agent_gateway_test.go), selected with CODEX_BIN. It never reaches a
+# model. FAKECLI_DIR holds the test's script:
+#   rules/<k>.out    what call k prints, in the CLI's own output format
+#   rules/<k>.match  a fixed string the call's input must contain for rule k
+#                    (empty or missing: always matches)
+# The highest-numbered rule that matches answers. Each call n is recorded as
+# <n>.args (NUL-separated arguments) and <n>.stdin. "--version" answers
+# without a rule, so locating the CLI works without a script.
+set -u
+if [ "${1:-}" = "--version" ]; then
+	echo "0.0.0 (fake codex)"
+	exit 0
+fi
+dir=${FAKECLI_DIR:?FAKECLI_DIR is not set}
+n=$(( $(cat "$dir/count" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$dir/count"
+printf '%s\0' "$@" > "$dir/$n.args"
+cat > "$dir/$n.stdin"
+for k in $(ls "$dir/rules" 2>/dev/null | sed -n 's/\.out$//p' | sort -rn); do
+	if [ ! -s "$dir/rules/$k.match" ] || grep -qF -f "$dir/rules/$k.match" "$dir/$n.stdin"; then
+		cat "$dir/rules/$k.out"
+		exit 0
+	fi
+done
+echo "fake codex: no rule matched call $n" >&2
+exit 1

@@ -343,43 +343,7 @@ func main() {
 		Sessions:  authService,
 	}
 
-	// Create Echo instance
-	e := echo.New()
-	// The web app reaches the API through its Next.js proxy, so the client is
-	// the nearest untrusted address in X-Forwarded-For, not the proxy's own.
-	// Without this every web user shares one sign-in rate-limit bucket.
-	e.IPExtractor = echo.ExtractIPFromXFFHeader()
-
-	e.Use(middleware.RequestID())
-	e.Use(echoMiddleware.BodyLimitWithConfig(echoMiddleware.BodyLimitConfig{
-		// Restores carry a whole account export; everything else is small.
-		Skipper:    func(c *echo.Context) bool { return c.Request().URL.Path == "/restore" },
-		LimitBytes: maxRequestBodyBytes,
-	}))
-	e.Use(middleware.StructuredLogger())
-	e.Use(echoMiddleware.Recover())
-	origins := corsOrigins()
-	e.Use(middleware.CrossSiteGuard(origins))
-	e.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
-		AllowOrigins:     origins,
-		AllowCredentials: true,
-		AllowHeaders: []string{
-			echo.HeaderOrigin,
-			echo.HeaderContentType,
-			echo.HeaderAccept,
-			echo.HeaderAuthorization,
-			"Cache-Control",
-			"Last-Event-ID",
-			"X-Timely-Restore",
-			"ngrok-skip-browser-warning",
-		},
-		// Downloads name their file from it when the web app calls the API
-		// on another origin.
-		ExposeHeaders: []string{echo.HeaderContentDisposition},
-	}))
-
-	// Setup all routes
-	routes.SetupRoutes(e, handlers)
+	e := newRouter(handlers)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -447,6 +411,48 @@ func main() {
 	case <-time.After(8 * time.Second):
 		log.Println("background loops did not stop in time; exiting anyway")
 	}
+}
+
+// newRouter is the API's Echo router: its middleware and every feature
+// route. It serves on each API_BIND address; the agent model gateway is never
+// on it (provider.Gateway has its own loopback server).
+func newRouter(h routes.Handlers) *echo.Echo {
+	e := echo.New()
+	// The web app reaches the API through its Next.js proxy, so the client is
+	// the nearest untrusted address in X-Forwarded-For, not the proxy's own.
+	// Without this every web user shares one sign-in rate-limit bucket.
+	e.IPExtractor = echo.ExtractIPFromXFFHeader()
+
+	e.Use(middleware.RequestID())
+	e.Use(echoMiddleware.BodyLimitWithConfig(echoMiddleware.BodyLimitConfig{
+		// Restores carry a whole account export; everything else is small.
+		Skipper:    func(c *echo.Context) bool { return c.Request().URL.Path == "/restore" },
+		LimitBytes: maxRequestBodyBytes,
+	}))
+	e.Use(middleware.StructuredLogger())
+	e.Use(echoMiddleware.Recover())
+	origins := corsOrigins()
+	e.Use(middleware.CrossSiteGuard(origins))
+	e.Use(echoMiddleware.CORSWithConfig(echoMiddleware.CORSConfig{
+		AllowOrigins:     origins,
+		AllowCredentials: true,
+		AllowHeaders: []string{
+			echo.HeaderOrigin,
+			echo.HeaderContentType,
+			echo.HeaderAccept,
+			echo.HeaderAuthorization,
+			"Cache-Control",
+			"Last-Event-ID",
+			"X-Timely-Restore",
+			"ngrok-skip-browser-warning",
+		},
+		// Downloads name their file from it when the web app calls the API
+		// on another origin.
+		ExposeHeaders: []string{echo.HeaderContentDisposition},
+	}))
+
+	routes.SetupRoutes(e, h)
+	return e
 }
 
 // listenConfig reads API_PORT (fallback PORT, default 8080) and API_BIND, a

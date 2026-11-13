@@ -334,6 +334,17 @@ SYMBOLS: dict[str, list[str] | None] = {
     "run_agent:AIAgent.interrupt": ["message", "tool_reason"],  # timely_gate ends the turn (Q-2.4)
     "run_agent:AIAgent.clear_interrupt": [],
     "run_agent:AIAgent.steer": [],
+    # phase 4: a no-persist agent is closed after its turn and never writes a request dump; the
+    # clarify wait sits in Hermes' human-wait window; a sub-task's calls are told apart by Hermes'
+    # delegated-child context and the session it binds
+    "run_agent:AIAgent.close": [],
+    "run_agent:AIAgent._dump_api_request_debug": None,
+    "tools.approval_human_wait:human_wait_window": ["session_key"],
+    "tools.environments.base:touch_activity_if_due": [],
+    "agent.delegation_context:is_delegated_child_context": [],
+    "gateway.session_context:get_session_env": ["name"],
+    "agent.tool_executor:_DEFAULT_CONCURRENT_TOOL_TIMEOUT_S": None,  # the clarify test's --batch-deadline
+    "hermes_logging:setup_logging": ["hermes_home"],
     # timely_tools: its own call id inside a handler, and the hook that sees each model response
     "tools.approval_context:_approval_tool_call_id": None,
     "hermes_cli.plugins:VALID_HOOKS": None,
@@ -374,6 +385,12 @@ SYMBOLS: dict[str, list[str] | None] = {
     # dotenv guard (runtime override R2) and the run-time reload it stops
     "hermes_cli.env_loader:load_hermes_dotenv": [],
     "tools.mcp_tool_config:_load_mcp_config": [],
+    # sign-in guard (runtime override R5, Q-4.1): Hermes' auxiliary resolver never tries Nous
+    "agent.auxiliary_client:_read_nous_auth": [],
+    "agent.auxiliary_client:_resolve_nous_runtime_api": [],
+    "agent.auxiliary_client:_try_nous": ["vision"],
+    "agent.auxiliary_client:_get_provider_chain": [],
+    "agent.auxiliary_client:_VISION_AUTO_PROVIDER_ORDER": None,
     # phase 3 learning (timely_agent/learning): staging, ledger actor, skill states, memory store
     "tools.write_approval:stage_write": ["summary", "origin"],
     "tools.write_approval:skill_gist": ["content", "file_path", "old_string", "new_string"],

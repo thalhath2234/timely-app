@@ -13,8 +13,10 @@ type ContextChip struct {
 
 // Message kinds: "" is a normal turn, "notice" is a run event (stopped, done,
 // data changed), "archive" carries a superseded or discarded plan,
-// "similar" points at an earlier chat (Chat) about the same request and
-// "steer" is what the person typed into a live agent run (POST /steer).
+// "similar" points at an earlier chat (Chat) about the same request,
+// "steer" is what the person typed into a live agent run (POST /steer) and
+// "question" is a question card the agent asked, with what the person
+// answered (Question; phase 4, Q-4.3).
 type Message struct {
 	Kind      string        `json:"kind,omitempty"`
 	RequestID string        `json:"requestId,omitempty"`
@@ -65,6 +67,9 @@ type Message struct {
 	// change, taken when it finished applying; Undo is refused once one of
 	// them reads differently (the object changed since).
 	UndoReads []Snapshot `json:"undoReads,omitempty"`
+	// Question is a "question" message's card: what was asked, what the
+	// person answered, and how the wait ended.
+	Question *AnsweredQuestion `json:"question,omitempty"`
 }
 type Step struct {
 	Tool      string          `json:"tool"`
@@ -149,9 +154,13 @@ type Conversation struct {
 	// AgentReseed is set when a restore replaced the account's agent home:
 	// its state.db holds the backup's transcript, so the next agent run
 	// reseeds the session from Messages (AgentStateRestored).
-	AgentReseed bool      `gorm:"not null;default:false" json:"-"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	AgentReseed bool `gorm:"not null;default:false" json:"-"`
+	// Question is the question card the live agent run waits on (Q-4.3),
+	// empty ({}) otherwise. The row stays 'running' while it waits: Stop,
+	// Delete, the lease and Lost treat it as any live run (question.go).
+	Question  ChatQuestion `gorm:"serializer:json;type:jsonb;not null;default:'{}'" json:"question"`
+	CreatedAt time.Time    `json:"createdAt"`
+	UpdatedAt time.Time    `json:"updatedAt"`
 }
 
 // The engines a chat run can use.
@@ -164,7 +173,7 @@ const (
 // or a status it reports.
 type ActivityLine struct {
 	ID    string    `json:"id"`
-	Kind  string    `json:"kind"` // "tool" or "status"
+	Kind  string    `json:"kind"` // "tool", "status" or "subagent" (a sub-task, phase 4)
 	Label string    `json:"label"`
 	State string    `json:"state"` // "running", "done" or "failed"
 	At    time.Time `json:"at"`
@@ -186,6 +195,11 @@ type TaintSource struct {
 	Tool    string `json:"tool,omitempty"`
 	Host    string `json:"host,omitempty"`
 	Session string `json:"session,omitempty"`
+	// Via is "subagent" when a sub-task of the run read it (delegate_task,
+	// phase 4), and Child that sub-task's session id: a child's outside read
+	// is the parent's.
+	Via   string `json:"via,omitempty"`
+	Child string `json:"child,omitempty"`
 }
 
 // TaintSources is stored as a JSON array, never null.

@@ -99,7 +99,14 @@ type conversation struct {
 	RunEngine   string      `json:"runEngine"`
 	Messages    []message   `json:"messages"`
 	Plan        []planEntry `json:"plan"`
-	Activity    struct {
+	// Question is the card a live agent-engine run waits on ({} otherwise).
+	Question struct {
+		RequestID string `json:"requestId"`
+		Questions []struct {
+			Question string `json:"question"`
+		} `json:"questions"`
+	} `json:"question"`
+	Activity struct {
 		Lines []struct {
 			ID    string `json:"id"`
 			Kind  string `json:"kind"`
@@ -355,7 +362,9 @@ func RunScenario(ctx context.Context, cfg Config, c *client, engine string, s Sc
 	r.Status, r.Error, r.Action, r.RunEngine = conv.Status, conv.Error, conv.ErrorAction, conv.RunEngine
 	for _, m := range conv.Messages {
 		switch {
-		case m.Role == "assistant" && !m.Proposal && m.Kind == "" && strings.TrimSpace(m.Content) != "":
+		case m.Role == "assistant" && !m.Proposal && (m.Kind == "" || m.Kind == "question") && strings.TrimSpace(m.Content) != "":
+			// A closed question card ("Timely asked: ...") is the agent
+			// engine's question to the person, as classic's question reply.
 			r.Replies = append(r.Replies, m.Content)
 		case m.Kind == "notice":
 			r.Notices = append(r.Notices, m.Content)
@@ -364,7 +373,7 @@ func RunScenario(ctx context.Context, cfg Config, c *client, engine string, s Sc
 	for _, p := range conv.Plan {
 		r.Plan = append(r.Plan, PlanStep{Tool: p.Tool, Summary: p.Summary, Status: p.Status, Error: p.Error})
 	}
-	r.Trace = trace.calls
+	r.Trace, r.Asked = trace.calls, trace.asked
 	r.Seconds = time.Since(start).Seconds()
 	Score(s, &r)
 	return r
@@ -396,6 +405,8 @@ func (c *client) request(ctx context.Context, vars Vars, req Request) error {
 type tracer struct {
 	seen  map[string]bool
 	calls []string
+	// asked holds the question cards the agent engine raised (phase 4).
+	asked []string
 }
 
 func (t *tracer) add(key, name string) {
@@ -424,6 +435,19 @@ func (c *client) wait(ctx context.Context, cfg Config, id string, trace *tracer)
 		}
 		if !busy(conv.Status) {
 			return conv, nil
+		}
+		if conv.Status == "running" && conv.Question.RequestID != "" && !trace.seen["ask:"+conv.Question.RequestID] {
+			// A question card is the agent engine's way to ask, as classic
+			// asks in a reply that ends the turn. Nobody answers a scenario,
+			// so the run is stopped there, as when the person walks away; the
+			// closed card stays in the thread and counts as the turn's reply.
+			trace.seen["ask:"+conv.Question.RequestID] = true
+			for _, q := range conv.Question.Questions {
+				trace.asked = append(trace.asked, q.Question)
+			}
+			if err := c.do(ctx, "POST", "/chats/"+id+"/stop", nil, nil); err != nil {
+				return conv, fmt.Errorf("stop after a question card: %w", err)
+			}
 		}
 		if time.Now().After(deadline) {
 			_ = c.do(ctx, "POST", "/chats/"+id+"/stop", nil, nil)

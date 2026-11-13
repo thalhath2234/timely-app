@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { ENGINE_COPY, type AccountEngine, type AgentChatSettings } from "@timely/contract/agentChat";
+import { CLI_ON_NEW, ENGINE_COPY, type AccountEngine, type AgentChatSettings } from "@timely/contract/agentChat";
 import { createThemedStyleSheet } from "../../lib/theme";
 import { usePatchAgentChatSettings } from "../../lib/hooks";
 import BottomSheet, { SheetOption } from "../ui/BottomSheet";
@@ -36,7 +36,7 @@ export default function EngineCard({ settings }: { settings: AgentChatSettings }
         <GroupHint>
           {unavailable && settings.engineReason
             ? `New isn’t available here: ${settings.engineReason}`
-            : ENGINE_COPY[current].description}
+            : `${ENGINE_COPY[current].description}${unavailable ? "" : ` ${CLI_ON_NEW}`}`}
         </GroupHint>
       )}
       <BottomSheet open={open} onClose={() => setOpen(false)} title="Engine" subtitle="New runs use it; a run already going finishes where it started">

@@ -1,0 +1,293 @@
+"""Sub-tasks (``delegate_task``) in a Timely run: the policy ``timely_gate`` applies and the
+lifecycle hooks it registers (phase 4, decisions 5-8 of ``docs/plans/2026-11-13-phase4-work-packages.md``).
+
+- **Where.** Only a chat run that is not from a bot and not no-persist may start sub-tasks
+  (``verdict``); bots never get ``delegate_task`` (recursion guard). Go adds the ``delegation``
+  toolset only to such runs; this is the second line.
+- **No images.** A sub-task is never given ``images`` (top level or per task): Hermes would read a
+  local file or send a URL to the provider, which is outside content with no taint source.
+- **Caps.** At most ``policy.CHILDREN_PER_RUN`` children per run in total, across every call (children
+  that started, not calls: a refused batch counts nothing); no
+  background children (Hermes ignores the model's ``background`` and Timely builds the agent so its
+  delegations join inside the call, ``run_chat.build_agent``); ``max_spawn_depth: 1`` and
+  ``orchestrator_enabled: false`` (no grandchildren), 20 iterations and 300 s without progress per child (managed
+  floors, ``config_render``); a pool of ``policy.CHILD_TOOL_CALL_POOL`` tool calls shared by every
+  child of the run, counted by ``timely_gate``.
+- **Children read, never propose.** ``timely_gate`` blocks ``propose_changes``, ``session_search``,
+  ``skill_manage``, ``memory``, ``clarify`` and ``delegate_task`` in a child (``policy.CHILD_BLOCKED``).
+- **Taint.** A child's outside read reaches the parent's run at once with ``via: "subagent"`` and
+  ``child`` (``bridge.report_taint``); ``delegate_task`` itself is no taint source.
+- **Untrusted summaries.** The child's summary is in the ``delegate_task`` result, which Hermes does
+  not wrap (it wraps only ``web_*``, ``browser_*`` and ``mcp_*``), and may quote the page or bot
+  answer the child read. ``transform_result`` (``timely_gate``'s ``transform_tool_result``) wraps the
+  result as untrusted data (Q-3.9) when a child of that call added taint, and in every result drops
+  the host's transcript paths (``live_transcript``), which the model has no use for.
+- **Events.** ``subagent_start`` / ``subagent_stop`` (Hermes' lifecycle hooks, fired on the parent's
+  tool thread) record the child on the run and send ``event subagent`` ``{phase, subagent_id,
+  child_session_id, goal, status?, tool_calls?}``.
+- **Deleting a chat.** Hermes' ``delete_session`` removes delegate children with the parent row; the
+  children's live transcripts (``cache/delegation/live/<id>/``, keyed by delegation, not chat) are
+  recorded per conversation in ``.timely/delegations.json`` and removed by ``forget``.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import threading
+from pathlib import Path
+from typing import Any, Optional
+
+from timely_agent import bridge, policy
+
+logger = logging.getLogger("timely_agent.delegation")
+
+RECORD = Path(".timely") / "delegations.json"
+LIVE_ROOT = Path("cache") / "delegation" / "live"
+_record_lock = threading.Lock()
+
+
+def _no_subtasks(run: Optional[bridge.RunContext]) -> bool:
+    if run is None:
+        return True
+    flags = run.flags or {}
+    return run.kind != "chat" or flags.get("from_bot") is True or flags.get("no_persist") is True
+
+
+def _has_images(args: dict, tasks: list) -> bool:
+    """``delegate_task`` takes ``images`` (URLs or local paths) at the top level and per task: Hermes
+    reads a local file into the child's first message and hands a URL to the provider, outside
+    content with no taint source and a way past the chat's web setting. ``tasks`` is the list
+    ``policy.delegate_tasks`` read (a JSON-array string included, as Hermes reads it)."""
+    return bool(args.get("images")) or any(t.get("images") for t in tasks)
+
+
+def verdict(run: Optional[bridge.RunContext], args: dict, call_id: str = "") -> Optional[dict]:
+    """``timely_gate``'s answer for a ``delegate_task`` call of the run itself (None = allow). An
+    allowed spawn holds its task count against the cap until ``settle`` (its result): only children
+    that start stay counted, so a batch Hermes refuses (a goal too short, a placeholder) costs nothing."""
+    if _no_subtasks(run):
+        return {"action": "block", "message": policy.CHILD_NOT_HERE}
+    if "background" in args and policy.truthy(args.get("background")):
+        return {"action": "block", "message": policy.CHILD_BACKGROUND}
+    tasks, bad = policy.delegate_tasks(args)
+    if tasks is None:  # Hermes would read it some other way than the gate counted it: fail closed
+        logger.info("delegate_task blocked: %s", bad)
+        return {"action": "block", "message": policy.CHILD_TASKS_SHAPE}
+    if _has_images(args, tasks):
+        return {"action": "block", "message": policy.CHILD_IMAGES}
+    action = str(args.get("action") or "").strip().lower()
+    if action and action != "spawn":
+        return None  # list/steer/stop start nothing
+    n = policy.delegate_task_count(args)
+    if n == 0:
+        return None  # Hermes answers that the call names no task
+    if not run.reserve_children(n, policy.CHILDREN_PER_RUN, call_id):
+        return {"action": "block", "message": policy.CHILD_CAP.format(n=policy.CHILDREN_PER_RUN)}
+    return None
+
+
+def settle(run: Optional[bridge.RunContext], call_id: str) -> None:
+    """A ``delegate_task`` call returned (any status): give back what it held and did not start."""
+    if run is not None and call_id:
+        run.settle_children(call_id)
+
+
+def clarify_verdict(run: Optional[bridge.RunContext]) -> Optional[dict]:
+    """``clarify`` runs locally in a chat run (the card, Q-4.3); never in a bot or no-persist run."""
+    if _no_subtasks(run):
+        return {"action": "block", "message": policy.CLARIFY_NOT_HERE}
+    return None
+
+
+def child_verdict(run: bridge.RunContext, child: str, tool_name: str) -> Optional[dict]:
+    """A child's call: the tools only the main assistant uses are blocked, then the shared pool."""
+    message = policy.CHILD_BLOCKED.get(tool_name)
+    if message:
+        return {"action": "block", "message": message}
+    if not run.child_call(child, policy.CHILD_TOOL_CALL_POOL):
+        return {"action": "block", "message": policy.CHILD_POOL_USED}
+    return None
+
+
+def _emit(run: bridge.RunContext, payload: dict) -> None:
+    if run.emit is None:
+        return
+    try:
+        run.emit("subagent", payload)
+    except Exception:
+        logger.exception("sending a subagent event failed")
+
+
+def _current_call_id(run: bridge.RunContext) -> str:
+    """The ``delegate_task`` call a child starts under: the one call holding children against the cap
+    (``verdict`` reserved them). With none or several in flight it is unknown ("") and the child
+    counts for every call (``_call_tainted``)."""
+    with run._lock:
+        keys = list(run.children_held)
+    return keys[0] if len(keys) == 1 else ""
+
+
+def subagent_start(parent_session_id: Any = None, child_session_id: Any = None, child_subagent_id: Any = None,
+                   child_goal: Any = None, **_: Any) -> None:
+    run = bridge.current_run.get()
+    if run is None or not child_session_id:
+        return
+    goal = str(child_goal or "")[:policy.CHILD_GOAL_CHARS]
+    bridge.child_started(run, str(child_session_id), str(child_subagent_id or ""), goal, _current_call_id(run))
+    _emit(run, {"phase": "start", "subagent_id": str(child_subagent_id or ""),
+                "child_session_id": str(child_session_id), "goal": goal})
+
+
+def subagent_stop(parent_session_id: Any = None, child_session_id: Any = None, child_status: Any = None,
+                  tool_call_history: Any = None, **_: Any) -> None:
+    if not child_session_id:
+        return
+    state = bridge.child_stopped(str(child_session_id))
+    run = bridge.current_run.get()
+    if run is None:
+        return
+    calls = state.tool_calls if state is not None else len(tool_call_history or [])
+    _emit(run, {"phase": "stop", "subagent_id": state.subagent_id if state else "",
+                "child_session_id": str(child_session_id), "goal": state.goal if state else "",
+                "status": str(child_status or ""), "tool_calls": calls})
+
+
+# ---------------------------------------------------------------- the result the parent reads
+
+def _call_tainted(run: bridge.RunContext, call_id: str) -> bool:
+    """Whether a child of the call ``call_id`` added taint. A child with no call recorded, or a call
+    with no id, counts for every call: when unsure, the result is wrapped."""
+    with run._lock:
+        tainted = {s.get("child") for s in run.tainted_sources
+                   if isinstance(s, dict) and s.get("via") == "subagent"}
+        tainted.discard(None)
+        return any(sid in tainted and (not call_id or not st.call_id or st.call_id == call_id)
+                   for sid, st in run.children.items())
+
+
+def _without_paths(result: Any) -> Any:
+    """``result`` as JSON text without ``live_transcript`` / ``live_transcripts``; None when it is
+    not a JSON object or holds none."""
+    try:
+        data = json.loads(result) if isinstance(result, str) else None
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    changed = data.pop("live_transcripts", None) is not None
+    for entry in data.get("results") or []:
+        if isinstance(entry, dict) and entry.pop("live_transcript", None) is not None:
+            changed = True
+    return json.dumps(data, ensure_ascii=False) if changed else None
+
+
+def transform_result(tool_name: str = "", result: Any = None, tool_call_id: str = "", **_: Any):
+    """``transform_tool_result`` for ``delegate_task``: remember the transcript folders under the chat,
+    drop their paths from what the model reads, and mark the result as untrusted data when a child of
+    this call read outside content. None leaves the result as it is."""
+    if tool_name != policy.DELEGATE_TOOL or not isinstance(result, str):
+        return None
+    run = bridge.current_run.get()
+    if run is None:
+        return None
+    try:
+        record_live(run.conversation_id, result)
+    except Exception:
+        logger.exception("recording the sub-task transcripts failed")
+    out = _without_paths(result)
+    text = result if out is None else out
+    try:
+        wrap = _call_tainted(run, str(tool_call_id or ""))
+    except Exception:
+        logger.exception("checking whether a sub-task read outside content failed")
+        wrap = True  # fail closed: Hermes passes the raw result on when a hook fails
+    if wrap:
+        from timely_agent import untrusted
+        return untrusted.mark(run, tool_name, tool_call_id, text)
+    return out
+
+
+# ---------------------------------------------------------------- live transcripts per chat
+
+def _live_paths(result: Any) -> list[str]:
+    try:
+        data = json.loads(result) if isinstance(result, str) else result
+    except ValueError:
+        return []
+    out: list[str] = []
+    if isinstance(data, dict):
+        for p in data.get("live_transcripts") or []:
+            if isinstance(p, str):
+                out.append(p)
+        for entry in data.get("results") or []:
+            if isinstance(entry, dict) and isinstance(entry.get("live_transcript"), str):
+                out.append(entry["live_transcript"])
+    return out
+
+
+def _home() -> Path:
+    return Path(os.environ.get("HERMES_HOME") or ".").resolve()
+
+
+def record_live(conversation: str, result: Any, home: Optional[Path] = None) -> list[str]:
+    """Remember the delegation folders a ``delegate_task`` result names, under the chat."""
+    if not conversation:
+        return []
+    home = home or _home()
+    root = (home / LIVE_ROOT).resolve()
+    names = []
+    for p in _live_paths(result):
+        try:
+            folder = Path(p).resolve().parent
+        except (OSError, ValueError):
+            continue
+        if folder.parent == root and folder.name not in names:
+            names.append(folder.name)
+    if not names:
+        return []
+    with _record_lock:
+        data = _read(home)
+        have = data.setdefault(conversation, [])
+        data[conversation] = list(dict.fromkeys(have + names))
+        _write(home, data)
+    return names
+
+
+def forget(conversation: str, home: Optional[Path] = None) -> list[str]:
+    """Remove the chat's delegation folders (a deleted chat's sub-task transcripts)."""
+    home = home or _home()
+    root = (home / LIVE_ROOT).resolve()
+    with _record_lock:
+        data = _read(home)
+        names = data.pop(conversation, None) or []
+        if names:
+            _write(home, data)
+    gone = []
+    for name in names:
+        folder = (root / str(name)).resolve()
+        if folder.parent != root:
+            continue
+        shutil.rmtree(folder, ignore_errors=True)
+        gone.append(str(name))
+    return gone
+
+
+def _read(home: Path) -> dict[str, list[str]]:
+    try:
+        data = json.loads((home / RECORD).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): [str(n) for n in v if isinstance(n, str)] for k, v in data.items() if isinstance(v, list)}
+
+
+def _write(home: Path, data: dict[str, list[str]]) -> None:
+    path = home / RECORD
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, path)
