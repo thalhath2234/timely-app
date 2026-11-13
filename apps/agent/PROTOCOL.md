@@ -42,7 +42,7 @@ The managed file pins `plugins.enabled` to the Timely plugins (every folder unde
 | `web` | `{search_backend, extract_backend}` | `timely` (Go runs it) or a keyed backend id (section 10.6) |
 | `timezone` | string | IANA zone |
 | `approval_timeout_s` | number | Hermes approval timeout (default 600) |
-| `terminal_home_mode` | string | default `profile` |
+| `terminal_home_mode` | string | default `profile`; `real` only for a host-allowed account (section 12.1) |
 | `mcp_servers` | `{name: entry}` | Hermes MCP entries; see below |
 | `host_allowed` | bool | account may run host commands (plan 12) |
 | `approved_mcp_hashes` | `[sha256]` | approved stdio MCP entries |
@@ -148,7 +148,7 @@ Then it imports Hermes, bridges the account's `terminal.*` config into the `TERM
 
 **Self-test checks** (`self_test.checks[].name`): `plugins` (every Timely plugin (each folder under `timely_agent/plugins/` with a `register`) loaded without errors from Timely's own entry points, and the enabled set equal to `selftest.EXPECTED_PLUGINS`), `user_plugins` (`$HERMES_HOME/plugins` is empty and project plugins are off: a folder there replaces an entry-point plugin with the same key), `gate_hook` (`pre_tool_call` holds timely_gate's and timely_learning's own functions, compared by identity), `dotenv` (no `.env` Hermes would load exists: the worker sets `<home>/.env` and `<home>/.op.env` aside as `*.timely-disabled` before importing Hermes; `<agent>/hermes/.env` and `$HERMES_MANAGED_DIR/.env` only fail the check), `env_drift` (no environment name changed after the start check, besides the `TERMINAL_*` names the terminal bridge sets from the account config), `home` (Hermes resolves the expected `HERMES_HOME`), `no_messaging` (no messaging tool resolves, no platform plugin is enabled, no platform adapter module is imported), `managed_config` (the managed file is byte-for-byte the floors rendered from `hello`'s `timely_skills_dir` and `browser_executable` and hashes to `managed_sha256`, so an added key fails as well as a loosened one; every floor reads back through Hermes' loaders: managed file, merged `load_config()`, and the raw reader skill discovery uses, which must see only the Timely skills folder), `essential_skills` (Hermes' non-disableable skill list matches Timely's copy), `install_guard` (runtime installs blocked), `dotenv_guard` (Hermes' dotenv loader is a no-op after start, runtime override R2), `mcp` (no unapproved stdio MCP server), `timely_tools` (toolset `timely` holds exactly the specs of `hello.timely_tools`, each with `timely_tools`' own handler; a name Hermes already uses fails here), and when `hello` carried `settings`, `skills_default_off` (every name in `hello.skills_default_off`, less the settings' `skills_enabled`, is in the effective `skills.disabled`). When `self_test.ok` is false the worker answers every `run.start` with `error` `refused` and Go should stop it and show "The agent could not start" with `self_test.failures`.
 
-Each run binds Hermes' per-turn terminal policy from `config.yaml` and the managed floors (`tools.terminal_scope.install_profile_terminal_scope`, as Hermes' gateway does): local backend, `cwd` = `<home>/workspace`, `home_mode: profile`, so terminal children get `HOME=<home>/home`, never the OS user's home. An unreadable config installs Hermes' refusal scope and terminal tools fail closed.
+Each run binds Hermes' per-turn terminal policy from `config.yaml` and the managed floors (`tools.terminal_scope.install_profile_terminal_scope`, as Hermes' gateway does): local backend, `cwd` = `<home>/workspace`, `home_mode: profile`, so terminal children get `HOME=<home>/home`, never the OS user's home. Phase 5: a host-allowed account's `cwd` is its working folder and its `home_mode` is `real` (section 12.6). An unreadable config installs Hermes' refusal scope and terminal tools fail closed.
 
 ## 7. Errors
 
@@ -212,7 +212,7 @@ Go answers a recorded `propose_changes` with `end_turn: true`. The model may the
 
 - Chat toolsets in phase 2: `timely`, `todo`, `skills`. `skip_memory=True`; `skill_view` and `skills_list` read; every `skill_manage` action and every `memory` call is blocked while `flags.learning_writes` is not exactly true (phase 2 always sends false), and outside a run. Phase 3 turns learning on per run: section 10.
 - Tools outside the local allow list and the `timely` toolset reach Go as `gate.ask`; phase 2 Go answers `block` ("That isn't available in Timely yet"), and the worker passes the message to the model. A tool that is not in the run's toolsets never gets that far: Hermes answers that it does not exist.
-- `permission` is stored on the run and not acted on by the worker in phase 2 (Go applies it to proposals; host tools follow it from phase 5).
+- `permission` is stored on the run and not acted on by the worker in phase 2 (Go applies it to proposals; host tools follow it from phase 5). Host tools, cards and Full Access: section 12.
 
 ### 9.8 Auxiliary calls (plan 5.7, contract test 20)
 
@@ -387,3 +387,89 @@ API keys and the CLI providers through Go's gateway only. The managed floor `aut
 ### 11.6 Files the worker keeps in the account home
 
 - `.timely/delegations.json`: `{<conversation id>: [<delegation id>]}`, the `cache/delegation/live/<id>/` folders of the chat's sub-tasks, so `session.delete` removes them. Never in an agent-state zip (caches are not exported).
+
+## 12. Phase 5: host tools, host cards, browser, MCP
+
+Version stays 1; every field is additive and optional for an older peer. `docs/plans/2026-11-14-phase5-work-packages.md` (decisions 1 to 20, contract 1) and the owner's answers Q-5.1 to Q-5.7.
+
+### 12.1 Account settings (`render-account`, `hello.settings`)
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `host_allowed` | bool | the account may use this computer (decision 9). Every key below except `mcp_*` holds only when it is true; for any other account render-account drops them and lists them in its output's `host_ignored` |
+| `working_dir` | path or `""` | the account's working folder: an absolute path to an existing folder becomes `terminal.cwd` (`TERMINAL_CWD`) and turns project context files on; empty (or not a folder) keeps the account's `workspace/` and context files off (decision 10) |
+| `terminal_home_mode` | `real` | Q-5.4: terminal children get `HOME = HERMES_REAL_HOME`. Rendered only for a host-allowed account; anything else renders `profile` |
+| `checkpoints` | bool | Hermes' filesystem checkpoints (`checkpoints.enabled`, `max_snapshots: 20`, the store in `<home>/checkpoints`, never backed up) |
+| `browser.use_real_profile` | bool | Q-5.3: the browser tools drive a snapshot of the real home's default Chromium profile (section 12.6). The managed floor no longer pins it |
+| `mcp_servers` | `{name: entry}` | as in phase 1: a URL entry for every account (private, loopback, link-local, CGNAT and metadata literals dropped), a `command` entry only for a host-allowed account with its hash in `approved_mcp_hashes` |
+| `mcp_modes` | `{name: use\|ask\|off}` | an `off` server is not rendered at all; an unknown value counts as `ask` |
+| `mcp_tokens` | `{name: token json}` | written to `<home>/mcp-tokens/` (section 12.7) for rendered servers only |
+| `approval_timeout_s` | number | rendered as Hermes' `approvals.timeout`, never below 3,660 s (the longest live wait plus a minute), so the worker's live-wait timer, not Hermes, ends a wait |
+
+Render-account also writes `.timely-account.json` with `host_allowed`, `working_dir`, `checkpoints`, `use_real_profile`, `mcp_modes` and `mcp_token_files` (each token file's sha256). The worker reads it, never the settings. The account config's `toolsets` drops the host toolsets for an account that is not host-allowed.
+
+### 12.2 `run.start` additions
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `toolsets` | `[string]` | may include `terminal`, `file`, `code_execution`, `browser-use`, `browser-cdp` only with `flags.host_allowed: true` and only for an account render-account made host-allowed; anything else is `bad_message`. `browser_exec` (in `browser-use`) is offered by Hermes only next to `terminal`; `browser_cdp` and `browser_dialog` only with a static `browser.cdp_url` (Timely sets none). `mcp-<server>` for each server that is not Off (any account); the worker connects those servers (Hermes' `discover_mcp_tools`) before the run's agent is built |
+| `flags.host_allowed` | bool | the account is host-allowed (Go's `IsHostAllowed`); a host call without it is blocked by the gate |
+| `flags.full_access` | bool | Full Access with a step-up record; needs `permission: "full"` (else `bad_message`). The worker turns on Hermes' `enable_session_yolo(session_key)` for the run (section 12.5) |
+| `host_live_wait_s` | number | the live wait of a host card, 1 to 3,600 s (Go sends 600; default 600). Anything else is `bad_message` |
+| `pre_approved` | `{tool, args_hash, tool_call_id?}` | a parked card's continuation: the first call of that tool with exactly that `args_hash` (`policy.args_hash`, 64 hex) runs without asking Go, once; a second identical call asks again |
+
+### 12.3 `gate.ask` and `gate.verdict`
+
+Every host call asks Go (`gate.ask`): `terminal`, `process_manage`, `read_file`, `search_files`, `write_file`, `patch`, `execute_code`, `browser_exec`, `browser_cdp`, `browser_dialog`, and `vision_analyze` on a local path (`policy.is_host_call`). So does every MCP tool. Neither is ever allowed locally, except `read_file`/`search_files` whose `path` resolves inside the account's own `HERMES_HOME/skills` (plan 5.5). Before Go is asked, `timely_gate` blocks:
+
+1. any call of a run the person stopped ("the person stopped this reply"), whatever the tool;
+2. a `browser_*` call naming a private, loopback or CGNAT address (rule 1b, unchanged);
+3. a host or MCP call in a run that is not a chat (bots: "bots cannot use this computer");
+4. a host call in a run without `flags.host_allowed` ("this account can't use this computer").
+
+`gate.ask` additions:
+
+| Field | Meaning |
+| --- | --- |
+| `args_hash` | `policy.args_hash(args)` |
+| `toolset` | the tool's registry toolset (`terminal`, `file`, `mcp-<server>`, ...) |
+| `inner` | `true` for a call made inside `execute_code` (Hermes gives it no call id; `tool_call_id` is then `<execute_code call id>:inner:<n>`) |
+| `mcp` | for an MCP tool: `{server, tool (the server's own name), annotations: {readOnlyHint?, destructiveHint?, idempotentHint?, openWorldHint?}}` (empty when the server declared none) |
+
+`gate.verdict` additions (Go → worker): `card {kind: terminal|file|code|browser|mcp|mcp_server, title, command?, path?, url?, cwd?, reason, critical_item?, grantable}` with `approve`. The worker does not read it (Go keeps it for the card); it is listed so the shape is fixed in one place. Verdicts: `allow` records the call as Timely-approved (section 12.4); `approve` records what the card is for and becomes Hermes' approval gate with `rule_key timely:<tool_call_id>`; in Full Access it first turns the run's YOLO off for the rest of the run, so a card Go asks for always reaches the person; anything else blocks. A verdict that arrives after the run was stopped blocks.
+
+### 12.4 Host cards: `approval.request`, the live wait, parking, `approval.auto`
+
+1. Hermes raises its approval for a Timely card (pattern key `plugin_rule:timely:<call id>`). The worker sends `event approval.request` with Hermes' scalar fields (`request_id`, `command`, `pattern_key`, `description`, `timeout_s`, ...) plus `tool_call_id`, `tool`, `args_hash` and `live_wait_s`. The run's thread waits (Hermes' human wait: no tool batch deadline counts it); the run is live and `busy.runs` counts it.
+2. `approval.answer {run, request_id, choice: once|deny}` → `ack {ok}`. `ok: false` when the request no longer waits, belongs to another run, or the run was stopped before Run once arrived (the request is then denied). `once` marks the call approved before the request resolves; `deny` gives the model Hermes' "BLOCKED: Action denied by user" text.
+3. **The live wait ends** (`host_live_wait_s`) before an answer: the request is withdrawn (the tool never runs; the model reads "BLOCKED: Action approval was withdrawn before the user answered (Paused: waiting for the person's approval)"), `event approval.parked {request_id, tool, args_hash, tool_call_id}` goes out for it and for every other card of the run still waiting, and the turn ends after that tool round: `run.done {turn_exit_reason: "approval_parked", parked: {request_id, tool, args_hash, tool_call_id}, interrupted: false, completed: false}` (`parked` is the first card that parked). The worker is then idle. A Run once Go applies later is a new `run.start` with `pre_approved`.
+4. **One card per call** (decision 4). Any other approval Hermes raises on the run's session (its terminal guard's dangerous-command prompt, the `execute_code` whole-script prompt, a protected-path write) belongs to the call the waiting thread is executing. When Timely already let that call run (Go's `allow`, the person's `once`, a pre-approved continuation call), the worker answers it `once` and sends `event approval.auto {request_id, tool_call_id, pattern_key}`; Go never sees a second card. Otherwise it is denied and logged (`log` warn, "Hermes asked to approve a call Timely did not approve"). Hermes' "always" and "session" choices are never used.
+5. **Stop and shutdown.** `run.stop` denies every request the run waits on before it interrupts the run, so the tool never runs; `run.done` is `interrupted`. A `run.stop` that lands after `once` but before Hermes starts the tool is caught by the dispatch fence (runtime override R6: `tools.registry.registry.dispatch` refuses a host or MCP tool of a stopped run). `shutdown` parks every waiting card (step 3) instead of failing it: nothing ran, so Go keeps the card answerable.
+
+### 12.5 Full Access and the hardline floor
+
+With `flags.full_access` and `permission: "full"` the worker calls `enable_session_yolo(session_key)` at the run's start and `disable_session_yolo` at its end: Go answers `allow` and Hermes raises no second prompt. Hermes' hardline floor (`tools/approval.py` `_floor_block`: `rm -rf /` and system folders, `mkfs`, `dd` to a raw device, fork bombs, shutdown, `kill -1`, deleting its own runtime) runs before YOLO in every mode, so those are refused before the backend. The first `approve` verdict of a Full Access run turns YOLO off for the rest of it (section 12.3).
+
+### 12.6 Terminal, files, code, checkpoints, browser
+
+- **Terminal**: the local backend only (Q-5.5). `TERMINAL_CWD` is the working folder (or the account's `workspace/`); children get `HOME = HERMES_REAL_HOME` for a host-allowed account (`terminal.home_mode: real`), the profile home otherwise. The worker's own `HOME` stays `<home>/home`.
+- **Context files**: with a working folder, Hermes loads its project context files (`AGENTS.md`, `CLAUDE.md`, ...); each one loaded is a taint source `{kind: "file", tool: "context_file", path}` sent as `taint` at the start of the run.
+- **`execute_code`**: its inner tool calls pass `timely_gate` (`inner: true`) and the dispatch fence like any call; a blocked tool returns the block message to the code. Hermes' sandbox offers only `web_search`, `web_extract`, `read_file`, `write_file`, `search_files`, `patch` and `terminal` inside the code.
+- **`event host.ran {tool_call_id, tool, args_hash, status: ok|error|blocked|interrupted, checkpoint?, checkpoint_dir?}`** after every host or MCP call finished (`post_tool_call`). `checkpoint` is the commit Hermes took before a `write_file`, `patch` or destructive `terminal` call in this run, and `checkpoint_dir` the folder it covers.
+- **`checkpoint.restore {id, checkpoint, working_dir}`** (Go → worker) → **`checkpoint.result {id, ok, restored: [paths], skipped?, error?}`**. A safe restore: files the person edited after Hermes wrote them stay. `ok: false` with `error` when the checkpoint is gone. A worker whose account is not host-allowed answers `error refused`.
+- **Browser** (Q-5.3): `browser_exec`, `browser_cdp`, `browser_dialog` are approve-class in chat and blocked in bots. With `browser.use_real_profile`, Hermes snapshots the default Chromium profile into `<home>/browser-profile/` and launches the real binary headless on the copy. Runtime override R7 (`timely_agent/real_profile.py`) makes Hermes find that profile and the default browser under `HERMES_REAL_HOME` (the real home's `.config/mimeapps.list` first, then `xdg-settings`/`defaults` with `HOME` set to it); the self-test check `host` fails when the resolved source is not under `HERMES_REAL_HOME`.
+
+### 12.7 MCP
+
+- **Modes** (Q-5.6): Off servers are not rendered and Go names no `mcp-<server>` toolset for them; Can use and Ask me first are Go's verdicts (`allow`, `approve`).
+- **Token files**: `mcp_tokens {name: token json}` with token json `{"tokens": {...}, "client_info": {...}?, "meta": {...}?}` (Hermes' three files `<name>.json`, `<name>.client.json`, `<name>.meta.json` in `<home>/mcp-tokens/`, mode 0600; a bare object without `tokens` is taken as the tokens file). Files of servers not rendered are removed. The worker deletes the folder when it exits, and the agent-state zip never holds it.
+- **`mcp.tokens {tokens: {name: token json}}`** (worker → Go, not run-scoped): on the maintenance tick (every 600 s) the servers whose files Hermes changed since render-account wrote them (or since the last report), and every server with a file at `shutdown`. A server whose files Hermes deleted is reported with `{}`. Names are Hermes' file stems (the server name with anything but letters, digits, `_` and `-` replaced by `_`).
+- **Helper requests** (Go → worker, answered on a thread of their own): `mcp.catalog`, `mcp.probe`, `mcp.oauth.begin`, `mcp.oauth.finish`. The worker imports `timely_agent.mcp_admin` lazily and calls `catalog(fields, home)`, `probe(fields, home)`, `oauth_begin(fields, home)`, `oauth_finish(fields, home)`, where `fields` is the request without `type`, `id` and `account` and `home` the account home (`pathlib.Path`). The return value (a JSON object) is sent as `mcp.result {id, ok: true, data}`; a `ValueError` becomes `error bad_message`, any other exception `error internal`. Until the module (or the function) exists the answer is `error unsupported`; an unknown `mcp.*` type is `unknown_type`. Shapes (the mcp work package owns them): catalog → `{servers: [{id, name, url, category, auth, description}]}`; probe `{name, entry}` → `{tools: [{name, annotations, description}], error?}`; oauth begin `{name, entry, redirect_uri}` → `{authorize_url, state}`; oauth finish `{name, state, code}` → `{token}` (the worker keeps no copy).
+
+### 12.8 Self-test check `host`
+
+Fails when an account render-account did not make host-allowed has a host toolset in its config, `terminal.home_mode: real` (config or `TERMINAL_HOME_MODE`), `browser.use_real_profile` or checkpoints; when the dispatch fence (R6) or the real-home browser override (R7) is missing; or, with the real profile on, when the snapshot source is not under `HERMES_REAL_HOME`. The `mcp` check (no unapproved `command` server) is unchanged.
+
+### 12.9 Testing (decision 20)
+
+Every host test runs a host-allowed agent whose "real" home and working folder live in `$HOME/.cache/p5-sandbox` (`tests/harness.py` `sandbox`; `make agent-host-sandbox` makes one for hand checks) and whose worker runs under the exec trap (`tests/exec_trap.py`, `probe_boot.py --exec-trap LOG`): every process start is recorded, and a destructive command line is replaced by a harmless stand-in. MCP servers in tests are local fakes (`tests/contract/fake_mcp_echo.py`). Tests: `tests/contract/test_c_host.py`, `tests/test_host_units.py`.

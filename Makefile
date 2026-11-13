@@ -623,6 +623,13 @@ agent-go-realworker: ## Phase 4 through the real worker (stub model, fake CLIs, 
 agent-go-vet-windows: ## go vet the agent supervisor for Windows (Job Object, process spawning) from any OS
 	@cd $(API) && GOOS=windows GOARCH=amd64 go vet ./internal/agenthost/...
 
+.PHONY: agent-host-sandbox agent-host-sandbox-clean
+agent-host-sandbox: ## Make the phase 5 test sandbox: a throwaway real home, working folder and Chrome profile under ~/.cache/p5-sandbox (prints the paths; use them for TIMELY_AGENT_REAL_HOME and the working folder)
+	@scripts/agent-host-sandbox.sh create
+
+agent-host-sandbox-clean: ## Remove ~/.cache/p5-sandbox (the phase 5 test sandbox)
+	@scripts/agent-host-sandbox.sh clean
+
 .PHONY: agent-record-fixtures agent-parity
 agent-record-fixtures: ## Record the worker's event fixtures for the Go engine's tests against the stub model, no network (OUT=<dir>, required; ONLY=<scenario>,... picks some)
 	@test -x "$(AGENT_PY)" || { echo "agent-record-fixtures: run make agent-install first"; exit 1; }
