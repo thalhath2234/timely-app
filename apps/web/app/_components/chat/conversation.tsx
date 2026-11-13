@@ -207,6 +207,7 @@ export default function Conversation({
   });
   const input = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  const questionRow = useRef<HTMLDivElement>(null);
   const receiptAnchor = useRef<HTMLDivElement>(null);
   // The receipt form as the person left it, sent with a message typed
   // during the review so unsaved edits are revised, not lost.
@@ -303,6 +304,19 @@ export default function Conversation({
     chat?.imageReview?.status,
     chat?.phase,
   ]);
+  // A card arrives while the run stays "running" and no message is added, so
+  // the scroll above does not run: bring the card into view, its top first
+  // when it is taller than the thread.
+  const questionId = asking ? chat?.question?.requestId : undefined;
+  useEffect(() => {
+    const row = questionRow.current;
+    if (!questionId || !row) return;
+    const tall = row.getBoundingClientRect().height > window.innerHeight * 0.6;
+    row.scrollIntoView({
+      behavior: "instant",
+      block: tall ? "start" : "nearest",
+    });
+  }, [questionId]);
   useEffect(() => {
     if (!chat) return;
     function markRead() {
@@ -416,6 +430,8 @@ export default function Conversation({
     onSuccess: (next) => {
       cache.setQueryData(chatKey(next.id), next);
       void cache.invalidateQueries({ queryKey: chatsKey });
+      // The card unmounts with the focus on it: keep the keyboard in the chat.
+      input.current?.focus();
     },
     onError: () => {
       if (id) void cache.invalidateQueries({ queryKey: chatKey(id) });
@@ -751,7 +767,11 @@ export default function Conversation({
             )}
             {liveReply && <LiveReply draft={liveReply} />}
             {asking && chat?.question?.requestId && (
-              <div className="mt-5 flex gap-3" data-testid="question-row">
+              <div
+                ref={questionRow}
+                className="mt-5 flex gap-3"
+                data-testid="question-row"
+              >
                 <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-foreground">
                   <TimelyLogo size={16} />
                 </div>

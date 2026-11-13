@@ -12,7 +12,7 @@ import { usePatchChatSettings } from "@/app/utils/hooks/chat";
 
 /** Claude Code and Codex are not Classic-only: New runs them through this
  * server's own CLI and its sign-in (phase 2 gateway, Q-4.1). */
-const CLI_ON_NEW = "Claude Code and Codex work on both, through this server’s CLI.";
+const CLI_ON_NEW = "Claude Code and Codex also work on New, through this server’s CLI; their replies arrive in one piece.";
 
 /**
  * Settings → Agent → Engine (Q-2.2): which engine new runs use, Classic

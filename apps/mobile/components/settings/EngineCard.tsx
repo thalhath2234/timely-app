@@ -8,7 +8,7 @@ import { GroupHint, GroupLabel, ListGroup, ListRow } from "./SettingsList";
 
 const ENGINES: AccountEngine[] = ["classic", "agent"];
 /** Claude Code and Codex are not Classic-only: New runs them through the server's own CLI. */
-const CLI_ON_NEW = "Claude Code and Codex work on both, through the server’s CLI.";
+const CLI_ON_NEW = "Claude Code and Codex also work on New, through the server’s CLI; their replies arrive in one piece.";
 
 /**
  * Settings → Agent → Engine (Q-2.2): Classic or New for this account's chats,

@@ -911,6 +911,16 @@ for (const [app, q] of [
     assert.ok(closed("stopped").lines.every((l) => l.empty && l.answer === "No answer"));
     assert.equal(answered.anyAnswer, true);
     assert.equal(closed("stopped").anyAnswer, false, "a card with nothing back lists only what was asked");
+    assert.equal(answered.reply, "", "different answers are listed per question");
+    // A message typed in the composer answers every question with the same text: shown once.
+    const typed = closed("submitted", { q0: "Mon and Fri", q1: "Mon and Fri", q2: "Mon and Fri" });
+    assert.equal(typed.reply, "Mon and Fri");
+    assert.equal(closed("submitted", { q0: "Mon", q1: "Mon", q2: null }).reply, "");
+    assert.equal(
+      q.closedCard({ requestId: "r", questions: [day], answers: { q0: "Tue" }, outcome: "submitted" }).reply,
+      "",
+      "one question needs no summary line",
+    );
     assert.equal(answered.anyAnswer, true);
     assert.equal(closed("stopped").anyAnswer, false, "a card with nothing back lists only what was asked");
   });
@@ -918,7 +928,6 @@ for (const [app, q] of [
   test(`${app}: the composer and the run card point at the waiting card`, () => {
     assert.equal(q.QUESTION_PLACEHOLDER, "Type your answer, or use the card above…");
     assert.equal(q.QUESTION_WAITING_LINE, "Waiting for your answer");
-    assert.match(q.QUESTION_WAITING_BODY, /answer or skip/);
   });
 }
 

@@ -356,9 +356,21 @@ export default function Assistant() {
   useEffect(() => {
     scroll.current?.scrollTo({ y: 0, animated: false });
   }, [page]);
+  // A question card arrives with the run still "running" and no new message,
+  // and it lays out after the effect runs: keep the thread at its end for a
+  // moment so the card, and its buttons, end up in view.
+  const followCardUntil = useRef(0);
+  const followCard = () => {
+    if (page === "chat" && Date.now() < followCardUntil.current)
+      scroll.current?.scrollToEnd({ animated: false });
+  };
+  const questionId = asking ? chat?.question?.requestId : undefined;
+  useEffect(() => {
+    if (questionId) followCardUntil.current = Date.now() + 1500;
+  }, [questionId]);
   useEffect(() => {
     if (page === "chat") scroll.current?.scrollToEnd({ animated: true });
-  }, [chat?.messages?.length, chat?.status]);
+  }, [chat?.messages?.length, chat?.status, questionId]);
 
   const scope = { id: `chat:${id}` };
   const mutation = useMutation({
@@ -1167,6 +1179,8 @@ export default function Assistant() {
               ref={scroll}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.content}
+              onContentSizeChange={followCard}
+              onLayout={followCard}
             >
               {page === "receipt" && chat && review?.receipt ? (
                 <ReceiptReview

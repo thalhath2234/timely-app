@@ -119,8 +119,6 @@ export const QUESTION_PLACEHOLDER = "Type your answer, or use the card above…"
 export const QUESTION_HINT = "What you send now answers Timely’s question.";
 /** The header's subtitle and the activity card's line while a card waits. */
 export const QUESTION_WAITING_LINE = "Waiting for your answer";
-export const QUESTION_WAITING_BODY =
-  "The run is paused on Timely’s question. It goes on once you answer or skip, or when the time runs out.";
 /** Under a card that expired or was stopped. */
 const CLOSED_NOTES: Partial<Record<QuestionCardState, string>> = {
   skipped: "Timely went on without an answer.",
@@ -138,6 +136,8 @@ export function closedCard(card: AnsweredQuestion): {
   title: string;
   note: string;
   anyAnswer: boolean;
+  /** The one text that answered every question of a card with more than one (a message typed in the composer), else "". */
+  reply: string;
   lines: { qid: string; question: string; answer: string; empty: boolean }[];
 } {
   const state = questionCardState(card.outcome);
@@ -155,11 +155,15 @@ export function closedCard(card: AnsweredQuestion): {
       empty: !answer,
     };
   });
+  const same =
+    lines.length > 1 &&
+    lines.every((l) => !l.empty && l.answer === lines[0].answer);
   return {
     state,
     title: QUESTION_CARD_TITLES[state],
     note: CLOSED_NOTES[state] ?? "",
     anyAnswer: lines.some((l) => !l.empty),
+    reply: same ? lines[0].answer : "",
     lines,
   };
 }

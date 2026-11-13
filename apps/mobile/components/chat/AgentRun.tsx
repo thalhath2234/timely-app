@@ -8,7 +8,7 @@ import AnimatedPressable from "../ui/AnimatedPressable";
 import { LogoSpinner } from "../ui/TimelyLogo";
 import { ChatText } from "./shared";
 import { phaseLabel } from "./chatMeta";
-import { QUESTION_WAITING_BODY, QUESTION_WAITING_LINE } from "../../lib/chat/question";
+import { QUESTION_WAITING_LINE } from "../../lib/chat/question";
 
 const SUBTASK = "Sub-task:";
 
@@ -79,9 +79,11 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
             <ChatText text={draft.trimStart()} onLink={onLink} />
           </View>
         ) : null}
-        <Text style={styles.hint}>
-          {asking ? QUESTION_WAITING_BODY : "This keeps running on the server. Send a message to steer it, or Stop."}
-        </Text>
+        {asking ? null : (
+          <Text style={styles.hint}>
+            This keeps running on the server. Send a message to steer it, or Stop.
+          </Text>
+        )}
       </View>
     </View>
   );

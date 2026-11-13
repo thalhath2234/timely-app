@@ -23,7 +23,7 @@ import ChangeCards from "./changeCards";
 import ChatText from "./chatText";
 import { isBusy } from "./chatMeta";
 import { modeName } from "./permissionPicker";
-import { QUESTION_WAITING_BODY, QUESTION_WAITING_LINE } from "./questionDraft";
+import { QUESTION_WAITING_LINE } from "./questionDraft";
 
 /**
  * What a live agent run shows (plan 5.5b, Q-2.5): the lines of what it is
@@ -89,11 +89,12 @@ export function RunActivity({ chat }: { chat: Chat }) {
           <p className="font-medium">
             {asking ? QUESTION_WAITING_LINE : "Working"}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {asking
-              ? QUESTION_WAITING_BODY
-              : "This keeps running on the server. You can leave and come back, or reply to steer it."}
-          </p>
+          {!asking && (
+            <p className="text-xs text-muted-foreground">
+              This keeps running on the server. You can leave and come back, or
+              reply to steer it.
+            </p>
+          )}
         </div>
       </div>
       {shown.length > 0 && (

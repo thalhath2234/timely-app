@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Text, TextInput, View } from "react-native";
 import {
   Ban,
@@ -137,6 +137,7 @@ function QuestionBlock({
         <View
           style={{ gap: 6 }}
           accessibilityRole={multi ? undefined : "radiogroup"}
+          role={multi ? "group" : undefined}
           accessibilityLabel={item.question}
         >
           {(item.choices ?? []).map((choice, i) => {
@@ -165,14 +166,15 @@ function QuestionBlock({
           })}
           <AnimatedPressable
             testID="question-other"
-            accessibilityRole={role}
+            // It opens a text box rather than toggling, so it is a button.
+            accessibilityRole="button"
             accessibilityLabel={
               now.other.trim()
                 ? `Other: ${now.other}. Edit`
                 : "Other: type your own answer"
             }
-            accessibilityState={{ checked: now.otherOn, disabled }}
-            aria-checked={now.otherOn}
+            accessibilityHint="Opens a box to type your answer"
+            accessibilityState={{ selected: now.otherOn, disabled }}
             disabled={disabled}
             onPress={() => onType(item)}
             style={[styles.row, now.otherOn && styles.rowOn]}
@@ -205,6 +207,15 @@ function AnswerSheet({
   const input = useRef<TextInput>(null);
   const [text, setText] = useState(initial);
   useEffect(() => setText(initial), [initial, item?.qid]);
+  // The card can close from the server (time limit, Stop on another device,
+  // an answer from the web) with the field focused: blur it before it goes,
+  // or Android moves the focus to the first input on screen, the composer.
+  useLayoutEffect(
+    () => () => {
+      input.current?.blur();
+    },
+    [],
+  );
   const done = () => {
     input.current?.blur();
     onDone(text);
@@ -379,7 +390,7 @@ export function ClosedQuestionCard({
   card: AnsweredQuestion;
   at: string;
 }) {
-  const { state, title, note, lines, anyAnswer } = closedCard(card);
+  const { state, title, note, lines, anyAnswer, reply } = closedCard(card);
   const Icon = closedIcons[state];
   const tone =
     state === "answered"
@@ -401,7 +412,24 @@ export function ClosedQuestionCard({
         </Text>
         <Text style={styles.meta}>{timeOfDay(at)}</Text>
       </View>
-      {anyAnswer ? (
+      {reply ? (
+        // One message answered every question: show it once.
+        <View style={styles.summaryLine}>
+          {lines.map((line) => (
+            <Text key={line.qid} style={styles.meta}>
+              {line.question}
+            </Text>
+          ))}
+          <Text style={[styles.answer, { marginTop: 6 }]}>
+            <Text
+              style={{ color: colors.mutedForeground, fontWeight: "400" }}
+            >
+              You replied:{" "}
+            </Text>
+            {reply}
+          </Text>
+        </View>
+      ) : anyAnswer ? (
         lines.map((line) => (
           <View key={line.qid} style={styles.summaryLine}>
             <Text style={styles.meta}>{line.question}</Text>

@@ -191,9 +191,6 @@ function QuestionBlock({
               aria-label={`Other answer: ${item.question}`}
               placeholder="Type your own answer"
               value={now.other}
-              onFocus={() => {
-                if (!multi && !now.otherOn) setDraft(toggleOther(draft, item));
-              }}
               onChange={(e) => setDraft(typeOther(draft, item, e.target.value))}
               className="h-7 flex-1 text-[13px]"
             />
@@ -340,7 +337,7 @@ export function ClosedQuestionCard({
   /** When the wait ended (the message's time). */
   at: string;
 }) {
-  const { state, title, note, lines, anyAnswer } = closedCard(card);
+  const { state, title, note, lines, anyAnswer, reply } = closedCard(card);
   const Icon = closedIcon[state];
   const titleId = useId();
   return (
@@ -376,7 +373,25 @@ export function ClosedQuestionCard({
           {timeOfDay(at)}
         </span>
       </div>
-      {anyAnswer ? (
+      {reply ? (
+        // One message answered every question: show it once.
+        <div className="mt-1.5 pl-7">
+          <ul aria-label="What Timely asked" className="flex flex-col gap-0.5">
+            {lines.map((line) => (
+              <li
+                key={line.qid}
+                className="whitespace-pre-wrap break-words text-xs leading-4 text-muted-foreground"
+              >
+                {line.question}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 whitespace-pre-wrap break-words text-[13px] leading-[18px]">
+            <span className="text-muted-foreground">You replied: </span>
+            <span className="font-medium text-foreground">{reply}</span>
+          </p>
+        </div>
+      ) : anyAnswer ? (
         <dl className="mt-2 flex flex-col gap-2 pl-7">
           {lines.map((line) => (
             <div key={line.qid} className="min-w-0">
