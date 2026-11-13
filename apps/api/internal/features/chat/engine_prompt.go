@@ -52,6 +52,14 @@ func timelyBlock(c *Conversation, run *toolRun, hostAllowed bool) string {
 	return system + "\nWrite tool schemas:\n" + string(raw(writes))
 }
 
+// askHint is the Timely block's line on the question card and sub-tasks
+// (Q-4.3), for every conversation whose runs may ask (not a no-persist
+// Sensitive chat, which never gets clarify or delegation). It is fixed per
+// conversation, so the block stays byte-identical; an answer-only turn simply
+// has no clarify tool to call. Without it the reply-card kit's Choices line
+// made the model ask in a finished reply instead of pausing the run.
+const askHint = "\nWhile you work you can pause and ask the person: when you cannot go on without their decision (which day, which of two options, a detail only they know), call clarify with the question and up to four short choices, then carry on from their answer in this same turn. Do not ask with a Choices reply card while work remains; Choices are only for a question that ends a finished reply. When a request has two or more independent parts that each need their own reading (web pages, searches), hand them to sub-tasks in one delegate_task call; sub-tasks cannot propose changes, so you propose after they report."
+
 // blockHash is run.start's system_hash.
 func blockHash(block string) string {
 	sum := sha256.Sum256([]byte(block))

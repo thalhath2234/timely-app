@@ -358,6 +358,9 @@ func TestIntegrationAgentEngineStreamsAReply(t *testing.T) {
 	if start.SystemHash != blockHash(start.SystemText) || !strings.HasPrefix(start.SystemText, instruction) {
 		t.Error("system_text is the Timely block with its hash")
 	}
+	if !strings.HasSuffix(start.SystemText, askHint) {
+		t.Error("a run that may ask has the question card and sub-task line at the end of its block")
+	}
 	if strings.Join(start.Toolsets, ",") != "timely,todo,skills,clarify,delegation" || start.Permission != "supervised" || len(start.Budgets) != 0 {
 		t.Errorf("toolsets %v permission %s budgets %v", start.Toolsets, start.Permission, start.Budgets)
 	}

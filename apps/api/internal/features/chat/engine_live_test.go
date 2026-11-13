@@ -348,7 +348,7 @@ func TestHistorySeed(t *testing.T) {
 }
 
 func TestToolLabelsAndFailures(t *testing.T) {
-	if toolLabel("get_task") != "Get task" || toolLabel("propose_changes") != "Preparing changes" || toolLabel(targetTool) != "Finding the item" {
+	if toolLabel("get_task") != "Get task" || toolLabel("propose_changes") != "Preparing changes" || toolLabel(targetTool) != "Finding the item" || toolLabel("clarify") != "Asking you a question" || toolLabel("delegate_task") != "Handing work to sub-tasks" {
 		t.Error("labels")
 	}
 	for raw, failed := range map[string]bool{

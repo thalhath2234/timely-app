@@ -566,6 +566,7 @@ func TestIntegrationAgentEngineSensitiveNoPersistRun(t *testing.T) {
 		Toolsets []string            `json:"toolsets"`
 		History  []map[string]string `json:"history"`
 		Reseed   bool                `json:"reseed"`
+		System   string              `json:"system_text"`
 		Flags    struct {
 			NoPersist bool `json:"no_persist"`
 			Sensitive bool `json:"sensitive"`
@@ -576,7 +577,7 @@ func TestIntegrationAgentEngineSensitiveNoPersistRun(t *testing.T) {
 	if err := starts[1].Decode(&second); err != nil {
 		t.Fatal(err)
 	}
-	if !second.Flags.NoPersist || !second.Flags.Sensitive || second.Flags.Web || second.Flags.Learning || !slices.Equal(second.Toolsets, []string{"timely", "todo"}) || second.Reseed {
+	if !second.Flags.NoPersist || !second.Flags.Sensitive || second.Flags.Web || second.Flags.Learning || !slices.Equal(second.Toolsets, []string{"timely", "todo"}) || second.Reseed || strings.Contains(second.System, askHint) {
 		t.Fatalf("second run.start %+v", second)
 	}
 	if len(second.History) != 2 || second.History[0]["content"] != "first" || second.History[1]["content"] != "One." {

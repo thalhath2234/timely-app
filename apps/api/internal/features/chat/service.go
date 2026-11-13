@@ -1048,7 +1048,12 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	c.Unread = true
 	kind := "chat"
 	key := fmt.Sprintf("%s:%d:%s", c.ID, c.Revision, c.Status)
-	n := models.Notification{ID: id("ntf_"), UserID: c.UserID, Category: "agent", Title: c.Title, Body: body, EntityType: &kind, EntityID: &c.ID, DedupeKey: &key, Data: models.JobPayload{"status": c.Status}, CreatedAt: time.Now().UTC()}
+	data := models.JobPayload{"status": c.Status}
+	if c.Status == "running" && c.Question.RequestID != "" {
+		// A question card: the push says so instead of "finished".
+		data["question"] = c.Question.RequestID
+	}
+	n := models.Notification{ID: id("ntf_"), UserID: c.UserID, Category: "agent", Title: c.Title, Body: body, EntityType: &kind, EntityID: &c.ID, DedupeKey: &key, Data: data, CreatedAt: time.Now().UTC()}
 	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&n)
 	if result.Error != nil {
 		return result.Error

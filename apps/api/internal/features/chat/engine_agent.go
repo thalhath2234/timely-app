@@ -332,6 +332,9 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		toolCtx = e.s.withRunCompleter(toolCtx, c)
 	}
 	block := timelyBlock(c, tools, e.opts.HostAllowed(c.UserID))
+	if !noPersist {
+		block += askHint
+	}
 	input := e.s.turnInput(ctx, c)
 	r := &agentRun{id: id("run_"), uid: c.UserID, cid: c.ID, instance: e.instance(w), worker: w,
 		ctx: toolCtx, cancel: cancel, tools: tools, live: nil, noPersist: noPersist}

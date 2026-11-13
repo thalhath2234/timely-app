@@ -240,6 +240,11 @@ func toolLabel(tool string) string {
 		return "Preparing changes"
 	case targetTool:
 		return "Finding the item"
+	case "clarify":
+		// Not "Clarify": that word is the Inbox step (CONTEXT.md).
+		return "Asking you a question"
+	case "delegate_task":
+		return "Handing work to sub-tasks"
 	case "":
 		return "Tool"
 	}
