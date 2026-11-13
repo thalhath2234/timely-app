@@ -327,3 +327,22 @@ def test_delegation_floors():
     assert "max_async_children" not in floors["delegation"]  # Hermes ignores it (deprecated)
     keys = config_render.canary_keys()
     assert "delegation.provider" in keys and "delegation.max_spawn_depth" in keys
+
+
+def test_refused_delegation_gives_its_hold_back():
+    """The cap counts children that started: a call's hold ends at its result, started children stay."""
+    run, _ = make_run("r-settle")
+    three = {"tasks": [{"goal": "t0"}, {"goal": "t1"}, {"goal": "t2"}]}
+    assert delegation.verdict(run, three, "call-1") is None and run.children_reserved == 3
+    assert delegation.verdict(run, {"goal": "x"}, "call-2")["message"].startswith("Blocked: this reply already used")
+    delegation.settle(run, "call-1")  # Hermes refused the batch: no child ran
+    assert run.children_reserved == 0
+    assert delegation.verdict(run, {"goal": "a proper goal"}, "call-3") is None
+    bridge.child_started(run, "child-1")
+    delegation.settle(run, "call-3")
+    assert run.children_reserved == 1 and run.children_started == 1
+    assert delegation.verdict(run, {"tasks": [{"goal": "a"}, {"goal": "b"}]}, "call-4") is None
+    assert delegation.verdict(run, {"goal": "c"}, "call-5") is not None
+    delegation.settle(run, "call-4")
+    delegation.settle(run, "unknown")
+    assert run.children_reserved == 1

@@ -6,7 +6,8 @@ lifecycle hooks it registers (phase 4, decisions 5-8 of ``docs/plans/2026-11-13-
   toolset only to such runs; this is the second line.
 - **No images.** A sub-task is never given ``images`` (top level or per task): Hermes would read a
   local file or send a URL to the provider, which is outside content with no taint source.
-- **Caps.** At most ``policy.CHILDREN_PER_RUN`` children per run in total, across every call; no
+- **Caps.** At most ``policy.CHILDREN_PER_RUN`` children per run in total, across every call (children
+  that started, not calls: a refused batch counts nothing); no
   background children (Hermes ignores the model's ``background`` and Timely builds the agent so its
   delegations join inside the call, ``run_chat.build_agent``); ``max_spawn_depth: 1`` and
   ``orchestrator_enabled: false`` (no grandchildren), 20 iterations and 300 s per child (managed
@@ -58,8 +59,10 @@ def _has_images(args: dict, tasks: list) -> bool:
     return bool(args.get("images")) or any(t.get("images") for t in tasks)
 
 
-def verdict(run: Optional[bridge.RunContext], args: dict) -> Optional[dict]:
-    """``timely_gate``'s answer for a ``delegate_task`` call of the run itself (None = allow)."""
+def verdict(run: Optional[bridge.RunContext], args: dict, call_id: str = "") -> Optional[dict]:
+    """``timely_gate``'s answer for a ``delegate_task`` call of the run itself (None = allow). An
+    allowed spawn holds its task count against the cap until ``settle`` (its result): only children
+    that start stay counted, so a batch Hermes refuses (a goal too short, a placeholder) costs nothing."""
     if _no_subtasks(run):
         return {"action": "block", "message": policy.CHILD_NOT_HERE}
     if "background" in args and policy.truthy(args.get("background")):
@@ -76,9 +79,15 @@ def verdict(run: Optional[bridge.RunContext], args: dict) -> Optional[dict]:
     n = policy.delegate_task_count(args)
     if n == 0:
         return None  # Hermes answers that the call names no task
-    if not run.reserve_children(n, policy.CHILDREN_PER_RUN):
+    if not run.reserve_children(n, policy.CHILDREN_PER_RUN, call_id):
         return {"action": "block", "message": policy.CHILD_CAP.format(n=policy.CHILDREN_PER_RUN)}
     return None
+
+
+def settle(run: Optional[bridge.RunContext], call_id: str) -> None:
+    """A ``delegate_task`` call returned (any status): give back what it held and did not start."""
+    if run is not None and call_id:
+        run.settle_children(call_id)
 
 
 def clarify_verdict(run: Optional[bridge.RunContext]) -> Optional[dict]:

@@ -135,7 +135,7 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
     if tool_name == policy.CLARIFY_TOOL:
         return delegation.clarify_verdict(run)
     if tool_name == policy.DELEGATE_TOOL:
-        return delegation.verdict(run, args)
+        return delegation.verdict(run, args, tool_call_id)
     if tool_name == policy.PROPOSE_TOOL and _timely_tool(tool_name):
         batch = run.batch_for(tool_call_id, tool_name, child) if run is not None else None
         if batch is None:
@@ -183,6 +183,8 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
                    session_id: str = "", **kw: Any) -> None:
     """Report each host a ``web_extract`` that ran named as taint (the page's site); after a
     ``delegate_task``, remember its children's transcript folders under the chat."""
+    if tool_name == policy.DELEGATE_TOOL:  # any status: the call's hold on the children cap ends
+        delegation.settle(bridge.current_run.get(), str(kw.get("tool_call_id") or ""))
     if status == "blocked" or tool_name not in ("web_extract", policy.DELEGATE_TOOL):
         return
     run = bridge.current_run.get()

@@ -246,10 +246,12 @@ class RunContext:
     session: Optional[SessionState] = field(default=None, repr=False, compare=False)
     # Q-4.3: how long a clarify wait may last (run.start.clarify_timeout_s).
     clarify_timeout_s: float = 600.0
-    # Phase 4 sub-tasks: child session id -> state; children asked for so far (every delegate_task
-    # call of the run, refused ones excluded) and the tool calls every child made, shared.
+    # Phase 4 sub-tasks: child session id -> state; children that started, the children an
+    # in-flight delegate_task call may still start (held until its result, then given back: a batch
+    # Hermes refuses before any child ran uses up nothing) and the tool calls every child made, shared.
     children: dict[str, ChildState] = field(default_factory=dict, repr=False)
-    children_reserved: int = 0
+    children_started: int = 0
+    children_held: dict[str, int] = field(default_factory=dict, repr=False)
     child_tool_calls: int = 0
 
     def __post_init__(self) -> None:
@@ -363,13 +365,29 @@ class RunContext:
             return False
 
     # ------------------------------------------------------------ sub-tasks
-    def reserve_children(self, n: int, cap: int) -> bool:
-        """Count ``n`` more children against the run's cap; False (nothing counted) past it."""
+    @property
+    def children_reserved(self) -> int:
+        """Children counted against the cap: started ones plus those held by calls in flight."""
         with self._lock:
-            if n < 1 or self.children_reserved + n > cap:
+            return self.children_started + sum(self.children_held.values())
+
+    def reserve_children(self, n: int, cap: int, call_id: str = "") -> bool:
+        """Hold ``n`` more children for the call ``call_id`` against the run's cap; False (nothing
+        held) past it. ``settle_children`` gives the hold back once the call's result is in."""
+        with self._lock:
+            held = sum(self.children_held.values())
+            if n < 1 or self.children_started + held + n > cap:
                 return False
-            self.children_reserved += n
+            key = call_id or f"call-{len(self.children_held)}-{held}-{self.children_started}"
+            while key in self.children_held:
+                key += "+"
+            self.children_held[key] = n
             return True
+
+    def settle_children(self, call_id: str) -> None:
+        """The call ``call_id`` returned: its hold ends (the children it started stay counted)."""
+        with self._lock:
+            self.children_held.pop(call_id, None)
 
     def child_call(self, child: str, pool: int) -> bool:
         """Count one tool call of a child against the run's shared pool; False once it is used up."""
@@ -543,6 +561,7 @@ def child_started(run: RunContext, session_id: str, subagent_id: str = "", goal:
     state = ChildState(session_id=session_id, subagent_id=subagent_id, goal=goal)
     with run._lock:
         run.children[session_id] = state
+        run.children_started += 1
     with _child_runs_lock:
         _child_runs[session_id] = run
     return state

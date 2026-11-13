@@ -104,6 +104,20 @@ def test_three_children_run_and_report(dagent, dworker, stub):
     assert "delegate_task" not in json.dumps(done["tainted_sources"])
 
 
+def test_refused_batch_uses_up_nothing(dagent, dworker, stub):
+    """The cap counts children that started, not calls: a batch Hermes refuses before any child ran
+    (goals too short) gives its hold back, so the corrected call starts its child."""
+    bad = [{"goal": f"t{i}"} for i in range(3)]
+    steps = [{"calls": [["delegate_task", {"tasks": bad}]]},
+             {"calls": [["delegate_task", {"goal": script([{"text": "fixed"}], "kidr-0")}]]},
+             {"text": "done"}]
+    done, seen = run(dworker, dagent, stub, "cdg2r", steps)
+    assert done["completed"] is True, done
+    assert len([e for e in events(seen, "subagent") if e["phase"] == "start"]) == 1, events(seen, "subagent")
+    texts = tool_texts(stub, "tag-cdg2r")
+    assert any("too short" in t for t in texts) and not any(CAP in t for t in texts), texts
+
+
 def test_fourth_child_is_refused(dagent, dworker, stub):
     """Three children per run in total: a fourth in a later call of the same run, or four in one
     call, is refused with the cap message; the model reads it and nothing more runs."""
