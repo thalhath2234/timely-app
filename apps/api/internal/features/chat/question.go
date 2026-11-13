@@ -335,6 +335,9 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 			requestID = row.Question.RequestID
 		}
 		if !questionOpen(&row, requestID) {
+			if questionOpen(&row, row.Question.RequestID) {
+				return errNewQuestion // a card replaced the one the sender read
+			}
 			return errCardClosed
 		}
 		var err error
@@ -359,6 +362,12 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 		return row, nil
 	case answerRefused(err):
 		// The worker said the card no longer waits.
+		if ck, ok := s.engine.(questionCloser); ok && ck.Closed(runID, requestID) == outcomeSubmitted {
+			// It took another answer (this one raced a first answer whose
+			// delivery lagged): the follower's close keeps that answer in
+			// the thread, so this message is not marked undelivered over it.
+			return row, errAnswerUndelivered
+		}
 		return row, s.undeliver(uid, cid, messageID)
 	}
 	// No reply from the worker (it may still have taken the answer), or no

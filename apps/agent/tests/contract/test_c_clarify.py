@@ -103,7 +103,8 @@ def test_clarify_answer_resumes_the_same_turn(cagent, cworker, stub):
     seen += rest
     assert {"type": "ack", "id": "ca", "ok": True, "account": cagent.account} in seen
     assert done["completed"] is True and done["interrupted"] is False and done["final_response"] == "Added to Home."
-    assert clarify_events(seen, "clarify.closed") == [{"request_id": request["request_id"], "outcome": "submitted"}]
+    assert clarify_events(seen, "clarify.closed") == [{"request_id": request["request_id"], "outcome": "submitted",
+                                                       "answers": {"q0": "Home", "q1": "from the shop"}}]
     result = clarify_result(stub, "tag-ccl1")
     assert result["outcome"] == "submitted", result
     assert [r["user_response"] for r in result["responses"]] == ["Home", "from the shop"], result

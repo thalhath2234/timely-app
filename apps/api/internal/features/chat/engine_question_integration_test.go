@@ -721,6 +721,70 @@ func TestIntegrationAgentEngineClarifyLostAckKeepsTheAnswerTheRunUsed(t *testing
 	}
 }
 
+// lateFirst is a first answer whose delivery lags: its Answer reports no ack
+// at once (the 10 s limit passed while the write was in progress) and the
+// answer reaches the worker only just before the next Answer is sent.
+type lateFirst struct {
+	*WorkerEngine
+	settle  time.Duration
+	mu      sync.Mutex
+	pending func()
+	calls   int
+}
+
+func (l *lateFirst) Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	l.mu.Lock()
+	l.calls++
+	first := l.calls == 1
+	pending := l.pending
+	l.pending = nil
+	l.mu.Unlock()
+	if first {
+		l.mu.Lock()
+		l.pending = func() { _ = l.WorkerEngine.Answer(context.WithoutCancel(ctx), uid, cid, runID, requestID, answers, outcome) }
+		l.mu.Unlock()
+		return context.DeadlineExceeded
+	}
+	if pending != nil {
+		pending()
+		time.Sleep(l.settle)
+	}
+	return l.WorkerEngine.Answer(ctx, uid, cid, runID, requestID, answers, outcome)
+}
+
+// The first answer reaches the worker late: after Answer gave up, the card
+// came back and the person answered again. The worker takes the first one; the
+// second is refused, and the thread shows the answer the run used, not the
+// one it did not. Both orders of the worker's clarify.closed against the
+// second answer's refusal end the same way.
+func TestIntegrationAgentEngineClarifyLateFirstAnswerStaysTheOneTheRunUsed(t *testing.T) {
+	for name, settle := range map[string]time.Duration{"closed first": 500 * time.Millisecond, "closed after": 0} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			c := h.chat("Book my haircut", "supervised", "ask-late-"+strings.ReplaceAll(name, " ", "-"), lines(ask("req-z", 600_000), pause(1500), reply("Ok {{last_answers}}", 0)))
+			h.waiting(c.ID, "req-z")
+			h.s.SetAgentEngine(&lateFirst{WorkerEngine: h.e, settle: settle})
+			if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-z","answers":{"q0":"Monday"}}`); code != 503 {
+				t.Fatalf("the first answer: %d %s, want 503", code, body)
+			}
+			h.wait(c.ID, "card back", func(c Conversation) bool { return c.Question.RequestID == "req-z" })
+			if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-z","answers":{"q0":"Tuesday"}}`); code != 409 {
+				t.Fatalf("the second answer: %d %s, want 409", code, body)
+			}
+			h.s.SetAgentEngine(h.e)
+			c = h.wait(c.ID, "the run's answer kept", func(c Conversation) bool {
+				asked := questionMessages(c)
+				return len(asked) == 1 && asked[0].Question.Outcome == outcomeSubmitted && asked[0].Question.Answers["q0"] == "Monday" && !c.Question.pending()
+			})
+			c = h.wait(c.ID, "replied", statusIs("idle"))
+			asked := questionMessages(c)
+			if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" || !strings.Contains(asked[0].Content, "Monday") || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) {
+				t.Fatalf("final thread: %+v, reply %q", asked, lastMessage(c).Content)
+			}
+		})
+	}
+}
+
 // An answer for a run this process does not follow (another API process on
 // the same tables runs it) asked no worker: the card goes back, 503, and the
 // run's own process can still take the answer.
@@ -855,8 +919,8 @@ func TestIntegrationAgentEngineClarifyMessageAnswersOnlyTheCardItsSenderRead(t *
 		{"/steer", `{"text":"make it 30 minutes","questionRequestId":""}`},
 		{"/steer", `{"text":"make it 30 minutes","questionRequestId":"req-old"}`},
 	} {
-		if code, body := h.post("/chats/"+c.ID+tc.path, tc.body); code != 409 {
-			t.Fatalf("%s %s: %d %s, want 409", tc.path, tc.body, code, body)
+		if code, body := h.post("/chats/"+c.ID+tc.path, tc.body); code != 409 || !strings.Contains(string(body), "Timely just asked you a question. Read it first.") {
+			t.Fatalf("%s %s: %d %s, want 409 telling the person a question waits", tc.path, tc.body, code, body)
 		}
 	}
 	c = h.waiting(c.ID, "req-s")

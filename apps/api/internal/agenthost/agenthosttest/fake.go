@@ -556,14 +556,17 @@ func (f *fake) clarify(r *fakeRun, obj map[string]any) bool {
 	f.mu.Unlock()
 	f.send(map[string]any{"type": "event", "run": r.id, "kind": "clarify.request",
 		"payload": map[string]any{"request_id": request, "questions": questions, "timeout_s": int(ms / 1000)}})
-	closed := func(outcome string) {
+	closed := func(outcome string, answers any) {
 		f.mu.Lock()
 		if r.clarify == request {
 			r.clarify = ""
 		}
 		f.mu.Unlock()
-		f.send(map[string]any{"type": "event", "run": r.id, "kind": "clarify.closed",
-			"payload": map[string]any{"request_id": request, "outcome": outcome}})
+		payload := map[string]any{"request_id": request, "outcome": outcome}
+		if outcome == "submitted" { // as the real worker: the answers the run used
+			payload["answers"] = answers
+		}
+		f.send(map[string]any{"type": "event", "run": r.id, "kind": "clarify.closed", "payload": payload})
 	}
 	t := time.NewTimer(time.Duration(ms) * time.Millisecond)
 	defer t.Stop()
@@ -575,17 +578,17 @@ func (f *fake) clarify(r *fakeRun, obj map[string]any) bool {
 		if outcome == "" {
 			outcome = "submitted"
 		}
-		closed(outcome)
+		closed(outcome, m["answers"])
 		return true
 	case <-t.C:
 		r.lastAnswers = "{}"
-		closed("timed_out")
+		closed("timed_out", nil)
 		return true
 	case <-r.stop:
-		closed("cancelled")
+		closed("cancelled", nil)
 		return false
 	case <-f.quit:
-		closed("cancelled")
+		closed("cancelled", nil)
 		return false
 	}
 }

@@ -36,6 +36,8 @@ type workerEvent struct {
 		Questions []workerQuestion `json:"questions"`
 		TimeoutS  int              `json:"timeout_s"`
 		Outcome   string           `json:"outcome"`
+		// Answers: a submitted clarify.closed names the answers the run used.
+		Answers map[string]any `json:"answers"`
 		// subagent (phase 4, PROTOCOL.md 11.3): a sub-task starts or stops.
 		Phase          string `json:"phase"`
 		SubagentID     string `json:"subagent_id"`

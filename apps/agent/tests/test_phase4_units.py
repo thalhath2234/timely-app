@@ -72,7 +72,9 @@ def test_clarify_answer_ends_the_wait_once():
     assert box["reply"] == {"answers": {"q0": "Home"}, "outcome": "submitted"}
     assert bridge.clarify_answer("r1", req["request_id"], {"q0": "Work"}) is False  # late
     assert [k for k, _ in events] == ["clarify.request", "clarify.closed"]
-    assert events[-1][1] == {"request_id": req["request_id"], "outcome": "submitted"}
+    # A submitted close names the answers the run used (Go keeps them in the thread when two
+    # answers raced); the other outcomes carry none.
+    assert events[-1][1] == {"request_id": req["request_id"], "outcome": "submitted", "answers": {"q0": "Home"}}
     assert bridge.clarify_pending() == 0
 
 

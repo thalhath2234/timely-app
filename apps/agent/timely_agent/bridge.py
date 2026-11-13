@@ -705,7 +705,10 @@ def clarify_wait(run: RunContext, questions: list[dict[str, Any]], timeout: floa
         _finish_clarify(wait, "cancelled", stopped_notice)  # an exception above: never leave it open
         if run.emit is not None:
             try:
-                run.emit("clarify.closed", {"request_id": wait.request_id, "outcome": wait.reply["outcome"]})
+                closed = {"request_id": wait.request_id, "outcome": wait.reply["outcome"]}
+                if closed["outcome"] == "submitted":  # the answers the run used, for Go's thread
+                    closed["answers"] = dict(wait.reply.get("answers") or {})
+                run.emit("clarify.closed", closed)
             except Exception:
                 pass
     return dict(wait.reply or {"answers": {}, "outcome": "cancelled"})

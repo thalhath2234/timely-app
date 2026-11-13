@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -750,6 +752,12 @@ func (e *WorkerEngine) closeAsked(r *agentRun, ev workerEvent) {
 		r.closedAsks[requestID] = outcome
 	}
 	sent := r.sentAnswers[requestID]
+	if ev.Payload.Answers != nil {
+		// The worker names the answers the run used. Two answers can race
+		// (the first one's delivery lagged past Answer's limit and the card
+		// came back), and only the worker knows which one it took.
+		sent = ev.Payload.Answers
+	}
 	r.mu.Unlock()
 	if outcome == outcomeCancelled && (stopped || e.isClosing()) {
 		// The worker ends a wait the same way for a Stop and for the API's
@@ -773,6 +781,14 @@ type cardClose struct {
 // card, and it would stay "Needs your answer" for a run that no longer waits.
 func (e *WorkerEngine) closeCard(r *agentRun, c cardClose) {
 	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
+		if c.requestID != "" && row.Question.RequestID != c.requestID && c.outcome == outcomeSubmitted {
+			// The card is gone: an answer already closed it. The worker names
+			// the answer it took; the thread shows that one.
+			if !keepWorkersAnswer(row, c) {
+				return errUnchanged
+			}
+			return nil
+		}
 		if c.requestID == "" || row.Question.RequestID != c.requestID {
 			return errUnchanged
 		}
@@ -789,6 +805,40 @@ func (e *WorkerEngine) closeCard(r *agentRun, c cardClose) {
 		e.opts.Logf("agent engine: closing run %s's question: %v", r.id, err)
 		r.closing = append(r.closing, c)
 	}
+}
+
+// keepWorkersAnswer makes the thread's message for c.requestID show the
+// answers the worker took (outcome submitted), when it shows others: the
+// person answered twice, the first answer reached the worker after the second
+// committed, so the second is undelivered (or still submitted, if its
+// refusal is not handled yet) although the run used the first. false when
+// there is nothing to change.
+func keepWorkersAnswer(row *Conversation, c cardClose) bool {
+	if c.answers == nil {
+		return false
+	}
+	i := slices.IndexFunc(row.Messages, func(m Message) bool {
+		return m.Kind == "question" && m.Question != nil && m.Question.RequestID == c.requestID
+	})
+	if i < 0 {
+		return false
+	}
+	q := row.Messages[i].Question
+	if q.Outcome == outcomeSubmitted && reflect.DeepEqual(jsonRoundTrip(q.Answers), jsonRoundTrip(c.answers)) {
+		return false
+	}
+	q.Outcome, q.Answers = outcomeSubmitted, c.answers
+	row.Messages[i].Content = questionText(q.Questions, q.Answers, outcomeSubmitted)
+	return true
+}
+
+// jsonRoundTrip normalizes an answers map to what the row stores, so a
+// []string from Go and a []any from the worker compare equal.
+func jsonRoundTrip(v map[string]any) any {
+	b, _ := json.Marshal(v)
+	var out any
+	_ = json.Unmarshal(b, &out)
+	return out
 }
 
 // retryCloses saves the card closes that failed before.
