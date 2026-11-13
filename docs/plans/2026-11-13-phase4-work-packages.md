@@ -257,7 +257,7 @@ Deliverables:
 
 1. **No new status for a clarify wait** (decision 1). If the owner wants the chat list to treat it exactly like a held proposal (its own status, out of `busy`), it becomes a `question` status with lane-free waits, a new claim and Stop rule, and a larger TLA+ change.
 2. **10-minute live wait, no parked continuation** (decision 3). An answer after the timeout is an ordinary message. A parked card (Run once style) would need plan 3.5's continuation machinery, which phase 5 builds for host cards.
-3. **Delegation numbers** (decision 5): 3 children per reply in total, 60 child tool calls shared, 20 iterations and 300 s per child, no grandchildren, no background children.
+3. **Delegation numbers** (decision 5): 3 children per reply in total, 60 child tool calls shared, 20 iterations and 300 s without progress per child (Hermes' inactivity timeout, no wall-clock cap), no grandchildren, no background children.
 4. **The no-persist flag is test-only** (decision 10). If the owner wants to try Sensitive on the new engine on a real install before phase 8, the `DB_SCHEMA` condition has to go.
 5. **No-persist fallback.** If Hermes writes into the home during agent init in a way no seam stops, the fallback is a per-run scratch `HERMES_HOME` for Sensitive runs, deleted after the run, or a patch point (budget zero today, cap five). Either needs the coordinator's yes.
 6. **Sensitive and CLI runs through the gateway do not stream and report no tokens or cost** (the gateway answers in one piece; usage 0). Same as classic for CLI providers.

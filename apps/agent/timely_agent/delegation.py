@@ -10,7 +10,7 @@ lifecycle hooks it registers (phase 4, decisions 5-8 of ``docs/plans/2026-11-13-
   that started, not calls: a refused batch counts nothing); no
   background children (Hermes ignores the model's ``background`` and Timely builds the agent so its
   delegations join inside the call, ``run_chat.build_agent``); ``max_spawn_depth: 1`` and
-  ``orchestrator_enabled: false`` (no grandchildren), 20 iterations and 300 s per child (managed
+  ``orchestrator_enabled: false`` (no grandchildren), 20 iterations and 300 s without progress per child (managed
   floors, ``config_render``); a pool of ``policy.CHILD_TOOL_CALL_POOL`` tool calls shared by every
   child of the run, counted by ``timely_gate``.
 - **Children read, never propose.** ``timely_gate`` blocks ``propose_changes``, ``session_search``,
