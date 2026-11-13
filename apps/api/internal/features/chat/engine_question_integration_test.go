@@ -721,6 +721,46 @@ func TestIntegrationAgentEngineClarifyLostAckKeepsTheAnswerTheRunUsed(t *testing
 	}
 }
 
+// A Skip whose ack was lost: the worker took it ("cancelled"), so the person
+// gets 200 and the thread says skipped, not "not answered in time".
+func TestIntegrationAgentEngineClarifySkipWithALostAckIsDelivered(t *testing.T) {
+	for name, wait := range map[string]time.Duration{"closed first": 500 * time.Millisecond, "closed after": 0} {
+		t.Run(name, func(t *testing.T) {
+			h := newEngineHarness(t)
+			c := h.chat("Book my haircut", "supervised", "ask-skip-lost-"+strings.ReplaceAll(name, " ", "-"), lines(ask("req-s", 600_000), pause(1500), reply("Ok {{last_answers}}", 0)))
+			h.waiting(c.ID, "req-s")
+			h.s.SetAgentEngine(&lostAck{e: h.e, wait: wait})
+			if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-s","skip":true}`); code != 200 {
+				t.Fatalf("a skip with a lost ack: %d %s, want 200", code, body)
+			}
+			h.s.SetAgentEngine(h.e)
+			c = h.wait(c.ID, "replied", statusIs("idle"))
+			asked := questionMessages(c)
+			if len(asked) != 1 || asked[0].Question.Outcome != outcomeCancelled || strings.Contains(asked[0].Content, "not answered in time") {
+				t.Fatalf("the thread's skip: %+v", asked)
+			}
+		})
+	}
+}
+
+// An answer whose ack was lost, when the run used it and ended before the
+// request gave up: the person gets 200, not "try again".
+func TestIntegrationAgentEngineClarifyLostAckAfterTheRunEndedIsDelivered(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-lost-ended", lines(ask("req-x", 600_000), reply("Ok {{last_answers}}", 0)))
+	h.waiting(c.ID, "req-x")
+	h.s.SetAgentEngine(&lostAck{e: h.e, wait: 2 * time.Second})
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-x","answers":{"q0":"Monday"}}`); code != 200 {
+		t.Fatalf("a lost ack, run ended meanwhile: %d %s, want 200", code, body)
+	}
+	h.s.SetAgentEngine(h.e)
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	asked := questionMessages(c)
+	if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || asked[0].Question.Answers["q0"] != "Monday" || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) {
+		t.Fatalf("final thread: %+v, reply %q", asked, lastMessage(c).Content)
+	}
+}
+
 // lateFirst is a first answer whose delivery lags: its Answer reports no ack
 // at once (the 10 s limit passed while the write was in progress) and the
 // answer reaches the worker only just before the next Answer is sent.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -54,13 +55,29 @@ type WorkerEngine struct {
 	// forgetting are the deleted chats whose session.delete is in flight
 	// (the waiting ones are rows of agent_session_forgets).
 	forgetting map[string]bool
-	started    map[*agenthost.Worker]int64
-	closing    bool
-	wg         sync.WaitGroup
+	// endedAsks keeps how each question's wait closed after its run ended
+	// (endedAskKeepFor), so an answer whose ack was lost while the run used
+	// it and finished is still settled (Closed).
+	endedAsks map[string]endedAsk
+	started   map[*agenthost.Worker]int64
+	closing   bool
+	wg        sync.WaitGroup
 
 	// activityWrites counts activity checkpoints (tests check the throttle).
 	activityWrites atomic.Int64
 }
+
+// endedAskKeepFor is how long Closed remembers a finished run's waits: past
+// Answer's own limit and the person's request, short of a leak.
+const endedAskKeepFor = time.Minute
+
+// endedAsk is how one question's wait closed, for a run that has ended.
+type endedAsk struct {
+	outcome string
+	at      time.Time
+}
+
+func endedAskKey(runID, requestID string) string { return runID + "\x00" + requestID }
 
 // WorkerEngineOptions are what the engine needs from outside package chat.
 type WorkerEngineOptions struct {
@@ -705,9 +722,10 @@ func (e *WorkerEngine) Answer(ctx context.Context, uid, cid, runID, requestID st
 func (e *WorkerEngine) Closed(runID, requestID string) string {
 	e.mu.Lock()
 	r := e.runs[runID]
+	ended := e.endedAsks[endedAskKey(runID, requestID)]
 	e.mu.Unlock()
 	if r == nil {
-		return ""
+		return ended.outcome
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1097,7 +1115,24 @@ func (e *WorkerEngine) loop(r *agentRun) {
 // end forgets a finished run and sends what waited for it.
 func (e *WorkerEngine) end(r *agentRun) {
 	r.cancel()
+	r.mu.Lock()
+	closed := maps.Clone(r.closedAsks)
+	r.mu.Unlock()
 	e.mu.Lock()
+	// The waits' outcomes outlive the run, before it leaves e.runs, so Closed
+	// finds them either way.
+	now := time.Now()
+	for k, v := range e.endedAsks {
+		if now.Sub(v.at) > endedAskKeepFor {
+			delete(e.endedAsks, k)
+		}
+	}
+	for requestID, outcome := range closed {
+		if e.endedAsks == nil {
+			e.endedAsks = map[string]endedAsk{}
+		}
+		e.endedAsks[endedAskKey(r.id, requestID)] = endedAsk{outcome: outcome, at: now}
+	}
 	if e.runs[r.id] == r {
 		delete(e.runs, r.id)
 	}

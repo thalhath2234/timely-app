@@ -379,7 +379,7 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 		log.Printf("chat answer: putting a card back: %v", rerr)
 	}
 	switch {
-	case closed == outcomeSubmitted:
+	case delivered(outcome, closed):
 		return row, nil // the worker took the answer; it stays in the thread
 	case closed != "":
 		return row, s.undeliver(uid, cid, messageID)
@@ -387,6 +387,13 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 		return row, s.undeliver(uid, cid, messageID) // the run ended here: nothing will read it
 	}
 	return row, errAnswerNotSent
+}
+
+// delivered reports whether the worker's close of a wait is the one this
+// answer (outcome) asked for: it took an answer, or the Skip. A close
+// that is a timeout, a Stop or a different outcome means it did not.
+func delivered(outcome, closed string) bool {
+	return closed == outcomeSubmitted || (outcome == outcomeCancelled && closed == outcomeCancelled)
 }
 
 // questionCloser is an engine that remembers how a question's wait ended in
