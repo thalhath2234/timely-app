@@ -595,3 +595,66 @@ func TestIntegrationAgentEngineSensitiveNoPersistRun(t *testing.T) {
 		t.Fatalf("plain chat run.start %+v, model %+v", s, got[len(got)-1])
 	}
 }
+
+// cancelAfterCommit simulates the person's connection dropping once the
+// answer is committed: it cancels the request context, then calls the real
+// engine with whatever context the service hands it.
+type cancelAfterCommit struct {
+	AgentEngine
+	cancel context.CancelFunc
+	err    error
+}
+
+func (e *cancelAfterCommit) Answer(ctx context.Context, uid, cid, runID, requestID string, answers map[string]any, outcome string) error {
+	e.cancel()
+	if e.err != nil {
+		return e.err
+	}
+	return e.AgentEngine.Answer(ctx, uid, cid, runID, requestID, answers, outcome)
+}
+
+// The person's request ends after the answer is committed (the phone drops
+// the connection): the answer still reaches the run, which goes on with it.
+func TestIntegrationAgentEngineClarifyAnswerSurvivesACancelledRequest(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-cancelled", lines(ask("req-x", 600_000), reply("Ok {{last_answers}}", 0)))
+	h.waiting(c.ID, "req-x")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.s.SetAgentEngine(&cancelAfterCommit{AgentEngine: h.e, cancel: cancel})
+	answers := func(ChatQuestion) (map[string]any, error) { return map[string]any{"q0": "Monday"}, nil }
+	if _, err := h.s.answerQuestion(ctx, "user-a", c.ID, "req-x", answers, outcomeSubmitted, ""); err != nil {
+		t.Fatalf("an answer whose request ended: %v", err)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	asked := questionMessages(c)
+	if len(asked) != 1 || asked[0].Question.Outcome != outcomeSubmitted || !strings.Contains(lastMessage(c).Content, `"q0":"Monday"`) || len(h.clarifyAnswers()) != 1 {
+		t.Fatalf("after the answer: %+v, reply %q, %d clarify.answer", asked, lastMessage(c).Content, len(h.clarifyAnswers()))
+	}
+}
+
+// An answer that could not be sent (the worker did not reply) puts the card
+// back, so the person can answer again, instead of closing it unseen.
+func TestIntegrationAgentEngineClarifyUnsentAnswerRestoresTheCard(t *testing.T) {
+	h := newEngineHarness(t)
+	c := h.chat("Book my haircut", "supervised", "ask-unsent", lines(ask("req-u", 600_000), reply("Ok {{last_answers}}", 0)))
+	waiting := h.waiting(c.ID, "req-u")
+	h.s.SetAgentEngine(&cancelAfterCommit{AgentEngine: h.e, cancel: func() {}, err: context.DeadlineExceeded})
+	answers := func(ChatQuestion) (map[string]any, error) { return map[string]any{"q0": "Monday"}, nil }
+	if _, err := h.s.answerQuestion(context.Background(), "user-a", c.ID, "req-u", answers, outcomeSubmitted, ""); err == nil {
+		t.Fatal("an answer that was not sent reported success")
+	}
+	c = h.wait(c.ID, "card back", func(c Conversation) bool { return c.Question.RequestID == "req-u" })
+	if len(questionMessages(c)) != 0 || len(c.Messages) != len(waiting.Messages) || c.Status != "running" {
+		t.Fatalf("after an unsent answer: %d question messages, %d messages (was %d), status %s", len(questionMessages(c)), len(c.Messages), len(waiting.Messages), c.Status)
+	}
+	// Answering again goes through.
+	h.s.SetAgentEngine(h.e)
+	if code, body := h.post("/chats/"+c.ID+"/answer", `{"requestId":"req-u","answers":{"q0":"Tuesday"}}`); code != 200 {
+		t.Fatalf("answering again: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if !strings.Contains(lastMessage(c).Content, `"q0":"Tuesday"`) {
+		t.Fatalf("reply %q", lastMessage(c).Content)
+	}
+}

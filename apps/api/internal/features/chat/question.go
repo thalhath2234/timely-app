@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"timely-api/internal/agenthost"
 )
 
 // Question cards (phase 4, Q-4.3, PROTOCOL.md section 11.2): the agent's
@@ -57,6 +58,8 @@ const questionClosed = "This question was already closed"
 var (
 	errCardClosed        = echo.NewHTTPError(409, questionClosed)
 	errAnswerUndelivered = echo.NewHTTPError(409, questionClosed)
+	// errAnswerNotSent: the worker did not reply, the card is back.
+	errAnswerNotSent = echo.NewHTTPError(503, "Your answer did not reach the assistant. Try again.")
 )
 
 // QuestionItem is one question of a card. Choices nil is an open question;
@@ -304,6 +307,7 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 	}
 	var runID, messageID string
 	var sent map[string]any
+	var asked ChatQuestion
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
@@ -318,7 +322,7 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 		if sent, err = answers(row.Question); err != nil {
 			return err
 		}
-		runID = row.AgentRunID
+		runID, asked = row.AgentRunID, row.Question
 		messageID = closeQuestion(&row, sent, outcome)
 		row.Messages[len(row.Messages)-1].RequestID = messageRequest
 		row.Revision++
@@ -327,13 +331,58 @@ func (s *Service) answerQuestion(ctx context.Context, uid, cid, requestID string
 	if err != nil {
 		return row, err
 	}
-	if err := s.engine.Answer(ctx, uid, cid, runID, requestID, sent, outcome); err != nil {
+	// The answer is committed, so it is sent whatever happens to the
+	// person's request (a phone that drops the connection must not lose it);
+	// Answer bounds the send with its own timeout.
+	err = s.engine.Answer(context.WithoutCancel(ctx), uid, cid, runID, requestID, sent, outcome)
+	switch {
+	case err == nil:
+		return row, nil
+	case answerRefused(err):
+		// The worker said the card no longer waits (or the run is gone).
 		if uerr := s.markUndelivered(uid, cid, messageID); uerr != nil && !errors.Is(uerr, gorm.ErrRecordNotFound) {
 			log.Printf("chat answer: marking an undelivered answer: %v", uerr)
 		}
 		return row, errAnswerUndelivered
+	default:
+		// No reply from the worker: it may still wait. The card goes back
+		// so the person can answer again; if the worker did get the answer,
+		// its clarify.closed ends the card as it ends any other.
+		if rerr := s.restoreQuestion(uid, cid, runID, messageID, asked); rerr != nil && !errors.Is(rerr, gorm.ErrRecordNotFound) {
+			log.Printf("chat answer: putting a card back: %v", rerr)
+		}
+		return row, errAnswerNotSent
 	}
-	return row, nil
+}
+
+// answerRefused is an Answer error that says the worker saw the answer and
+// refused it: the card no longer waits there, or the run is not live here.
+func answerRefused(err error) bool {
+	var reply *agenthost.ReplyError
+	return errors.Is(err, errNotFollowing) || errors.As(err, &reply)
+}
+
+// restoreQuestion puts a card back on the row after its answer could not be
+// sent, when the same run still owns the row and nothing took the card's
+// place: the answer message leaves the thread.
+func (s *Service) restoreQuestion(uid, cid, runID, messageID string, asked ChatQuestion) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var row Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
+			return err
+		}
+		if row.Status != "running" || row.AgentRunID != runID || row.Question.pending() {
+			return nil
+		}
+		i := slices.IndexFunc(row.Messages, func(m Message) bool { return m.ID == messageID && m.Question != nil })
+		if i < 0 {
+			return nil
+		}
+		row.Messages = slices.Delete(row.Messages, i, i+1)
+		row.Question = asked
+		row.Revision++
+		return tx.Save(&row).Error
+	})
 }
 
 // markUndelivered records that an answer never reached the run.
