@@ -51,6 +51,9 @@ export const NOTIFICATION_CATEGORIES: Record<string, QuickAction[]> = {
   timely_suggestion_reschedule: [triage("reschedule", "Find time", true), { id: "dismiss", title: "Not now" }],
   timely_agent_review: [open("Review"), reply],
   timely_agent_done: [open("Open chat"), reply],
+  // A question card the run waits on: the alert shows no question text, so it offers no blind Reply
+  // (a typed message would answer a card nobody read); Answer opens the chat on the card.
+  timely_agent_question: [open("Answer")],
   timely_agent_failed: [open("Open chat"), { id: "retry", title: "Try again" }],
   timely_digest: [open("Open Today")],
   timely_bot_paused: [{ id: "resume_bot", title: "Resume" }, open("Open")],
@@ -88,6 +91,7 @@ export function categoryFor(item: NotificationLike): string | null {
       const status = text(data.status);
       if (status === "approval" || status === "choose") return "timely_agent_review";
       if (status === "failed") return "timely_agent_failed";
+      if (data.question) return "timely_agent_question";
       return "timely_agent_done";
     }
     case "digest":
@@ -99,6 +103,15 @@ export function categoryFor(item: NotificationLike): string | null {
     default:
       return null;
   }
+}
+
+/**
+ * The body of the Reply quick action's message. It names no card (`questionRequestId: ""`): the person
+ * typed it on a notification, not on a screen showing a question card, so a card that waits is never
+ * answered by it (the API answers 409 "Timely just asked you a question. Read it first.").
+ */
+export function replyBody(content: string, requestId: string) {
+  return { content: content.trim(), requestId, questionRequestId: "" };
 }
 
 /** Body text for a server notification on the phone: a little more than the bare title. */

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { routeForNotification } from "../apps/mobile/lib/notificationRoute.ts";
+import { NOTIFICATION_CATEGORIES, categoryFor, replyBody } from "../apps/mobile/lib/notificationCategories.ts";
 import {
   contextChip,
   draftForScreen,
@@ -960,4 +961,22 @@ test("the 'Timely has a question' notification opens its chat, from the push and
     routeForNotification({ status: "running", category: "agent", entityType: "chat", entityId: "chat_q" }),
     "/(app)/assistant?chatId=chat_q",
   );
+});
+
+test("a question alert offers no blind Reply, and the Reply of any alert names no card (review round 5)", () => {
+  // Go sends data.question as the card's request id (a string); a boolean works the same.
+  for (const question of ["req-1", true]) {
+    const category = categoryFor({ category: "agent", data: { status: "running", question } });
+    assert.equal(category, "timely_agent_question");
+    assert.deepEqual(
+      NOTIFICATION_CATEGORIES[category].map((action) => [action.id, Boolean(action.textInput)]),
+      [["open", false]],
+    );
+  }
+  // Review, failure and plain finish keep their buttons.
+  assert.equal(categoryFor({ category: "agent", data: { status: "approval" } }), "timely_agent_review");
+  assert.equal(categoryFor({ category: "agent", data: { status: "failed", question: "req-1" } }), "timely_agent_failed");
+  assert.equal(categoryFor({ category: "agent", data: { status: "idle" } }), "timely_agent_done");
+  // The Reply says it read no card: a waiting card gets 409 "Read it first", not this text as its answer.
+  assert.deepEqual(replyBody("  Monday  ", "ntf-1"), { content: "Monday", requestId: "ntf-1", questionRequestId: "" });
 });
