@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Model-check the Agent run protocol (see SKILL.md): the apply check
-# (AgentRunApply.cfg) and the turn check (AgentRunTurn.cfg), one model.
+# (AgentRunApply.cfg), the turn check (AgentRunTurn.cfg) and the host check
+# (AgentRunHost.cfg, phase 5 host cards), one model.
 #
 #   run.sh             read guards from the code, check drift, run TLC (~3.5 min)
 #   run.sh --mutants   also prove each guard matters: remove it in the model
@@ -44,7 +45,7 @@ echo "$TLA_SHA256  $JAR" | sha256sum -c --quiet - || { echo "tla2tools checksum 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/verify-agent-runs.XXXXXX")"
 trap 'rm -rf -- "${WORK:?}"' EXIT
 cp "$SKILL/model/AgentRunApply.tla" "$WORK/"
-CONFIGS=(AgentRunApply AgentRunTurn)
+CONFIGS=(AgentRunApply AgentRunTurn AgentRunHost)
 
 tlc() { # tlc CONFIG METADIR -> prints TLC output
   (cd "$WORK" && java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -workers auto \
@@ -99,11 +100,16 @@ fi
 done
 
 if [[ $mode == "mutants" ]]; then
-  echo "mutants: each guard removed in the model must break a property (apply check first, then the turn check)"
+  echo "mutants: each guard removed in the model must break a property (apply check first, then the turn check, then the host check)"
   bad=0
-  for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone HoldsSupervised AnswerFenced; do
+  for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone HoldsSupervised AnswerFenced \
+           HostAnswerFenced ClaimSkipsHostWait ApproveRefusesHost ContinuationClearedAtClaim StopDeniesHost; do
     v="" where=""
-    for c in "${CONFIGS[@]}"; do
+    cfgs=("${CONFIGS[@]}")
+    case $g in
+      HostAnswerFenced|ClaimSkipsHostWait|ApproveRefusesHost|ContinuationClearedAtClaim|StopDeniesHost) cfgs=(AgentRunHost) ;;
+    esac
+    for c in "${cfgs[@]}"; do
       sed -E "s/^(\s*$g\s*=\s*)TRUE/\1FALSE/" "$WORK/$c.cfg" > "$WORK/m-$g-$c.cfg"
       v="$( (tlc "m-$g-$c.cfg" "$WORK/st-$g-$c" || true) | sed -n 's/^Error: Invariant \(.*\) is violated\./\1/p' | head -1)"
       if [[ -n $v ]]; then where="$c"; break; fi
