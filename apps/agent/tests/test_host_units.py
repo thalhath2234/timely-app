@@ -219,6 +219,35 @@ def test_gate_pre_approved_matches_one_call_exactly_once():
     assert verdict["action"] == "block" and len(asked) == 1  # a second identical call asks again
 
 
+def test_gate_pre_approved_holds_only_in_the_folder_the_card_was_judged_in(monkeypatch):
+    """A parked card's call runs exactly as approved: the card showed the terminal's recorded folder (a
+    ``cd`` of an earlier call), and a worker reaped while the card waited starts in the working folder,
+    where a relative path means something else. The approval is then void and Go is asked again."""
+    from timely_agent import host
+    args = {"command": "rm -rf build"}
+    digest = policy.args_hash(args)
+    for recorded, now, runs in (("/proj/sub", "/proj/sub", True), ("", "", True), ("/proj/sub", "", False),
+                                ("", "/elsewhere", False)):
+        monkeypatch.setattr(host, "session_cwd", lambda *keys, now=now: now)
+        run = _run(host_allowed=True, pre_approved={"tool": "terminal", "args_hash": digest, "cwd": recorded})
+        verdict, asked = _gate(run, "terminal", args, call_id="c1", verdict="block")
+        if runs:
+            assert verdict is None and asked == [] and run.is_approved("c1"), (recorded, now)
+        else:
+            assert verdict["action"] == "block" and len(asked) == 1 and asked[0].get("cwd", "") == now, (recorded, now)
+            assert not run.is_approved("c1") and run.pre_approved is None
+    # an approval with no recorded folder (older Go) is not folder-checked
+    monkeypatch.setattr(host, "session_cwd", lambda *keys: "/anywhere")
+    run = _run(host_allowed=True, pre_approved={"tool": "terminal", "args_hash": digest})
+    assert _gate(run, "terminal", args, call_id="c2", verdict="block")[0] is None
+
+
+def test_pre_approved_cwd_must_be_a_string():
+    digest = policy.args_hash({"command": "ls"})
+    assert host_start_problem({**BASE, "pre_approved": {"tool": "terminal", "args_hash": digest, "cwd": ""}}, False) is None
+    assert host_start_problem({**BASE, "pre_approved": {"tool": "terminal", "args_hash": digest, "cwd": 3}}, False)
+
+
 def test_gate_approve_records_the_card_and_suspends_full_access_yolo(monkeypatch):
     from timely_agent import host
     suspended = []

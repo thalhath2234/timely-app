@@ -200,6 +200,8 @@ def host_start_problem(msg: dict[str, Any], account_host_allowed: bool) -> Optio
             return "pre_approved needs tool and a 64-hex args_hash"
         if pre.get("tool_call_id") is not None and not isinstance(pre.get("tool_call_id"), str):
             return "pre_approved.tool_call_id must be a string"
+        if pre.get("cwd") is not None and not isinstance(pre.get("cwd"), str):
+            return "pre_approved.cwd must be a string"
     return None
 
 

@@ -150,14 +150,16 @@ func (s *Service) work(ctx context.Context) {
 			if c.Status == "queued" {
 				c.RunEngine = runEngine(tx, &c, s.sensitiveNoPersist)
 				c.AgentRunID, c.AgentInstance = "", ""
-				// A parked host card's approved call (phase 5 decision 3):
-				// the claim takes it off the row in this transaction and
-				// this run alone carries it, so it runs at most once.
-				if c.Continuation.pending() {
-					cont := c.Continuation
-					c.PreApproved = &cont
-					c.Continuation = HostContinuation{}
-				}
+			}
+			// A parked host card's approved call (phase 5 decision 3): this
+			// claim's lane carries it to run.start (a fresh run, or a
+			// resumed row no run was named on, whose lane died before
+			// Start). It stays on the row until Start's checkpoint, the one
+			// that names the run, takes it off, and run.start goes out only
+			// after that checkpoint, so the call runs at most once.
+			if (c.Status == "queued" || c.AgentRunID == "") && c.Continuation.pending() {
+				cont := c.Continuation
+				c.PreApproved = &cont
 			}
 			// One expired lease can be safely resumed: writes and checkpoints commit together.
 			lease := now.Add(3 * time.Minute)
@@ -205,6 +207,7 @@ func (s *Service) work(ctx context.Context) {
 				// expired), which a resumed claim cannot name by run or by
 				// request any more.
 				settleAllHostCards(row)
+				row.Continuation = HostContinuation{}
 				if row.Phase == "apply" {
 					// Name the step that stopped the run; retry resets it to pending.
 					for i := range row.Plan {

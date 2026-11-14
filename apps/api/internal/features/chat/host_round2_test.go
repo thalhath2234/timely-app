@@ -251,7 +251,7 @@ func TestQueuedCardsAreNotSilentlyDroppedWhenTheRunParks(t *testing.T) {
 	queued.Payload.RequestID, queued.Payload.ToolCallID, queued.Payload.Tool = "req-2", "call_2", "terminal"
 	r := &agentRun{hostQueue: []workerEvent{queued}, cards: map[string]hostPending{"call_2": {tool: "terminal", card: HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "pwd"}}}}
 	row := &Conversation{}
-	(&WorkerEngine{}).queuedNotRun(row, r)
+	(&WorkerEngine{}).queuedNotRun(row, r, "")
 	if len(row.Messages) != 1 || !strings.Contains(row.Messages[0].Content, "pwd") || len(r.hostQueue) != 0 {
 		t.Fatalf("messages %+v queue %d", row.Messages, len(r.hostQueue))
 	}

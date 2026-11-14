@@ -36,6 +36,7 @@ var (
 	errNotGrantable = echo.NewHTTPError(409, "This card can't be allowed for the whole chat. Choose Run once or Deny.")
 	errNoHostEngine = echo.NewHTTPError(409, "The assistant isn't running here")
 	errHostOff      = echo.NewHTTPError(403, "This account can't use this computer any more")
+	errMCPOff       = echo.NewHTTPError(403, "This MCP server is turned off")
 	errHostExpired  = echo.NewHTTPError(409, "This card expired")
 )
 
@@ -51,8 +52,20 @@ type hostEngine interface {
 // needsHostAccess is whether a card's call runs on this computer (a command
 // MCP server, terminal, files, code, the browser) and so needs the account to
 // be host-allowed when it is answered, not only when it was asked. A remote
-// MCP tool does not.
+// MCP tool does not; a command MCP server's tool does, and mcpTurnedOff
+// covers it (its mode is off once the account is, and when the person turns
+// the server off).
 func needsHostAccess(h HostRequest) bool { return h.Card == nil || h.Card.Kind != cardMCP }
+
+// mcpTurnedOff is whether a waiting MCP tool card's server is Off now: set so
+// by the person, or because it runs a command on this computer and the
+// account was turned off. Run once on it then closes denied.
+func mcpTurnedOff(ctx context.Context, rules MCPRules, uid string, h HostRequest) bool {
+	if rules == nil || h.Card == nil || h.Card.Kind != cardMCP {
+		return false
+	}
+	return rules.Mode(ctx, uid, h.Card.Server) == mcpOff
+}
 
 // shellRequest reports a request from the desktop window: the shell token
 // from this computer (instance.ShellRequest, decision 11).
@@ -136,7 +149,7 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 	// revoked: the account lost host access while the card waited, so the
 	// answer closes it denied (Q-5.2: each account is turned on and off
 	// separately). expired: a parked card past its hour.
-	var revoked, expired bool
+	var revoked, expired, mcpOff bool
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
@@ -172,6 +185,9 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 			// runs on this computer for it, whatever the card says.
 			choice, revoked = hostDeny, true
 			why = "the account can't use this computer any more"
+		} else if choice != hostDeny && mcpTurnedOff(ctx, s.mcp, uid, h) {
+			choice, mcpOff = hostDeny, true
+			why = "the MCP server is turned off"
 		}
 		asked = h
 		live = h.Phase == hostLive && row.AgentRunID != "" && row.AgentRunID == h.Run && he != nil && he.Follows(uid, cid, h.Run)
@@ -244,9 +260,14 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		// The answer is committed, so it is sent whatever happens to the
 		// person's request.
 		if err := he.HostAnswer(context.WithoutCancel(ctx), uid, cid, asked.Run, requestID, choice, lease); err != nil {
-			// The worker no longer waits (its live wait ended, or it is
-			// gone): the answer is applied as a parked one.
-			s.hostAnswerNotTaken(uid, cid, asked, choice, lease)
+			if !errors.Is(err, errHostAnswerUnknown) {
+				// The worker no longer waits (its live wait ended, or it is
+				// gone): the answer is applied as a parked one.
+				s.hostAnswerNotTaken(uid, cid, asked, choice, lease)
+			}
+			// With no ack in time the worker may still take the answer and
+			// run the call, so no continuation is queued: the run stops, the
+			// card reads approved and not run, and a late host.ran settles it.
 			s.engine.Stop(uid, cid, asked.Run)
 		}
 	}
@@ -256,6 +277,9 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 	}
 	if revoked {
 		return row, errHostOff // the card closed denied; the person's Run once did not run it
+	}
+	if mcpOff {
+		return row, errMCPOff
 	}
 	return row, nil
 }
@@ -300,7 +324,7 @@ func (s *Service) approveServer(ctx context.Context, uid, cid string, asked Host
 		text = "MCP servers are not available here."
 	default:
 		if err := s.mcp.ApproveStdio(context.WithoutCancel(ctx), uid, asked.cardServer(), asked.ArgsHash); err != nil {
-			text = "Not added: " + asked.cardServer() + " changed after this card was shown, or it can't run here. Check it in Settings → Assistant → MCP servers."
+			text = "Not added: " + asked.cardServer() + " changed after this card was shown, or it can't run here. Check it in Settings → Agent → MCP servers."
 			log.Printf("chat host answer: approving MCP server: %v", err)
 		}
 	}

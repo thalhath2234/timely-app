@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"timely-api/internal/features/agent"
@@ -199,6 +200,7 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 		}
 	} else {
 		d.action, d.card, d.grant = hostCall(ask.Tool, args, st.workingDir, ask.Cwd)
+		d.card.SessionCwd = clip(dropNUL(strings.TrimSpace(ask.Cwd)), 1000)
 		// The hardline floor holds in every mode, Full Access included: Hermes'
 		// own floor misses a program written with its path or behind a wrapper.
 		if why, hard := agent.HardlineHost(d.action, agent.HostScope{Workspace: st.workingDir, Home: st.home}); hard {
@@ -550,6 +552,9 @@ func hostCall(tool string, args map[string]any, workingDir, sessionCwd string) (
 			card.Title, card.Path = "Delete this file?", clip(files[0].path, 1000)
 		case len(files) > 1:
 			card.Title, card.Path = "Change these files?", clip(strings.Join(lines, "\n"), 1000)
+			if slices.ContainsFunc(files, func(f patchOp) bool { return f.delete }) {
+				card.Title = "Change and delete these files?"
+			}
 		}
 		if !grantable {
 			return action, card, nil

@@ -492,6 +492,10 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 			row.Language = language
 		}
 		row.AgentRunID, row.AgentInstance = r.id, r.instance
+		// The run now carries a parked card's approved call (run.start goes
+		// out after this commit): the row's copy goes, so no other claim
+		// can send it again.
+		row.Continuation = HostContinuation{}
 		restored, row.AgentReseed = row.AgentReseed, false
 		row.Activity = ChatActivity{Run: r.id}
 		row.RunReads = RunReads{Run: r.id}
@@ -542,7 +546,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"search_allow":          setup.searchAllow,
 	}
 	if pre != nil && pre.pending() {
-		fields["pre_approved"] = map[string]any{"tool": pre.Tool, "args_hash": pre.ArgsHash, "tool_call_id": pre.ToolCallID}
+		fields["pre_approved"] = map[string]any{"tool": pre.Tool, "args_hash": pre.ArgsHash, "tool_call_id": pre.ToolCallID, "cwd": pre.Cwd}
 		p := pre
 		e.s.logHostEvent(nil, hostEvent(c.UserID, c.ID, r.id, p.ToolCallID, p.RequestID, p.Tool, p.ArgsHash, eventAllowed, "", "continuation of an approved parked card", nil, nil), e.opts.Logf)
 	}

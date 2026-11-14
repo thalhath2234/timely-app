@@ -266,11 +266,19 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
     pre = run.pre_approved if run else None
     if pre and pre.get("tool") == tool_name and pre.get("args_hash") == digest:
         run.pre_approved = None  # exactly one matching call
-        if tool_call_id:
-            run.approve_call(tool_call_id, digest)
-            host.mark_executing(run, tool_call_id)
-            host.snapshot_before(run, tool_name, args, tool_call_id)
-        return None
+        # The card showed, and Go judged, the call in the terminal's recorded folder (a ``cd`` of an
+        # earlier call). A worker that was reaped while the card waited starts in the working folder,
+        # so relative paths would mean something else: then the approval is void and Go decides
+        # again, with a card of its own for the folder the call really runs in.
+        moved = is_host and isinstance(pre.get("cwd"), str) and pre["cwd"] != host.session_cwd(task_id, session_id)
+        if moved:
+            logger.info("pre-approved %s: the terminal folder changed since the card, asking Go again", tool_name)
+        else:
+            if tool_call_id:
+                run.approve_call(tool_call_id, digest)
+                host.mark_executing(run, tool_call_id)
+                host.snapshot_before(run, tool_name, args, tool_call_id)
+            return None
     if not (is_host or is_mcp) and (tool_name in policy.LOCAL_ALLOW or _timely_tool(tool_name)):
         return None
     if run is None or bridge.ask is None:

@@ -103,11 +103,11 @@ if [[ $mode == "mutants" ]]; then
   echo "mutants: each guard removed in the model must break a property (apply check first, then the turn check, then the host check)"
   bad=0
   for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone HoldsSupervised AnswerFenced \
-           HostAnswerFenced ClaimSkipsHostWait ApproveRefusesHost ContinuationClearedAtClaim StopDeniesHost; do
+           HostAnswerFenced ClaimSkipsHostWait ApproveRefusesHost ContinuationClearedAtStart StopDeniesHost; do
     v="" where=""
     cfgs=("${CONFIGS[@]}")
     case $g in
-      HostAnswerFenced|ClaimSkipsHostWait|ApproveRefusesHost|ContinuationClearedAtClaim|StopDeniesHost) cfgs=(AgentRunHost) ;;
+      HostAnswerFenced|ClaimSkipsHostWait|ApproveRefusesHost|ContinuationClearedAtStart|StopDeniesHost) cfgs=(AgentRunHost) ;;
     esac
     for c in "${cfgs[@]}"; do
       sed -E "s/^(\s*$g\s*=\s*)TRUE/\1FALSE/" "$WORK/$c.cfg" > "$WORK/m-$g-$c.cfg"

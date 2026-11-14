@@ -78,7 +78,7 @@ CONSTANTS
     HostAnswerFenced,      \* answerHost(): host_approval and the same request, else 409
     ClaimSkipsHostWait,    \* work(): the claim predicate takes queued or expired running rows only
     ApproveRefusesHost,    \* approve()/reject(): a host_approval row is not a proposal (409)
-    ContinuationClearedAtClaim, \* work(): the claim takes the continuation off the row
+    ContinuationClearedAtStart, \* Start(): the checkpoint that names the run takes the continuation off the row
     StopDeniesHost         \* stop(): closes a host card; WorkerEngine.Stop denies it before run.stop
 
 Steps == 1..NSteps
@@ -222,13 +222,18 @@ Engines(base) ==
     IF base.status = "queued" /\ base.phase = "plan" /\ AllowAgent
     THEN (IF base.cont THEN {"agent"} ELSE {"classic", "agent"}) ELSE {"classic"}
 
-\* A fresh claim takes the continuation off the row (the lane's copy keeps
-\* it for Start's run.start pre_approved).
+\* The claim leaves the continuation on the row: the lane's copy carries it
+\* to Start's run.start pre_approved, and Start's checkpoint, the one that
+\* names the run, takes it off the row (a lane that dies in between leaves
+\* it for the re-claim).
 ClaimedRow(base, e) ==
     [base EXCEPT !.status = "running", !.lease = nextLease, !.expired = FALSE,
                  !.engine = IF base.status = "queued" THEN e ELSE base.engine,
-                 !.run = IF base.status = "queued" THEN NoRun ELSE base.run,
-                 !.cont = IF base.status = "queued" /\ ContinuationClearedAtClaim THEN FALSE ELSE base.cont]
+                 !.run = IF base.status = "queued" THEN NoRun ELSE base.run]
+
+\* Whether a claim of this row hands the continuation to the lane: a fresh
+\* run, or a resumed row no agent run was named on.
+CarriesCont(base) == base.cont /\ (base.status = "queued" \/ base.run = NoRun)
 
 \* After the claim commits, work() dispatches: Lost for a resumed agent run,
 \* the agent engine's Start for an agent plan turn, else runClassic.
@@ -247,7 +252,7 @@ Claim(w) ==
     /\ \E e \in Engines(row) :
          LET r == ClaimedRow(row, e)
          IN /\ row' = r
-            /\ mem' = [mem EXCEPT ![w] = [r EXCEPT !.cont = row.cont /\ row.status = "queued"]]
+            /\ mem' = [mem EXCEPT ![w] = [r EXCEPT !.cont = CarriesCont(row)]]
             /\ pc' = [pc EXCEPT ![w] = Dispatch(row, r)]
     /\ cursor' = [cursor EXCEPT ![w] = 1]
     /\ nextLease' = nextLease + 1
@@ -277,7 +282,7 @@ ClaimWrite(w) ==
     /\ \E e \in Engines(mem[w]) :
          LET r == ClaimedRow(mem[w], e)
          IN /\ row' = r
-            /\ mem' = [mem EXCEPT ![w] = [r EXCEPT !.cont = mem[w].cont /\ mem[w].status = "queued"]]
+            /\ mem' = [mem EXCEPT ![w] = [r EXCEPT !.cont = CarriesCont(mem[w])]]
             /\ pc' = [pc EXCEPT ![w] = Dispatch(mem[w], r)]
     /\ cursor' = [cursor EXCEPT ![w] = 1]
     /\ nextLease' = nextLease + 1
@@ -439,7 +444,7 @@ FailRun(w) ==
     /\ pc[w] = "fail"
     /\ IF Allowed(mem[w].lease)
        THEN LET b == Base(mem[w]) IN
-            row' = [b EXCEPT !.status = "failed", !.expired = FALSE,
+            row' = [b EXCEPT !.status = "failed", !.expired = FALSE, !.cont = FALSE,
                     !.plan = IF b.phase = "apply" /\ \E i \in Steps : b.plan[i] # "done"
                              THEN [b.plan EXCEPT ![FirstNotDone(b.plan)] = "failed"]
                              ELSE b.plan]
@@ -504,7 +509,8 @@ PlanRun(w) ==
 StartRun(w) ==
     /\ pc[w] = "start"
     /\ \/ /\ Allowed(mem[w].lease)
-          /\ LET r == [Base(mem[w]) EXCEPT !.run = mem[w].lease, !.expired = FALSE]
+          /\ LET r == [Base(mem[w]) EXCEPT !.run = mem[w].lease, !.expired = FALSE,
+                                          !.cont = IF ContinuationClearedAtStart THEN FALSE ELSE Base(mem[w]).cont]
              IN /\ row' = r
                 /\ fol' = fol \cup {[run |-> mem[w].lease, lease |-> mem[w].lease,
                                      owner |-> {w}, pre |-> mem[w].cont]}
@@ -976,19 +982,27 @@ AnswerHostParkedDeny ==
 \* HostAnswer's approval.answer once reaches the worker. A request still
 \* waiting, of a run not stopped, is approved; otherwise the worker refuses
 \* it and hostAnswerNotTaken, fenced on the answer's lease, queues the
-\* continuation (and the run is stopped).
+\* continuation (and the run is stopped). The third outcome is no ack within
+\* Go's answer timeout (errHostAnswerUnknown): the worker may still take the
+\* answer late (its message loop was busy), so Go queues no continuation, it
+\* only stops the run; the card then reads approved and not run until a late
+\* host.ran says otherwise.
 DeliverHost ==
     /\ sent # NoLease
     /\ sent' = NoLease
-    /\ IF wreq = "waiting" /\ wrun \notin wstopped
-       THEN /\ wreq' = "approved"
-            /\ UNCHANGED <<row, wstopped>>
-       ELSE /\ IF ~row.deleted /\ row.status = "running" /\ row.lease = sent /\ row.run = wrun
+    /\ \/ /\ wreq = "waiting" /\ wrun \notin wstopped
+          /\ wreq' = "approved"
+          /\ UNCHANGED <<row, wstopped>>
+       \/ /\ ~(wreq = "waiting" /\ wrun \notin wstopped)
+          /\ IF ~row.deleted /\ row.status = "running" /\ row.lease = sent /\ row.run = wrun
                THEN row' = [row EXCEPT !.status = "queued", !.phase = "plan", !.run = NoRun,
                                        !.lease = NoLease, !.expired = FALSE, !.cont = TRUE]
                ELSE UNCHANGED row
-            /\ wstopped' = wstopped \cup {wrun}
-            /\ UNCHANGED wreq
+          /\ wstopped' = wstopped \cup {wrun}
+          /\ UNCHANGED wreq
+       \/ /\ UNCHANGED row
+          /\ wreq' \in (IF wreq = "waiting" /\ wrun \notin wstopped THEN {wreq, "approved"} ELSE {wreq})
+          /\ wstopped' = wstopped \cup {wrun}
     /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
     /\ UNCHANGED qvars

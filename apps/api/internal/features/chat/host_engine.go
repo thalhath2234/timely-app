@@ -31,9 +31,11 @@ const (
 	// follow must be before the sweep parks it (the API restarted, or the
 	// follower's process died).
 	orphanAfter = 30 * time.Second
-	// hostAnswerTimeout bounds approval.answer and checkpoint.restore.
-	hostAnswerTimeout = 10 * time.Second
 )
+
+// hostAnswerTimeout bounds approval.answer and checkpoint.restore (a var so a
+// test can shrink it).
+var hostAnswerTimeout = 10 * time.Second
 
 // hostPending is what a host verdict decided for one call, kept until the
 // worker's approval.request (the card) or host.ran (the call finished).
@@ -358,12 +360,18 @@ func (e *WorkerEngine) HostAllowed(ctx context.Context, uid string) bool {
 	return e.opts.HostAllowed(ctx, uid)
 }
 
+// errHostAnswerUnknown is an approval.answer whose ack did not arrive in time:
+// the worker may still take it (and run the call). Only an explicit refusal,
+// or a worker that is gone, means the answer was not taken.
+var errHostAnswerUnknown = errors.New("the worker did not say whether it took the answer")
+
 // HostAnswer passes the person's answer to a live host card once the fenced
 // answer committed (Service.answerHost): the run adopts the fresh lease the
 // answer wrote (the re-attach), then approval.answer goes to the worker. An
 // error means the worker did not take it (the wait ended there, or no
 // worker of this process runs it); the caller then applies the answer as a
-// parked one.
+// parked one. errHostAnswerUnknown means it may have: the caller queues no
+// continuation, so the call runs at most once.
 func (e *WorkerEngine) HostAnswer(ctx context.Context, uid, cid, runID, requestID, choice, lease string) error {
 	e.mu.Lock()
 	r := e.runs[runID]
@@ -390,6 +398,11 @@ func (e *WorkerEngine) HostAnswer(ctx context.Context, uid, cid, runID, requestI
 	}
 	r.mu.Unlock()
 	if err := e.sendHostAnswer(r, requestID, choice); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			// No ack in time is not a refusal: a worker busy with other
+			// messages may take the answer late and run the call.
+			return errHostAnswerUnknown
+		}
 		return err
 	}
 	// The follower writes the next card of the run, if one waits, and
@@ -489,7 +502,7 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 		case row.Status == statusHostApproval && row.AgentRunID == r.id && row.HostRequest.pending():
 			parkCard(&row, now, wait)
 			reply()
-			e.queuedNotRun(&row, r)
+			e.queuedNotRun(&row, r, row.HostRequest.ToolCallID)
 			// A continuation that parked on a new card before its approved
 			// call ran loses that approval: say so, never leave it "approved".
 			settleLostContinuation(&row, r.tools.contRequest)
@@ -504,7 +517,7 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 			endRun(&row, r.tools)
 			row.Lease, row.LeaseUntil = "", nil
 			reply()
-			e.queuedNotRun(&row, r)
+			e.queuedNotRun(&row, r, parked.ToolCallID)
 			switch choice {
 			case hostOnce, hostChat:
 				// Run once reached the worker after its wait ended: the
@@ -541,8 +554,15 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 // queuedNotRun says that a second card of a parallel batch, still waiting in
 // memory for the first to be answered, will not be asked: the run parks now
 // and its call did not run. The model asks again in the next turn.
-func (e *WorkerEngine) queuedNotRun(row *Conversation, r *agentRun) {
+//
+// parkedCall is the call of the card that waits parked on the row now (the
+// run.done that parked the run may name a card still in the queue, when it
+// reached the follower before the re-attach did): it is asked, not "not run".
+func (e *WorkerEngine) queuedNotRun(row *Conversation, r *agentRun, parkedCall string) {
 	for _, ev := range r.hostQueue {
+		if parkedCall != "" && ev.Payload.ToolCallID == parkedCall {
+			continue
+		}
 		pend := r.cards[ev.Payload.ToolCallID]
 		var card *HostCard
 		if pend.card.Title != "" {
@@ -564,7 +584,7 @@ func (e *WorkerEngine) parkLost(r *agentRun) bool {
 	// waited in memory did not run, and a continuation that parked on a new
 	// card before its approved call ran lost that approval.
 	settle := func(row *Conversation) {
-		e.queuedNotRun(row, r)
+		e.queuedNotRun(row, r, row.HostRequest.ToolCallID)
 		settleLostContinuation(row, r.tools.contRequest)
 	}
 	return e.s.parkOrphan(context.Background(), r.uid, r.cid, r.id, e.parkFor(context.Background(), r.uid), "the worker stopped", e.opts.Logf, settle) == nil
@@ -830,9 +850,11 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 	for _, row := range rows {
 		h := row.HostRequest
 		switch {
-		case needsHostAccess(h) && !e.opts.HostAllowed(ctx, row.UserID):
-			// Turning an account off denies its waiting cards (Q-5.2); the
-			// worker of a live one gets the deny.
+		case (needsHostAccess(h) && !e.opts.HostAllowed(ctx, row.UserID)) || mcpTurnedOff(ctx, e.opts.MCP, row.UserID, h):
+			// Turning an account off denies its waiting cards (Q-5.2), and so
+			// does turning off the MCP server a card waits on (a command
+			// server follows the account); the worker of a live one gets the
+			// deny.
 			if _, err := e.s.answerHost(ctx, row.UserID, row.ID, h.RequestID, hostDeny, nil, "the account can't use this computer any more"); err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, errHostAnswered) && !errors.Is(err, errHostStale) {
 				e.opts.Logf("agent engine: denying a host card of an account that was turned off: %v", err)
 			}
@@ -841,7 +863,7 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 				e.opts.Logf("agent engine: expiring a host card: %v", err)
 			}
 		case h.Phase == hostLive && !e.Follows(row.UserID, row.ID, row.AgentRunID) && h.AskedAt != nil && now.Sub(*h.AskedAt) > e.opts.OrphanAfter:
-			if err := e.s.parkOrphan(ctx, row.UserID, row.ID, row.AgentRunID, e.parkFor(ctx, row.UserID), "no process follows the run", e.opts.Logf, nil); err != nil && !errors.Is(err, errUnchanged) {
+			if err := e.s.parkOrphan(ctx, row.UserID, row.ID, row.AgentRunID, e.parkFor(ctx, row.UserID), "no process follows the run", e.opts.Logf, settleApprovedNotRun); err != nil && !errors.Is(err, errUnchanged) {
 				e.opts.Logf("agent engine: parking an orphaned host card: %v", err)
 			}
 		}

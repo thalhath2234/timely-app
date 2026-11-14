@@ -84,6 +84,10 @@ type HostCard struct {
 	Reason       string   `json:"reason"`
 	CriticalItem int      `json:"criticalItem,omitempty"`
 	Grantable    bool     `json:"grantable"`
+	// SessionCwd is the terminal's recorded folder (a cd of an earlier call)
+	// the call was judged in, as the worker's gate.ask said: a continuation
+	// carries it so the call runs in that folder or asks again.
+	SessionCwd string `json:"sessionCwd,omitempty"`
 }
 
 // wire is the card as gate.verdict carries it (snake case, PROTOCOL.md 12.3).
@@ -167,6 +171,8 @@ type HostContinuation struct {
 	ToolCallID string `json:"toolCallId,omitempty"`
 	RequestID  string `json:"requestId,omitempty"`
 	Text       string `json:"text,omitempty"`
+	// Cwd is the card's SessionCwd: the folder the approved call was judged in.
+	Cwd string `json:"cwd,omitempty"`
 }
 
 func (h HostContinuation) pending() bool { return h.Tool != "" }
@@ -330,6 +336,20 @@ func settleAllHostCards(row *Conversation) {
 	}
 }
 
+// settleApprovedNotRun is settleAllHostCards with a notice for each card it
+// closes: a chat that parks with no run live and none queued (the sweep of an
+// orphaned card) can run no approved call any more.
+func settleApprovedNotRun(row *Conversation) {
+	var gone []Message
+	for i := range row.Messages {
+		if m := &row.Messages[i]; m.Kind == "host" && m.Host != nil && m.Host.Outcome == hostApproved {
+			settleHostCard(m, false)
+			gone = append(gone, notRun(row, m.Host.Card, m.Host.Tool))
+		}
+	}
+	row.Messages = append(row.Messages, gone...)
+}
+
 // notRun is the notice for a host call that will not run.
 func notRun(row *Conversation, card *HostCard, tool string) Message {
 	what := tool
@@ -345,7 +365,11 @@ func continuationFor(h HostRequest) HostContinuation {
 	if h.Card != nil {
 		what = h.Card.subject()
 	}
-	return HostContinuation{Tool: h.Tool, ArgsHash: h.ArgsHash, ToolCallID: h.ToolCallID, RequestID: h.RequestID,
+	cwd := ""
+	if h.Card != nil {
+		cwd = h.Card.SessionCwd
+	}
+	return HostContinuation{Tool: h.Tool, ArgsHash: h.ArgsHash, ToolCallID: h.ToolCallID, RequestID: h.RequestID, Cwd: cwd,
 		Text: fmt.Sprintf("You asked to run %s (%s). The person approved it: run exactly that call now, with the same arguments, then continue.", what, h.Tool)}
 }
 

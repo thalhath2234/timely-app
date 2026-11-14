@@ -521,11 +521,20 @@ func (f *fake) approvalAnswer(m map[string]any) {
 	case r == nil:
 		f.fail(id, run, "unknown_run", "no live run "+run)
 	case waiting:
+		if strings.HasPrefix(str(m, "request_id"), "slowack-") {
+			// A worker loop busy with other messages: it takes the answer
+			// at once but its ack comes late (past Go's answer timeout).
+			time.Sleep(SlowAckDelay)
+		}
 		f.send(map[string]any{"type": "ack", "id": id, "ok": true})
 	default:
 		f.send(map[string]any{"type": "ack", "id": id, "ok": false})
 	}
 }
+
+// SlowAckDelay is how late the fake acks an approval.answer whose request id
+// starts with "slowack-".
+var SlowAckDelay = 800 * time.Millisecond
 
 // clarifyAnswer takes Go's answer to the card a run waits on and acks it
 // ok, as the real worker does; an answer to a card that no longer waits,
@@ -998,6 +1007,13 @@ func (f *fake) host(r *fakeRun, obj map[string]any) bool {
 	pre := r.preApproved
 	if pre != nil && str(pre, "tool") == tool && str(pre, "args_hash") == hash {
 		r.preApproved = nil // once
+		if cwd, ok := pre["cwd"].(string); ok && cwd != str(obj, "cwd") {
+			// The terminal folder is not the one the card was judged in: the
+			// real gate voids the approval and asks Go as for a new call.
+			pre = nil
+		}
+	}
+	if pre != nil && str(pre, "tool") == tool && str(pre, "args_hash") == hash {
 		f.mu.Unlock()
 		return ran()
 	}
