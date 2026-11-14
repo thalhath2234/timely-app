@@ -69,6 +69,8 @@ import { useChatSettings } from "@/app/utils/hooks/chat";
 import LearnedSummaryRow from "@/app/_components/settings/learnedSummaryRow";
 import { WebSearchGroup } from "@/app/_components/settings/webSearchKey";
 import McpServersGroup from "@/app/_components/settings/agentMcp";
+import { HostToolsSection } from "@/app/_components/settings/serverSettings";
+import { useDesktopShell } from "@/app/utils/hooks/desktop";
 
 export const CLI_INSTALL_URLS = {
   claude: "https://docs.anthropic.com/en/docs/claude-code/overview",
@@ -1642,6 +1644,7 @@ function AssistantPanel() {
 
 export default function AgentSettings() {
   const { data, isLoading, error, refetch } = useAgentProviders({ watchReindex: true });
+  const desktop = useDesktopShell();
 
   return (
     <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,42rem)_340px] xl:gap-10">
@@ -1685,6 +1688,8 @@ export default function AgentSettings() {
       )}
       {/* Its own query: the servers list works while the providers load or fail. */}
       <McpServersGroup />
+      {/* Off the desktop window the Server tab does not exist: the same facts, read only. */}
+      {!desktop && <HostToolsSection />}
       {data && (
         <>
           <OpenRouterCard data={data} />

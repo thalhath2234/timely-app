@@ -360,7 +360,7 @@ export function HostToolsSection() {
   if (settings.isPending) {
     return (
       <section className="flex flex-col gap-3 rounded-lg border border-border p-4" aria-busy="true">
-        <HostHeading />
+        <HostHeading id="host-tools-heading" />
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <LogoSpinner size={14} label="Loading" /> Reading what this account may do…
         </div>
@@ -370,7 +370,7 @@ export function HostToolsSection() {
   if (!data) {
     return (
       <section className="flex flex-col gap-2 rounded-lg border border-border p-4">
-        <HostHeading />
+        <HostHeading id="host-tools-heading" />
         <p className="text-xs text-destructive" role="alert">
           {errorMessage(settings.error)}
         </p>
@@ -385,9 +385,7 @@ export function HostToolsSection() {
 
   return (
     <section className="flex flex-col gap-3" aria-labelledby="host-tools-heading">
-      <h3 id="host-tools-heading" className="text-sm font-semibold text-foreground">
-        Assistant on this computer
-      </h3>
+      <HostHeading id="host-tools-heading" />
       <Toggle
         name="hostAllowed"
         label={HOST_TOGGLE_LABEL}
@@ -464,7 +462,7 @@ export function HostToolsSection() {
         />
       )}
 
-      <LimitsRow data={data} editable={state.editable} busy={busy} onSave={(max, idle) => save.mutate(() => setAgentLimits({ maxWorkers: max, idleMinutes: idle }))} />
+      <LimitsRow data={data} editable={state.editable} busy={busy} onSave={(max, idle) => save.mutateAsync(() => setAgentLimits({ maxWorkers: max, idleMinutes: idle }))} />
 
       {error && (
         <p className="flex items-center gap-1.5 text-xs text-destructive" role="alert">
@@ -476,11 +474,11 @@ export function HostToolsSection() {
   );
 }
 
-function HostHeading() {
+function HostHeading({ id }: { id?: string }) {
   return (
     <div className="flex items-center gap-2">
       <Cpu className="size-4 text-primary" />
-      <h3 className="text-sm font-semibold text-foreground">Assistant on this computer</h3>
+      <h3 id={id} className="text-sm font-semibold text-foreground">Assistant on this computer</h3>
     </div>
   );
 }
@@ -534,7 +532,8 @@ function LimitsRow({
   data: InstanceSettings;
   editable: boolean;
   busy: boolean;
-  onSave: (maxWorkers: number, idleMinutes: number) => void;
+  /** Resolves when the save landed; the typed numbers stay while it runs and when it fails. */
+  onSave: (maxWorkers: number, idleMinutes: number) => Promise<unknown>;
 }) {
   const [workers, setWorkers] = useState<string | null>(null);
   const [idle, setIdle] = useState<string | null>(null);
@@ -570,9 +569,13 @@ function LimitsRow({
             className={primaryButton}
             disabled={busy || !dirty || problem !== null}
             onClick={() => {
-              onSave(parseWholeNumber(workersText), parseWholeNumber(idleText));
-              setWorkers(null);
-              setIdle(null);
+              onSave(parseWholeNumber(workersText), parseWholeNumber(idleText)).then(
+                () => {
+                  setWorkers(null);
+                  setIdle(null);
+                },
+                () => undefined, // the section's error line says why; the typed numbers stay
+              );
             }}
           >
             Save

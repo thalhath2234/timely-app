@@ -21,7 +21,7 @@ Everything here acts on the machine that runs the stack. Follow the sandbox rule
 - Web: `/chat`. A card is `data-testid="host-card"` with `data-state` (`live`, `parked`); its buttons are `Run once`, `Allow for this chat` and `Deny`. A closed card is `data-testid="host-closed"` with `data-state` `ran`, `allowed`, `denied`, `expired`, `stopped`, `approved` (answered, not run yet) or `notrun`; `Undo this change` sits on a closed card whose call left a checkpoint.
 - The header pill and the history row read `Needs your OK` (live) or `Waiting for your OK` (parked).
 - Settings → Agent: `Permissions` → Host cards ("Who can approve a card": Any of my devices or Only the desktop window; "Paused cards wait up to": 10 minutes to 1 hour, counted after the 10-minute live wait); `MCP servers` (Add a server: Catalog, An address, A command; each server's mode: Can use, Ask me first, Off).
-- Settings → Server (desktop window only): "Let the assistant use this computer" and "Working folder". A browser cannot reach this tab.
+- Settings → Server (desktop window only): "Let the assistant use this computer" and "Working folder". A browser cannot reach this tab; Settings → Agent shows the same section read-only there (`#host-tools-heading`).
 - Phone (Expo web on `:8082`): `/assistant`, the chat history button (`Chat history`). testIDs `host-card`, `host-once`, `host-chat`, `host-deny`, `host-closed-<state>`, `host-undo`. Run once and Allow for this chat ask for device unlock first.
 
 ## Driving it with browser.mjs
