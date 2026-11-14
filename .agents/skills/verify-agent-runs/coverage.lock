@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync cea9d98d195465378a9135b95166a59a9de0acd9
+sync b137cb02ba5be204fe079b0a8ba452308061a91c
 apps/api/internal/features/chat/runner.go (*Service).work 942d9c8cd46a5f77
 apps/api/internal/features/chat/runner.go (*Service).runClassic 92f268cf78651921
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
