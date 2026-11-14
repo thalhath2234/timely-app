@@ -488,6 +488,10 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 		case row.Status == statusHostApproval && row.AgentRunID == r.id && row.HostRequest.pending():
 			parkCard(&row, now, wait)
 			reply()
+			e.queuedNotRun(&row, r)
+			// A continuation that parked on a new card before its approved
+			// call ran loses that approval: say so, never leave it "approved".
+			settleLostContinuation(&row, r.tools.contRequest)
 		case row.Status == "running" && row.AgentRunID == r.id && lease != "" && row.Lease == lease:
 			choice := answered[parked.RequestID]
 			pend := r.cards[parked.ToolCallID]
@@ -495,9 +499,11 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 			req := HostRequest{RequestID: parked.RequestID, Run: r.id, Phase: hostParked, Tool: firstNonEmpty(parked.Tool, pend.tool),
 				ToolCallID: parked.ToolCallID, ArgsHash: firstNonEmpty(parked.ArgsHash, pend.argsHash), Card: &card, AskedAt: &now}
 			r.tools.keepCards = true // the approved card stays: its continuation runs the call
+			settleLostContinuation(&row, r.tools.contRequest)
 			endRun(&row, r.tools)
 			row.Lease, row.LeaseUntil = "", nil
 			reply()
+			e.queuedNotRun(&row, r)
 			switch choice {
 			case hostOnce, hostChat:
 				// Run once reached the worker after its wait ended: the
@@ -529,6 +535,21 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 	if err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, gorm.ErrRecordNotFound) && !fenced(err) {
 		e.opts.Logf("agent engine: parking run %s: %v", r.id, err)
 	}
+}
+
+// queuedNotRun says that a second card of a parallel batch, still waiting in
+// memory for the first to be answered, will not be asked: the run parks now
+// and its call did not run. The model asks again in the next turn.
+func (e *WorkerEngine) queuedNotRun(row *Conversation, r *agentRun) {
+	for _, ev := range r.hostQueue {
+		pend := r.cards[ev.Payload.ToolCallID]
+		var card *HostCard
+		if pend.card.Title != "" {
+			card = &pend.card
+		}
+		row.Messages = append(row.Messages, notRun(row, card, firstNonEmpty(ev.Payload.Tool, pend.tool)))
+	}
+	r.hostQueue = nil
 }
 
 // parkLost parks a live card whose worker exited (decision 2: nothing ran,

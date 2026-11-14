@@ -162,7 +162,8 @@ func saveError(err error) error {
 
 // PutHostAccounts is PUT /instance/host-accounts {uid, on?, workingDir?},
 // desktop window only. The uid must be the signed-in account: turning on
-// another account means signing in as it in the desktop window.
+// another account means signing in as it in the desktop window. Turning
+// another account off needs only the desktop window.
 func (h *Handler) PutHostAccounts(c *echo.Context) error {
 	store := h.settingsStore()
 	if store == nil {
@@ -172,7 +173,14 @@ func (h *Handler) PutHostAccounts(c *echo.Context) error {
 	if err := decodeStrict(c, &body); err != nil {
 		return err
 	}
-	if body.UID == "" || body.UID != signedInUser(c) {
+	if body.UID == "" {
+		return echo.NewHTTPError(http.StatusForbidden, "Sign in as that account in the desktop app to change it")
+	}
+	// Turning an account on, or changing its folder, needs that account's own
+	// sign-in in the desktop window. Taking its access away does not: the
+	// owner at this computer can always turn another account off (Q-5.2).
+	turnOff := body.On != nil && !*body.On && body.WorkingDir == nil
+	if body.UID != signedInUser(c) && !turnOff {
 		return echo.NewHTTPError(http.StatusForbidden, "Sign in as that account in the desktop app to change it")
 	}
 	if body.On == nil && body.WorkingDir == nil {

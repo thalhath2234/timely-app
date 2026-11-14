@@ -456,6 +456,27 @@ func TestIntegrationHostAccountsRoutes(t *testing.T) {
 	if !store.IsHostAllowed(ctx, server) {
 		t.Error("the server-named account was turned off")
 	}
+	// The owner at the desktop window can turn another account off without
+	// signing in as it; turning one on (or changing its folder) still needs its
+	// own sign-in (review round 2).
+	if code, out = call(t, loopback.URL, http.MethodPut, "/instance/host-accounts", bob, testToken, fmt.Sprintf(`{"uid":%q,"on":true}`, bob)); code != http.StatusOK {
+		t.Fatalf("bob on again: %d %v", code, out)
+	}
+	if code, out = call(t, loopback.URL, http.MethodPut, "/instance/host-accounts", alice, testToken, fmt.Sprintf(`{"uid":%q,"on":false}`, bob)); code != http.StatusOK {
+		t.Fatalf("alice turning bob off from the desktop window: %d %v", code, out)
+	}
+	if store.IsHostAllowed(ctx, bob) || !store.IsHostAllowed(ctx, alice) {
+		t.Error("turning another account off changed the wrong accounts")
+	}
+	if code, _ = call(t, loopback.URL, http.MethodPut, "/instance/host-accounts", alice, testToken, fmt.Sprintf(`{"uid":%q,"on":true}`, bob)); code != http.StatusForbidden {
+		t.Errorf("turning another account on: %d, want 403", code)
+	}
+	if code, _ = call(t, loopback.URL, http.MethodPut, "/instance/host-accounts", alice, "", fmt.Sprintf(`{"uid":%q,"on":false}`, alice)); code != http.StatusNotFound {
+		t.Errorf("turning off without the shell token: %d, want 404", code)
+	}
+	if code, _ = call(t, loopback.URL, http.MethodPut, "/instance/host-accounts", alice, testToken, fmt.Sprintf(`{"uid":"nobody","on":false}`)); code == http.StatusInternalServerError {
+		t.Errorf("turning off an unknown account: %d", code)
+	}
 
 	// Working folder: an existing absolute folder only, and only for an account
 	// that is on.

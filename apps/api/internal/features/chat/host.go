@@ -302,6 +302,24 @@ func settleHostCards(row *Conversation, runID, requestID string) bool {
 	return changed
 }
 
+// settleLostContinuation closes the approved card of a continuation that
+// never got to run its call (the continuation turn parked on a new card
+// first) as "not run", with the notice, so the lost approval is visible.
+func settleLostContinuation(row *Conversation, requestID string) {
+	if requestID == "" {
+		return
+	}
+	for i := range row.Messages {
+		m := &row.Messages[i]
+		if m.Kind != "host" || m.Host == nil || m.Host.Outcome != hostApproved || m.Host.RequestID != requestID {
+			continue
+		}
+		settleHostCard(m, false)
+		row.Messages = append(row.Messages, notRun(row, m.Host.Card, m.Host.Tool))
+		return
+	}
+}
+
 // settleAllHostCards is settleHostCards for every approved card of a chat
 // that has no run any more (Retry).
 func settleAllHostCards(row *Conversation) {

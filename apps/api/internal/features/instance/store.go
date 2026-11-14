@@ -241,6 +241,18 @@ func ValidateWorkingDir(dir string) (string, error) {
 	if err != nil || !info.IsDir() {
 		return "", invalid("That folder doesn't exist on this computer.")
 	}
+	// The working folder is where the agent may delete and overwrite without
+	// asking in Auto: the disk's root, the home folder and any folder above
+	// the home would make everything "inside" it.
+	if filepath.Dir(clean) == clean {
+		return "", invalid("Pick a project folder, not the whole disk.")
+	}
+	if home, herr := os.UserHomeDir(); herr == nil && home != "" {
+		home = filepath.Clean(home)
+		if clean == home || strings.HasPrefix(home+string(filepath.Separator), clean+string(filepath.Separator)) {
+			return "", invalid("Pick a project folder, not your whole home folder.")
+		}
+	}
 	return clean, nil
 }
 

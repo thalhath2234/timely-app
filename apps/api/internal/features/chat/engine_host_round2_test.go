@@ -253,3 +253,26 @@ func TestIntegrationAgentEngineHostTerminalGrantAfterOwnOutput(t *testing.T) {
 		t.Fatalf("the second git status asked again: %+v", v)
 	}
 }
+
+// A continuation that parks on a new card before its pre-approved call ran
+// loses that approval: the earlier card reads "not run" with a notice, and is
+// never left "approved" for good.
+func TestIntegrationAgentEngineHostContinuationThatParksAgainSettlesTheEarlierCard(t *testing.T) {
+	h := hostHarness(t, func(o *WorkerEngineOptions) { o.LiveWait = time.Second })
+	c := h.chat("List my files", "supervised", "park1", lines(ls("call_ls"), reply("x", 0)))
+	c = h.hostWaiting(c.ID, hostParked)
+	h.kit.Fixture("cont", lines(host("call_pwd", "terminal", obj{"command": "pwd"}), reply("done", 0))).ForConversation(c.ID, "cont")
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer %d %s", code, body)
+	}
+	c = h.wait(c.ID, "parked again", func(c Conversation) bool {
+		return c.Status == statusHostApproval && c.HostRequest.Phase == hostParked && c.HostRequest.ToolCallID == "call_pwd"
+	})
+	cl := closedHost(c)
+	if len(cl) != 1 || cl[0].ToolCallID != "call_ls" || cl[0].Outcome != hostNotRun {
+		t.Fatalf("closed cards %+v", cl)
+	}
+	if !strings.Contains(lastMessage(c).Content, "Not run: ls -la") {
+		t.Fatalf("no notice for the lost approval: %q", lastMessage(c).Content)
+	}
+}
