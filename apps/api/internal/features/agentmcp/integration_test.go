@@ -777,7 +777,7 @@ func TestIntegrationProbeKeepsToolHintsForTheGateAndNamesASignInProblem(t *testi
 	}}
 	code, out, _ = r.do(a, "GET", "/agent/mcp/servers/notes/tools", nil)
 	tools := out["tools"].([]any)
-	if code != 200 || len(tools) != 3 || tools[1].(map[string]any)["class"] != "send" || tools[0].(map[string]any)["class"] != "read" || tools[2].(map[string]any)["class"] != "write" {
+	if code != 200 || len(tools) != 3 || tools[1].(map[string]any)["class"] != "send" || tools[0].(map[string]any)["class"] != "read" || tools[2].(map[string]any)["class"] != "delete" {
 		t.Fatalf("tools %d %v", code, out)
 	}
 	if v := r.mustList(a)[0]; v.LastError != "" || len(v.Tools) != 3 {

@@ -32,7 +32,7 @@ export function modeHint(mode: string): string {
 }
 
 /** What the gate treats a tool as (`agentmcp.Class`). */
-export type McpToolClass = "send" | "pay" | "config" | "write" | "read";
+export type McpToolClass = "send" | "pay" | "config" | "delete" | "write" | "read";
 
 export type McpToolHints = {
   readOnlyHint?: boolean;
@@ -52,6 +52,7 @@ const TOOL_CLASS_LABEL: Record<McpToolClass, string> = {
   send: "Sends",
   pay: "Spends money",
   config: "Changes settings",
+  delete: "Deletes",
   write: "Changes data",
   read: "Reads",
 };
@@ -62,7 +63,7 @@ export function toolClassLabel(c: string): string {
 
 /** Classes that Auto always stops on, however the server is set. */
 export function toolAlwaysAsks(c: string): boolean {
-  return c === "send" || c === "pay" || c === "config";
+  return c === "send" || c === "pay" || c === "config" || c === "delete";
 }
 
 export type McpStatus = "ready" | "needs_sign_in" | "waiting_for_ok" | "unavailable";

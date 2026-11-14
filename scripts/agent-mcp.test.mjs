@@ -68,9 +68,10 @@ test("tool classes use plain words and the risky ones always ask", () => {
   assert.equal(toolClassLabel("send"), "Sends");
   assert.equal(toolClassLabel("pay"), "Spends money");
   assert.equal(toolClassLabel("config"), "Changes settings");
+  assert.equal(toolClassLabel("delete"), "Deletes");
   assert.equal(toolClassLabel("read"), "Reads");
   assert.equal(toolClassLabel("???"), "Changes data");
-  assert.deepEqual(["send", "pay", "config", "write", "read"].map(toolAlwaysAsks), [true, true, true, false, false]);
+  assert.deepEqual(["send", "pay", "config", "delete", "write", "read"].map(toolAlwaysAsks), [true, true, true, true, false, false]);
 });
 
 test("the catalog filters by words and category, with what is added last", () => {
