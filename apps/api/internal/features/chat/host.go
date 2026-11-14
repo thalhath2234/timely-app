@@ -88,6 +88,11 @@ type HostCard struct {
 	// the call was judged in, as the worker's gate.ask said: a continuation
 	// carries it so the call runs in that folder or asks again.
 	SessionCwd string `json:"sessionCwd,omitempty"`
+	// Session is the running command a process call is about (Hermes' session
+	// id), and Stdin says the card's Command is text typed into it, not a
+	// command line: the apps label it so and say it answers a running program.
+	Session string `json:"session,omitempty"`
+	Stdin   bool   `json:"stdin,omitempty"`
 }
 
 // wire is the card as gate.verdict carries it (snake case, PROTOCOL.md 12.3).

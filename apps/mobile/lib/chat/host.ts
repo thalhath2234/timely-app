@@ -46,7 +46,8 @@ export function subjectLabel(
 ): string {
   switch (kind) {
     case "terminal":
-      return "Command";
+      // Text typed into a running program is not a command run in a folder.
+      return card?.stdin ? "Text to type" : "Command";
     case "file":
       if (card?.command?.trim()) return "Search for";
       // A patch can change and delete several files: one line each.
@@ -93,12 +94,17 @@ export function detailBlock(card: HostCard | null | undefined): {
 } {
   if (card?.kind === "browser" && card.url?.trim() && card.command?.trim())
     return { label: "Script", text: card.command.trim() };
+  // The program that gets the typed text: Hermes names it by session id only.
+  if (card?.stdin && card.session?.trim())
+    return { label: "Typed into the running command", text: card.session.trim() };
   return { label: "", text: "" };
 }
 
 /** What a browser script that names no address acts on: the page that is
  * already open. "" for every other card. */
 export function pageLine(card: HostCard | null | undefined): string {
+  if (card?.stdin)
+    return "Sent to a command that is already running: it answers whatever that command is asking. Look at the command that started it, earlier in this chat.";
   return card?.kind === "browser" && !card.url?.trim()
     ? "Runs on the page that is open in your browser"
     : "";
@@ -107,7 +113,7 @@ export function pageLine(card: HostCard | null | undefined): string {
 /** The "In" line: the folder a search looks in, else the folder the command
  * starts in. */
 export function whereLine(card: HostCard | null | undefined): string {
-  if (!card) return "";
+  if (!card || card.stdin) return "";
   if (card.kind === "file" && card.command?.trim() && card.path?.trim())
     return card.path.trim();
   return card.cwd?.trim() ?? "";
@@ -423,6 +429,7 @@ export function hostLine(
   if (!ran) {
     const what = short || host.tool;
     if (host.outcome === "denied") {
+      if (card?.stdin) return `Denied typing \`${short}\` into a running command`;
       if (kind === "browser" && !card?.url?.trim())
         return "Denied using your browser";
       return `Denied ${kind === "browser" ? "opening" : ""} ${what}`
@@ -436,6 +443,8 @@ export function hostLine(
   }
   switch (kind) {
     case "terminal":
+      if (card?.stdin) return `Typed \`${short}\` into a running command`;
+      if (card?.session) return short; // "Stop the running command proc_1"
       return `Ran \`${short}\``;
     case "code":
       return "Ran code";

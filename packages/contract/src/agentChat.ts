@@ -420,6 +420,10 @@ export type HostCard = {
   cwd?: string;
   server?: string;
   envNames?: string[];
+  /** The running command a process call is about (its session id). */
+  session?: string;
+  /** The card's command is text typed into that running command, not a command line. */
+  stdin?: boolean;
   /** Why it asks: Go's reason (the critical-list reason, the mode, Ask me first). */
   reason: string;
   /** The critical-list item (agent/permission.go), when it is one. */

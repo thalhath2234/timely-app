@@ -1317,6 +1317,37 @@ for (const [app, h] of [
     assert.equal(reasonOf(""), "");
   });
 
+  test(`${app}: typing into a running command says so, names the command and shows no folder; the manage form reads in words (review round 6)`, () => {
+    const stdin = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "terminal",
+          title: "Type into a running command?",
+          command: "y",
+          session: "proc_abc123",
+          stdin: true,
+          reason: "Supervised asks before every action",
+          grantable: false,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual(
+      [stdin.subjectLabel, stdin.subject, stdin.detailLabel, stdin.detail, stdin.cwd],
+      ["Text to type", "y", "Typed into the running command", "proc_abc123", ""],
+    );
+    assert.match(stdin.page, /already running/);
+    const closed = (outcome, card) =>
+      h.hostLine({ tool: "process_manage", outcome, card });
+    const stdinCard = { kind: "terminal", title: "t", command: "y", session: "proc_abc123", stdin: true, reason: "", grantable: false };
+    assert.equal(closed("ran", stdinCard), "Typed `y` into a running command");
+    assert.equal(closed("denied", stdinCard), "Denied typing `y` into a running command");
+    const kill = { kind: "terminal", title: "Stop a running command?", command: "Stop the running command proc_abc123", session: "proc_abc123", reason: "", grantable: true };
+    assert.equal(closed("ran", kill), "Stop the running command proc_abc123");
+    const manage = h.hostCardView(hostReq({ card: kill }), NOW);
+    assert.deepEqual([manage.subjectLabel, manage.detail, manage.page], ["Command", "", ""]);
+  });
+
   test(`${app}: Deny works under every rule; Run once and Allow for this chat need the desktop window under the desktop rule, and the phone unlocks first`, () => {
     const choices = ["once", "chat", "deny"];
     const rows = (surface, rule) =>

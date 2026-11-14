@@ -94,3 +94,21 @@ func TestHostCallDatabaseAndSecretsAsk(t *testing.T) {
 		t.Errorf("a grant made from a SELECT covered the UPDATE: %s by %s", d.verdict, d.by)
 	}
 }
+
+// Review round 6: a card for typing into a running command names the running
+// command, labels the text as typed input and carries no folder; the manage
+// form is said in words, not in Hermes' own syntax.
+func TestHostCallProcessCardsNameTheRunningCommand(t *testing.T) {
+	d := decideCall(t, baseState(agent.Supervised), "process_manage", map[string]any{"action": "submit", "session_id": "proc_abc123", "data": "y"})
+	if d.verdict != "approve" || !d.card.Stdin || d.card.Session != "proc_abc123" || d.card.Command != "y" || d.card.Cwd != "" || d.card.Grantable {
+		t.Errorf("stdin card %+v (%s)", d.card, d.verdict)
+	}
+	d = decideCall(t, baseState(agent.Supervised), "process_manage", map[string]any{"action": "kill", "session_id": "proc_abc123"})
+	if d.card.Title != "Stop a running command?" || d.card.Command != "Stop the running command proc_abc123" || d.card.Stdin || d.card.Session != "proc_abc123" {
+		t.Errorf("kill card %+v", d.card)
+	}
+	d = decideCall(t, baseState(agent.Supervised), "process", map[string]any{"action": "poll", "session_id": "proc_abc123"})
+	if d.card.Title != "Check on a running command?" || strings.Contains(d.card.Command, "process poll") {
+		t.Errorf("poll card %+v", d.card)
+	}
+}

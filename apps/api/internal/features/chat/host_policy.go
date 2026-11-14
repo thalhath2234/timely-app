@@ -496,15 +496,17 @@ func hostCall(tool string, args map[string]any, workingDir, sessionCwd, home str
 		session := str("session_id", "pid", "process_id")
 		data := str("data", "input")
 		command := strings.TrimSpace("process " + action + " " + session)
-		card := HostCard{Kind: cardTerminal, Title: "Manage a running command?", Cwd: clip(cwd, 1000)}
+		card := HostCard{Kind: cardTerminal, Title: "Manage a running command?", Cwd: clip(cwd, 1000), Session: clip(session, 200)}
 		if action == "write" || action == "submit" {
 			// What is typed into a running command is a command: the
 			// critical list judges it, and no grant covers it, because the
 			// next input can be anything (Hermes runs no guard on stdin).
-			card.Title, card.Command = "Type into a running command?", clip(data, 4000)
+			// The folder is not the card's business: the text goes to a
+			// program that is already running.
+			card.Title, card.Command, card.Stdin, card.Cwd = "Type into a running command?", clip(data, 4000), true, ""
 			return agent.HostAction{Kind: agent.HostTerminal, Command: data, Cwd: where}, card, nil
 		}
-		card.Command = clip(command, 4000)
+		card.Title, card.Command = processWords(action, session)
 		return agent.HostAction{Kind: agent.HostTerminal, Command: command, Cwd: where}, card,
 			newGrant("terminal", "process:"+action, "Manage running commands ("+action+")")
 	case "read_file":
@@ -705,4 +707,22 @@ func personHosts(messages []Message) []string {
 		}
 	}
 	return out
+}
+
+// processWords says a process call in words, not in Hermes' internal syntax:
+// the card's title and its one line.
+func processWords(action, session string) (title, line string) {
+	which := "a running command"
+	if session != "" {
+		which = "the running command " + session
+	}
+	switch strings.ToLower(action) {
+	case "kill", "terminate", "stop":
+		return "Stop a running command?", clip("Stop "+which, 4000)
+	case "poll", "log", "wait", "status", "output":
+		return "Check on a running command?", clip("Read the output of "+which+", or wait for it", 4000)
+	case "list":
+		return "Check on a running command?", "List the running commands"
+	}
+	return "Manage a running command?", clip(strings.TrimSpace(action+" "+which), 4000)
 }
