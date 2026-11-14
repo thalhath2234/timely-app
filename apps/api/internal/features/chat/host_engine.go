@@ -612,7 +612,14 @@ func started(status string) bool {
 func (r *agentRun) approvedCard(row *Conversation, p struct{ tool, call, hash string }, ran bool) int {
 	for i := len(row.Messages) - 1; i >= 0; i-- {
 		m := &row.Messages[i]
-		if m.Kind != "host" || m.Host == nil || !(m.Host.Outcome == hostApproved || (ran && m.Host.Outcome == hostNotRun && m.AgentRun == r.id)) {
+		if m.Kind != "host" || m.Host == nil {
+			continue
+		}
+		// A card a Stop or a lost run already closed as "not run" matches
+		// too when the call did start. The continuation's card belongs to
+		// the parked run that asked, so it is found by its request.
+		late := ran && m.Host.Outcome == hostNotRun && (m.AgentRun == r.id || (r.cont != nil && m.Host.RequestID == r.cont.RequestID))
+		if m.Host.Outcome != hostApproved && !late {
 			continue
 		}
 		if p.call != "" && m.Host.ToolCallID == p.call {

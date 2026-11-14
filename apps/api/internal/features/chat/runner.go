@@ -197,12 +197,14 @@ func (s *Service) work(ctx context.Context) {
 				row.Status = "failed"
 				row.Error = msg
 				row.ErrorAction = failureAction(err)
-				if c.PreApproved != nil {
-					// The continuation of a parked card never started (a refused
-					// start, the engine changed, the account is no longer
-					// host-allowed): the approved call did not run.
-					settleHostCards(row, "", c.PreApproved.RequestID)
-				}
+				// A failed claim ends every run of this chat: a card the person
+				// approved whose call never ran is "not run". That is a
+				// continuation that never started (a refused start, the engine
+				// changed, the account is no longer host-allowed) and also an
+				// agent run that was Lost (an API crash or a lease that
+				// expired), which a resumed claim cannot name by run or by
+				// request any more.
+				settleAllHostCards(row)
 				if row.Phase == "apply" {
 					// Name the step that stopped the run; retry resets it to pending.
 					for i := range row.Plan {

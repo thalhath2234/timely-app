@@ -554,9 +554,13 @@ func (s *Service) stop(c *echo.Context) error {
 	err := s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if busy(row) || row.Status == "approval" || row.Status == statusHostApproval {
 			// A card the person approved whose call has not run yet (the live
-			// run it re-attached, or the continuation waiting to be claimed)
-			// ends here: it is not run, whatever Run once said.
-			settleHostCards(row, row.AgentRunID, row.Continuation.RequestID)
+			// run it re-attached, the continuation waiting to be claimed, or a
+			// continuation already claimed, which cleared the row's own record
+			// of it and runs under a new run id) ends here: it is not run,
+			// whatever Run once said. No run of this chat goes on after a
+			// Stop, so every approved card that never saw host.ran settles;
+			// a call that did start reports host.ran and flips its card back.
+			settleAllHostCards(row)
 			if h := row.HostRequest; h.pending() {
 				// A host card closes unanswered: its call never runs (the
 				// engine denies a live one before it stops the run).
