@@ -637,3 +637,22 @@ def test_undo_belongs_to_the_call_that_took_the_snapshot(monkeypatch):
     call("terminal", {"command": "ls -la"}, "c3", False)
     got = {p["tool_call_id"]: p.get("checkpoint") for k, p in events if k == "host.ran"}
     assert got == {"c1": "h1", "c2": "h2", "c3": None}
+
+
+def test_mcp_secrets_leave_config_yaml_when_the_worker_exits(tmp_path):
+    """Review round 3: Go fills an MCP server's ``env`` and ``headers`` into config.yaml, and the file
+    stayed readable (to a host-allowed read_file in Auto) after the worker exited. The exit
+    scrubs the values; the next spawn re-renders the file."""
+    from timely_agent import config_render
+    cfg = {"mcp_servers": {"mail": {"command": "x", "args": ["--serve"], "env": {"TOKEN": "s3cret"}},
+                           "cal": {"url": "https://cal.example/mcp?key=abc", "headers": {"Authorization": "Bearer s3cret"}}},
+           "other": 1}
+    path = tmp_path / "config.yaml"
+    path.write_bytes(config_render.dumps(cfg))
+    config_render.scrub_mcp_secrets(tmp_path)
+    text = path.read_text()
+    assert "s3cret" not in text and "key=abc" not in text
+    after = json.loads("\n".join(ln for ln in text.splitlines() if not ln.startswith("#")))
+    assert after["mcp_servers"]["mail"] == {"command": "x", "args": ["--serve"]}
+    assert after["mcp_servers"]["cal"] == {"url": "https://cal.example/mcp"} and after["other"] == 1
+    config_render.scrub_mcp_secrets(tmp_path / "nowhere")  # no file: nothing to do

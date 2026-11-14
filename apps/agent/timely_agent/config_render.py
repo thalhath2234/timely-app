@@ -225,6 +225,28 @@ def dumps(cfg: Mapping) -> bytes:
     return (HEADER + json.dumps(cfg, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
 
 
+def scrub_mcp_secrets(home: os.PathLike | str) -> None:
+    """Worker exit: take the secrets of the MCP servers out of ``config.yaml``. Go fills the values
+    (``env``, ``headers``, a token in an address) in before each spawn and re-renders the file at
+    the next one, so they live on disk only while a worker runs, like the OAuth token files."""
+    path = Path(home) / "config.yaml"
+    try:
+        text = path.read_text(encoding="utf-8")
+        cfg = json.loads("\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#")))
+        servers = cfg.get("mcp_servers")
+        if not isinstance(servers, dict) or not servers:
+            return
+        for entry in servers.values():
+            if isinstance(entry, dict):
+                entry.pop("env", None)
+                entry.pop("headers", None)
+                if isinstance(entry.get("url"), str):
+                    entry["url"] = entry["url"].split("?", 1)[0]
+        write_atomic(path, dumps(cfg))
+    except (OSError, ValueError):
+        pass
+
+
 def sha256_file(path: os.PathLike | str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 

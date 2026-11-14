@@ -461,11 +461,15 @@ class Worker:
             logger.exception("stopping the browsers failed")
 
     def drop_mcp_tokens(self) -> None:
-        from timely_agent import mcp_tokens
+        from timely_agent import config_render, mcp_tokens
         try:
             mcp_tokens.remove(self.home)
         except Exception:
             logger.exception("removing MCP token files failed")
+        try:
+            config_render.scrub_mcp_secrets(self.home)
+        except Exception:
+            logger.exception("removing MCP secrets from config.yaml failed")
 
     def on_checkpoint_restore(self, msg: dict[str, Any]) -> None:
         """``checkpoint.restore {checkpoint, working_dir}`` -> ``checkpoint.result {ok, restored[], error?}``."""
