@@ -303,6 +303,26 @@ def stdin_floor(tool: str, args: dict) -> str:
     return str(result.get("message") or "Blocked: that input is on Hermes' unconditional blocklist.")
 
 
+def session_cwd(*keys: str) -> str:
+    """The folder Hermes' terminal session recorded (a ``cd`` of an earlier call), "" when none.
+    Relative paths of a call without a ``workdir`` resolve from it, so Go judges them from there
+    (``gate.ask`` ``cwd``), not from the working folder."""
+    try:
+        from tools.terminal_tool import get_session_cwd
+    except Exception:
+        return ""
+    for key in keys:
+        if not key:
+            continue
+        try:
+            cwd = get_session_cwd(key)
+        except Exception:
+            continue
+        if isinstance(cwd, str) and cwd.strip():
+            return cwd.strip()
+    return ""
+
+
 # ---------------------------------------------------------------- Full Access (YOLO)
 
 def start_yolo(run: bridge.RunContext) -> None:

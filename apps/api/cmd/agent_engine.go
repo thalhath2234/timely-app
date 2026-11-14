@@ -78,6 +78,7 @@ func newAgentEngine(db *gorm.DB, chatService *chat.Service, catalog func() agent
 		Unsupported:    func(err error) bool { return errors.Is(err, provider.ErrAgentEngineUnsupported) },
 		HostAllowed:    hostAllowed,
 		HostWorkingDir: host.workingDir,
+		HostHome:       cfg.Env.RealHome,
 		RenderedHost:   host.renderedHost,
 		Learning:       runLearningPrefs(prefs),
 		Fetch:          webFetcher(os.Getenv),

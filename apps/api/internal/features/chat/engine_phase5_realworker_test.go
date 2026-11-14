@@ -868,9 +868,8 @@ func TestIntegrationAgentEngineRealWorkerHostParkAndContinue(t *testing.T) {
 // Allow for this chat: after it, a later call of the same kind (a file read
 // in the same folder) in that chat runs with no card and is logged allowed
 // for the chat; a read in another folder asks again, and so does another
-// chat. (A terminal command's own output is outside content, which makes the
-// next command a critical-list item that a grant never covers; that is
-// pinned in the fake-worker suite and is an open item in the plan.)
+// chat. (A terminal command's own output taints the chat, and that local taint
+// does not stop a grant for the same kind of command: the terminal test below.)
 func TestIntegrationAgentEngineRealWorkerHostAllowForThisChat(t *testing.T) {
 	w := newHostWorld(t, hostOpts{})
 	for path, text := range map[string]string{
@@ -928,6 +927,41 @@ func TestIntegrationAgentEngineRealWorkerHostAllowForThisChat(t *testing.T) {
 	w.until(other.ID, "idle", statusIs("idle"))
 	if waiting := w.lanes(); waiting == 0 {
 		t.Fatal("the lane watch never saw a card waiting")
+	}
+}
+
+// Allow for this chat on a terminal command (Q-5.1): the real worker marks the
+// granted command's own output as a taint source, and the next command of the
+// same kind still runs with no card (review round 2). Only harmless echo
+// commands, in the sandbox.
+func TestIntegrationAgentEngineRealWorkerHostTerminalGrantSurvivesItsOwnOutput(t *testing.T) {
+	w := newHostWorld(t, hostOpts{})
+	tag := "tag-host-term-grant"
+	c := w.hostChat("user-a", stubScript(tag, stubCalls("terminal", obj{"command": "echo p5-grant-one"}),
+		stubCalls("terminal", obj{"command": "echo p5-grant-two"}), obj{"text": "Both ran."}), "supervised")
+	c = w.card(c.ID, hostLive)
+	if hr := c.HostRequest; hr.Card == nil || !hr.Card.Grantable || hr.Grant == nil || hr.Grant.Match != "terminal:echo" {
+		t.Fatalf("first card %+v grant %+v", c.HostRequest.Card, c.HostRequest.Grant)
+	}
+	w.answer(c, "chat")
+	c = w.until(c.ID, "finished", statusIs("idle"))
+	if lastMessage(c).Content != "Both ran." || !strings.Contains(w.toolSeen(tag), "p5-grant-two") {
+		t.Fatalf("reply %q, the model read %q: the second echo asked again", lastMessage(c).Content, w.toolSeen(tag))
+	}
+	var requested, allowed int
+	for _, e := range w.hostEvents(c.ID) {
+		switch e.Kind {
+		case eventRequested:
+			requested++
+		case eventAllowed:
+			allowed++
+		}
+	}
+	if requested != 1 || allowed != 1 {
+		t.Fatalf("%d cards and %d grant-allowed calls, want 1 and 1", requested, allowed)
+	}
+	if ran := w.sb.ran("echo p5-grant-two"); len(ran) != 1 {
+		t.Fatalf("the second echo ran %d times", len(ran))
 	}
 }
 

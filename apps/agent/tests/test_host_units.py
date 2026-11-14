@@ -159,7 +159,7 @@ def test_full_access_live_wait_and_pre_approved_shapes():
 # ---------------------------------------------------------------- the gate's host rules (fake Go)
 
 def _gate(run: bridge.RunContext, tool: str, args: dict, call_id: str = "call_1", verdict: str = "allow",
-          by: str = ""):
+          by: str = "", **hook):
     from timely_agent.plugins import timely_gate
     asked: list[dict] = []
     old = bridge.ask
@@ -167,7 +167,7 @@ def _gate(run: bridge.RunContext, tool: str, args: dict, call_id: str = "call_1"
     bridge.ask = lambda msg, timeout: asked.append(msg) or reply
     token = bridge.current_run.set(run)
     try:
-        return timely_gate.pre_tool_call(tool_name=tool, args=args, tool_call_id=call_id), asked
+        return timely_gate.pre_tool_call(tool_name=tool, args=args, tool_call_id=call_id, **hook), asked
     finally:
         bridge.current_run.reset(token)
         bridge.ask = old
@@ -565,3 +565,26 @@ def test_stdin_floor_refuses_what_hermes_would_block_typed_into_a_running_comman
     verdict, asked = _gate(_run(host_allowed=True), "process_manage",
                            {"action": "submit", "session_id": "p", "data": "y"}, verdict="allow")
     assert verdict is None and len(asked) == 1
+
+
+def test_gate_ask_carries_the_terminal_sessions_folder(monkeypatch):
+    """Review round 2: a call without a ``workdir`` runs in the folder an earlier ``cd`` left the
+    session in, so ``gate.ask`` names it and Go judges relative paths from there."""
+    import sys
+    import types
+    mod = types.ModuleType("tools.terminal_tool")
+    seen = []
+    mod.get_session_cwd = lambda key: seen.append(key) or ({"task-1": "/home/me/Documents"}.get(key))
+    pkg = types.ModuleType("tools")
+    pkg.__path__ = []
+    monkeypatch.setitem(sys.modules, "tools", pkg)
+    monkeypatch.setitem(sys.modules, "tools.terminal_tool", mod)
+    verdict, asked = _gate(_run(host_allowed=True), "terminal", {"command": "rm thesis.md"}, task_id="task-1", session_id="s-1")
+    assert verdict is None and asked[0]["cwd"] == "/home/me/Documents"
+    _, asked = _gate(_run(host_allowed=True), "terminal", {"command": "ls"}, task_id="other", session_id="s-1")
+    assert "cwd" not in asked[0]  # no record: Go uses the working folder
+    _, asked = _gate(_run(host_allowed=True), "write_file", {"path": "a", "content": "b"}, task_id="task-1")
+    assert asked[0]["cwd"] == "/home/me/Documents"
+    mod.get_session_cwd = lambda key: (_ for _ in ()).throw(RuntimeError("no session"))
+    _, asked = _gate(_run(host_allowed=True), "terminal", {"command": "ls"}, task_id="task-1")
+    assert "cwd" not in asked[0]  # a failing lookup never blocks or breaks the ask

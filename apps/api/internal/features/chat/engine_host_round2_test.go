@@ -208,3 +208,48 @@ func TestIntegrationAgentEngineHostParkedCardPastItsTimeIsNotAnswerable(t *testi
 		t.Fatalf("a second answer: %d", code)
 	}
 }
+
+// The hardline floor holds end to end in every mode: a catastrophic command
+// spelled in a way Hermes' own floor misses gets a block verdict, no card and
+// no run, even in Full Access.
+func TestIntegrationAgentEngineHostHardlineFloorEndToEnd(t *testing.T) {
+	for _, mode := range []string{"supervised", "auto", "full"} {
+		t.Run(mode, func(t *testing.T) {
+			h := hostHarness(t)
+			c := h.chat("Clean up", mode, "floor-"+mode, lines(host("c1", "terminal", obj{"command": "/bin/rm -rf /"}), reply("{{last_result}}", 0)))
+			c = h.wait(c.ID, "replied", statusIs("idle"))
+			v := h.verdicts()
+			if len(v) != 1 || v[0].Verdict != "block" || !strings.Contains(v[0].Message, "never runs") {
+				t.Fatalf("verdicts %+v", v)
+			}
+			if kinds := eventKinds(h.hostEvents(c.ID)); slices.Contains(kinds, eventRan) || slices.Contains(kinds, eventRequested) {
+				t.Fatalf("events %v", kinds)
+			}
+			if len(closedHost(c)) != 0 {
+				t.Fatalf("a card was shown for a command that never runs: %+v", closedHost(c))
+			}
+		})
+	}
+}
+
+// A terminal grant fires for the next command even though the first one's
+// output tainted the chat locally (Q-5.1), through gate.ask with the taint the
+// real worker sends for terminal output.
+func TestIntegrationAgentEngineHostTerminalGrantAfterOwnOutput(t *testing.T) {
+	h := hostHarness(t)
+	taint := func(call string) obj {
+		o := host(call, "terminal", obj{"command": "git status --short"})
+		o["tainted_sources"] = []obj{{"kind": "terminal", "tool": "terminal"}}
+		return o
+	}
+	c := h.chat("Check", "supervised", "grant-taint", lines(taint("c1"), taint("c2"), reply("Done.", 0)))
+	c = h.hostWaiting(c.ID, hostLive)
+	if code, body := h.answerCard(c.ID, "req-c1", hostChat, ""); code != 200 {
+		t.Fatalf("Allow for this chat: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	v := h.verdicts()
+	if len(v) != 2 || v[0].Verdict != "approve" || v[1].Verdict != "allow" {
+		t.Fatalf("the second git status asked again: %+v", v)
+	}
+}

@@ -950,7 +950,8 @@ func argsHash(args any) string {
 // deny gives Hermes' BLOCKED text), run.stop or the live wait, after which
 // the card parks: event approval.parked, then run.done approval_parked. A
 // call that ran sends event host.ran (with "checkpoint" and
-// "checkpoint_dir" when the line names them; "ran_delay_ms" and "ran_status"
+// "checkpoint_dir" when the line names them; "tainted_sources" and "cwd" ride
+// on the gate.ask; "ran_delay_ms" and "ran_status"
 // make the call slow or end otherwise); "auto": true first sends
 // approval.auto, Hermes' second approval answered once. false means the
 // run was stopped or ended.
@@ -1008,6 +1009,12 @@ func (f *fake) host(r *fakeRun, obj map[string]any) bool {
 		"args_hash": hash, "toolset": str(obj, "toolset"), "tainted_sources": []any{}, "run_kind": "chat"}
 	if inner, _ := obj["inner"].(bool); inner {
 		ask["inner"] = true
+	}
+	if src, ok := obj["tainted_sources"].([]any); ok {
+		ask["tainted_sources"] = src // what the real worker reports once the run read a file or ran a command
+	}
+	if cwd := str(obj, "cwd"); cwd != "" {
+		ask["cwd"] = cwd // Hermes' recorded terminal folder
 	}
 	if mcp, ok := obj["mcp"].(map[string]any); ok {
 		ask["mcp"] = mcp

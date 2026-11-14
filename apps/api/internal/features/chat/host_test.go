@@ -60,7 +60,7 @@ func askOf(tool string, args map[string]any) gateAsk {
 }
 
 func baseState(mode agent.Mode) hostState {
-	return hostState{hostAllowed: true, workingDir: "/home/me/work", mode: mode, hosts: []string{"example.org"}, uid: "user-a",
+	return hostState{hostAllowed: true, workingDir: "/home/me/work", home: "/home/me", mode: mode, hosts: []string{"example.org"}, uid: "user-a",
 		mcp: &fakeMCP{modes: map[string]string{"mail": mcpUse, "notes": mcpAsk, "old": mcpOff}}}
 }
 
@@ -203,7 +203,7 @@ func TestCommandGrant(t *testing.T) {
 	for cmd, want := range map[string]string{
 		"ls -la":               "terminal:ls",
 		"git status --short":   "terminal:git status",
-		"git -C x log":         "terminal:git x",
+		"git -C x log":            "terminal:git log",
 		"npm run build":        "terminal:npm run",
 		"ls; rm -rf ~":         "",
 		"ls && rm x":           "",
@@ -341,7 +341,7 @@ func TestSupervisedIsNeverLooserThanAuto(t *testing.T) {
 		askOf("process_manage", map[string]any{"action": "poll", "session_id": "p"}),
 	}
 	for _, ask := range asks {
-		_, _, grant := hostCall(ask.Tool, mustArgs(ask), "/home/me/work")
+		_, _, grant := hostCall(ask.Tool, mustArgs(ask), "/home/me/work", "")
 		for _, withGrant := range []bool{false, true} {
 			for _, tainted := range []bool{false, true} {
 				build := func(mode agent.Mode) hostDecision {
@@ -390,7 +390,7 @@ func TestApprovedCardNeverClaimsARun(t *testing.T) {
 		{hostChat, "ok", hostAllowed, "allowed ls -la for this chat"},
 		{hostOnce, "blocked", hostNotRun, "did not run"},
 		{hostOnce, "cancelled", hostNotRun, "did not run"},
-		{hostChat, "interrupted", hostNotRun, "did not run"},
+		{hostChat, "interrupted", hostAllowed, "allowed ls -la for this chat"}, // started, then a Stop cut it short
 	} {
 		m := mk(c.choice)
 		settleHostCard(&m, started(c.status))

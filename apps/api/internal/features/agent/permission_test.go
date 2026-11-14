@@ -130,7 +130,7 @@ func TestCriticalItem1DeletingOrOverwriting(t *testing.T) {
 	wantCritical(t, CriticalDeleting, "write outside the workspace", item, reason, ok)
 	item, reason, ok = CriticalHost(HostAction{Kind: HostFileDelete, Path: "../../escape.txt"}, scope)
 	wantCritical(t, CriticalDeleting, "delete escaping the workspace", item, reason, ok)
-	for _, h := range []HostAction{{Kind: HostFileWrite, Path: "drafts/plan.md"}, {Kind: HostFileWrite, Path: ws + "/out.csv"}, {Kind: HostFileDelete, Path: "tmp.txt"}, command("rm scratch.txt"), command("ls -la && cat notes.md"), command("python3 script.py > out.txt")} {
+	for _, h := range []HostAction{{Kind: HostFileWrite, Path: "drafts/plan.md"}, {Kind: HostFileWrite, Path: ws + "/out.csv"}, {Kind: HostFileDelete, Path: "tmp.txt"}, command("rm scratch.txt"), command("ls -la && cat notes.md"), command("echo hi > out.txt")} {
 		item, reason, ok = CriticalHost(h, scope)
 		wantFine(t, fmt.Sprintf("%+v", h), item, reason, ok)
 	}
@@ -371,7 +371,7 @@ func TestCriticalHostSeesThroughWrappers(t *testing.T) {
 	}
 	// What must stay quiet.
 	for _, c := range []string{
-		"bash script.sh", "python3 script.py", "python3 --version", "node index.js", "bash --version",
+		"python3 --version", "bash --version", "python3 -m pytest -q", "node --version",
 		"timeout 5 ls", "nice -n 5 make build", "xargs -n1 echo", "find . -name '*.go'", "find . -exec grep -l x {} +",
 		"env FOO=1 ls", "ln -s notes.md link", "ln -s " + ws + "/a " + ws + "/b", "bash -c 'ls -la'", "eval 'echo hi'",
 		"echo $(date)", "echo `pwd`", "busybox ls", "stdbuf -oL cat notes.md",

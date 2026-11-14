@@ -281,6 +281,10 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
     }
     if inner:
         ask["inner"] = True
+    if is_host:
+        cwd = host.session_cwd(task_id, session_id)
+        if cwd:
+            ask["cwd"] = cwd
     if is_mcp:
         ask["mcp"] = mcp_info(tool_name, toolset)
     reply = bridge.ask(ask, bridge.HOOK_ANSWER_TIMEOUT_S)

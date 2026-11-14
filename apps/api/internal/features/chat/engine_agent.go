@@ -104,6 +104,10 @@ type WorkerEngineOptions struct {
 	// HostWorkingDir is the account's working folder ("" for its agent
 	// workspace), the scope the critical list judges paths by (decision 10).
 	HostWorkingDir func(ctx context.Context, uid string) string
+	// HostHome is the home folder the workers' terminal uses (the OS user's
+	// home, or a test API's sandbox): what the hardline floor and the
+	// critical list mean by ~ and $HOME. Empty: this process's own home.
+	HostHome string
 	// RenderedHost reports whether the account's running worker was
 	// rendered host-allowed (known false when no render is recorded): a
 	// worker rendered otherwise refuses the host toolsets, so Start asks it

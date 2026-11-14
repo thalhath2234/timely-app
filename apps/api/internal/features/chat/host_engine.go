@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -113,8 +114,27 @@ func (e *WorkerEngine) hostState(ctx context.Context, r *agentRun, ask gateAsk) 
 	st.sensitive = st.sensitive || row.Sensitive
 	st.grants = row.HostGrants
 	st.tainted = len(row.TaintedSources) > 0 || len(r.taint) > 0 || len(ask.Tainted) > 0
+	st.taintedLocal = st.tainted && !outsideTaint(row.TaintedSources) && !outsideTaint(r.taint) && !outsideTaint(ask.Tainted)
+	st.home = e.opts.HostHome
+	if st.home == "" {
+		st.home, _ = os.UserHomeDir()
+	}
 	st.mode = effectiveMode(row.Permission, row.FullAccess)
 	return st
+}
+
+// outsideTaint reports a taint source that is not local file or command
+// output (the worker's kinds "file", "terminal" and "code"): a page, a
+// browser, an MCP result, a sub-task's read of one.
+func outsideTaint(sources []TaintSource) bool {
+	for _, src := range sources {
+		switch src.Kind {
+		case "file", "terminal", "code":
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // effectiveMode is the mode host calls follow: Full Access without a
