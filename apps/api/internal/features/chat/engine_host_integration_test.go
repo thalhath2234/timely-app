@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -509,7 +510,7 @@ func TestIntegrationAgentEngineHostParkedDenyAndMessage(t *testing.T) {
 		t.Fatal("Deny on a parked card")
 	}
 	c = h.wait(c.ID, "closed", statusIs("idle"))
-	if closedHost(c)[0].Outcome != hostDenied || lastMessage(c).Content != "Not run: ls -la" || len(h.kit.ReceivedOf("run.start")) != 1 {
+	if closedHost(c)[0].Outcome != hostDenied || lastMessage(c).Kind != "host" || lastMessage(c).Host.Outcome != hostDenied || len(h.kit.ReceivedOf("run.start")) != 1 {
 		t.Fatalf("thread %+v", c.Messages)
 	}
 
@@ -808,7 +809,7 @@ func TestIntegrationAgentEngineHostMCPServerCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	card := c.HostRequest.Card
-	if c.HostRequest.Phase != hostParked || card.Kind != cardMCPServer || card.Command != "npx -y @example/files" || card.EnvNames[0] != "FILES_TOKEN" || c.Title != "Add an MCP server" {
+	if c.HostRequest.Phase != hostParked || card.Kind != cardMCPServer || card.Command != "npx -y @example/files" || card.EnvNames[0] != "FILES_TOKEN" || c.Title != "Add files?" {
 		t.Fatalf("server card %+v %+v", c.HostRequest, card)
 	}
 	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
@@ -820,6 +821,33 @@ func TestIntegrationAgentEngineHostMCPServerCard(t *testing.T) {
 	}
 	if n := len(h.kit.ReceivedOf("run.start")); n != 0 {
 		t.Fatalf("a server card started %d runs", n)
+	}
+	// Review round 5: the card closes as Added (ran), not "approved, waiting
+	// to run" for ever: no run exists to settle it.
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostRan || strings.Contains(c.Messages[len(c.Messages)-2].Content, "has not run yet") {
+		t.Fatalf("closed server card %+v", cl)
+	}
+}
+
+// A server that could not be added closes its approved card as not run, not
+// as "approved, waiting to run".
+func TestIntegrationAgentEngineHostMCPServerCardNotAddedIsNotRun(t *testing.T) {
+	m := &fakeMCP{modes: map[string]string{}, approveErr: errors.New("changed")}
+	h := hostHarness(t, func(o *WorkerEngineOptions) { o.MCP = m })
+	h.s.SetMCP(m)
+	if err := h.s.RaiseServerCard(context.Background(), "user-a", "files", "npx", []string{"-y", "@example/files"}, nil, "hash9"); err != nil {
+		t.Fatal(err)
+	}
+	var c Conversation
+	if err := h.db.Where("user_id = ? AND status = ?", "user-a", statusHostApproval).First(&c).Error; err != nil {
+		t.Fatal(err)
+	}
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer %d %s", code, body)
+	}
+	c = h.wait(c.ID, "idle", statusIs("idle"))
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostNotRun || !strings.HasPrefix(lastMessage(c).Content, "Not added") {
+		t.Fatalf("closed server card %+v, last %q", cl, lastMessage(c).Content)
 	}
 }
 

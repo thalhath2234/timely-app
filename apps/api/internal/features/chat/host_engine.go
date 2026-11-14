@@ -525,8 +525,7 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 				row.Status, row.Phase, row.Error = "queued", "plan", ""
 				row.Continuation = continuationFor(req)
 			case hostDeny:
-				row.Status = "idle"
-				row.Messages = append(row.Messages, notRun(&row, &card, req.Tool))
+				row.Status = "idle" // the closed card already says nothing ran
 			default:
 				if parked.RequestID == "" {
 					return errUnchanged

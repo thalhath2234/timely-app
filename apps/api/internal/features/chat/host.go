@@ -231,6 +231,9 @@ func hostOutcomeText(card *HostCard, tool, outcome string) string {
 	}
 	switch outcome {
 	case hostRan:
+		if tool == cardMCPServer && card != nil && card.Server != "" {
+			return "Host card: the person approved adding the MCP server " + card.Server
+		}
 		return "Host card: the person chose Run once for " + what
 	case hostAllowed:
 		return "Host card: the person allowed " + what + " for this chat"

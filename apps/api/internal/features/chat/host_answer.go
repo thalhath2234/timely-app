@@ -234,8 +234,7 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 			row.Lease, row.LeaseUntil = "", nil
 			switch {
 			case choice == hostDeny:
-				row.Status = "idle"
-				row.Messages = append(row.Messages, notRun(&row, h.Card, h.Tool))
+				row.Status = "idle" // the closed card already says nothing ran
 			case h.Tool == cardMCPServer:
 				row.Status = "idle" // the server is approved below
 			default:
@@ -306,7 +305,6 @@ func (s *Service) hostAnswerNotTaken(uid, cid string, asked HostRequest, choice,
 		row.Lease, row.LeaseUntil = "", nil
 		if choice == hostDeny {
 			row.Status = "idle"
-			row.Messages = append(row.Messages, notRun(&row, asked.Card, asked.Tool))
 		} else {
 			row.Status, row.Phase = "queued", "plan"
 			row.Continuation = continuationFor(asked)
@@ -323,12 +321,13 @@ func (s *Service) hostAnswerNotTaken(uid, cid string, asked HostRequest, choice,
 // mcp_server card): its entry hash is approved, or a notice says why not.
 func (s *Service) approveServer(ctx context.Context, uid, cid string, asked HostRequest) {
 	text := "Added " + asked.cardServer() + ". The assistant can use it from its next reply."
+	added := true
 	switch {
 	case s.mcp == nil:
-		text = "MCP servers are not available here."
+		text, added = "MCP servers are not available here.", false
 	default:
 		if err := s.mcp.ApproveStdio(context.WithoutCancel(ctx), uid, asked.cardServer(), asked.ArgsHash); err != nil {
-			text = "Not added: " + asked.cardServer() + " changed after this card was shown, or it can't run here. Check it in Settings → Agent → MCP servers."
+			text, added = "Not added: "+asked.cardServer()+" changed after this card was shown, or it can't run here. Check it in Settings → Agent → MCP servers.", false
 			log.Printf("chat host answer: approving MCP server: %v", err)
 		}
 	}
@@ -336,6 +335,15 @@ func (s *Service) approveServer(ctx context.Context, uid, cid string, asked Host
 		var row Conversation
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
+		}
+		// A server card has no run to settle it: it closes here, as Added
+		// (ran) or, when the server was not added, as not run.
+		for i := range row.Messages {
+			m := &row.Messages[i]
+			if m.Kind != "host" || m.Host == nil || m.Host.Outcome != hostApproved || m.Host.RequestID != asked.RequestID {
+				continue
+			}
+			settleHostCard(m, added)
 		}
 		row.Messages = append(row.Messages, notice(text))
 		row.Revision++
@@ -382,8 +390,8 @@ func (s *Service) RaiseServerCard(ctx context.Context, uid, name, command string
 		Reason: "Runs this command on this computer whenever the assistant connects to " + clip(name, 200), CriticalItem: agent.CriticalSettings}
 	req := HostRequest{RequestID: id("mcp_"), Phase: hostParked, Tool: cardMCPServer, ArgsHash: clip(hash, 200), Card: &card,
 		AskedAt: &now, ExpiresAt: &expires}
-	row := Conversation{ID: id("chat_"), UserID: uid, Title: "Add an MCP server", Status: statusHostApproval, Phase: "plan", Permission: string(agent.Supervised),
-		Context: []ContextChip{}, Messages: []Message{notice("You added the MCP server " + clip(name, 200) + ". It runs a command on this computer, so it needs your OK.")},
+	row := Conversation{ID: id("chat_"), UserID: uid, Title: "Add " + clip(name, 60) + "?", Status: statusHostApproval, Phase: "plan", Permission: string(agent.Supervised),
+		Context: []ContextChip{}, Messages: []Message{notice("You asked to add the MCP server " + clip(name, 200) + ". It runs a command on this computer, so it needs your OK.")},
 		Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}, HostRequest: req, HostGrants: HostGrants{}}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {

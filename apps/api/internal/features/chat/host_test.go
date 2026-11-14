@@ -26,6 +26,8 @@ type fakeMCP struct {
 	modes    map[string]string
 	approved []string
 	refused  []string
+	// approveErr makes ApproveStdio fail (the entry changed, or can't run).
+	approveErr error
 }
 
 func (f *fakeMCP) Mode(_ context.Context, _, server string) string {
@@ -49,6 +51,9 @@ func (f *fakeMCP) Classify(_ context.Context, _, server, tool string, ann MCPAnn
 }
 
 func (f *fakeMCP) ApproveStdio(_ context.Context, _, name, hash string) error {
+	if f.approveErr != nil {
+		return f.approveErr
+	}
 	f.approved = append(f.approved, name+"@"+hash)
 	return nil
 }
