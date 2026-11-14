@@ -35,6 +35,8 @@ var (
 	errUndoGone     = echo.NewHTTPError(409, "This change can't be undone any more")
 	errNotGrantable = echo.NewHTTPError(409, "This card can't be allowed for the whole chat. Choose Run once or Deny.")
 	errNoHostEngine = echo.NewHTTPError(409, "The assistant isn't running here")
+	errHostOff      = echo.NewHTTPError(403, "This account can't use this computer any more")
+	errHostExpired  = echo.NewHTTPError(409, "This card expired")
 )
 
 // hostEngine is an engine that runs host cards (WorkerEngine).
@@ -42,7 +44,15 @@ type hostEngine interface {
 	Follows(uid, cid, runID string) bool
 	HostAnswer(ctx context.Context, uid, cid, runID, requestID, choice, lease string) error
 	HostUndo(ctx context.Context, uid, cid, checkpoint, dir string) ([]string, error)
+	// HostAllowed says whether the account may use this computer now.
+	HostAllowed(ctx context.Context, uid string) bool
 }
+
+// needsHostAccess is whether a card's call runs on this computer (a command
+// MCP server, terminal, files, code, the browser) and so needs the account to
+// be host-allowed when it is answered, not only when it was asked. A remote
+// MCP tool does not.
+func needsHostAccess(h HostRequest) bool { return h.Card == nil || h.Card.Kind != cardMCP }
 
 // shellRequest reports a request from the desktop window: the shell token
 // from this computer (instance.ShellRequest, decision 11).
@@ -116,11 +126,21 @@ func (s *Service) hostApproval(c *echo.Context) error {
 // the answer then goes to the worker; a parked card (or a live one nobody
 // here follows) queues the continuation for Run once, or closes Not run.
 func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice string, dev *HostDevice) (Conversation, error) {
+	return s.answerHostWhy(ctx, uid, cid, requestID, choice, dev, "")
+}
+
+// answerHostWhy is answerHost; a non-empty why is the reason a deny was made
+// by the system and not by the person (the account was turned off).
+func (s *Service) answerHostWhy(ctx context.Context, uid, cid, requestID, choice string, dev *HostDevice, why string) (Conversation, error) {
 	he, _ := s.engine.(hostEngine)
 	var row Conversation
 	var asked HostRequest
 	var live bool
 	var lease, staleRun string
+	// revoked: the account lost host access while the card waited, so the
+	// answer closes it denied (Q-5.2: each account is turned on and off
+	// separately). expired: a parked card past its hour.
+	var revoked, expired bool
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
@@ -135,6 +155,28 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		if choice == hostChat && (h.Grant == nil || h.Card == nil || !h.Card.Grantable) {
 			return errNotGrantable // the apps hide the button; the server holds the line
 		}
+		if choice != hostDeny && h.Phase == hostParked && h.ExpiresAt != nil && time.Now().After(*h.ExpiresAt) {
+			// The sweep has not closed it yet (it runs every 30 s): a parked
+			// card never runs after its hour.
+			expired = true
+			ev := hostEvent(uid, cid, h.Run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, eventExpired, "", "answered after the card's time", nil, nil)
+			if err := tx.Create(&ev).Error; err != nil {
+				return err
+			}
+			closeHostCard(&row, hostExpired, nil)
+			row.Messages = append(row.Messages, notRun(&row, h.Card, h.Tool))
+			row.Status, row.Revision = "idle", row.Revision+1
+			staleRun = row.AgentRunID
+			row.AgentRunID, row.AgentInstance, row.Lease, row.LeaseUntil = "", "", "", nil
+			row.Activity = ChatActivity{}
+			return tx.Save(&row).Error
+		}
+		if choice != hostDeny && needsHostAccess(h) && he != nil && !he.HostAllowed(ctx, uid) {
+			// The account was turned off after the card was asked: nothing
+			// runs on this computer for it, whatever the card says.
+			choice, revoked = hostDeny, true
+			why = "the account can't use this computer any more"
+		}
 		asked = h
 		live = h.Phase == hostLive && row.AgentRunID != "" && row.AgentRunID == h.Run && he != nil && he.Follows(uid, cid, h.Run)
 		// Run once and Allow for this chat close the card as approved, not as
@@ -145,7 +187,11 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		if choice == hostDeny {
 			kind = eventDenied
 		}
-		ev := hostEvent(uid, cid, h.Run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, kind, choice, h.Phase, dev, nil)
+		reason := h.Phase
+		if why != "" {
+			reason = why
+		}
+		ev := hostEvent(uid, cid, h.Run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, kind, choice, reason, dev, nil)
 		if err := tx.Create(&ev).Error; err != nil {
 			return err
 		}
@@ -192,6 +238,9 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		// A live card nobody here follows: its run (if any is left) ends.
 		s.engine.Stop(uid, cid, staleRun)
 	}
+	if expired {
+		return row, errHostExpired
+	}
 	if !live && asked.Tool == cardMCPServer && choice != hostDeny {
 		s.approveServer(ctx, uid, cid, asked)
 	}
@@ -208,6 +257,9 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 	var latest Conversation
 	if err := s.find(s.db, uid, cid, &latest); err == nil {
 		row = latest
+	}
+	if revoked {
+		return row, errHostOff // the card closed denied; the person's Run once did not run it
 	}
 	return row, nil
 }

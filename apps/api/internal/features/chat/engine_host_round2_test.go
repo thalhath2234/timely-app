@@ -1,7 +1,10 @@
 package chat
 
 import (
+	"context"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -115,5 +118,93 @@ func TestIntegrationAgentEngineHostStopBeforeTheApprovedCallStarts(t *testing.T)
 	}
 	if cl := closedHost(got); len(cl) != 1 || cl[0].Outcome != hostNotRun {
 		t.Fatalf("a call that never started: %+v", cl)
+	}
+}
+
+// An account turned off while a card waits cannot run it: Run once on a live
+// card is refused, the worker gets a deny, and nothing ran (Q-5.2).
+func TestIntegrationAgentEngineHostAccountTurnedOffWhileALiveCardWaits(t *testing.T) {
+	var on atomic.Bool
+	on.Store(true)
+	h := hostHarness(t, func(o *WorkerEngineOptions) {
+		o.HostAllowed = func(_ context.Context, uid string) bool { return on.Load() && uid == "user-a" }
+		o.HostSweepEvery = time.Hour // the answer is what is under test
+	})
+	c := h.chat("List my files", "supervised", "off-live", lines(ls("call_1"), reply("{{last_result}}", 0)))
+	c = h.hostWaiting(c.ID, hostLive)
+	on.Store(false)
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 403 {
+		t.Fatalf("Run once after the account was turned off: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	if got := h.approvalAnswers(); len(got) != 1 || got[0].Choice != hostDeny {
+		t.Fatalf("the worker must be told to deny: %+v", got)
+	}
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostDenied || strings.Contains(lastMessage(c).Content, "ran terminal") {
+		t.Fatalf("thread %+v", c.Messages)
+	}
+	if kinds := eventKinds(h.hostEvents(c.ID)); slices.Contains(kinds, eventRan) || slices.Contains(kinds, eventApproved) {
+		t.Fatalf("events %v", kinds)
+	}
+}
+
+// The same for a parked card: no continuation is queued.
+func TestIntegrationAgentEngineHostAccountTurnedOffWhileAParkedCardWaits(t *testing.T) {
+	var on atomic.Bool
+	on.Store(true)
+	h := hostHarness(t, func(o *WorkerEngineOptions) {
+		o.LiveWait = time.Second
+		o.HostAllowed = func(_ context.Context, uid string) bool { return on.Load() && uid == "user-a" }
+		o.HostSweepEvery = time.Hour
+	})
+	c := h.chat("List my files", "supervised", "off-parked", lines(ls("call_1"), reply("x", 0)))
+	c = h.hostWaiting(c.ID, hostParked)
+	on.Store(false)
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 403 {
+		t.Fatalf("Run once after the account was turned off: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "idle", statusIs("idle"))
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostDenied || c.Continuation.pending() || len(h.hostStarts()) != 1 {
+		t.Fatalf("thread %+v continuation %+v starts %d", c.Messages, c.Continuation, len(h.hostStarts()))
+	}
+}
+
+// Turning an account off denies its waiting cards without anyone answering.
+func TestIntegrationAgentEngineHostAccountTurnedOffDeniesWaitingCards(t *testing.T) {
+	var on atomic.Bool
+	on.Store(true)
+	h := hostHarness(t, func(o *WorkerEngineOptions) {
+		o.HostAllowed = func(_ context.Context, uid string) bool { return on.Load() && uid == "user-a" }
+	})
+	c := h.chat("List my files", "supervised", "off-sweep", lines(ls("call_1"), reply("{{last_result}}", 0)))
+	h.hostWaiting(c.ID, hostLive)
+	on.Store(false)
+	c = h.wait(c.ID, "denied by the sweep", statusIs("idle"))
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostDenied || strings.Contains(lastMessage(c).Content, "ran terminal") {
+		t.Fatalf("thread %+v", c.Messages)
+	}
+}
+
+// A parked card is not answerable after its time even before the sweep
+// closes it.
+func TestIntegrationAgentEngineHostParkedCardPastItsTimeIsNotAnswerable(t *testing.T) {
+	h := hostHarness(t, func(o *WorkerEngineOptions) {
+		o.LiveWait = time.Second
+		o.ParkFor = func(context.Context, string) time.Duration { return 500 * time.Millisecond }
+		o.HostSweepEvery = time.Hour
+	})
+	c := h.chat("List my files", "supervised", "late", lines(ls("call_1")))
+	c = h.hostWaiting(c.ID, hostParked)
+	time.Sleep(700 * time.Millisecond)
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 409 {
+		t.Fatalf("an answer after the card's time: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "idle", statusIs("idle"))
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostExpired || c.Continuation.pending() || len(h.hostStarts()) != 1 {
+		t.Fatalf("thread %+v continuation %+v", c.Messages, c.Continuation)
+	}
+	// Deny still works on a late card? it is closed already: 409.
+	if code, _ := h.answerCard(c.ID, "req-call_1", hostDeny, ""); code != 409 {
+		t.Fatalf("a second answer: %d", code)
 	}
 }

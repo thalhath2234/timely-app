@@ -331,6 +331,12 @@ func (e *WorkerEngine) Follows(uid, cid, runID string) bool {
 	return r != nil && r.uid == uid && r.cid == cid && !exited(r.worker)
 }
 
+// HostAllowed says whether the account may use this computer now (the
+// desktop window's list, TIMELY_AGENT_HOST_ACCOUNTS).
+func (e *WorkerEngine) HostAllowed(ctx context.Context, uid string) bool {
+	return e.opts.HostAllowed(ctx, uid)
+}
+
 // HostAnswer passes the person's answer to a live host card once the fenced
 // answer committed (Service.answerHost): the run adopts the fresh lease the
 // answer wrote (the re-attach), then approval.answer goes to the worker. An
@@ -705,7 +711,7 @@ func (e *WorkerEngine) HostUndo(ctx context.Context, uid, cid, checkpoint, dir s
 
 var errCheckpointGone = errors.New("the checkpoint is gone")
 
-// sweepHost expires parked cards past their time and parks live cards whose
+// sweepHost denies the cards of accounts that lost host access, expires parked cards past their time and parks live cards whose
 // run no process of this API follows. It runs every HostSweepEvery.
 func (e *WorkerEngine) sweepHost(ctx context.Context) {
 	var rows []Conversation
@@ -720,6 +726,12 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 	for _, row := range rows {
 		h := row.HostRequest
 		switch {
+		case needsHostAccess(h) && !e.opts.HostAllowed(ctx, row.UserID):
+			// Turning an account off denies its waiting cards (Q-5.2); the
+			// worker of a live one gets the deny.
+			if _, err := e.s.answerHostWhy(ctx, row.UserID, row.ID, h.RequestID, hostDeny, nil, "the account can't use this computer any more"); err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, errHostAnswered) && !errors.Is(err, errHostStale) {
+				e.opts.Logf("agent engine: denying a host card of an account that was turned off: %v", err)
+			}
 		case h.Phase == hostParked && h.ExpiresAt != nil && now.After(*h.ExpiresAt):
 			if err := e.s.expireHost(ctx, row.UserID, row.ID, h.RequestID); err != nil && !errors.Is(err, errUnchanged) {
 				e.opts.Logf("agent engine: expiring a host card: %v", err)
