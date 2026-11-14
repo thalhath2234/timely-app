@@ -950,7 +950,8 @@ func argsHash(args any) string {
 // deny gives Hermes' BLOCKED text), run.stop or the live wait, after which
 // the card parks: event approval.parked, then run.done approval_parked. A
 // call that ran sends event host.ran (with "checkpoint" and
-// "checkpoint_dir" when the line names them); "auto": true first sends
+// "checkpoint_dir" when the line names them; "ran_delay_ms" and "ran_status"
+// make the call slow or end otherwise); "auto": true first sends
 // approval.auto, Hermes' second approval answered once. false means the
 // run was stopped or ended.
 func (f *fake) host(r *fakeRun, obj map[string]any) bool {
@@ -975,7 +976,16 @@ func (f *fake) host(r *fakeRun, obj map[string]any) bool {
 			f.send(map[string]any{"type": "event", "run": r.id, "kind": "approval.auto",
 				"payload": map[string]any{"request_id": "auto-" + call, "tool_call_id": call, "pattern_key": "dangerous:rm"}})
 		}
-		payload := map[string]any{"tool_call_id": call, "tool": tool, "args_hash": hash, "status": "ok"}
+		// "ran_delay_ms": the call takes that long (a Stop can land while
+		// it runs); "ran_status" is what host.ran then says (default ok).
+		if ms, _ := obj["ran_delay_ms"].(float64); ms > 0 {
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+		}
+		status := "ok"
+		if st := str(obj, "ran_status"); st != "" {
+			status = st
+		}
+		payload := map[string]any{"tool_call_id": call, "tool": tool, "args_hash": hash, "status": status}
 		if cp := str(obj, "checkpoint"); cp != "" {
 			payload["checkpoint"], payload["checkpoint_dir"] = cp, str(obj, "checkpoint_dir")
 		}

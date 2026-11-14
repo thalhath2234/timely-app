@@ -552,15 +552,20 @@ func (e *WorkerEngine) hostRan(r *agentRun, ev workerEvent) {
 	e.settleRan(r, ev)
 }
 
-// started is whether a host.ran status says the call started.
-func started(status string) bool { return status == "ok" || status == "error" || status == "timeout" }
+// started is whether a host.ran status says the call started. "interrupted"
+// is an error after a Stop: the call started and the Stop cut it short.
+func started(status string) bool {
+	return status == "ok" || status == "error" || status == "timeout" || status == "interrupted"
+}
 
 // approvedCard finds the approved card a host.ran belongs to: by tool call
 // id for a live answer, by request, tool and arguments for a continuation.
-func (r *agentRun) approvedCard(row *Conversation, p struct{ tool, call, hash string }) int {
+// When ran is true the call started, so a card a Stop already closed as
+// "not run" (host.ran arrived after it) matches too: host.ran is the truth.
+func (r *agentRun) approvedCard(row *Conversation, p struct{ tool, call, hash string }, ran bool) int {
 	for i := len(row.Messages) - 1; i >= 0; i-- {
 		m := &row.Messages[i]
-		if m.Kind != "host" || m.Host == nil || m.Host.Outcome != hostApproved {
+		if m.Kind != "host" || m.Host == nil || !(m.Host.Outcome == hostApproved || (ran && m.Host.Outcome == hostNotRun && m.AgentRun == r.id)) {
 			continue
 		}
 		if p.call != "" && m.Host.ToolCallID == p.call {
@@ -599,7 +604,7 @@ func (e *WorkerEngine) settleRan(r *agentRun, ev workerEvent) {
 	}
 	pend := r.cards[p.ToolCallID]
 	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
-		i := r.approvedCard(row, key)
+		i := r.approvedCard(row, key, started(p.Status))
 		if i >= 0 {
 			settleHostCard(&row.Messages[i], started(p.Status))
 		}
@@ -629,7 +634,14 @@ func (e *WorkerEngine) settleRan(r *agentRun, ev workerEvent) {
 		row.Messages = append(row.Messages, m)
 		return nil
 	})
-	if err != nil && !fenced(err) {
+	if err != nil && fenced(err) {
+		// A Stop (or Delete) took the row first: the follower may not save,
+		// but the call's own report still decides its card. Settle it under
+		// the row's lock, as a wait on another card does.
+		e.settleWaiting(r, key, started(p.Status))
+		return
+	}
+	if err != nil {
 		e.opts.Logf("agent engine: recording run %s's host call: %v", r.id, err)
 	}
 }
@@ -642,7 +654,7 @@ func (e *WorkerEngine) settleWaiting(r *agentRun, key struct{ tool, call, hash s
 		if err := e.s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), r.uid, r.cid, &row); err != nil {
 			return err
 		}
-		i := r.approvedCard(&row, key)
+		i := r.approvedCard(&row, key, ran)
 		if i < 0 {
 			return errUnchanged
 		}
