@@ -319,7 +319,9 @@ def install_fence() -> None:
             if run.stopping:
                 cid = context_call_id() or name
                 with run._lock:
-                    run.fence_blocked.add(cid)
+                    # Both ids: the hook may name the call differently from this wrapper, and
+                    # once the run is stopped no host call of this tool runs anyway.
+                    run.fence_blocked.update({cid, name})
                 logger.info("run %s: %s not started, the run was stopped", run.run_id, name)
                 return json.dumps({"error": policy.STOPPED})
         return original(name, args, *a, **kw)
