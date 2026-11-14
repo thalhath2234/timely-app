@@ -16,7 +16,7 @@ func TestCriticalHostScriptFiles(t *testing.T) {
 		item, reason, ok := CriticalHost(command(c), scope)
 		wantCritical(t, CriticalDeleting, c, item, reason, ok)
 	}
-	for _, c := range []string{"python3 -m pytest", "python3 -m pip --version", "ls ./notes", "cat tidy.sh", "bash --version", "which bash", "git status"} {
+	for _, c := range []string{"python3 -m pip --version", "ls ./notes", "cat tidy.sh", "bash --version", "which bash", "git status"} {
 		item, reason, ok := CriticalHost(command(c), scope)
 		wantFine(t, c, item, reason, ok)
 	}
