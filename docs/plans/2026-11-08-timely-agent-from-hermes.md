@@ -1768,6 +1768,7 @@ Every phase keeps a working agent: the classic engine stays the default until ph
   - Suites at `889cc9ec` *(ran, 2026-11-14)*, one at a time on a machine with about 5 GB free, all exit 0:
     - `make lint-api` and `make test-api` (46 packages pass, 5 have no tests; 2,382 tests pass, 23 skipped), run with the test database set, so the integration tests ran too.
     - `TIMELY_AGENT_TEST_RUNTIME=dev make test-chat-integration`: 21 packages, 605 tests pass, the six real-worker host tests included. The instance and agentmcp integration tests, which the Makefile's package list does not name yet: 17 pass.
+    - `make agent-go-realworker` (CI's job; the pattern picks up the six host tests): exit 0, rerun after the lane watch was given time to see a card (a first run missed a card that waited under 15 ms in the Stop test).
     - `make agent-lint`; `make agent-test` 365 passed, 1 skipped; `make agent-contract` 170 passed, 1 skipped; `make agent-go-integration` 2 pass; `make agent-go-vet-windows`.
     - `make test-agent-chat` 22; `test-agent-mcp` (the node command) 10; `make test-mobile-assistant` 88; `make test-desktop-instance` 24; `make test-electron-supervisor` 100; `make test-electron-guards` 18.
     - `make lint-chat`, `make check-format-chat`, `make typecheck`, `make lint`; `make audit-mobile-assistant` (39 screenshots).

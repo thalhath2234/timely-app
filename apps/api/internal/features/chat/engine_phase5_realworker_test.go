@@ -567,9 +567,12 @@ func (w *hostWorld) until(cid, what string, ok func(Conversation) bool) Conversa
 
 func (w *hostWorld) card(cid, phase string) Conversation {
 	w.t.Helper()
-	return w.until(cid, "waited on a "+phase+" host card", func(c Conversation) bool {
+	c := w.until(cid, "waited on a "+phase+" host card", func(c Conversation) bool {
 		return c.Status == statusHostApproval && c.HostRequest.Phase == phase
 	})
+	// Long enough for the lane watch (every 15 ms) to sample the card a few times.
+	time.Sleep(100 * time.Millisecond)
+	return c
 }
 
 // answer posts the card's answer as a signed-in web browser.

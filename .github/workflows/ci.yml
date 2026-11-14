@@ -137,10 +137,13 @@ jobs:
       # and the agent-state backup round trip (fails, not skips, without the database)
       - run: cp .env.example .env
       - run: make agent-go-integration AGENT_REQUIRE_DB=1
-      # Phase 4 through the real worker: the gateway's tool-call translation with
-      # the fake Claude Code and Codex CLIs, question cards, sub-task taint and
-      # the Sensitive no-persist run. They skip without the runtime, so only this
-      # job (which builds it) runs them.
+      # Phases 4 and 5 through the real worker: the gateway's tool-call translation
+      # with the fake Claude Code and Codex CLIs, question cards, sub-task taint,
+      # the Sensitive no-persist run, and the host cards (Run once, Deny, Stop,
+      # park and continue, Allow for this chat, an MCP server on a local fake, two
+      # accounts), whose workers run under the exec trap on a throwaway home in
+      # ~/.cache/p5-sandbox. They skip without the runtime, so only this job
+      # (which builds it) runs them.
       - run: make agent-go-realworker
 
   # Phase 1 proves the Windows spawn path (stdin/stdout pipes, Job Object)
