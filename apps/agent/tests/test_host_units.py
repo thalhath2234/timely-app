@@ -243,6 +243,25 @@ def test_gate_skills_folder_reads_run_without_asking(tmp_path, monkeypatch):
         assert verdict["action"] == "block" and len(asked) == 1, path
 
 
+def test_gate_relative_reads_mean_the_working_folder_not_the_skills_folder(tmp_path, monkeypatch):
+    """A live Sonnet check found ``read_file notes.txt`` ran with no card: the relative path was read
+    against the skills folder, so it counted as a skills read. It means the terminal's folder."""
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "notes.txt").write_text("x")
+    (tmp_path / "skills" / "a").mkdir(parents=True)
+    (tmp_path / "skills" / "a" / "SKILL.md").write_text("x")
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("TERMINAL_CWD", str(work))
+    run = _run(host_allowed=True)
+    for path in ("notes.txt", "a/SKILL.md", "./notes.txt"):
+        verdict, asked = _gate(run, "read_file", {"path": path}, verdict="block")
+        assert verdict["action"] == "block" and len(asked) == 1, path
+    # with the folder being the skills folder itself, the same relative path is a skills read
+    monkeypatch.setenv("TERMINAL_CWD", str(tmp_path / "skills"))
+    assert _gate(run, "read_file", {"path": "a/SKILL.md"}, verdict="block") == (None, [])
+
+
 # ---------------------------------------------------------------- exec trap
 
 @pytest.mark.parametrize("cmd", ["rm -rf x", "rm -r -f /tmp/x", "/bin/rm -Rf ~", "chmod -R 777 x",

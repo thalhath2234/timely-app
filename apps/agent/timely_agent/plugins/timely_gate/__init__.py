@@ -149,10 +149,19 @@ def _in_skills_folder(args: dict) -> bool:
         return False
     try:
         root = (Path(home) / "skills").resolve()
-        target = Path(raw).expanduser()
-        target = (target if target.is_absolute() else root / target).resolve()
+        # A relative path means what the file tool means by it: the terminal's folder (the person's
+        # working folder), never the skills folder. Hermes' own resolver does the anchoring.
+        try:
+            from tools.file_tools_paths import _resolve_path_for_task
+            target = Path(str(_resolve_path_for_task(raw, "default"))).resolve()
+        except ImportError:  # unit tests without Hermes on the path: the same anchoring by hand
+            target = Path(raw).expanduser()
+            if not target.is_absolute():
+                target = Path(os.environ.get("TERMINAL_CWD") or os.getcwd()) / target
+            target = target.resolve()
         return target == root or root in target.parents
-    except (OSError, ValueError):
+    except Exception as exc:
+        logger.debug("skills folder check for %r: %s", raw, exc)
         return False
 
 
