@@ -486,6 +486,10 @@ func (m mcpRules) ApproveStdio(ctx context.Context, uid, name, hash string) erro
 	return m.svc.ApproveStdio(ctx, uid, name, hash)
 }
 
+func (m mcpRules) RefuseStdio(ctx context.Context, uid, name, hash string) error {
+	return m.svc.RefuseStdio(ctx, uid, name, hash)
+}
+
 func (m mcpRules) Servers(ctx context.Context, uid string) map[string]string {
 	servers, modes, _, _, _, err := m.svc.AccountMCP(ctx, uid)
 	if err != nil {

@@ -243,3 +243,40 @@ func TestIntegrationAgentEngineHostParkedQueuedCardIsNotAlsoNotRun(t *testing.T)
 		}
 	}
 }
+
+// A command MCP server's card that is denied, or skipped by a message, is
+// reported to the MCP rules so Settings says "not added", not "waiting".
+func TestIntegrationAgentEngineHostMCPServerCardNotApprovedIsReported(t *testing.T) {
+	for _, how := range []string{"deny", "message", "stop", "delete"} {
+		t.Run(how, func(t *testing.T) {
+			m := &fakeMCP{modes: map[string]string{}}
+			h := hostHarness(t, func(o *WorkerEngineOptions) { o.MCP = m })
+			h.s.SetMCP(m)
+			if err := h.s.RaiseServerCard(context.Background(), "user-a", "files", "npx", []string{"-y", "@example/files"}, nil, "hash-"+how); err != nil {
+				t.Fatal(err)
+			}
+			var c Conversation
+			if err := h.db.Where("user_id = ? AND status = ?", "user-a", statusHostApproval).Order("created_at desc").First(&c).Error; err != nil {
+				t.Fatal(err)
+			}
+			var code int
+			var body any
+			switch how {
+			case "deny":
+				code, body = h.answerCard(c.ID, c.HostRequest.RequestID, hostDeny, "")
+			case "message":
+				code, body = h.post("/chats/"+c.ID+"/messages", `{"content":"never mind"}`)
+			case "stop":
+				code, body = h.post("/chats/"+c.ID+"/stop", "")
+			case "delete":
+				code, body = serve(t, h.s, "DELETE", "/chats/"+c.ID, "")
+			}
+			if code != 200 && code != 201 && code != 204 {
+				t.Fatalf("%s: %d %v", how, code, body)
+			}
+			if !slices.Equal(m.refused, []string{"files@hash-" + how}) || len(m.approved) != 0 {
+				t.Fatalf("refused %v approved %v", m.refused, m.approved)
+			}
+		})
+	}
+}

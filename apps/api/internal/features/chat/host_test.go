@@ -25,6 +25,7 @@ func asDesktopWindow(t *testing.T) {
 type fakeMCP struct {
 	modes    map[string]string
 	approved []string
+	refused  []string
 }
 
 func (f *fakeMCP) Mode(_ context.Context, _, server string) string {
@@ -49,6 +50,11 @@ func (f *fakeMCP) Classify(_ context.Context, _, server, tool string, ann MCPAnn
 
 func (f *fakeMCP) ApproveStdio(_ context.Context, _, name, hash string) error {
 	f.approved = append(f.approved, name+"@"+hash)
+	return nil
+}
+
+func (f *fakeMCP) RefuseStdio(_ context.Context, _, name, hash string) error {
+	f.refused = append(f.refused, name+"@"+hash)
 	return nil
 }
 

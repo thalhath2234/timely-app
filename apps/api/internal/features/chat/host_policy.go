@@ -62,6 +62,9 @@ type MCPRules interface {
 	// ApproveStdio records the person's OK of a command server on its host
 	// card (hash: the entry the card showed).
 	ApproveStdio(ctx context.Context, uid, name, hash string) error
+	// RefuseStdio records that the card for a command server (hash) was
+	// denied, stopped or expired: the server then reads "not added".
+	RefuseStdio(ctx context.Context, uid, name, hash string) error
 	// Servers are the account's servers and their modes.
 	Servers(ctx context.Context, uid string) map[string]string
 }

@@ -872,7 +872,8 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 
 // expireHost closes a parked card past its time: "Expired, not run".
 func (s *Service) expireHost(ctx context.Context, uid, cid, requestID string) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var expired HostRequest
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row Conversation
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
@@ -886,11 +887,16 @@ func (s *Service) expireHost(ctx context.Context, uid, cid, requestID string) er
 			return err
 		}
 		closeHostCard(&row, hostExpired, nil)
+		expired = h
 		row.Messages = append(row.Messages, notRun(&row, h.Card, h.Tool))
 		row.Status = "idle"
 		row.Revision++
 		return tx.Save(&row).Error
 	})
+	if err == nil {
+		s.refuseServerCard(ctx, uid, expired)
+	}
+	return err
 }
 
 // sweepLoop runs sweepHost until ctx ends.

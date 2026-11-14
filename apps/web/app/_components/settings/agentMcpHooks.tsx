@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { McpAddInput, McpUpdateInput } from "@timely/contract/agentMcp";
 import {
   addMcpServer,
+  askMcpAgain,
   getMcpCatalog,
   getMcpServers,
   getMcpTools,
@@ -46,6 +47,14 @@ export function useUpdateMcpServer() {
   const cache = useQueryClient();
   return useMutation({
     mutationFn: ({ name, patch }: { name: string; patch: McpUpdateInput }) => updateMcpServer(name, patch),
+    onSuccess: () => void cache.invalidateQueries({ queryKey: mcpKey }),
+  });
+}
+
+export function useAskMcpAgain() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => askMcpAgain(name),
     onSuccess: () => void cache.invalidateQueries({ queryKey: mcpKey }),
   });
 }

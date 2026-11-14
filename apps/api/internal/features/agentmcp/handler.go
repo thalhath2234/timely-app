@@ -28,6 +28,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/agent/mcp/servers", s.postServer)
 	g.PUT("/agent/mcp/servers/:name", s.putServer)
 	g.DELETE("/agent/mcp/servers/:name", s.deleteServer)
+	g.POST("/agent/mcp/servers/:name/ask-again", s.postAskAgain)
 	g.GET("/agent/mcp/servers/:name/tools", s.getTools)
 	g.POST("/agent/mcp/servers/:name/sign-in", s.postSignIn)
 }
@@ -119,6 +120,18 @@ func (s *Service) putServer(c *echo.Context) error {
 		return c.JSON(http.StatusAccepted, map[string]any{"server": v, "message": "Waiting for your OK on the host card"})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"server": v})
+}
+
+func (s *Service) postAskAgain(c *echo.Context) error {
+	uid, err := signedIn(c)
+	if err != nil {
+		return err
+	}
+	v, err := s.AskAgain(c.Request().Context(), uid, c.Param("name"))
+	if err != nil {
+		return fail(err)
+	}
+	return c.JSON(http.StatusAccepted, map[string]any{"server": v, "message": "Waiting for your OK on the host card"})
 }
 
 func (s *Service) deleteServer(c *echo.Context) error {

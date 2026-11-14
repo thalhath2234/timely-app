@@ -38,6 +38,11 @@ export async function updateMcpServer(server: string, patch: McpUpdateInput): Pr
   return (await write<{ server: McpServer }>(`/servers/${name(server)}`, "PUT", patch)).server;
 }
 
+/** Raises a new host card for a command server whose card was denied or ran out of time. */
+export async function askMcpAgain(server: string): Promise<McpServer> {
+  return (await write<{ server: McpServer }>(`/servers/${name(server)}/ask-again`, "POST")).server;
+}
+
 export const removeMcpServer = (server: string) => write<void>(`/servers/${name(server)}`, "DELETE");
 
 export const getMcpTools = (server: string) =>

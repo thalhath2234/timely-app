@@ -56,7 +56,8 @@ type View struct {
 	Args      []string `json:"args,omitempty"`
 	EnvNames  []string `json:"envNames,omitempty"`
 	Mode      string   `json:"mode"`
-	// Status: ready, needs_sign_in, waiting_for_ok (a command server), unavailable (not rendered, see Warning).
+	// Status: ready, needs_sign_in, waiting_for_ok (a command server), not_approved (its host card was
+	// denied or ran out of time: offer Ask again), unavailable (not rendered, see Warning).
 	Status      string `json:"status"`
 	SignsIn     bool   `json:"signsIn"`
 	SignedIn    bool   `json:"signedIn"`
@@ -257,6 +258,8 @@ func (s *Service) view(ctx context.Context, row Server, host bool, envs map[stri
 	}
 	p := s.prepare(ctx, row, host, envs)
 	switch {
+	case p.refused:
+		v.Status, v.Warning = "not_approved", p.problem
 	case p.pending:
 		v.Status, v.Warning = "waiting_for_ok", p.problem
 	case !p.renders:
@@ -483,6 +486,40 @@ func (s *Service) raisePending(ctx context.Context, uid string, row Server, entr
 	s.o.OnStdioPending(ctx, uid, p)
 }
 
+// AskAgain raises a new host card for a command server whose card was not
+// approved (Ask again on its row). pending is true: the card waits for the
+// person's OK.
+func (s *Service) AskAgain(ctx context.Context, uid, name string) (v View, err error) {
+	row, err := s.row(ctx, uid, name)
+	if err != nil {
+		return View{}, err
+	}
+	entry, err := entryMap(row.Entry)
+	if err != nil || !isCommand(entry) {
+		return View{}, invalid("%s is not a command server", name)
+	}
+	if !s.o.HostAllowed(ctx, uid) {
+		return View{}, fmt.Errorf("%w: Only an account that can use this computer can run a command server", ErrForbidden)
+	}
+	envs, _, err := s.secrets(ctx, uid, secretEnv)
+	if err != nil {
+		return View{}, err
+	}
+	p := s.prepare(ctx, row, true, envs)
+	if p.needsKey || p.hash == "" {
+		return View{}, invalid("%s can't be started: %s", name, p.problem)
+	}
+	if row.ApprovedHash == p.hash {
+		return s.one(ctx, uid, name) // already approved
+	}
+	if err := s.db.WithContext(ctx).Model(&Server{}).Where("id = ?", row.ID).
+		Updates(map[string]any{"refused_hash": "", "updated_at": s.now()}).Error; err != nil {
+		return View{}, err
+	}
+	s.raisePending(ctx, uid, row, entry, values(envs, row.Name))
+	return s.one(ctx, uid, name)
+}
+
 // Update changes a server's mode, or a custom server's entry. Any change to a
 // command server's entry clears its approval (a new card); a changed address
 // of a signing-in server drops its saved sign-in, which belonged to the old one.
@@ -557,7 +594,7 @@ func (s *Service) Update(ctx context.Context, uid, name string, in UpdateInput) 
 		set["entry"] = raw
 		set["last_error"] = ""
 		if isCommand(newEntry) {
-			set["approved_hash"] = ""
+			set["approved_hash"], set["refused_hash"] = "", ""
 		}
 	}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

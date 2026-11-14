@@ -818,3 +818,59 @@ func TestIntegrationAccountsCapServersAndNeverShareNames(t *testing.T) {
 		t.Fatalf("no cap: %d", code)
 	}
 }
+
+// A command server whose host card was denied, stopped or expired is "not
+// added", not "waiting for your OK" for ever; Ask again raises a new card, and
+// an edit of the entry starts clean.
+func TestIntegrationADeniedCommandServerReadsNotAddedAndCanAskAgain(t *testing.T) {
+	r := newRig(t)
+	host := addUser(t, r.db)
+	r.setHost(host, true)
+	code, out, _ := r.do(host, "POST", "/agent/mcp/servers", AddInput{Name: "echo", Command: "/usr/bin/env", Args: []string{"python3", "srv.py"}})
+	if code != http.StatusAccepted || len(r.pending) != 1 {
+		t.Fatalf("add: %d %v (%d cards)", code, out, len(r.pending))
+	}
+	card := r.pending[0]
+	status := func() map[string]any {
+		_, out, _ := r.do(host, "GET", "/agent/mcp/servers", nil)
+		list := out["servers"].([]any)
+		if len(list) != 1 {
+			t.Fatalf("servers %v", out)
+		}
+		return list[0].(map[string]any)
+	}
+	if got := status(); got["status"] != "waiting_for_ok" {
+		t.Fatalf("a card is open: %v", got)
+	}
+	// a card for an entry the server no longer has changes nothing
+	must(t, r.svc.RefuseStdio(context.Background(), host, "echo", "not-its-hash"))
+	if got := status(); got["status"] != "waiting_for_ok" {
+		t.Fatalf("a stale refusal changed the row: %v", got)
+	}
+	must(t, r.svc.RefuseStdio(context.Background(), host, "echo", card.Hash))
+	got := status()
+	if got["status"] != "not_approved" || !strings.Contains(got["warning"].(string), "Not added") {
+		t.Fatalf("a denied card: %v", got)
+	}
+	if servers, _, approved, _, _ := r.account(host); len(servers) != 0 || len(approved) != 0 {
+		t.Fatalf("a refused server was rendered: %v %v", sortedNames(servers), approved)
+	}
+	// Ask again: a new card for the same entry, and the row waits again
+	code, out, _ = r.do(host, "POST", "/agent/mcp/servers/echo/ask-again", nil)
+	if code != http.StatusAccepted || out["server"].(map[string]any)["status"] != "waiting_for_ok" {
+		t.Fatalf("ask again: %d %v", code, out)
+	}
+	if len(r.pending) != 2 || r.pending[1].Hash != card.Hash {
+		t.Fatalf("no new card: %+v", r.pending)
+	}
+	// another account cannot ask for it, and one that lost the computer cannot either
+	other := addUser(t, r.db)
+	if code, _, _ := r.do(other, "POST", "/agent/mcp/servers/echo/ask-again", nil); code != http.StatusNotFound {
+		t.Fatalf("another account asked again: %d", code)
+	}
+	// approving the new card renders it; Ask again on an approved server raises nothing
+	must(t, r.svc.ApproveStdio(context.Background(), host, "echo", card.Hash))
+	if code, _, _ := r.do(host, "POST", "/agent/mcp/servers/echo/ask-again", nil); code != http.StatusAccepted || len(r.pending) != 2 {
+		t.Fatalf("ask again on an approved server: %d (%d cards)", code, len(r.pending))
+	}
+}

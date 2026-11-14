@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { ChevronDown, Plug, Search } from "lucide-react";
+import { ChevronDown, Plug, Search, X } from "lucide-react";
 import {
   ADD_COMMAND_NOTE,
   COMMAND_NOT_ALLOWED,
@@ -38,6 +38,7 @@ import { cn } from "@/app/utils/cn";
 import { ErrorRow, Tag, errorText } from "./learnedShared";
 import {
   useAddMcpServer,
+  useAskMcpAgain,
   useMcpCatalog,
   useMcpServers,
   useMcpSignIn,
@@ -82,7 +83,12 @@ export default function McpServersGroup() {
           ))
         )}
         {servers.data ? (
-          <ListRow tone="add" label={adding ? "Close" : "Add a server"} onClick={() => setAdding((v) => !v)} />
+          <ListRow
+            tone="add"
+            icon={adding ? <X aria-hidden className="size-4 shrink-0 text-primary" /> : undefined}
+            label={adding ? "Close" : "Add a server"}
+            onClick={() => setAdding((v) => !v)}
+          />
         ) : null}
       </ListGroup>
       {servers.data && list.length === 0 && !adding ? <GroupHint>{MCP_INTRO}</GroupHint> : null}
@@ -103,8 +109,10 @@ function ServerEntry({ server, waiting, onSignInStarted }: { server: McpServer; 
   const [open, setOpen] = useState(false);
   const update = useUpdateMcpServer();
   const signIn = useMcpSignIn();
+  const askAgain = useAskMcpAgain();
   const status = serverStatus(server);
   const needsSignIn = server.status === "needs_sign_in" && server.mode !== "off";
+  const notApproved = server.status === "not_approved" && server.mode !== "off";
 
   async function startSignIn() {
     try {
@@ -150,6 +158,20 @@ function ServerEntry({ server, waiting, onSignInStarted }: { server: McpServer; 
             Sign in
           </Button>
         ) : null}
+        {notApproved ? (
+          <Button
+            size="sm"
+            variant="soft"
+            loading={askAgain.isPending}
+            onClick={() =>
+              askAgain.mutate(server.name, {
+                onError: (err) => useToastStore.getState().show(errorText(err, "Couldn't ask again.")),
+              })
+            }
+          >
+            Ask again
+          </Button>
+        ) : null}
         <Select
           variant="row"
           aria-label={`${server.name} mode`}
@@ -179,7 +201,7 @@ function ServerEntry({ server, waiting, onSignInStarted }: { server: McpServer; 
 }
 
 function ServerDetails({ server, onSignIn, signingIn }: { server: McpServer; onSignIn: () => void; signingIn: boolean }) {
-  const tools = useMcpTools(server.name, server.mode !== "off" && server.status !== "unavailable" && server.status !== "waiting_for_ok");
+  const tools = useMcpTools(server.name, server.mode !== "off" && server.status !== "unavailable" && server.status !== "waiting_for_ok" && server.status !== "not_approved");
   const remove = useRemoveMcpServer();
   const onRemove = () =>
     requestConfirm({
@@ -203,7 +225,9 @@ function ServerDetails({ server, onSignIn, signingIn }: { server: McpServer; onS
         <span className="font-medium text-foreground">{MCP_MODES.find((m) => m.value === server.mode)?.label}.</span> {modeHint(server.mode)}
       </p>
       {server.flag ? <p className="text-xs text-warning-text">{server.flag}. Its sending and deleting tools always ask in Auto.</p> : null}
-      {server.warning ? <p className="text-xs text-destructive">{server.warning}</p> : null}
+      {server.warning ? (
+        <p className={cn("text-xs", server.status === "unavailable" ? "text-destructive" : "text-warning-text")}>{server.warning}</p>
+      ) : null}
       <div>
         <h4 className="mb-1 text-xs font-semibold text-foreground">Tools</h4>
         {tools.isFetching && list.length === 0 ? (
@@ -498,6 +522,7 @@ function CommandForm({ added, onDone }: { added: Set<string>; onDone: () => void
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
   const [envText, setEnvText] = useState("");
+  const [showEnv, setShowEnv] = useState(false);
   const env = parseEnv(envText);
   const nameIssue = name ? (added.has(name) ? "You already have a server with that name" : nameProblem(name)) : null;
   const ready = Boolean(name) && !nameIssue && Boolean(command.trim()) && !env.error;
@@ -527,8 +552,26 @@ function CommandForm({ added, onDone }: { added: Set<string>; onDone: () => void
         {(id) => <Input id={id} autoComplete="off" placeholder="-y @scope/some-mcp-server" value={args} onChange={(e) => setArgs(e.target.value)} />}
       </Field>
       <Field label="Environment" error={env.error} hint="One NAME=value per line. The values are kept encrypted and the card shows only the names.">
-        {(id) => <Textarea id={id} rows={3} autoComplete="off" spellCheck={false} value={envText} onChange={(e) => setEnvText(e.target.value)} />}
+        {(id) => (
+          <Textarea
+            id={id}
+            rows={3}
+            autoComplete="off"
+            spellCheck={false}
+            // A value is a secret: hidden on screen until the person looks.
+            className={cn(!showEnv && envText && "[-webkit-text-security:disc]")}
+            value={envText}
+            onChange={(e) => setEnvText(e.target.value)}
+          />
+        )}
       </Field>
+      <button
+        type="button"
+        onClick={() => setShowEnv((v) => !v)}
+        className="-mt-1 cursor-pointer self-start text-xs font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        {showEnv ? "Hide the values" : "Show the values"}
+      </button>
     </FormShell>
   );
 }

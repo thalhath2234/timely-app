@@ -68,6 +68,11 @@ export async function updateMcpServer(server: string, patch: McpUpdateInput): Pr
   return { server: data.server, pending: res.status === 202 };
 }
 
+/** Raises a new host card for a command server whose card was denied or ran out of time. */
+export async function askMcpAgain(server: string): Promise<McpServer> {
+  return (await request<{ server: McpServer }>(`/servers/${name(server)}/ask-again`, "POST")).server;
+}
+
 export const removeMcpServer = (server: string) => request<void>(`/servers/${name(server)}`, "DELETE");
 
 /** The server's tools, asked of the account's worker. A server that did not answer gives `error`. */

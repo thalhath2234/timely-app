@@ -150,6 +150,7 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 	// answer closes it denied (Q-5.2: each account is turned on and off
 	// separately). expired: a parked card past its hour.
 	var revoked, expired, mcpOff bool
+	var refused HostRequest // a command server's card closed without an OK
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
 			return err
@@ -173,6 +174,7 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 				return err
 			}
 			closeHostCard(&row, hostExpired, nil)
+			refused = h
 			row.Messages = append(row.Messages, notRun(&row, h.Card, h.Tool))
 			row.Status, row.Revision = "idle", row.Revision+1
 			staleRun = row.AgentRunID
@@ -209,6 +211,7 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		}
 		if choice == hostDeny {
 			closeHostCard(&row, outcome, dev)
+			refused = h
 		} else {
 			closeHostCardAs(&row, outcome, dev, choice)
 		}
@@ -246,6 +249,7 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 	if err != nil {
 		return row, err
 	}
+	s.refuseServerCard(ctx, uid, refused)
 	if staleRun != "" && s.engine != nil {
 		// A live card nobody here follows: its run (if any is left) ends.
 		s.engine.Stop(uid, cid, staleRun)
@@ -337,6 +341,18 @@ func (s *Service) approveServer(ctx context.Context, uid, cid string, asked Host
 		row.Revision++
 		return tx.Save(&row).Error
 	})
+}
+
+// refuseServerCard tells the MCP rules that a command server's host card was
+// closed without an OK (denied, stopped, expired, its chat deleted), so
+// Settings says "not added" and offers Ask again instead of "waiting".
+func (s *Service) refuseServerCard(ctx context.Context, uid string, h HostRequest) {
+	if h.Tool != cardMCPServer || s.mcp == nil || !h.pending() {
+		return
+	}
+	if err := s.mcp.RefuseStdio(context.WithoutCancel(ctx), uid, h.cardServer(), h.ArgsHash); err != nil {
+		log.Printf("chat host answer: recording an MCP server card that was not approved: %v", err)
+	}
 }
 
 func (h HostRequest) cardServer() string {

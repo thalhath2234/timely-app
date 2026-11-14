@@ -363,6 +363,8 @@ func (f *fakeMCPRules) Classify(context.Context, string, string, string, MCPAnno
 
 func (f *fakeMCPRules) ApproveStdio(context.Context, string, string, string) error { return nil }
 
+func (f *fakeMCPRules) RefuseStdio(context.Context, string, string, string) error { return nil }
+
 func (f *fakeMCPRules) Servers(context.Context, string) map[string]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

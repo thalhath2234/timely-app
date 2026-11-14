@@ -218,8 +218,12 @@ func TestIntegrationPhase5MigrationsUpAndDown(t *testing.T) {
 		t.Errorf("MCP servers %d and secrets %d survived their account", servers, secrets)
 	}
 
-	// Down, one migration at a time, back to where phase 4 ended.
-	for i := 0; i < 6; i++ {
+	if !columnExists(t, db, "agent_mcp_servers", "refused_hash") {
+		t.Error("agent_mcp_servers has no refused_hash")
+	}
+	// Down, one migration at a time, back to where phase 4 ended (the
+	// refused_hash column of review round 4 is the first to go).
+	for i := 0; i < 7; i++ {
 		if err := goose.Down(db, "."); err != nil {
 			t.Fatalf("down %d: %v", i+1, err)
 		}

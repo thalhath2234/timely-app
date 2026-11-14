@@ -45,9 +45,12 @@ type Server struct {
 	Entry        json.RawMessage `gorm:"column:entry;type:jsonb;serializer:json;not null;default:'{}'"`
 	Mode         string          `gorm:"column:mode;not null;default:ask"`
 	ApprovedHash string          `gorm:"column:approved_hash;not null;default:''"`
-	LastError    string          `gorm:"column:last_error;not null;default:''"`
-	CreatedAt    time.Time       `gorm:"column:created_at"`
-	UpdatedAt    time.Time       `gorm:"column:updated_at"`
+	// RefusedHash is the entry hash of a host card that was denied, stopped or
+	// expired: the row reads "not added" until Ask again raises a new card.
+	RefusedHash string    `gorm:"column:refused_hash;not null;default:''"`
+	LastError   string    `gorm:"column:last_error;not null;default:''"`
+	CreatedAt   time.Time `gorm:"column:created_at"`
+	UpdatedAt   time.Time `gorm:"column:updated_at"`
 }
 
 func (Server) TableName() string { return "agent_mcp_servers" }

@@ -413,7 +413,8 @@ func (s *Service) send(c *echo.Context) error {
 // sendMessage is send's transaction. card lets a text message answer a
 // waiting question card (errAnswerByMessage) instead of being refused.
 func (s *Service) sendMessage(c *echo.Context, in sendInput, tags []string, card bool) error {
-	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+	var skipped HostRequest
+	err := s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if strings.TrimSpace(in.Content) == "" {
 			in.Content = "Process these images"
 		}
@@ -446,6 +447,7 @@ func (s *Service) sendMessage(c *echo.Context, in sendInput, tags []string, card
 				return err
 			}
 			closeHostCard(row, hostStopped, nil)
+			skipped = h
 		}
 		if len(row.Messages) > 150 {
 			return echo.NewHTTPError(400, "Start a new chat to continue")
@@ -485,6 +487,10 @@ func (s *Service) sendMessage(c *echo.Context, in sendInput, tags []string, card
 		row.Unread = false
 		return attachImages(tx, row, in.ImageIDs)
 	})
+	if err == nil {
+		s.refuseServerCard(c.Request().Context(), user(c), skipped)
+	}
+	return err
 }
 
 // approve applies the proposal. With steps (plan indexes, as the review
@@ -551,6 +557,7 @@ func (s *Service) approve(c *echo.Context) error {
 }
 func (s *Service) stop(c *echo.Context) error {
 	runID := ""
+	var stoppedCard HostRequest
 	err := s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if busy(row) || row.Status == "approval" || row.Status == statusHostApproval {
 			// A card the person approved whose call has not run yet (the live
@@ -569,6 +576,7 @@ func (s *Service) stop(c *echo.Context) error {
 					return err
 				}
 				closeHostCard(row, hostStopped, nil)
+				stoppedCard = h
 			}
 			row.Continuation = HostContinuation{}
 			row.Status = "stopped"
@@ -600,6 +608,9 @@ func (s *Service) stop(c *echo.Context) error {
 		}
 		return nil
 	})
+	if err == nil {
+		s.refuseServerCard(c.Request().Context(), user(c), stoppedCard)
+	}
 	if err == nil && runID != "" && s.engine != nil {
 		s.engine.Stop(user(c), c.Param("id"), runID)
 	}
@@ -717,12 +728,16 @@ func (s *Service) reject(c *echo.Context) error {
 // in progress loses its row, so its next checkpoint fails and no result is published.
 func (s *Service) remove(c *echo.Context) error {
 	runID := ""
+	var removedCard HostRequest
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var row Conversation
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), user(c), c.Param("id"), &row); err != nil {
 			return err
 		}
 		runID = row.AgentRunID
+		if row.Status == statusHostApproval {
+			removedCard = row.HostRequest
+		}
 		var imageIDs []string
 		if err := tx.Model(&ImageAttachment{}).Where("user_id = ? AND conversation_id = ? AND deleted_at IS NULL", row.UserID, row.ID).Pluck("id", &imageIDs).Error; err != nil {
 			return err
@@ -738,6 +753,7 @@ func (s *Service) remove(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	s.refuseServerCard(c.Request().Context(), user(c), removedCard)
 	if s.engine != nil {
 		// The row is gone: end its live run and drop its worker session.
 		if runID != "" {

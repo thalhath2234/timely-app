@@ -66,7 +66,7 @@ export function toolAlwaysAsks(c: string): boolean {
   return c === "send" || c === "pay" || c === "config" || c === "delete";
 }
 
-export type McpStatus = "ready" | "needs_sign_in" | "waiting_for_ok" | "unavailable";
+export type McpStatus = "ready" | "needs_sign_in" | "waiting_for_ok" | "not_approved" | "unavailable";
 
 export type McpServer = {
   name: string;
@@ -140,6 +140,8 @@ export function serverStatus(s: Pick<McpServer, "status" | "mode" | "warning" | 
       return { text: "Sign in to use it", tone: "warn" };
     case "waiting_for_ok":
       return { text: "Waiting for your OK on the host card", tone: "warn" };
+    case "not_approved":
+      return { text: s.warning || "Not added: you said no, or it timed out.", tone: "warn" };
     case "unavailable":
       return { text: s.warning || "Not available", tone: "error" };
   }
@@ -150,7 +152,7 @@ export function serverStatus(s: Pick<McpServer, "status" | "mode" | "warning" | 
 /** "3 servers, 1 needs you" for the closed row. */
 export function serversSummary(servers: Pick<McpServer, "status" | "mode">[] | undefined): string {
   if (!servers || servers.length === 0) return MCP_SUMMARY_EMPTY;
-  const needs = servers.filter((s) => s.mode !== "off" && (s.status === "needs_sign_in" || s.status === "waiting_for_ok")).length;
+  const needs = servers.filter((s) => s.mode !== "off" && (s.status === "needs_sign_in" || s.status === "waiting_for_ok" || s.status === "not_approved")).length;
   const base = `${servers.length} ${servers.length === 1 ? "server" : "servers"}`;
   return needs > 0 ? `${base}, ${needs} need${needs === 1 ? "s" : ""} you` : base;
 }

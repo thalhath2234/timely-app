@@ -216,6 +216,7 @@ type prepared struct {
 	hash     string         // entryHash for a command server
 	problem  string         // why it is not rendered, "" when it is
 	pending  bool           // a command server without the person's OK
+	refused  bool           // ... whose host card was not approved
 	renders  bool
 	needsKey bool // some ${VAR} has no value
 }
@@ -242,6 +243,9 @@ func (s *Service) prepare(ctx context.Context, row Server, host bool, envs map[s
 		}
 		if row.ApprovedHash != p.hash {
 			p.pending, p.problem = true, "Waiting for your OK on the host card."
+			if row.RefusedHash == p.hash {
+				p.refused, p.problem = true, "Not added: you said no, or it timed out."
+			}
 			return p
 		}
 		p.renders = true
@@ -435,6 +439,29 @@ func (s *Service) ApproveStdio(ctx context.Context, uid, name, hash string) erro
 	}
 	s.changed(ctx, uid)
 	return nil
+}
+
+// RefuseStdio records that the host card for a command server's entry (hash)
+// was not approved (denied, stopped, expired or its chat deleted): the server
+// then reads "not added" and offers Ask again. A card for an entry the server
+// no longer has changes nothing.
+func (s *Service) RefuseStdio(ctx context.Context, uid, name, hash string) error {
+	row, err := s.row(ctx, uid, name)
+	if err != nil {
+		return err
+	}
+	if row.ApprovedHash == hash {
+		return nil
+	}
+	envs, _, err := s.secrets(ctx, uid, secretEnv)
+	if err != nil {
+		return err
+	}
+	if p := s.prepare(ctx, row, true, envs); p.hash != hash {
+		return nil
+	}
+	return s.db.WithContext(ctx).Model(&Server{}).Where("id = ?", row.ID).
+		Updates(map[string]any{"refused_hash": hash, "updated_at": s.now()}).Error
 }
 
 // ToolInfo is one tool the last probe saw.

@@ -23,6 +23,7 @@ import {
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import {
   addMcpServer,
+  askMcpAgain,
   getMcpCatalog,
   getMcpServers,
   getMcpTools,
@@ -63,6 +64,7 @@ function useRefreshing<TArg, TOut>(fn: (arg: TArg) => Promise<TOut>) {
 }
 
 export const useSetMcpMode = () => useRefreshing(({ name, mode }: { name: string; mode: McpMode }) => updateMcpServer(name, { mode }));
+export const useAskMcpAgain = () => useRefreshing((name: string) => askMcpAgain(name));
 export const useRemoveMcp = () => useRefreshing((name: string) => removeMcpServer(name));
 export const useAddMcp = () => useRefreshing((catalogId: string) => addMcpServer({ catalogId }));
 
@@ -92,6 +94,13 @@ function ModeBadge({ mode }: { mode: McpMode }) {
   return <Text style={[styles.badge, { color: tone }]}>{modeLabel(mode)}</Text>;
 }
 
+function middleClip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const keep = max - 1;
+  const head = Math.ceil(keep / 2);
+  return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
+}
+
 /** One server as a row; the status is the second line. */
 export function ServerRow({ server, waiting, onPress }: { server: McpServer; waiting: boolean; onPress: () => void }) {
   const status = serverStatus(server);
@@ -100,7 +109,9 @@ export function ServerRow({ server, waiting, onPress }: { server: McpServer; wai
     <ListRow
       testID={`mcp-server-${server.name}`}
       title={server.name}
-      meta={[serverTarget(server), server.flag, line].filter(Boolean).join("\n")}
+      // The status comes first and has a line of its own: a command or an
+      // address that wraps must not push it off the row.
+      meta={[line, server.flag || middleClip(serverTarget(server), 44)].filter(Boolean).join("\n")}
       trailing={<ModeBadge mode={server.mode} />}
       accessibilityLabel={`${server.name}, ${modeLabel(server.mode)}, ${line}`}
       onPress={onPress}
@@ -120,10 +131,11 @@ export function ServerSheet({
 }) {
   const setMode = useSetMcpMode();
   const remove = useRemoveMcp();
+  const askAgain = useAskMcpAgain();
   const [error, setError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const tools = useMcpToolsQuery(server?.name ?? "", !!server && server.mode !== "off" && server.status !== "unavailable" && server.status !== "waiting_for_ok");
+  const tools = useMcpToolsQuery(server?.name ?? "", !!server && server.mode !== "off" && server.status !== "unavailable" && server.status !== "waiting_for_ok" && server.status !== "not_approved");
   // The server row changes under the sheet (a mode, a sign-in): the sheet reads the live one.
   const status = server ? serverStatus(server) : null;
 
@@ -177,6 +189,16 @@ export function ServerSheet({
             </View>
             {setMode.error ? <Text style={styles.error}>{setMode.error.message}</Text> : null}
             {status ? <Text style={status.tone === "error" ? styles.error : status.tone === "warn" ? styles.warn : styles.meta}>{status.text}</Text> : null}
+            {server.status === "not_approved" && server.mode !== "off" ? (
+              <Button
+                testID="mcp-ask-again"
+                label="Ask again"
+                loading={askAgain.isPending}
+                onPress={() =>
+                  askAgain.mutate(server.name, { onError: (err) => setError(err instanceof Error ? err.message : "Couldn't ask again.") })
+                }
+              />
+            ) : null}
             {server.signsIn && server.mode !== "off" ? (
               <View style={{ gap: 6 }}>
                 <Button

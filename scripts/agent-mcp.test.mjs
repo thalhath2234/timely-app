@@ -44,6 +44,11 @@ test("a row says what the person must do", () => {
   assert.deepEqual(serverStatus({ ...ok, signsIn: true, signedIn: true }), { text: "Signed in", tone: "ok" });
   assert.deepEqual(serverStatus({ ...ok, status: "needs_sign_in", signsIn: true }), { text: "Sign in to use it", tone: "warn" });
   assert.deepEqual(serverStatus({ ...ok, status: "waiting_for_ok" }), { text: "Waiting for your OK on the host card", tone: "warn" });
+  assert.deepEqual(serverStatus({ ...ok, status: "not_approved", warning: "Not added: you said no, or it timed out." }), {
+    text: "Not added: you said no, or it timed out.",
+    tone: "warn",
+  });
+  assert.equal(serversSummary([{ status: "not_approved", mode: "ask" }]), "1 server, 1 needs you");
   assert.deepEqual(serverStatus({ ...ok, status: "unavailable", warning: "This address now points at a private network." }), {
     text: "This address now points at a private network.",
     tone: "error",
