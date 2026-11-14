@@ -413,22 +413,54 @@ def _checkpoint_dir(agent: Any, tool: str, args: dict) -> str:
     return ""
 
 
-def checkpoint_for(run: bridge.RunContext, tool: str, args: dict) -> tuple[str, str]:
-    """``(checkpoint id, folder)`` Hermes took before this call in this run, else ``("", "")``."""
+def _newest_checkpoint(mgr: Any, folder: str) -> tuple[str, float]:
+    """``(hash, time)`` of the folder's newest Hermes checkpoint, ``("", 0.0)`` when it has none."""
+    from datetime import datetime
+    for entry in mgr.list_checkpoints(folder):
+        return str(entry.get("hash") or ""), datetime.fromisoformat(str(entry.get("timestamp"))).timestamp()
+    return "", 0.0
+
+
+def snapshot_before(run: bridge.RunContext, tool: str, args: dict, call_id: str) -> None:
+    """The gate let a host call through (allowed, carded, or pre-approved): remember the newest
+    checkpoint of the folder it works in, and let Hermes take a fresh one for this call.
+
+    Hermes snapshots once per folder per turn, so the second write of a turn took none and a
+    terminal call that is not destructive (``ls``) takes none: without this their cards and Auto
+    "Changed on this computer" lines reported the first write's checkpoint, and Undo put the folder
+    back to before the first write, which reverted the other change too. ``new_turn`` only clears
+    Hermes' per-turn memory, so each approved write (and destructive command) gets a snapshot of its own; the call reports
+    only a checkpoint newer than the one remembered here."""
+    mgr = getattr(run.agent, "_checkpoint_mgr", None)
+    if not call_id or mgr is None or not getattr(mgr, "enabled", False) or tool not in policy.CHECKPOINT_TOOLS:
+        return
+    try:
+        folder = _checkpoint_dir(run.agent, tool, args)
+        if not folder:
+            return
+        mgr.new_turn()  # a destructive terminal call after a write takes its own snapshot too
+        run.checkpoints_before[call_id] = _newest_checkpoint(mgr, folder)[0]
+    except Exception as exc:
+        logger.debug("remembering the checkpoint before %s: %s", tool, exc)
+
+
+def checkpoint_for(run: bridge.RunContext, tool: str, args: dict, call_id: str = "") -> tuple[str, str]:
+    """``(checkpoint id, folder)`` Hermes took before this call, else ``("", "")``: the folder's
+    newest checkpoint when it is newer than the one ``snapshot_before`` saw for this call."""
     agent = run.agent
     mgr = getattr(agent, "_checkpoint_mgr", None)
     if mgr is None or not getattr(mgr, "enabled", False) or tool not in policy.CHECKPOINT_TOOLS:
         return "", ""
+    before = run.checkpoints_before.pop(call_id, None) if call_id else None
+    if before is None:
+        return "", ""  # no baseline: nothing says this call took the snapshot
     folder = _checkpoint_dir(agent, tool, args)
     if not folder:
         return "", ""
     try:
-        from datetime import datetime
-        for entry in mgr.list_checkpoints(folder):
-            stamp = datetime.fromisoformat(str(entry.get("timestamp"))).timestamp()
-            if stamp >= run.started_at - 2:
-                return str(entry.get("hash") or ""), folder
-            break
+        newest, stamp = _newest_checkpoint(mgr, folder)
+        if newest and newest != before and stamp >= run.started_at - 2:
+            return newest, folder
     except Exception as exc:
         logger.debug("listing checkpoints for %s: %s", folder, exc)
     return "", ""
@@ -462,7 +494,7 @@ def report_ran(run: bridge.RunContext, tool: str, args: dict, call_id: str, stat
     payload: dict[str, Any] = {"tool_call_id": call_id, "tool": tool, "args_hash": policy.args_hash(args),
                                "status": state}
     if state == "ok":
-        checkpoint, folder = checkpoint_for(run, tool, args)
+        checkpoint, folder = checkpoint_for(run, tool, args, call_id)
         if checkpoint:
             payload["checkpoint"] = checkpoint
             payload["checkpoint_dir"] = folder

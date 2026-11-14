@@ -269,6 +269,7 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
         if tool_call_id:
             run.approve_call(tool_call_id, digest)
             host.mark_executing(run, tool_call_id)
+            host.snapshot_before(run, tool_name, args, tool_call_id)
         return None
     if not (is_host or is_mcp) and (tool_name in policy.LOCAL_ALLOW or _timely_tool(tool_name)):
         return None
@@ -300,12 +301,14 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
             # (Hermes' own dangerous-command prompt for it becomes a card, not an automatic yes).
             run.approve_call(tool_call_id, digest, backed=reply.get("by") != "auto")
             host.mark_executing(run, tool_call_id)
+            host.snapshot_before(run, tool_name, args, tool_call_id)
         return None
     if verdict == "approve":
         call_key = tool_call_id or tool_name
         run.note_asked(call_key, {"tool": tool_name, "args_hash": digest, "toolset": toolset})
         host.suspend_yolo(run)
         host.mark_executing(run, call_key)
+        host.snapshot_before(run, tool_name, args, call_key)
         return {"action": "approve", "message": message or f"Run {tool_name}?",
                 "rule_key": f"timely:{call_key}"}
     return {"action": "block", "message": message or f"Blocked: Timely did not allow {tool_name}."}

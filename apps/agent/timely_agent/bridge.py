@@ -277,6 +277,9 @@ class RunContext:
     parked_all: list[dict[str, Any]] = field(default_factory=list, repr=False)
     # Calls the dispatch fence refused (the run was stopped after Run once, before the tool ran).
     fence_blocked: set[str] = field(default_factory=set, repr=False)
+    # The newest checkpoint of a call's folder when the gate let the call through, by call id: only
+    # a newer one belongs to the call (``host.snapshot_before``).
+    checkpoints_before: dict[str, str] = field(default_factory=dict, repr=False)
     started_at: float = field(default_factory=time.time, repr=False)
     _call_tools: dict[str, str] = field(default_factory=dict, repr=False)
     _inner_seq: int = field(default=0, repr=False)

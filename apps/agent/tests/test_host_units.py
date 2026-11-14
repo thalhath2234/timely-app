@@ -588,3 +588,52 @@ def test_gate_ask_carries_the_terminal_sessions_folder(monkeypatch):
     mod.get_session_cwd = lambda key: (_ for _ in ()).throw(RuntimeError("no session"))
     _, asked = _gate(_run(host_allowed=True), "terminal", {"command": "ls"}, task_id="task-1")
     assert "cwd" not in asked[0]  # a failing lookup never blocks or breaks the ask
+
+
+class _SnapshotManager:
+    """Hermes' CheckpointManager as far as the worker uses it: one snapshot per folder per turn
+    (``ensure_checkpoint`` skips a folder already taken since ``new_turn``), newest first."""
+    enabled = True
+
+    def __init__(self):
+        self.entries: list[dict] = []
+        self.taken_dirs: set[str] = set()
+        self.n = 0
+
+    def new_turn(self):
+        self.taken_dirs.clear()
+
+    def ensure_checkpoint(self, folder, reason="auto"):
+        if folder in self.taken_dirs:
+            return False
+        self.taken_dirs.add(folder)
+        self.n += 1
+        from datetime import datetime, timezone
+        self.entries.insert(0, {"hash": f"h{self.n}", "timestamp": datetime.now(timezone.utc).isoformat()})
+        return True
+
+    def list_checkpoints(self, folder):
+        return list(self.entries)
+
+
+def test_undo_belongs_to_the_call_that_took_the_snapshot(monkeypatch):
+    """Review round 3: Hermes snapshots once per folder per turn, so the second write of a turn and
+    an ``ls`` after it reported the first write's checkpoint, and Undo reverted both changes.
+    Each write gets a snapshot of its own, and a call that took none reports none."""
+    from timely_agent import host
+    mgr = _SnapshotManager()
+    run, events = _bridge_run()
+    run.agent._checkpoint_mgr = mgr
+    monkeypatch.setattr(host, "_checkpoint_dir", lambda *a: "/w")
+
+    def call(tool, args, call_id, snapshots):
+        host.snapshot_before(run, tool, args, call_id)
+        if snapshots:  # Hermes' _begin_tool_execution, after the gate let the call through
+            mgr.ensure_checkpoint("/w", f"before {tool}")
+        host.report_ran(run, tool, args, call_id, "ok")
+
+    call("write_file", {"path": "a.txt"}, "c1", True)
+    call("write_file", {"path": "b.txt"}, "c2", True)
+    call("terminal", {"command": "ls -la"}, "c3", False)
+    got = {p["tool_call_id"]: p.get("checkpoint") for k, p in events if k == "host.ran"}
+    assert got == {"c1": "h1", "c2": "h2", "c3": None}
