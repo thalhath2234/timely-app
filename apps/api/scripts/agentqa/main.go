@@ -43,8 +43,32 @@ func main() {
 	timeout := flag.Duration("timeout", 4*time.Minute, "longest wait for one run to end")
 	phrases := flag.String("stub-phrases", "", "the stub shim's phrase table to write directives into; default $TIMELY_PARITY_STUB_PHRASES")
 	dsn := flag.String("dsn", "", "optional Postgres DSN (with the API's search_path) to read classic's tool trace; default $TIMELY_PARITY_DSN")
+	auditHost := flag.Bool("audit-host", false, "phase 5 exit audit over the API's schema (needs -dsn): every host call that ran has an approved or allowed event before it, and no host card holds a lease; exits 1 on a violation")
 	merge := flag.String("merge", "", "comma-separated <engine>.json files of runs made separately (e.g. both engines at once): write their side-by-side report.md to -out and exit")
 	flag.Parse()
+
+	if *auditHost {
+		if *dsn == "" {
+			*dsn = os.Getenv("TIMELY_PARITY_DSN")
+		}
+		if *dsn == "" {
+			fail("usage: agentqa -audit-host -dsn DSN (the API's search_path set)")
+		}
+		db, err := sql.Open("pgx", *dsn)
+		if err != nil {
+			fail("dsn: " + err.Error())
+		}
+		defer db.Close()
+		rep, err := AuditHostSchema(context.Background(), db)
+		if err != nil {
+			fail("audit: " + err.Error())
+		}
+		fmt.Print(rep)
+		if len(rep.Violations) > 0 {
+			os.Exit(1)
+		}
+		return
+	}
 
 	if *merge != "" {
 		if *scenariosPath == "" || *out == "" {
