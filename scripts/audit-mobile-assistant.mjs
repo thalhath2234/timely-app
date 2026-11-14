@@ -780,7 +780,7 @@ else {
     );
     await expect(page.getByTestId("activity-subagent")).toHaveCount(2);
     await card.getByText("Timely needs an answer").waitFor();
-    await card.getByText(/^\d+ min left$/).waitFor();
+    await card.getByText(/^(Pauses|Closes) in \d+ min$/).waitFor();
     await card.getByText("Question 1 of 3").waitFor();
     await card.getByText("Recommended", { exact: true }).waitFor();
     // The model's words stay plain text: no link is drawn.
@@ -1116,7 +1116,7 @@ else {
     // A parked card: "Waiting for your OK", the run is gone, a message skips it.
     await page.goto(`${origin}/?chat=hostparked`);
     const parked = page.getByTestId("host-card");
-    await parked.getByText("Paused: waiting for your OK").waitFor();
+    await parked.getByText("Waiting for your OK").waitFor();
     await parked
       .getByTestId("host-time-left")
       .getByText(/min left/)

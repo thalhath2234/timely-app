@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react-native";
 import {
-  HOST_STATUS_WORDS,
+  HOST_PAUSED_LINE,
   PERMISSION_COPY,
   hostWaiting,
   questionWaiting,
@@ -95,7 +95,7 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
             {asking
               ? QUESTION_WAITING_LINE
               : hosting
-                ? HOST_STATUS_WORDS.live
+                ? HOST_PAUSED_LINE
                 : draft
                   ? "Writing"
                   : phaseLabel(chat.phase)}

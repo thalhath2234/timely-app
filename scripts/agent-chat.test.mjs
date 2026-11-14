@@ -257,9 +257,12 @@ describe("host cards", () => {
   test("the words both apps show", () => {
     assert.deepEqual(HOST_BUTTONS, { once: "Run once", chat: "Allow for this chat", deny: "Deny" });
     assert.deepEqual(HOST_STATUS_WORDS, { live: "Needs your OK", parked: "Waiting for your OK" });
+    // one word for a parked card in the header, the list and on the card itself
+    assert.equal(HOST_STATUS_WORDS.parked, HOST_CARD_STATE_WORDS.parked);
+    assert.equal(HOST_STATUS_WORDS.live, HOST_CARD_STATE_WORDS.live);
     assert.deepEqual(Object.values(HOST_CARD_STATE_WORDS), [
       "Needs your OK",
-      "Paused: waiting for your OK",
+      "Waiting for your OK",
       "Ran",
       "Allowed for this chat",
       "Denied",
@@ -317,10 +320,10 @@ describe("host cards", () => {
 
   test("time left: the live wait, then the parked expiry", () => {
     assert.equal(hostSecondsLeft(live, now), 570);
-    assert.equal(hostTimeLeft(live, now), "9 min left");
+    assert.equal(hostTimeLeft(live, now), "Pauses in 9 min");
     assert.equal(hostSecondsLeft(parked, now), 2700);
-    assert.equal(hostTimeLeft(parked, now), "45 min left");
-    assert.equal(hostTimeLeft({ ...live, liveUntil: "2026-11-14T10:00:45Z" }, now), "45 s left");
+    assert.equal(hostTimeLeft(parked, now), "Closes in 45 min");
+    assert.equal(hostTimeLeft({ ...live, liveUntil: "2026-11-14T10:00:45Z" }, now), "Pauses in 45 s");
     assert.equal(hostTimeLeft({ ...live, liveUntil: "2026-11-14T09:00:00Z" }, now), "");
     assert.equal(hostSecondsLeft({ phase: "live" }, now), null);
   });

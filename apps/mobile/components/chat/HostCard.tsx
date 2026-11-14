@@ -73,12 +73,15 @@ function Subject({
   label,
   text,
   cwd,
+  page,
   detailLabel,
   detail,
 }: {
   label: string;
   text: string;
   cwd?: string;
+  /** What a script with no address acts on ("the page that is open"). */
+  page?: string;
   /** A second block (the browser's script) under the first. */
   detailLabel?: string;
   detail?: string;
@@ -100,6 +103,11 @@ function Subject({
             </Text>
           </View>
         </>
+      ) : null}
+      {page ? (
+        <Text testID="host-page" style={styles.meta}>
+          {page}
+        </Text>
       ) : null}
       {cwd ? (
         <Text style={styles.meta}>
@@ -216,6 +224,7 @@ export default function HostCard({
           label={view.subjectLabel}
           text={view.subject}
           cwd={view.cwd}
+          page={view.page}
           detailLabel={view.detailLabel}
           detail={view.detail}
         />
@@ -338,6 +347,7 @@ export function ClosedHostCard({
         {!view.auto && view.subject ? (
           <>
             <Text style={styles.meta}>{view.title}</Text>
+            <Text style={styles.eyebrow}>{view.subjectLabel}</Text>
             <View style={styles.codeBox}>
               <Text
                 testID="host-subject"
@@ -366,6 +376,15 @@ export function ClosedHostCard({
                   </Text>
                 </View>
               </>
+            ) : null}
+            {view.page ? <Text style={styles.meta}>{view.page}</Text> : null}
+            {view.cwd ? (
+              <Text style={styles.meta}>
+                In{" "}
+                <Text selectable style={styles.mono}>
+                  {view.cwd}
+                </Text>
+              </Text>
             ) : null}
           </>
         ) : null}

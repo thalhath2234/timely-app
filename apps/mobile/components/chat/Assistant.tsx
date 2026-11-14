@@ -452,6 +452,13 @@ export default function Assistant() {
   useEffect(() => {
     const was = shownHost.current;
     shownHost.current = hostId;
+    if (hostId && was !== hostId && hostCard) {
+      // A card arrived: say so ("Needs your OK: Run this command?"). Android
+      // does not announce a live region that is already in the tree at mount.
+      AccessibilityInfo.announceForAccessibility(
+        `${HOST_STATUS_WORDS[hostCard.phase === "parked" ? "parked" : "live"]}: ${hostCard.card?.title ?? ""}`.trim(),
+      );
+    }
     if (!was || was === hostId) return;
     const closed = [...(chat?.messages ?? [])]
       .reverse()

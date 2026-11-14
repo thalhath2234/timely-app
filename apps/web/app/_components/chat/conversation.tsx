@@ -133,7 +133,9 @@ export function StatusPill({
       ) : (
         <Icon className="size-3 shrink-0" />
       )}
-      <span className="truncate">
+      <span
+        className={cn("truncate", hostRequest && "max-[420px]:sr-only")}
+      >
         {status === "running" &&
         phase === "apply" &&
         !questionWaiting({ status, question })

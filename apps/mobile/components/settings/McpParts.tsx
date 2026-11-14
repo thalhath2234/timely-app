@@ -150,7 +150,7 @@ export function ServerSheet({
         {server ? (
           <View style={{ gap: 12 }}>
             {server.description ? <Text style={styles.meta}>{server.description}</Text> : null}
-            {server.flag ? <Text style={styles.warn}>{server.flag}. Its sending tools always ask in Auto.</Text> : null}
+            {server.flag ? <Text style={styles.warn}>{server.flag}. Its sending and deleting tools always ask in Auto.</Text> : null}
             <View style={styles.group} accessibilityRole="radiogroup">
               {MCP_MODES.map((m, index) => (
                 <View key={m.value}>
@@ -291,12 +291,12 @@ export function CatalogSheet({
               key={row.id}
               testID={`mcp-catalog-${row.id}`}
               title={row.name}
-              meta={[row.flag, row.fields.length > 0 ? "Set up in the desktop app" : "", row.description].filter(Boolean).join("\n")}
+              meta={[row.flag, row.fields.length > 0 ? "Set up from Timely on the web or the desktop app" : "", row.description].filter(Boolean).join("\n")}
               trailing={row.added ? <Text style={styles.tag}>Added</Text> : row.fields.length > 0 ? undefined : <Text style={[styles.badge, { color: colors.primary }]}>Add</Text>}
               chevron={false}
               disabled={add.isPending}
               onPress={row.added || row.fields.length > 0 ? undefined : () => void addRow(row)}
-              accessibilityLabel={`${row.name}, ${row.added ? "added" : row.fields.length > 0 ? "set up in the desktop app" : "add"}`}
+              accessibilityLabel={`${row.name}, ${row.added ? "added" : row.fields.length > 0 ? "set up from Timely on the web or the desktop app" : "add"}`}
             />
           ))}
         </ListGroup>

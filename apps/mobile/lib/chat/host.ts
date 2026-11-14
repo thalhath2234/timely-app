@@ -52,7 +52,8 @@ export function subjectLabel(
     case "code":
       return "Code";
     case "browser":
-      return "Address";
+      // A script that names no address is the whole subject.
+      return card?.url?.trim() ? "Address" : "Script";
     case "mcp":
       return "Tool";
     case "mcp_server":
@@ -93,6 +94,14 @@ export function detailBlock(card: HostCard | null | undefined): {
   return { label: "", text: "" };
 }
 
+/** What a browser script that names no address acts on: the page that is
+ * already open. "" for every other card. */
+export function pageLine(card: HostCard | null | undefined): string {
+  return card?.kind === "browser" && !card.url?.trim()
+    ? "Runs on the page that is open in your browser"
+    : "";
+}
+
 /** The "In" line: the folder a search looks in, else the folder the command
  * starts in. */
 export function whereLine(card: HostCard | null | undefined): string {
@@ -117,7 +126,7 @@ export function criticalLine(item: number | undefined): string {
 export function reasonLine(reason: string | undefined): string {
   const text = (reason ?? "").trim();
   if (!text) return "";
-  if (!/^[a-z]/.test(text)) return text;
+  if (!/^[a-z]/.test(text)) return /[.!?]$/.test(text) ? text : `${text}.`;
   const person = text
     .replace(/\bthe person has not\b/g, "you have not")
     .replace(/\bthe person\b/g, "you");
@@ -135,7 +144,7 @@ export function grantLine(request: HostRequest | null | undefined): string {
 export type HostCardView = {
   state: "live" | "parked";
   title: string;
-  /** "Needs your OK" or "Paused: waiting for your OK". */
+  /** "Needs your OK" or "Waiting for your OK". */
   stateWord: string;
   /** The line under the title: what the wait is. */
   lead: string;
@@ -147,6 +156,8 @@ export type HostCardView = {
   detail: string;
   /** The "In" line: the folder searched, else the folder the command starts in. */
   cwd: string;
+  /** "Runs on the page that is open in your browser" for a script with no address, else "". */
+  page: string;
   /** Environment variable names a command MCP server is started with. */
   envNames: string[];
   reason: string;
@@ -184,6 +195,7 @@ export function hostCardView(
     detailLabel: detailBlock(card).label,
     detail: detailBlock(card).text,
     cwd: whereLine(card),
+    page: pageLine(card),
     envNames: card?.envNames ?? [],
     reason: reasonLine(card?.reason),
     critical: criticalLine(card?.criticalItem),
@@ -300,6 +312,7 @@ export type ClosedHostView = {
   detailLabel: string;
   detail: string;
   cwd: string;
+  page: string;
   /** "Approved on your phone", "Denied in the desktop app", ..., or "". */
   deviceNote: string;
   /** The activity line: "Ran `ls`", "Changed notes.md". */
@@ -365,10 +378,13 @@ export function hostLine(
   const short = first.length > 80 ? `${first.slice(0, 79)}…` : first;
   if (!ran) {
     const what = short || host.tool;
-    if (host.outcome === "denied")
+    if (host.outcome === "denied") {
+      if (kind === "browser" && !card?.url?.trim())
+        return "Denied using your browser";
       return `Denied ${kind === "browser" ? "opening" : ""} ${what}`
         .replace(/\s+/g, " ")
         .trim();
+    }
     if (host.outcome === "expired") return `Expired, not run: ${what}`;
     if (host.outcome === "approved")
       return `Approved, waiting to run: ${what}`;
@@ -383,7 +399,9 @@ export function hostLine(
     case "file":
       return `Changed ${plainName(card?.path ?? short)}`;
     case "browser":
-      return `Opened ${hostOf(card?.url ?? short)} in your browser`;
+      return card?.url?.trim()
+        ? `Opened ${hostOf(card.url)} in your browser`
+        : "Used your browser";
     case "mcp":
       return `Used ${card?.server || host.tool}`;
     case "mcp_server":
@@ -416,6 +434,7 @@ export function closedHostView(host: ClosedHost): ClosedHostView {
     detailLabel: detailBlock(card).label,
     detail: detailBlock(card).text,
     cwd: whereLine(card),
+    page: pageLine(card),
     deviceNote: host.auto ? "" : deviceNote(host.device, host.outcome),
     line: hostLine(host),
     auto: !!host.auto,
@@ -594,7 +613,7 @@ export const GRANTS_TITLE = "Allowed for this chat";
 export const GRANTS_EMPTY =
   "Nothing yet. Choose Allow for this chat on a card to add it.";
 export const GRANTS_HINT =
-  "These run without a card in this chat only. A command that sends, deletes or installs still asks in Auto.";
+  "These run without a card in this chat only. Anything that deletes, sends, pays or installs still asks.";
 
 /**
  * What a notification says a host card is about: what the assistant wants

@@ -202,7 +202,7 @@ function ServerDetails({ server, onSignIn, signingIn }: { server: McpServer; onS
       <p className="text-xs text-muted-foreground">
         <span className="font-medium text-foreground">{MCP_MODES.find((m) => m.value === server.mode)?.label}.</span> {modeHint(server.mode)}
       </p>
-      {server.flag ? <p className="text-xs text-warning-text">{server.flag}. Its sending tools always ask in Auto.</p> : null}
+      {server.flag ? <p className="text-xs text-warning-text">{server.flag}. Its sending and deleting tools always ask in Auto.</p> : null}
       {server.warning ? <p className="text-xs text-destructive">{server.warning}</p> : null}
       <div>
         <h4 className="mb-1 text-xs font-semibold text-foreground">Tools</h4>

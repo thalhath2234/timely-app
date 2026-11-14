@@ -110,19 +110,28 @@ export function Pill({
   tone = "muted",
   icon: Icon,
   spin = false,
+  iconOnly = false,
 }: {
   label: string;
   tone?: Tone;
   icon?: LucideIcon;
   /** Show the animated mark in place of the icon while something runs. */
   spin?: boolean;
+  /** A narrow header shows the icon alone (a screen reader still reads the word). */
+  iconOnly?: boolean;
 }) {
   const color = toneColor(tone, colors);
   return (
-    <View style={[styles.pill, { backgroundColor: `${color}22` }]}>
+    <View
+      accessible={iconOnly}
+      accessibilityLabel={iconOnly ? label : undefined}
+      style={[styles.pill, { backgroundColor: `${color}22` }]}
+    >
       {spin ? <LogoSpinner size={12} color={color} /> : Icon ? <Icon size={12} color={color} /> : null}
       {/* A narrow header (the permission chip beside it) ends it with "…". */}
-      <Text numberOfLines={1} style={[styles.pillText, { color, flexShrink: 1 }]}>{label}</Text>
+      {iconOnly ? null : (
+        <Text numberOfLines={1} style={[styles.pillText, { color, flexShrink: 1 }]}>{label}</Text>
+      )}
     </View>
   );
 }

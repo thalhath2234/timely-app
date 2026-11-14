@@ -484,7 +484,7 @@ export const HOST_BUTTONS: Record<HostChoice, string> = { once: "Run once", chat
 /** The card's state words, open and closed (contract 8). */
 export const HOST_CARD_STATE_WORDS: Record<HostCardState, string> = {
   live: "Needs your OK",
-  parked: "Paused: waiting for your OK",
+  parked: "Waiting for your OK",
   ran: "Ran",
   allowed: "Allowed for this chat",
   denied: "Denied",
@@ -496,6 +496,10 @@ export const HOST_CARD_STATE_WORDS: Record<HostCardState, string> = {
 
 /** The chat's status word while a host card waits (header, list, sidebar, Activity). */
 export const HOST_STATUS_WORDS: Record<HostPhase, string> = { live: "Needs your OK", parked: "Waiting for your OK" };
+
+/** What the run's activity box says while a host card is on screen: the card
+ * carries "Needs your OK", so the box does not repeat it. */
+export const HOST_PAUSED_LINE = "Paused until you answer";
 
 /** The activity line and closed card action. */
 export const HOST_UNDO = "Undo this change";
@@ -584,11 +588,15 @@ export function hostSecondsLeft(request: HostRequest | null | undefined, now: Da
   return Math.max(0, Math.ceil((at - t) / 1000));
 }
 
-/** "9 min left", "45 s left", or "" once it passed. Minutes round down. */
+/** What the clock on an open card counts down, said as what happens: a live
+ * card "Pauses in 9 min" (it then waits parked, still answerable for up to an
+ * hour), a parked one "Closes in 45 min". "" once it passed. Minutes round
+ * down. */
 export function hostTimeLeft(request: HostRequest | null | undefined, now: Date | number = Date.now()): string {
   const left = hostSecondsLeft(request, now);
   if (left === null || left <= 0) return "";
-  return left >= 60 ? `${Math.floor(left / 60)} min left` : `${left} s left`;
+  const lead = request?.phase === "parked" ? "Closes in" : "Pauses in";
+  return left >= 60 ? `${lead} ${Math.floor(left / 60)} min` : `${lead} ${left} s`;
 }
 
 /** Whether "Undo this change" is offered for a closed card or a change. */

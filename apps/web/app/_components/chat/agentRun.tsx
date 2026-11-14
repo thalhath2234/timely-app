@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { planGroups } from "@timely/contract/changeReview";
 import {
-  HOST_STATUS_WORDS,
+  HOST_PAUSED_LINE,
   hostWaiting,
   questionWaiting,
   type ActivityLine,
@@ -113,7 +113,7 @@ export function RunActivity({ chat }: { chat: Chat }) {
             {asking
               ? QUESTION_WAITING_LINE
               : hosting
-                ? HOST_STATUS_WORDS.live
+                ? HOST_PAUSED_LINE
                 : "Working"}
           </p>
           {!paused && (

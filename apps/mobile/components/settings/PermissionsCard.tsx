@@ -127,7 +127,8 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
       </ListGroup>
       <GroupHint>
         {ruleLocked ? `${LOOSEN_ON_DESKTOP}. ` : ""}
-        {HOST_RULE_OPTIONS.find((o) => o.value === rule)?.hint} Deny always works from any device.
+        {HOST_RULE_OPTIONS.find((o) => o.value === rule)?.hint}
+        {rule === "desktop" ? "" : " Deny always works from any device."}
       </GroupHint>
 
       <GroupLabel>Auto always asks before</GroupLabel>

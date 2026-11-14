@@ -161,6 +161,7 @@ export default function PermissionsGroups({
         <ListGroup>
           <ListRow
             label="Host cards"
+            wrapMeta
             meta="Who can approve a card"
           >
             <Select
@@ -179,6 +180,7 @@ export default function PermissionsGroups({
           </ListRow>
           <ListRow
             label="Cards wait up to"
+            wrapMeta
             meta="Then the card closes and nothing runs"
           >
             <Select
@@ -197,8 +199,8 @@ export default function PermissionsGroups({
         </ListGroup>
         <GroupHint>
           {ruleLocked ? `${LOOSEN_ON_DESKTOP}. ` : ""}
-          {HOST_RULE_OPTIONS.find((o) => o.value === rule)?.hint} Deny always
-          works from any device.
+          {HOST_RULE_OPTIONS.find((o) => o.value === rule)?.hint}
+          {rule === "desktop" ? "" : " Deny always works from any device."}
         </GroupHint>
       </div>
 
@@ -217,6 +219,7 @@ export default function PermissionsGroups({
                   />
                 }
                 label={row.title}
+                wrapMeta
                 meta={row.detail}
               />
             );
@@ -237,6 +240,7 @@ export default function PermissionsGroups({
           </ListRow>
           <ListRow
             label="Allowed on"
+            wrapMeta
             meta={allowedLocked ? LOOSEN_ON_DESKTOP : undefined}
           >
             <Select

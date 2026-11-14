@@ -414,7 +414,23 @@ export function HostToolsSection() {
                     {row.folder}
                   </p>
                 </div>
-                <Badge tone={row.source === "server" ? "muted" : "primary"}>{row.sourceLabel}</Badge>
+                <span className="flex items-center gap-2">
+                  <Badge tone={row.source === "server" ? "muted" : "primary"}>{row.sourceLabel}</Badge>
+                  {/* The owner at this computer can take another account's access
+                      away without signing in as it; an account the server names
+                      is changed in the server's settings. */}
+                  {state.editable && row.source === "desktop" && !row.you && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={`Turn off ${row.title}`}
+                      onClick={() => save.mutate(() => setHostAccount(row.uid, false))}
+                      className="cursor-pointer text-xs font-medium text-destructive hover:underline disabled:opacity-50"
+                    >
+                      Turn off
+                    </button>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
@@ -427,7 +443,7 @@ export function HostToolsSection() {
             </p>
           )}
           <p className="text-xs text-muted-foreground">
-            Each account is turned on separately: sign in as it in the desktop app to turn it on or off. Every
+            Each account is turned on separately: sign in as it in the desktop app to turn it on. Turn another account off here. Every
             other account can still chat with the assistant, but gets no commands, files or browser.
           </p>
         </div>
@@ -532,8 +548,8 @@ function LimitsRow({
       <div>
         <h4 className="text-sm font-medium text-foreground">Assistant workers</h4>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Each account that is chatting with the assistant uses one worker. A worker that has done nothing for a
-          while stops, and starts again when it is needed.
+          Each chat the assistant is working on, or that waits on a live card, uses one worker. A worker that has
+          done nothing for a while stops, and starts again when it is needed.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">

@@ -17,7 +17,7 @@ export const MCP_MODES: { value: McpMode; label: string; hint: string }[] = [
   {
     value: "use",
     label: "Can use",
-    hint: "In Auto it runs without asking, except to send something, spend money or change settings. In Supervised it still asks.",
+    hint: "In Auto it runs without asking, except to send something, delete something, spend money or change settings. In Supervised it still asks.",
   },
   { value: "ask", label: "Ask me first", hint: "Every call waits for your OK on a card." },
   { value: "off", label: "Off", hint: "Not connected. The assistant can't see its tools." },
@@ -291,15 +291,15 @@ export function serverTarget(s: Pick<McpServer, "transport" | "url" | "command" 
   }
 }
 
-export const COMMAND_ONLY_DESKTOP = "Add a command server in the desktop app. It runs on that computer.";
+export const COMMAND_ONLY_DESKTOP = "Add a command server from Timely on the web or the desktop app. It runs on the computer that hosts Timely.";
 export const COMMAND_NOT_ALLOWED = "Only an account that can use this computer can add a command server.";
 export const ADD_COMMAND_NOTE =
   "A command server starts a program on this computer. It waits for your OK on a card that shows the exact command, and every change asks again.";
 export const SIGN_IN_NOTE = "Opens the server's sign-in page. Timely keeps the sign-in encrypted and never in a backup.";
 export const MCP_INTRO =
-  "Connect other services to the assistant. Each server is Can use, Ask me first or Off. Anything that sends, spends money or changes settings always asks in Auto.";
+  "Connect other services to the assistant. Each server is Can use, Ask me first or Off. Anything that sends, deletes, spends money or changes settings always asks in Auto.";
 export const MCP_SENDING_NOTE =
-  "Tools that send, spend or change settings are found by their names and what the server says about them. Keep a mail or messaging server on Ask me first.";
+  "Tools that send, delete, spend or change settings are found by their names and what the server says about them. Keep a mail or messaging server on Ask me first.";
 
 /** The toast after Add: command servers wait for the card. */
 export function addedMessage(name: string, pending: boolean): string {

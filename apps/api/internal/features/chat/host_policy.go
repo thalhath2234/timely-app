@@ -242,11 +242,9 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 	askedForced := forced != "" && (st.mode == agent.Auto || (st.mode == agent.Full && browser))
 	grantable := d.grant != nil && (!critical || (taintHold && st.taintedLocal)) && !askedForced
 	if askedForced && !critical {
-		critical, why = true, forced
-		item = 0
-		if browser {
-			item = agent.CriticalSendingOut
-		}
+		// Off the critical list: the reason says why it asks, and the card
+		// names no list item (the browser asks even in Full Access).
+		critical, why, item = true, forced, 0
 	}
 	switch st.mode {
 	case agent.Full:
@@ -547,21 +545,68 @@ func hostCall(tool string, args map[string]any, workingDir, sessionCwd string) (
 		return agent.HostAction{Kind: agent.HostTerminal, Command: code, Cwd: where, Code: true},
 			HostCard{Kind: cardCode, Title: "Run this code?", Command: clip(code, 4000), Cwd: clip(cwd, 1000)}, nil
 	}
-	// browser_exec, browser_cdp, browser_dialog
+	// browser_exec, browser_cdp, browser_dialog. The card shows what the call
+	// does as plain text: the script itself for browser_exec (it has no url
+	// argument: the address is only what the script names), the method and
+	// parameters for browser_cdp, the action for browser_dialog.
+	script := ""
+	switch tool {
+	case "browser_exec":
+		script = str("code")
+	case "browser_cdp":
+		script = strings.TrimSpace(str("method") + " " + compactValue(args["params"]))
+	case "browser_dialog":
+		script = strings.TrimSpace(str("action") + " " + str("prompt_text"))
+	}
 	target := str("url")
 	if target == "" {
-		target = firstURL(compactArgs(raw(args)))
+		if params, ok := args["params"].(map[string]any); ok {
+			if u, ok := params["url"].(string); ok {
+				target = strings.TrimSpace(u)
+			}
+		}
 	}
+	if target == "" {
+		target = navigationTarget(script)
+	}
+	card := HostCard{Kind: cardBrowser, Title: "Use your browser?", URL: clip(target, 2000), Command: clip(script, 4000)}
 	// No grant: a script on the signed-in profile can do anything on the
 	// site it names, and Auto asks for every browser call, so a grant in
 	// Supervised would be looser than Auto for the same call.
-	return agent.HostAction{Kind: agent.HostFetch, URL: target},
-		HostCard{Kind: cardBrowser, Title: "Use your browser?", URL: clip(target, 2000), Command: clip(compactArgs(raw(args)), 4000)}, nil
+	if target == "" {
+		// Nothing is opened: it acts on the page that is open now. Not a
+		// request to a site the person never named, but still the signed-in
+		// browser (the forced reason says so).
+		return agent.HostAction{Kind: agent.HostInput, Command: script}, card, nil
+	}
+	return agent.HostAction{Kind: agent.HostFetch, URL: target, Command: script}, card, nil
+}
+
+// navigationTarget is the address a browser script opens: its first goto,
+// navigate, new_tab or open_url, else the first URL anywhere in it.
+func navigationTarget(script string) string {
+	if m := navigateCall.FindStringSubmatch(script); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return firstURL(script)
+}
+
+// compactValue is a JSON value as compact text ("" for nothing or {}).
+func compactValue(v any) string {
+	if v == nil {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil || string(b) == "{}" || string(b) == "null" {
+		return ""
+	}
+	return string(b)
 }
 
 var (
-	urlInText   = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>\\)]+`)
-	domainInMsg = regexp.MustCompile(`(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b`)
+	urlInText    = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>\\)]+`)
+	domainInMsg  = regexp.MustCompile(`(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b`)
+	navigateCall = regexp.MustCompile(`(?i)\b(?:goto|navigate|new_tab|open_url|open_tab|go_to)\s*\(\s*(?:url\s*=\s*)?["']([^"']+)["']`)
 	// The headers Hermes' V4A parser reads (file_tools._V4A_SINGLE_HEADER_RE and
 	// _V4A_MOVE_HEADER_RE), read a little more loosely.
 	patchHeader = regexp.MustCompile(`(?m)^\s*\*\*\*\s*(Update|Add|Delete)\s+File:\s*(.+?)\s*$`)

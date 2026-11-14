@@ -243,3 +243,49 @@ func TestQueuedCardsAreNotSilentlyDroppedWhenTheRunParks(t *testing.T) {
 		t.Fatalf("messages %+v queue %d", row.Messages, len(r.hostQueue))
 	}
 }
+
+// The browser card shows what the call does as plain text, never the model's
+// raw JSON: the script for browser_exec, the method and parameters for
+// browser_cdp. A script that names no address opens nothing, so no address
+// and no "opens a site" reason.
+func TestBrowserCardShowsTheScriptNotTheJSON(t *testing.T) {
+	script := "click(120, 300)\nprint(js(\"document.title\"))"
+	for _, mode := range []agent.Mode{agent.Supervised, agent.Auto, agent.Full} {
+		d := decideCall(t, baseState(mode), "browser_exec", map[string]any{"code": script})
+		if d.verdict != "approve" || d.card.URL != "" || d.card.Command != script || strings.Contains(d.card.Command, `\"`) || strings.HasPrefix(d.card.Command, "{") {
+			t.Errorf("%s: card %+v", mode, d.card)
+		}
+		if strings.Contains(d.card.Reason, "site") || d.card.CriticalItem != 0 {
+			t.Errorf("%s: reason %q item %d: nothing is opened and no list item applies", mode, d.card.Reason, d.card.CriticalItem)
+		}
+		if mode != agent.Supervised && !strings.Contains(d.card.Reason, "signed-in browser") {
+			t.Errorf("%s: reason %q", mode, d.card.Reason)
+		}
+	}
+	// a goto names the address; the script is still shown once, as text
+	d := decideCall(t, baseState(agent.Supervised), "browser_exec", map[string]any{"code": "goto(\"https://example.com/\")\nprint(title())"})
+	if d.card.URL != "https://example.com/" || d.card.Command != "goto(\"https://example.com/\")\nprint(title())" {
+		t.Errorf("goto card %+v", d.card)
+	}
+	// a new, unmentioned site is the usual critical item 2 in Auto
+	if d := decideCall(t, baseState(agent.Auto), "browser_exec", map[string]any{"code": "goto(\"https://unknown.example.net/\")"}); d.card.CriticalItem != agent.CriticalSendingOut || !strings.Contains(d.card.Reason, "site") {
+		t.Errorf("an unmentioned site: %+v", d.card)
+	}
+	// browser_cdp: the method and its parameters, a url parameter as the address
+	d = decideCall(t, baseState(agent.Supervised), "browser_cdp", map[string]any{"method": "Page.navigate", "params": map[string]any{"url": "https://example.org/x"}})
+	if d.card.URL != "https://example.org/x" || !strings.HasPrefix(d.card.Command, "Page.navigate ") || strings.Contains(d.card.Command, "method") {
+		t.Errorf("cdp card %+v", d.card)
+	}
+	d = decideCall(t, baseState(agent.Supervised), "browser_cdp", map[string]any{"method": "Target.getTargets"})
+	if d.card.URL != "" || d.card.Command != "Target.getTargets" {
+		t.Errorf("cdp card without params %+v", d.card)
+	}
+	d = decideCall(t, baseState(agent.Supervised), "browser_dialog", map[string]any{"action": "accept", "prompt_text": "yes"})
+	if d.card.Command != "accept yes" || d.card.URL != "" {
+		t.Errorf("dialog card %+v", d.card)
+	}
+	// a payment page in the script is still item 3
+	if d := decideCall(t, baseState(agent.Auto), "browser_exec", map[string]any{"code": "goto(\"https://shop.example.org/checkout\")"}); d.card.CriticalItem != agent.CriticalPaying {
+		t.Errorf("checkout script: %+v", d.card)
+	}
+}

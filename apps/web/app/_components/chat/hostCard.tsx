@@ -76,6 +76,7 @@ function Subject({
   label,
   text,
   cwd,
+  page,
   detailLabel,
   detail,
 }: {
@@ -83,6 +84,8 @@ function Subject({
   label: string;
   text: string;
   cwd?: string;
+  /** What a script with no address acts on ("the page that is open"). */
+  page?: string;
   /** A second block (the browser's script) under the first. */
   detailLabel?: string;
   detail?: string;
@@ -92,12 +95,15 @@ function Subject({
       <span id={`${id}-label`} className={eyebrow}>
         {label}
       </span>
+      {/* Never clipped: the end of a long command is often the dangerous part
+          (Go already cuts at 4,000 characters). */}
       <pre
         id={id}
         data-testid="host-subject"
+        role="region"
         aria-labelledby={`${id}-label`}
         tabIndex={0}
-        className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
         {text}
       </pre>
@@ -108,13 +114,22 @@ function Subject({
           </span>
           <pre
             data-testid="host-detail"
+            role="region"
             aria-labelledby={`${id}-detail-label`}
             tabIndex={0}
-            className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             {detail}
           </pre>
         </>
+      )}
+      {page && (
+        <p
+          data-testid="host-page"
+          className="mt-1.5 text-xs leading-4 text-muted-foreground"
+        >
+          {page}
+        </p>
       )}
       {cwd && (
         <p className="mt-1.5 flex min-w-0 gap-1.5 text-xs leading-4 text-muted-foreground">
@@ -244,6 +259,7 @@ export default function HostCard({
           label={view.subjectLabel}
           text={view.subject}
           cwd={view.cwd}
+          page={view.page}
           detailLabel={view.detailLabel}
           detail={view.detail}
         />
@@ -398,11 +414,14 @@ export function ClosedHostCard({
             <span className="block text-xs leading-4 text-muted-foreground">
               {view.title}
             </span>
+            <span className="mt-1 block text-[11px] font-medium uppercase leading-4 tracking-[0.08em] text-muted-foreground">
+              {view.subjectLabel}
+            </span>
             <pre
               id={subjectId}
               data-testid="host-subject"
               className={cn(
-                "mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs leading-[18px]",
+                "mt-0.5 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs leading-[18px]",
                 good ? "text-foreground" : "text-muted-foreground",
               )}
             >
@@ -416,13 +435,29 @@ export function ClosedHostCard({
                 <pre
                   data-testid="host-detail"
                   className={cn(
-                    "mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs leading-[18px]",
+                    "mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs leading-[18px]",
                     good ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
                   {view.detail}
                 </pre>
               </>
+            )}
+            {view.page && (
+              <p className="mt-1.5 text-xs leading-4 text-muted-foreground">
+                {view.page}
+              </p>
+            )}
+            {view.cwd && (
+              <p className="mt-1.5 flex min-w-0 gap-1.5 text-xs leading-4 text-muted-foreground">
+                <span className="shrink-0">In</span>
+                <span
+                  data-testid="host-cwd"
+                  className="min-w-0 break-all font-mono"
+                >
+                  {view.cwd}
+                </span>
+              </p>
             )}
           </>
         )}

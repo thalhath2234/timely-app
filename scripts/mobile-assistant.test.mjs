@@ -1079,7 +1079,7 @@ for (const [app, h] of [
     );
     assert.equal(
       view.timeLeft,
-      "9 min left",
+      "Pauses in 9 min",
       "the live wait counts down to liveUntil",
     );
     assert.equal(view.soon, false);
@@ -1098,10 +1098,10 @@ for (const [app, h] of [
     });
     const view = h.hostCardView(parked, NOW);
     assert.equal(view.state, "parked");
-    assert.equal(view.stateWord, "Paused: waiting for your OK");
+    assert.equal(view.stateWord, "Waiting for your OK");
     assert.equal(
       view.timeLeft,
-      "59 min left",
+      "Closes in 59 min",
       "the parked wait counts down to expiresAt",
     );
     assert.deepEqual(view.choices, ["once", "deny"]);
@@ -1110,7 +1110,7 @@ for (const [app, h] of [
       hostReq({ liveUntil: "2026-11-14T10:01:30Z" }),
       NOW,
     );
-    assert.equal(soon.timeLeft, "30 s left");
+    assert.equal(soon.timeLeft, "Pauses in 30 s");
     assert.equal(soon.soon, true);
     const up = h.hostCardView(
       hostReq({ liveUntil: "2026-11-14T10:00:30Z" }),
@@ -1239,7 +1239,7 @@ for (const [app, h] of [
           kind: "browser",
           title: "Use your browser?",
           url: "https://example.org/a",
-          command: '{"script":"page.goto(1)","url":"https://example.org/a"}',
+          command: 'goto("https://example.org/a")\nprint(title())',
           reason: "uses your signed-in browser",
           grantable: false,
         },
@@ -1247,15 +1247,39 @@ for (const [app, h] of [
       NOW,
     );
     assert.deepEqual(
-      [browser.subjectLabel, browser.subject, browser.detailLabel, browser.detail],
+      [browser.subjectLabel, browser.subject, browser.detailLabel, browser.detail, browser.page],
       [
         "Address",
         "https://example.org/a",
         "Script",
-        '{"script":"page.goto(1)","url":"https://example.org/a"}',
+        'goto("https://example.org/a")\nprint(title())',
+        "",
       ],
     );
     assert.equal(browser.reason, "Asks because it uses your signed-in browser.");
+    // A script that names no address opens nothing: the script is the subject,
+    // never labelled an address, and the card says what it acts on.
+    const click = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "browser",
+          title: "Use your browser?",
+          command: 'click(120, 300)\nprint(js("document.title"))',
+          reason: "uses your signed-in browser",
+          grantable: false,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual(
+      [click.subjectLabel, click.subject, click.detail, click.page],
+      [
+        "Script",
+        'click(120, 300)\nprint(js("document.title"))',
+        "",
+        "Runs on the page that is open in your browser",
+      ],
+    );
     const reasonOf = (reason) =>
       h.hostCardView(hostReq({ card: { ...hostReq().card, reason } }), NOW)
         .reason;
@@ -1267,7 +1291,8 @@ for (const [app, h] of [
       reasonOf("comes after reading outside content (pages, files or command output)"),
       "Asks because it comes after reading outside content (pages, files or command output).",
     );
-    assert.equal(reasonOf("You set mail to Ask me first"), "You set mail to Ask me first");
+    assert.equal(reasonOf("You set mail to Ask me first"), "You set mail to Ask me first.");
+    assert.equal(reasonOf("Supervised asks before every action"), "Supervised asks before every action.");
     assert.equal(reasonOf(""), "");
   });
 
@@ -1382,6 +1407,16 @@ for (const [app, h] of [
         "Approved, did not run",
       ],
     );
+    // A closed card keeps what an open one showed: the block's label, the
+    // folder searched, and what a script with no address acts on.
+    const searched = h.closedHostView(
+      closed("ran", { card: { kind: "file", title: "Search these files?", path: "/w/notes", command: "milk", cwd: "/w" } }),
+    );
+    assert.deepEqual([searched.subjectLabel, searched.subject, searched.cwd], ["Search for", "milk", "/w/notes"]);
+    const scripted = h.closedHostView(
+      closed("ran", { card: { kind: "browser", title: "Use your browser?", command: "click(1, 2)" } }),
+    );
+    assert.deepEqual([scripted.subjectLabel, scripted.page], ["Script", "Runs on the page that is open in your browser"]);
     // An approved card has not run, and a card that did not run never says Ran.
     for (const o of ["approved", "notrun", "denied", "expired", "stopped"])
       assert.equal(h.closedHostView(closed(o)).ran, false, o);
@@ -1470,6 +1505,8 @@ for (const [app, h] of [
       line({ kind: "terminal", command: "rm -rf x" }, "denied"),
       "Denied rm -rf x",
     );
+    assert.equal(line({ kind: "browser", command: "click(1, 2)" }), "Used your browser");
+    assert.equal(line({ kind: "browser", command: "click(1, 2)" }, "denied"), "Denied using your browser");
     assert.equal(
       line({ kind: "terminal", command: "ls" }, "expired"),
       "Expired, not run: ls",

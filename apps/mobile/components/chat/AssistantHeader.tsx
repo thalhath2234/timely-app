@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { ArrowLeft, ChevronDown, X } from "lucide-react-native";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -42,6 +42,10 @@ export default function AssistantHeader({
     status && status !== "idle"
       ? statusMeta(status, question, hostRequest)
       : null;
+  // A card the chat waits on is on screen right below, so under about 420 px
+  // the header pill keeps only its icon and the model line keeps its room.
+  const { width } = useWindowDimensions();
+  const iconOnly = !!meta && !!hostRequest && width < 420;
   const pillLabel = !meta
     ? ""
     : status === "running" && phase === "apply" && meta.tone === "primary"
@@ -89,8 +93,9 @@ export default function AssistantHeader({
           {meta ? (
             // A short status keeps its whole word and the model line gives
             // way; a long one (shown alone) ends with "…" when room is short.
-            <View style={{ flexShrink: pillLabel.length <= 12 ? 0 : 1, minWidth: 0 }}>
+            <View style={{ flexShrink: pillLabel.length <= 12 || iconOnly ? 0 : 1, minWidth: 0 }}>
               <Pill
+                iconOnly={iconOnly}
                 label={pillLabel}
                 tone={meta.tone}
                 icon={meta.icon}
@@ -100,7 +105,7 @@ export default function AssistantHeader({
           ) : null}
           {/* A long status ("Choose where to continue") leaves no room for
               the model line, which would clip to a letter or two. */}
-          {pillLabel.length <= 12 ? (
+          {pillLabel.length <= 12 || iconOnly ? (
             <Text numberOfLines={1} style={[styles.sub, { flexShrink: 1 }]}>
               {subtitle}
             </Text>
