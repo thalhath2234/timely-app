@@ -2,6 +2,7 @@
 
 - Date: 2026-11-14. Branch `feature/hermes-phase5`, from `dev` (phases 1 to 4 merged, PR #295 and #296).
 - Plan: `docs/plans/2026-11-08-timely-agent-from-hermes.md` ("the plan"), section 13 "Phase 5" and what it cites: 3.3 (process model), 3.5 (one approval, the step-up rule), 5.1 (host protocol), 5.4 (storage, lost runs), 5.5 (cards), 5.5b (permission modes, the critical list, the hardline floor, `enable_session_yolo`), 5.7 (gateway grants), 5.8 (Go code and the TLA+ host-approval properties), 6.1 to 6.4 (homes, lifecycle, config, secrets and MCP OAuth tokens), 8.1 and 8.2 (tool table, MCP connector group), 11.2 and 11.4 (Settings → Server, `TIMELY_SHELL_TOKEN`), 12 (security), 14 (residual risks), ADR 0022, and the phase 2 to 4 status notes.
+- **Status (2026-11-14): built and verified on `feature/hermes-phase5`; the record is the plan's "Phase 5 status" (suites with counts, the real-worker tests, the end-to-end drive, the live Claude Code + Sonnet checks, the TLA+ result, the findings and what is open).** Not done: the packaged Electron window's smoke test and the phone's native device unlock; four pieces of wiring no package owned (`registerAgentMCP` in `cmd/main.go`, two Makefile lines, the Activity island and the phone notification category).
 - This document writes no product code. It splits phase 5 into six packages with disjoint paths, fixes the contracts they share, and maps every phase 5 deliverable and verification item, as the owner's answers adjust them, to exactly one package.
 
 ## Binding owner answers used here
