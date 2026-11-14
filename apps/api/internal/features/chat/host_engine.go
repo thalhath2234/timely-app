@@ -584,12 +584,19 @@ func (e *WorkerEngine) settleRan(r *agentRun, ev workerEvent) {
 	if !checkpoint && !answered && r.cont == nil {
 		return // a call that needs no card settled and left no checkpoint
 	}
+	key := struct{ tool, call, hash string }{p.Tool, p.ToolCallID, p.ArgsHash}
 	if r.hostWaiting() != "" {
-		r.ranLater = append(r.ranLater, ev)
+		// The row is another card's now and not the follower's to save: the
+		// approved card settles in place, under the row's lock (a Stop while
+		// that card waits must not turn a call that ran into "not run"); the
+		// checkpoint waits for the re-attach.
+		e.settleWaiting(r, key, started(p.Status))
+		if checkpoint {
+			r.ranLater = append(r.ranLater, ev)
+		}
 		return
 	}
 	pend := r.cards[p.ToolCallID]
-	key := struct{ tool, call, hash string }{p.Tool, p.ToolCallID, p.ArgsHash}
 	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
 		i := r.approvedCard(row, key)
 		if i >= 0 {
@@ -623,6 +630,27 @@ func (e *WorkerEngine) settleRan(r *agentRun, ev workerEvent) {
 	})
 	if err != nil && !fenced(err) {
 		e.opts.Logf("agent engine: recording run %s's host call: %v", r.id, err)
+	}
+}
+
+// settleWaiting settles the approved card of a host.ran that arrived while
+// another card waits on the row.
+func (e *WorkerEngine) settleWaiting(r *agentRun, key struct{ tool, call, hash string }, ran bool) {
+	err := e.s.db.Transaction(func(tx *gorm.DB) error {
+		var row Conversation
+		if err := e.s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), r.uid, r.cid, &row); err != nil {
+			return err
+		}
+		i := r.approvedCard(&row, key)
+		if i < 0 {
+			return errUnchanged
+		}
+		settleHostCard(&row.Messages[i], ran)
+		row.Revision++
+		return tx.Save(&row).Error
+	})
+	if err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, gorm.ErrRecordNotFound) {
+		e.opts.Logf("agent engine: settling run %s's approved card: %v", r.id, err)
 	}
 }
 

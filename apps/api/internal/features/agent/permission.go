@@ -383,7 +383,7 @@ func CriticalHost(h HostAction, scope HostScope) (item int, reason string, ok bo
 		return item, reason, true
 	}
 	if scope.Tainted && h.Kind != HostFileRead && h.Kind != HostFetch {
-		return CriticalTainted, "comes after reading outside pages", true
+		return CriticalTainted, "comes after reading outside content (pages, files or command output)", true
 	}
 	return 0, "", false
 }

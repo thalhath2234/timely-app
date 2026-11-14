@@ -368,3 +368,52 @@ func mustArgs(a gateAsk) map[string]any {
 	_ = json.Unmarshal(a.Args, &m)
 	return m
 }
+
+// An approved card says nothing about running until its call did: the text
+// the model reads and the closed outcome follow host.ran, never the answer.
+func TestApprovedCardNeverClaimsARun(t *testing.T) {
+	card := &HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "ls -la"}
+	mk := func(choice string) Message {
+		m := message("assistant", hostOutcomeText(card, "terminal", hostApproved))
+		m.Kind, m.AgentRun = "host", "run_1"
+		m.Host = &ClosedHost{RequestID: "r1", Tool: "terminal", Card: card, Outcome: hostApproved, Choice: choice}
+		return m
+	}
+	if m := mk(hostOnce); strings.Contains(m.Content, "chose Run once") || !strings.Contains(m.Content, "has not run yet") {
+		t.Fatalf("an approved card reads %q", m.Content)
+	}
+	for _, c := range []struct {
+		choice, status, outcome, text string
+	}{
+		{hostOnce, "ok", hostRan, "chose Run once for ls -la"},
+		{hostOnce, "error", hostRan, "chose Run once for ls -la"},
+		{hostChat, "ok", hostAllowed, "allowed ls -la for this chat"},
+		{hostOnce, "blocked", hostNotRun, "did not run"},
+		{hostOnce, "cancelled", hostNotRun, "did not run"},
+		{hostChat, "interrupted", hostNotRun, "did not run"},
+	} {
+		m := mk(c.choice)
+		settleHostCard(&m, started(c.status))
+		if m.Host.Outcome != c.outcome || !strings.Contains(m.Content, c.text) {
+			t.Errorf("%s answered, host.ran %s: outcome %s text %q", c.choice, c.status, m.Host.Outcome, m.Content)
+		}
+	}
+	// By run, by continuation request, and for every card of a retried chat.
+	row := Conversation{Messages: []Message{mk(hostOnce)}}
+	if settleHostCards(&row, "run_other", "") || row.Messages[0].Host.Outcome != hostApproved {
+		t.Fatal("another run's card settled")
+	}
+	if !settleHostCards(&row, "run_1", "") || row.Messages[0].Host.Outcome != hostNotRun {
+		t.Fatal("the run's card did not settle")
+	}
+	row = Conversation{Messages: []Message{mk(hostOnce)}}
+	row.Messages[0].AgentRun = "run_old"
+	if !settleHostCards(&row, "", "r1") || row.Messages[0].Host.Outcome != hostNotRun {
+		t.Fatal("the continuation's card did not settle")
+	}
+	row = Conversation{Messages: []Message{mk(hostOnce)}}
+	settleAllHostCards(&row)
+	if row.Messages[0].Host.Outcome != hostNotRun {
+		t.Fatal("Retry left an approved card")
+	}
+}

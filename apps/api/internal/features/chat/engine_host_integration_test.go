@@ -947,3 +947,36 @@ func TestIntegrationAgentEngineHostContinuationWithoutTheCallIsNotRun(t *testing
 		})
 	}
 }
+
+// A host.ran that arrives while another card waits on the row settles the
+// approved card in place (the follower may not save then), so a Stop at that
+// moment cannot turn a call that ran into "not run".
+func TestIntegrationAgentEngineHostRanWhileAnotherCardWaits(t *testing.T) {
+	h := hostHarness(t)
+	card := &HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "git status"}
+	approved := message("assistant", hostOutcomeText(card, "terminal", hostApproved))
+	approved.Kind, approved.AgentRun = "host", "run_x"
+	approved.Host = &ClosedHost{RequestID: "req-1", ToolCallID: "call_1", Tool: "terminal", Card: card, Outcome: hostApproved, Choice: hostChat}
+	next := time.Now().UTC()
+	c := h.idleChat(func(c *Conversation) {
+		c.Status, c.AgentRunID = statusHostApproval, "run_x"
+		c.HostRequest = HostRequest{RequestID: "req-2", Run: "run_x", Phase: hostLive, Tool: "terminal", ToolCallID: "call_2", Card: &HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "ls"}, AskedAt: &next}
+		c.Messages = append(c.Messages, approved)
+	})
+	r := &agentRun{id: "run_x", uid: "user-a", cid: c.ID, hostWait: "req-2", answeredCalls: map[string]string{"call_1": hostChat}}
+	h.e.hostRan(r, workerEventOf("host.ran", "call_1", "terminal", "ok"))
+	var got Conversation
+	if err := h.db.First(&got, "id = ?", c.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cl := closedHost(got); len(cl) != 1 || cl[0].Outcome != hostAllowed || got.Status != statusHostApproval || !got.HostRequest.pending() {
+		t.Fatalf("after host.ran while a card waits: %+v status %s", cl, got.Status)
+	}
+}
+
+// workerEventOf is a host.ran-shaped worker event.
+func workerEventOf(kind, call, tool, status string) workerEvent {
+	var ev workerEvent
+	_ = json.Unmarshal([]byte(fmt.Sprintf(`{"kind":%q,"payload":{"tool_call_id":%q,"tool":%q,"status":%q}}`, kind, call, tool, status)), &ev)
+	return ev
+}
