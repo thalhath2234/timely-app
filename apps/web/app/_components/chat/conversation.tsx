@@ -41,6 +41,7 @@ import {
   type ReceiptDraft,
   removeHostGrant,
   setChatPermission,
+  createChat,
   undoHostChange,
 } from "@/app/utils/api/chat";
 import {
@@ -295,19 +296,22 @@ export default function Conversation({
     }) => {
       if (!id) {
         const imageIds = uploads.images.map((i) => i.id);
-        return chatRequest<Chat>("", "POST", {
-          content: draft.trim(),
-          imageIds,
-          requestId: requestIdFor(
-            `${draft.trim()}\n${imageIds.join(",")}\n${tagIds.join(",")}`,
-          ),
-          botTags: tagIds,
-          context,
-          webSearch: search,
-          provider: choice.provider,
-          model: choice.model,
-          ...(permissionChoice ? { permission: permissionChoice } : {}),
-        });
+        return createChat(
+          {
+            content: draft.trim(),
+            imageIds,
+            requestId: requestIdFor(
+              `${draft.trim()}\n${imageIds.join(",")}\n${tagIds.join(",")}`,
+            ),
+            botTags: tagIds,
+            context,
+            webSearch: search,
+            provider: choice.provider,
+            model: choice.model,
+          },
+          permissionChoice,
+          defaultMode,
+        );
       }
       // Full Access needs the step-up, which only the desktop window's
       // bridge carries; everything else is a plain PATCH.

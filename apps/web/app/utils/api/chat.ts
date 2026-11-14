@@ -15,6 +15,7 @@ import type {
   HostRequest,
   PermissionMode,
 } from "@timely/contract/agentChat";
+import { newChatAccess } from "@timely/contract/agentChat";
 import { apiFetch } from "./client";
 import { browserTimezone } from "./schedule";
 import { desktopShell } from "./instance";
@@ -309,6 +310,30 @@ export const setChatPermission = (id: string, permission: PermissionMode) =>
   permission === "full" && desktopShell()
     ? desktopChatRequest<Chat>("chat.permission", { chatId: id, permission })
     : chatRequest<Chat>(`/${encodeURIComponent(id)}`, "PATCH", { permission });
+
+/**
+ * Starts a chat. In the desktop window a chat that should start in Full
+ * Access is created Supervised and then turned to Full Access through the
+ * shell bridge (newChatAccess); when that step fails the chat keeps the
+ * stricter mode and its chip says so.
+ */
+export async function createChat(
+  body: Record<string, unknown>,
+  chosen: PermissionMode | null,
+  accountDefault: PermissionMode,
+): Promise<Chat> {
+  const { create, thenFull } = newChatAccess(
+    chosen,
+    accountDefault,
+    Boolean(desktopShell()),
+  );
+  const made = await chatRequest<Chat>("", "POST", {
+    ...body,
+    ...(create ? { permission: create } : {}),
+  });
+  if (!thenFull) return made;
+  return setChatPermission(made.id, "full").catch(() => made);
+}
 
 /** Puts back what an auto-applied proposal changed (messageId is its summary). */
 export const undoChange = (id: string, revision: number, messageId: string) =>

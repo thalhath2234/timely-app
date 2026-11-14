@@ -126,6 +126,23 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
   },
 };
 
+/**
+ * How a new chat is created. Full Access needs the step-up, which only the
+ * desktop window's shell bridge carries, and the bridge's fixed requests are
+ * flat (no chat creation among them). So a new chat that should start in Full
+ * Access, named or by the account's default, is created Supervised and turned
+ * to Full Access through the bridge at once; every other chat is created as
+ * chosen. The wait in between fails closed: Supervised asks before anything.
+ */
+export function newChatAccess(
+  chosen: PermissionMode | null,
+  accountDefault: PermissionMode,
+  inDesktopWindow: boolean,
+): { create: PermissionMode | undefined; thenFull: boolean } {
+  if (inDesktopWindow && (chosen ?? accountDefault) === "full") return { create: "supervised", thenFull: true };
+  return { create: chosen ?? undefined, thenFull: false };
+}
+
 /** Under the picker: the choice is the chat's own. */
 export const CHAT_PERMISSION_NOTE = "Only this chat. New chats start on your default.";
 

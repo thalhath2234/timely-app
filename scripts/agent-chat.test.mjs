@@ -22,6 +22,7 @@ import {
   answerProblem,
   answerSummary,
   applyDelta,
+  newChatAccess,
   cleanAnswers,
   draftFromActivity,
   questionCardState,
@@ -333,5 +334,21 @@ describe("host cards", () => {
     assert.equal(hostCanUndo({ tool: "write_file", outcome: "ran", checkpoint: "abc", undoneAt: "2026-11-14T10:01:00Z" }), false);
     assert.equal(hostCanUndo({ tool: "terminal", outcome: "ran" }), false);
     assert.equal(hostCanUndo(null), false);
+  });
+});
+
+describe("a new chat that starts in Full Access (phase 5 review round 6)", () => {
+  test("the desktop window creates it Supervised and then turns Full Access on through the bridge", () => {
+    assert.deepEqual(newChatAccess("full", "supervised", true), { create: "supervised", thenFull: true });
+    // The account default counts when the chat names nothing.
+    assert.deepEqual(newChatAccess(null, "full", true), { create: "supervised", thenFull: true });
+  });
+  test("a chat that picks a stricter mode than the default keeps it", () => {
+    assert.deepEqual(newChatAccess("auto", "full", true), { create: "auto", thenFull: false });
+  });
+  test("a browser or the phone sends what was chosen, and the server decides", () => {
+    assert.deepEqual(newChatAccess("full", "auto", false), { create: "full", thenFull: false });
+    assert.deepEqual(newChatAccess(null, "full", false), { create: undefined, thenFull: false });
+    assert.deepEqual(newChatAccess(null, "auto", true), { create: undefined, thenFull: false });
   });
 });
