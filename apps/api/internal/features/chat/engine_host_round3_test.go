@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -121,5 +122,41 @@ func TestIntegrationAgentEngineHostLocalCommandLeavesNoWebTaint(t *testing.T) {
 		if s.Kind == "web" {
 			t.Fatalf("a local command tainted the chat as web: %+v", c.TaintedSources)
 		}
+	}
+}
+
+// The worker exits while a continuation's new card waits live: parkLost parks
+// the card, and like parkRun it settles the earlier approved card that never
+// ran (with its notice), so nothing stays "approved".
+func TestIntegrationAgentEngineHostWorkerExitSettlesTheLostContinuation(t *testing.T) {
+	h := hostHarness(t, func(o *WorkerEngineOptions) { o.LiveWait = time.Second })
+	c := h.chat("List my files", "supervised", "r3exit", lines(ls("call_ls"), reply("x", 0)))
+	c = h.hostWaiting(c.ID, hostParked)
+	h.e.opts.LiveWait = 10 * time.Minute
+	h.kit.Fixture("cont", lines(host("call_pwd", "terminal", obj{"command": "pwd"}), reply("done", 0))).ForConversation(c.ID, "cont")
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer %d %s", code, body)
+	}
+	c = h.hostWaiting(c.ID, hostLive)
+	w, ok := h.e.sup.Worker("user-a")
+	if !ok {
+		t.Fatal("no worker")
+	}
+	proc, err := os.FindProcess(w.PID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	c = h.wait(c.ID, "the card parked after the worker exit", func(c Conversation) bool {
+		return c.Status == statusHostApproval && c.HostRequest.Phase == hostParked && c.HostRequest.ToolCallID == "call_pwd"
+	})
+	cl := closedHost(c)
+	if len(cl) != 1 || cl[0].ToolCallID != "call_ls" || cl[0].Outcome != hostNotRun {
+		t.Fatalf("closed cards %+v", cl)
+	}
+	if !strings.Contains(lastMessage(c).Content, "Not run: ls -la") {
+		t.Fatalf("no notice for the lost approval: %q", lastMessage(c).Content)
 	}
 }

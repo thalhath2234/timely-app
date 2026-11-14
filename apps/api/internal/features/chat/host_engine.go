@@ -560,11 +560,19 @@ func (e *WorkerEngine) parkLost(r *agentRun) bool {
 	if r.hostWaiting() == "" {
 		return false
 	}
-	return e.s.parkOrphan(context.Background(), r.uid, r.cid, r.id, e.parkFor(context.Background(), r.uid), "the worker stopped", e.opts.Logf) == nil
+	// The same clean-up parkRun does: a second card of a parallel batch that
+	// waited in memory did not run, and a continuation that parked on a new
+	// card before its approved call ran lost that approval.
+	settle := func(row *Conversation) {
+		e.queuedNotRun(row, r)
+		settleLostContinuation(row, r.tools.contRequest)
+	}
+	return e.s.parkOrphan(context.Background(), r.uid, r.cid, r.id, e.parkFor(context.Background(), r.uid), "the worker stopped", e.opts.Logf, settle) == nil
 }
 
-// parkOrphan parks the live card of run on the row, fenced on the run.
-func (s *Service) parkOrphan(ctx context.Context, uid, cid, run string, wait time.Duration, why string, logf func(string, ...any)) error {
+// parkOrphan parks the live card of run on the row, fenced on the run. settle,
+// when set, closes what the run left behind in the same transaction.
+func (s *Service) parkOrphan(ctx context.Context, uid, cid, run string, wait time.Duration, why string, logf func(string, ...any), settle func(*Conversation)) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row Conversation
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
@@ -575,6 +583,9 @@ func (s *Service) parkOrphan(ctx context.Context, uid, cid, run string, wait tim
 			return errUnchanged
 		}
 		parkCard(&row, time.Now().UTC(), wait)
+		if settle != nil {
+			settle(&row)
+		}
 		ev := hostEvent(uid, cid, run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, eventParked, "", why, nil, nil)
 		if err := tx.Create(&ev).Error; err != nil {
 			return err
@@ -830,7 +841,7 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 				e.opts.Logf("agent engine: expiring a host card: %v", err)
 			}
 		case h.Phase == hostLive && !e.Follows(row.UserID, row.ID, row.AgentRunID) && h.AskedAt != nil && now.Sub(*h.AskedAt) > e.opts.OrphanAfter:
-			if err := e.s.parkOrphan(ctx, row.UserID, row.ID, row.AgentRunID, e.parkFor(ctx, row.UserID), "no process follows the run", e.opts.Logf); err != nil && !errors.Is(err, errUnchanged) {
+			if err := e.s.parkOrphan(ctx, row.UserID, row.ID, row.AgentRunID, e.parkFor(ctx, row.UserID), "no process follows the run", e.opts.Logf, nil); err != nil && !errors.Is(err, errUnchanged) {
 				e.opts.Logf("agent engine: parking an orphaned host card: %v", err)
 			}
 		}

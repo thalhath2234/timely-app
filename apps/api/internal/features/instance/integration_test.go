@@ -574,3 +574,35 @@ func TestIntegrationStoreSeesChangesAndFailsClosed(t *testing.T) {
 		t.Error("a store that cannot be read must allow only the environment's accounts")
 	}
 }
+
+// A folder kept for an account the server names does not make the account
+// allowed once the environment stops naming it (review round 3).
+func TestIntegrationEnvAccountFolderDoesNotOutliveTheEnvironment(t *testing.T) {
+	db := schemaDB(t)
+	migrate(t, db, currentSchema(t, db), 0)
+	uid := addUser(t, db, "envfolder@example.test")
+	ctx := context.Background()
+	dir := t.TempDir()
+	withEnv := NewStore(db, []string{uid}, AgentLimits{})
+	if err := withEnv.SetHostAccount(ctx, uid, nil, &dir); err != nil {
+		t.Fatal(err)
+	}
+	if !withEnv.IsHostAllowed(ctx, uid) || withEnv.WorkingDir(ctx, uid) != dir {
+		t.Fatalf("the server's account lost its folder: %q", withEnv.WorkingDir(ctx, uid))
+	}
+	without := NewStore(db, nil, AgentLimits{})
+	if without.IsHostAllowed(ctx, uid) || without.WorkingDir(ctx, uid) != "" {
+		t.Fatal("an account the environment no longer names is still allowed through its stored folder")
+	}
+	if list, _ := without.HostAccounts(ctx); len(list) != 0 {
+		t.Fatalf("listed: %+v", list)
+	}
+	// Turned on in the desktop window, it counts on its own.
+	on := true
+	if err := without.SetHostAccount(ctx, uid, &on, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !without.IsHostAllowed(ctx, uid) {
+		t.Fatal("turned on in the desktop window, but not allowed")
+	}
+}

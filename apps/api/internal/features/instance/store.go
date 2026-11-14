@@ -64,6 +64,11 @@ type storedHostAccount struct {
 	UID        string    `json:"uid"`
 	WorkingDir string    `json:"working_dir"`
 	AddedAt    time.Time `json:"added_at"`
+	// Env marks an entry made only to keep the folder of an account the
+	// server names (TIMELY_AGENT_HOST_ACCOUNTS): it counts only while the
+	// environment still names the account, so taking the id out of the
+	// environment turns the account off.
+	Env bool `json:"env,omitempty"`
 }
 
 // Store reads and writes instance_settings and answers "may this account use
@@ -121,7 +126,7 @@ func (s *Store) stored(ctx context.Context) ([]storedHostAccount, error) {
 	if !s.cachedAt.IsZero() && s.now().Sub(s.cachedAt) < hostCacheTTL {
 		out := slices.Clone(s.cached)
 		s.mu.Unlock()
-		return out, nil
+		return s.live(out), nil
 	}
 	s.mu.Unlock()
 	list, err := s.readHostAccounts(ctx, s.db)
@@ -131,7 +136,13 @@ func (s *Store) stored(ctx context.Context) ([]storedHostAccount, error) {
 	s.mu.Lock()
 	s.cached, s.cachedAt = slices.Clone(list), s.now()
 	s.mu.Unlock()
-	return list, nil
+	return s.live(list), nil
+}
+
+// live drops the entries that only kept an environment account's folder once
+// the environment no longer names it.
+func (s *Store) live(list []storedHostAccount) []storedHostAccount {
+	return slices.DeleteFunc(list, func(a storedHostAccount) bool { return a.Env && !s.isEnv(a.UID) })
 }
 
 type queryRower interface {
@@ -305,8 +316,13 @@ func (s *Store) SetHostAccount(ctx context.Context, uid string, on *bool, workin
 	case on != nil && *on:
 		if at < 0 {
 			list = append(list, storedHostAccount{UID: uid, WorkingDir: dir, AddedAt: s.now().UTC()})
-		} else if workingDir != nil {
-			list[at].WorkingDir = dir
+		} else {
+			if workingDir != nil {
+				list[at].WorkingDir = dir
+			}
+			if list[at].Env && !s.isEnv(uid) {
+				list[at].Env = false // turned on here, so it stands on its own
+			}
 		}
 	default: // a folder change only
 		if workingDir == nil {
@@ -316,8 +332,9 @@ func (s *Store) SetHostAccount(ctx context.Context, uid string, on *bool, workin
 			if !s.isEnv(uid) {
 				return invalid("Turn on \"Let the assistant use this computer\" for this account first.")
 			}
-			// A server-named account keeps its folder in the same list.
-			list = append(list, storedHostAccount{UID: uid, WorkingDir: dir, AddedAt: s.now().UTC()})
+			// A server-named account keeps its folder in the same list, marked
+			// so that it does not outlive the environment's naming it.
+			list = append(list, storedHostAccount{UID: uid, WorkingDir: dir, AddedAt: s.now().UTC(), Env: true})
 		} else {
 			list[at].WorkingDir = dir
 		}
