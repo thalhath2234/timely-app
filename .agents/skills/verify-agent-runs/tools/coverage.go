@@ -199,7 +199,7 @@ var anchors = []anchor{
 		`if busy(row) || row.Status == "approval" || row.Status == statusHostApproval {`,
 		"Stop acts on a host card's row"},
 	{"StopDeniesHost", service, "(*Service).stop",
-		`closeHostCard(row, hostStopped, nil) } row.Continuation = HostContinuation{}`,
+		`closeHostCard(row, hostStopped, nil) stoppedCard = h } row.Continuation = HostContinuation{}`,
 		"Stop closes the host card and drops a continuation in its transaction"},
 	{"StopDeniesHost", worker, "(*WorkerEngine).Stop",
 		`if waiting != "" { if err := e.sendHostAnswer(r, waiting, hostDeny); err != nil {`,
