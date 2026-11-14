@@ -349,17 +349,17 @@ func (e *WorkerEngine) HostAnswer(ctx context.Context, uid, cid, runID, requestI
 		r.answered = map[string]string{}
 	}
 	r.answered[requestID] = choice
-	if call := r.requestCall[requestID]; call != "" && choice != hostDeny {
-		if r.answeredCalls == nil {
-			r.answeredCalls = map[string]string{}
-		}
-		r.answeredCalls[call] = choice
-	}
 	if r.hostWait == requestID {
 		r.hostWait = ""
 	}
 	if lease != "" {
 		r.lease = lease
+	}
+	if call := r.requestCall[requestID]; call != "" && choice != hostDeny {
+		if r.answeredCalls == nil {
+			r.answeredCalls = map[string]string{}
+		}
+		r.answeredCalls[call] = choice
 	}
 	r.mu.Unlock()
 	if err := e.sendHostAnswer(r, requestID, choice); err != nil {
@@ -468,7 +468,8 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 			card := pend.card
 			req := HostRequest{RequestID: parked.RequestID, Run: r.id, Phase: hostParked, Tool: firstNonEmpty(parked.Tool, pend.tool),
 				ToolCallID: parked.ToolCallID, ArgsHash: firstNonEmpty(parked.ArgsHash, pend.argsHash), Card: &card, AskedAt: &now}
-			endRunState(&row, r.tools) // the approved card stays: its continuation runs the call
+			r.tools.keepCards = true // the approved card stays: its continuation runs the call
+			endRun(&row, r.tools)
 			row.Lease, row.LeaseUntil = "", nil
 			reply()
 			switch choice {

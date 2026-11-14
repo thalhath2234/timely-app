@@ -51,8 +51,10 @@ type toolRun struct {
 	// agentRun is the agent run these tools serve ("" on classic).
 	agentRun string
 	// contRequest is the request id of the parked card whose approved call
-	// this run continues ("" for any other run).
+	// this run continues ("" for any other run). keepCards is set by a run
+	// that parks after an answer: endRun then leaves its approved cards alone.
 	contRequest string
+	keepCards   bool
 }
 
 // RunReads is a run's toolRun as stored in run_reads, for an agent run
@@ -325,14 +327,11 @@ func classicSinceAgent(messages []Message) bool {
 // a live run needs.
 func endRun(row *Conversation, run *toolRun) {
 	// A card the person approved whose call never ran in this run (it was
-	// stopped, refused or never made) is "not run", not Ran.
-	settleHostCards(row, run.agentRun, run.contRequest)
-	endRunState(row, run)
-}
-
-// endRunState is endRun without settling approved host cards: a run that
-// parks after an answer keeps them for the continuation it queues.
-func endRunState(row *Conversation, run *toolRun) {
+	// stopped, refused or never made) is "not run", not Ran. A run that parks
+	// after an answer keeps it: its continuation runs the call.
+	if !run.keepCards {
+		settleHostCards(row, run.agentRun, run.contRequest)
+	}
 	mergeTaint(row, run.bots.taint())
 	// The agent engine hands web taint over call by call; classic's
 	// searches arrive here.

@@ -125,7 +125,10 @@ describe("permission copy", () => {
       assert.match(text, /Timely data still asks? like Auto/);
       assert.doesNotMatch(text, /never asks|nothing asks|for now/i);
     }
-    for (const lifted of ["commands", "files", "code", "your browser", "MCP tools"]) assert.ok(FULL_ACCESS_CONFIRM.includes(lifted), lifted);
+    for (const lifted of ["commands", "files", "code", "MCP tools"]) assert.ok(FULL_ACCESS_CONFIRM.includes(lifted), lifted);
+    // the signed-in browser keeps its card until the network-level control exists (plan 14)
+    assert.match(FULL_ACCESS_CONFIRM, /signed-in browser still asks/);
+    assert.match(PERMISSION_COPY.full.description, /signed-in browser still asks/);
     for (const kept of ["wipe a disk", "keys", "other accounts", "outside pages"]) assert.ok(FULL_ACCESS_CONFIRM.includes(kept), kept);
     assert.match(FULL_ACCESS_CONFIRM, /Turn it on for this chat\?$/);
     assert.equal(FULL_ACCESS_PHONE_NOTE, "Turn on from the desktop app");
@@ -262,6 +265,8 @@ describe("host cards", () => {
       "Denied",
       "Expired, not run",
       "Stopped before you answered",
+      "Approved, waiting to run",
+      "Approved, did not run",
     ]);
     assert.equal(HOST_UNDO, "Undo this change");
     assert.equal(HOST_ERRORS.phoneLocked, "Unlock your phone to approve this");

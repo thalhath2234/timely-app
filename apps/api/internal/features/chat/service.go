@@ -553,6 +553,10 @@ func (s *Service) stop(c *echo.Context) error {
 	runID := ""
 	err := s.change(c, func(tx *gorm.DB, row *Conversation) error {
 		if busy(row) || row.Status == "approval" || row.Status == statusHostApproval {
+			// A card the person approved whose call has not run yet (the live
+			// run it re-attached, or the continuation waiting to be claimed)
+			// ends here: it is not run, whatever Run once said.
+			settleHostCards(row, row.AgentRunID, row.Continuation.RequestID)
 			if h := row.HostRequest; h.pending() {
 				// A host card closes unanswered: its call never runs (the
 				// engine denies a live one before it stops the run).
@@ -562,10 +566,6 @@ func (s *Service) stop(c *echo.Context) error {
 				}
 				closeHostCard(row, hostStopped, nil)
 			}
-			// A card the person approved whose call has not run yet (the live
-			// run it re-attached, or the continuation waiting to be claimed)
-			// ends here: it is not run, whatever Run once said.
-			settleHostCards(row, row.AgentRunID, row.Continuation.RequestID)
 			row.Continuation = HostContinuation{}
 			row.Status = "stopped"
 			row.Lease = ""

@@ -120,7 +120,7 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
     name: "Full Access",
     description:
       "Runs commands, files, code and MCP tools on this computer without a card. Your signed-in browser still asks for each step, and changes to your Timely data still ask like Auto. Commands that wipe a disk or the system are always refused. Everything is logged.",
-    short: "Runs commands without a card. Browser steps and Timely data still ask",
+    short: "Runs commands without a card. Timely data still asks like Auto, and so does your browser",
     icon: "bolt",
     tone: "amber",
   },
