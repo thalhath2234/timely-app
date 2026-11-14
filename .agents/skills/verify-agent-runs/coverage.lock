@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync b137cb02ba5be204fe079b0a8ba452308061a91c
+sync c8a44053f39910b21ddecabe6bff5f1f97e6b703
 apps/api/internal/features/chat/runner.go (*Service).work 942d9c8cd46a5f77
 apps/api/internal/features/chat/runner.go (*Service).runClassic 92f268cf78651921
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
@@ -53,7 +53,7 @@ apps/api/internal/features/chat/question.go (*Service).restoreQuestion 5f1ea23f6
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).hostSave 4c3ffb6392da089b
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).writeHostCard 9836148d18f82b93
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).HostAnswer 54914c992a95a23f
-apps/api/internal/features/chat/host_engine.go (*WorkerEngine).parkRun 426925003e5b2cee
+apps/api/internal/features/chat/host_engine.go (*WorkerEngine).parkRun 51aa3f3cbc359967
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).parkLost afa0a0e9fcccbc27
 apps/api/internal/features/chat/host_engine.go (*Service).parkOrphan c19b5c30998b18f6
 apps/api/internal/features/chat/host_engine.go (*Service).expireHost 40f983966d2fd367
