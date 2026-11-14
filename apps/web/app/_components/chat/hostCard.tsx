@@ -103,7 +103,7 @@ function Subject({
         role="region"
         aria-labelledby={`${id}-label`}
         tabIndex={0}
-        className="mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono code-exact text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
         {text}
       </pre>
@@ -117,7 +117,7 @@ function Subject({
             role="region"
             aria-labelledby={`${id}-detail-label`}
             tabIndex={0}
-            className="mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono code-exact text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             {detail}
           </pre>
@@ -136,7 +136,7 @@ function Subject({
           <span className="shrink-0">In</span>
           <span
             data-testid="host-cwd"
-            className="min-w-0 break-all font-mono text-foreground"
+            className="min-w-0 break-all font-mono code-exact text-foreground"
           >
             {cwd}
           </span>
@@ -266,7 +266,7 @@ export default function HostCard({
         {view.envNames.length > 0 && (
           <p className="text-xs leading-4 text-muted-foreground">
             Starts with these variables:{" "}
-            <span className="font-mono text-foreground">
+            <span className="font-mono code-exact text-foreground">
               {view.envNames.join(", ")}
             </span>
           </p>
@@ -406,7 +406,19 @@ export function ClosedHostCard({
           id={titleId}
           className="min-w-0 flex-1 text-[13px] font-semibold leading-[18px]"
         >
-          {view.auto ? view.line : view.stateWord}
+          {view.auto ? (
+            <>
+              {view.lineBefore}
+              {view.lineCode && (
+                <code className="break-all font-mono code-exact text-[12px] font-medium">
+                  {view.lineCode}
+                </code>
+              )}
+              {view.lineAfter}
+            </>
+          ) : (
+            view.stateWord
+          )}
         </span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
           {timeOfDay(at)}
@@ -425,7 +437,7 @@ export function ClosedHostCard({
               id={subjectId}
               data-testid="host-subject"
               className={cn(
-                "mt-0.5 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs leading-[18px]",
+                "mt-0.5 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono code-exact text-xs leading-[18px]",
                 good ? "text-foreground" : "text-muted-foreground",
               )}
             >
@@ -439,7 +451,7 @@ export function ClosedHostCard({
                 <pre
                   data-testid="host-detail"
                   className={cn(
-                    "mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs leading-[18px]",
+                    "mt-1 whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono code-exact text-xs leading-[18px]",
                     good ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
@@ -457,13 +469,24 @@ export function ClosedHostCard({
                 <span className="shrink-0">In</span>
                 <span
                   data-testid="host-cwd"
-                  className="min-w-0 break-all font-mono"
+                  className="min-w-0 break-all font-mono code-exact"
                 >
                   {view.cwd}
                 </span>
               </p>
             )}
           </>
+        )}
+        {view.auto && view.canUndo && view.cwd && (
+          <p className="mt-1.5 flex min-w-0 gap-1.5 text-xs leading-4 text-muted-foreground">
+            <span className="shrink-0">In</span>
+            <span
+              data-testid="host-cwd"
+              className="min-w-0 break-all font-mono code-exact"
+            >
+              {view.cwd}
+            </span>
+          </p>
         )}
         {view.deviceNote && (
           <p className="mt-1.5 text-xs leading-4 text-muted-foreground">

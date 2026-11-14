@@ -428,7 +428,7 @@ export function GrantsList({
               key={grant.key}
               className="flex min-h-8 items-center gap-2 text-xs"
             >
-              <span className="min-w-0 flex-1 break-all font-mono text-foreground">
+              <span className="min-w-0 flex-1 break-all font-mono code-exact text-foreground">
                 {grant.label}
               </span>
               {onRemove && (

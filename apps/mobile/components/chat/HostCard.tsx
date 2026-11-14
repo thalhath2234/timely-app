@@ -350,7 +350,17 @@ export function ClosedHostCard({
           <Icon size={12} strokeWidth={2.5} color={tone} />
         </View>
         <Text accessibilityRole="header" style={[styles.title, { flex: 1 }]}>
-          {view.auto ? view.line : view.stateWord}
+          {view.auto ? (
+            <>
+              {view.lineBefore}
+              {view.lineCode ? (
+                <Text style={styles.mono}>{view.lineCode}</Text>
+              ) : null}
+              {view.lineAfter}
+            </>
+          ) : (
+            view.stateWord
+          )}
         </Text>
         <Text style={styles.meta}>{timeOfDay(at)}</Text>
       </View>
@@ -398,6 +408,14 @@ export function ClosedHostCard({
               </Text>
             ) : null}
           </>
+        ) : null}
+        {view.auto && view.canUndo && view.cwd ? (
+          <Text style={styles.meta}>
+            In{" "}
+            <Text selectable style={styles.mono}>
+              {view.cwd}
+            </Text>
+          </Text>
         ) : null}
         {view.deviceNote ? (
           <Text style={styles.meta}>{view.deviceNote}</Text>

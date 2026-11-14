@@ -48,7 +48,9 @@ export function subjectLabel(
     case "terminal":
       return "Command";
     case "file":
-      return card?.command?.trim() ? "Search for" : "File";
+      if (card?.command?.trim()) return "Search for";
+      // A patch can change and delete several files: one line each.
+      return (card?.path ?? "").trim().includes("\n") ? "Files" : "File";
     case "code":
       return "Code";
     case "browser":
@@ -116,9 +118,7 @@ export function whereLine(card: HostCard | null | undefined): string {
  * no grant covers it. */
 export function criticalLine(item: number | undefined): string {
   const row = AUTO_ASKS_BEFORE.find((r) => r.item === item);
-  return row
-    ? `Auto always asks before this: ${row.title.toLowerCase()}`
-    : "";
+  return row ? `Auto always asks before this: ${row.title.toLowerCase()}` : "";
 }
 
 /** Go's reason in the person's words. The critical list's reasons are verb
@@ -137,7 +137,8 @@ export function reasonLine(reason: string | undefined): string {
 export function grantLine(request: HostRequest | null | undefined): string {
   if (!request?.card?.grantable) return "";
   const label = request.grant?.label?.trim();
-  if (!label) return "Allow for this chat covers later calls of the same kind here.";
+  if (!label)
+    return "Allow for this chat covers later calls of the same kind here.";
   return `Allow for this chat covers: ${label.charAt(0).toLowerCase()}${label.slice(1)}.`;
 }
 
@@ -317,6 +318,10 @@ export type ClosedHostView = {
   deviceNote: string;
   /** The activity line: "Ran `ls`", "Changed notes.md". */
   line: string;
+  /** The line around the command it quotes (no backticks): draw `code` in monospace. */
+  lineBefore: string;
+  lineCode: string;
+  lineAfter: string;
   /** A call that ran by itself (Auto, Full Access or an earlier grant). */
   auto: boolean;
   canUndo: boolean;
@@ -357,6 +362,37 @@ function plainName(path: string): string {
   return parts.length ? parts[parts.length - 1] : path;
 }
 
+/** What a file call changed, in the past tense. A patch names several files,
+ * one per line ("Change …/a.md", "Delete …/b.md"): count them rather than
+ * naming the last one. */
+function filesLine(path: string): string {
+  const lines = path
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length <= 1) return `Changed ${plainName(path)}`;
+  const deleted = lines.filter((l) => /^Delete\s/.test(l)).length;
+  const changed = lines.length - deleted;
+  const count = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
+  if (!changed) return `Deleted ${count(deleted)}`;
+  return deleted
+    ? `Changed ${count(changed)}, deleted ${count(deleted)}`
+    : `Changed ${count(changed)}`;
+}
+
+/** An activity line split around the command it quotes: the screen draws the
+ * command in monospace, never with its backticks. */
+export function lineParts(line: string): {
+  before: string;
+  code: string;
+  after: string;
+} {
+  const m = /^([^`]*)`([^`]*)`([\s\S]*)$/.exec(line);
+  return m
+    ? { before: m[1], code: m[2], after: m[3] }
+    : { before: line, code: "", after: "" };
+}
+
 function hostOf(url: string): string {
   const m = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]+)/i.exec(url.trim());
   return (m ? m[1] : url).replace(/^www\./, "");
@@ -386,8 +422,7 @@ export function hostLine(
         .trim();
     }
     if (host.outcome === "expired") return `Expired, not run: ${what}`;
-    if (host.outcome === "approved")
-      return `Approved, waiting to run: ${what}`;
+    if (host.outcome === "approved") return `Approved, waiting to run: ${what}`;
     if (host.outcome === "notrun") return `Approved, did not run: ${what}`;
     return `Stopped before you answered: ${what}`;
   }
@@ -397,7 +432,7 @@ export function hostLine(
     case "code":
       return "Ran code";
     case "file":
-      return `Changed ${plainName(card?.path ?? short)}`;
+      return filesLine(card?.path ?? short);
     case "browser":
       return card?.url?.trim()
         ? `Opened ${hostOf(card.url)} in your browser`
@@ -424,7 +459,9 @@ export function closedHostView(host: ClosedHost): ClosedHostView {
     stateWord:
       kind === "mcp_server" && ran
         ? "Added"
-        : HOST_CARD_STATE_WORDS[state],
+        : kind === "mcp_server" && state === "expired"
+          ? "Expired, not added"
+          : HOST_CARD_STATE_WORDS[state],
     title: (
       card?.title?.trim() || hostCardTitle({ kind, server: card?.server })
     ).replace(/\?$/, ""),
@@ -437,19 +474,26 @@ export function closedHostView(host: ClosedHost): ClosedHostView {
     page: pageLine(card),
     deviceNote: host.auto ? "" : deviceNote(host.device, host.outcome),
     line: hostLine(host),
+    lineBefore: lineParts(hostLine(host)).before,
+    lineCode: lineParts(hostLine(host)).code,
+    lineAfter: lineParts(hostLine(host)).after,
     auto: !!host.auto,
     canUndo: hostCanUndo(host),
     undone,
     ran,
     note:
       host.outcome === "denied"
-        ? "Nothing ran. The assistant was told you said no."
+        ? kind === "mcp_server"
+          ? "Not added. Nothing ran."
+          : "Nothing ran. The assistant was told you said no."
         : host.outcome === "expired"
-          ? "Nobody answered in time, so nothing ran."
+          ? kind === "mcp_server"
+            ? "Nobody answered in time, so it was not added."
+            : "Nobody answered in time, so nothing ran."
           : host.outcome === "stopped"
             ? "You stopped the reply first, so nothing ran."
             : host.outcome === "approved"
-              ? "Approved. It runs as soon as the assistant gets to it."
+              ? "It runs as soon as the assistant gets to it."
               : host.outcome === "notrun"
                 ? "The reply was stopped or ended before this ran, so it did not."
                 : "",

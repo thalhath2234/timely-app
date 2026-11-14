@@ -181,7 +181,7 @@ export default function PermissionsGroups({
           <ListRow
             label="Paused cards wait up to"
             wrapMeta
-            meta="A card first waits 10 minutes with the reply paused on it. Then it waits this long more, and closes without running"
+            meta="A card first waits 10 minutes with the reply paused on it. Then it waits this long more, and closes without running."
           >
             <Select
               variant="row"

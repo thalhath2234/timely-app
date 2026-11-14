@@ -119,7 +119,7 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
         <ListRow
           testID="permissions-host-timeout"
           title="Paused cards wait up to"
-          meta="A card first waits 10 minutes with the reply paused on it. Then it waits this long more, and closes without running"
+          meta="A card first waits 10 minutes with the reply paused on it. Then it waits this long more, and closes without running."
           trailing={timeoutLabel(settings.hostApprovalTimeoutMinutes)}
           accessibilityLabel={`Paused cards wait up to ${timeoutLabel(settings.hostApprovalTimeoutMinutes)}`}
           onPress={() => setChoosing("timeout")}

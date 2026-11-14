@@ -1420,7 +1420,7 @@ for (const [app, h] of [
     // An approved card has not run, and a card that did not run never says Ran.
     for (const o of ["approved", "notrun", "denied", "expired", "stopped"])
       assert.equal(h.closedHostView(closed(o)).ran, false, o);
-    assert.match(h.closedHostView(closed("approved")).note, /Approved\./);
+    assert.match(h.closedHostView(closed("approved")).note, /runs as soon as/);
     assert.match(h.closedHostView(closed("notrun")).note, /did not\./);
     assert.equal(
       h.closedHostView(closed("ran")).deviceNote,
@@ -1472,6 +1472,72 @@ for (const [app, h] of [
       "Host card closed: Denied",
     );
     assert.equal(h.hostClosedAnnouncement(undefined), "");
+  });
+
+  test(`${app}: review round 4 wording: patches count files, lines split around the command, the server card's own words`, () => {
+    const card = (c) => ({ title: "", reason: "", grantable: false, ...c });
+    assert.equal(
+      h.subjectLabel(
+        "file",
+        card({ kind: "file", path: "Change /w/a.txt\nDelete /w/b.md" }),
+      ),
+      "Files",
+    );
+    assert.equal(
+      h.subjectLabel("file", card({ kind: "file", path: "/w/a.txt" })),
+      "File",
+    );
+    const line = (c, outcome = "ran") =>
+      h.hostLine({ tool: c.kind, card: card(c), outcome });
+    assert.equal(
+      line({ kind: "file", path: "Change /w/a.txt\nDelete /w/b.md" }),
+      "Changed 1 file, deleted 1 file",
+    );
+    assert.equal(
+      line({ kind: "file", path: "Delete /w/a.txt\nDelete /w/b.md" }),
+      "Deleted 2 files",
+    );
+    assert.deepEqual(h.lineParts("Ran `echo hi > a.txt`"), {
+      before: "Ran ",
+      code: "echo hi > a.txt",
+      after: "",
+    });
+    assert.deepEqual(h.lineParts("Changed notes.md"), {
+      before: "Changed notes.md",
+      code: "",
+      after: "",
+    });
+    const server = (outcome) =>
+      h.closedHostView({
+        tool: "mcp_server",
+        card: card({
+          kind: "mcp_server",
+          server: "files",
+          command: "npx files",
+        }),
+        outcome,
+      });
+    assert.equal(server("denied").note, "Not added. Nothing ran.");
+    assert.equal(
+      server("expired").note,
+      "Nobody answered in time, so it was not added.",
+    );
+    assert.equal(server("expired").stateWord, "Expired, not added");
+    const approved = h.closedHostView({
+      tool: "terminal",
+      card: card({ kind: "terminal", command: "ls" }),
+      outcome: "approved",
+    });
+    assert.equal(approved.note, "It runs as soon as the assistant gets to it.");
+    const auto = h.closedHostView({
+      tool: "terminal",
+      card: card({ kind: "terminal", command: "echo hi > r.txt", cwd: "/w" }),
+      outcome: "ran",
+      auto: true,
+      checkpoint: "abc",
+    });
+    assert.equal(auto.lineCode, "echo hi > r.txt");
+    assert.equal(auto.cwd, "/w");
   });
 
   test(`${app}: host activity lines say what was done, with the command, file, site or server named`, () => {

@@ -52,7 +52,8 @@ export const HOST_LIMIT_COPY =
   "You approve each one on a card first. An approved command runs as you on this computer, " +
   "so it can read every account's data here, not only this account's.";
 
-export const HOST_DESKTOP_ONLY = "Turn this on in the desktop app.";
+export const HOST_DESKTOP_ONLY =
+  "Turn this on in the desktop app, or ask whoever runs this Timely server to add the account (TIMELY_AGENT_HOST_ACCOUNTS).";
 
 export const WORKING_FOLDER_LABEL = "Working folder";
 export const WORKING_FOLDER_NONE = "Not chosen. The assistant works in its own folder.";
@@ -120,7 +121,7 @@ export function phoneHostLine(settings: InstanceSettings | null): { label: strin
     value: settings.thisAccountHostAllowed ? "Yes" : "No",
     hint: settings.thisAccountHostAllowed
       ? "The assistant can ask to run commands and change files on the computer. You approve each one."
-      : "To let the assistant use the computer, turn this on in the Timely desktop app, under Settings, Server.",
+      : "To let the assistant use the computer, turn this on in the Timely desktop app, under Settings, Server, or ask whoever runs this Timely server to add the account (TIMELY_AGENT_HOST_ACCOUNTS).",
   };
 }
 

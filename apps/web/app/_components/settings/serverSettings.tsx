@@ -443,8 +443,9 @@ export function HostToolsSection() {
             </p>
           )}
           <p className="text-xs text-muted-foreground">
-            Each account is turned on separately: sign in as it in the desktop app to turn it on. Turn another account off here. Every
-            other account can still chat with the assistant, but gets no commands, files or browser.
+            Each account is turned on separately: sign in as it in the desktop app to turn it on, or ask whoever runs this server to add
+            it (TIMELY_AGENT_HOST_ACCOUNTS).{state.editable ? " Turn another account off here." : ""} Every other account can still chat
+            with the assistant, but gets no commands, files or browser.
           </p>
         </div>
       )}
