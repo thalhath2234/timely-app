@@ -72,13 +72,20 @@ func (s *Service) engineAvailable(ctx context.Context, uid string, c *Conversati
 // runEngine is the engine a freshly claimed run uses: classic for photo
 // chats (photo phases, and plan turns of a chat holding photos), apply and
 // Sensitive chats (Q-4.2: unless sensitiveNoPersist, the test-only
-// no-persist switch); else the chat's own choice, else the account's
+// no-persist switch); else agent for a parked card's approved call; else the
+// chat's own choice, else the account's
 // (Classic until the person picks New). It reads the account setting inside
 // the claim transaction, in a savepoint so a missing row or table leaves the
 // claim intact.
 func runEngine(tx *gorm.DB, c *Conversation, sensitiveNoPersist bool) string {
 	if c.Phase != "plan" || holdsPhotos(c) || (c.Sensitive && !sensitiveNoPersist) {
 		return engineClassic
+	}
+	if c.Continuation.pending() {
+		// A parked card's approved call (Q-5.1) only continues on the agent
+		// engine: classic would re-plan the old message and drop the call,
+		// whatever the chat or Settings → Agent says by now.
+		return engineAgent
 	}
 	if c.Engine == engineClassic || c.Engine == engineAgent {
 		return c.Engine

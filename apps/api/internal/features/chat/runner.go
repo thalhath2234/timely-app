@@ -180,6 +180,11 @@ func (s *Service) work(ctx context.Context) {
 			// The engine's follower holds the lease from here (Q-2.3: no
 			// Timely cap on an agent run, so this lane goes back to claiming).
 			err = s.startAgentRun(ctx, &c, providerErr)
+		} else if c.PreApproved != nil {
+			// Only the agent engine can run a parked card's approved call;
+			// never re-plan the old message instead. The failure below
+			// settles the card as not run.
+			err = errors.New("The approved command did not run because this chat cannot continue it. Ask again")
 		} else {
 			err = s.runClassic(ctx, &c, providerErr)
 		}
