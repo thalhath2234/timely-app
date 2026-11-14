@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildEnvRefusesDangerousToolKeys(t *testing.T) {
@@ -263,5 +264,55 @@ func TestConfigFromEnv(t *testing.T) {
 	cfg = ConfigFromEnv(func(k string) string { return env[k] }, t.TempDir())
 	if cfg.MaxWorkers != 3 || cfg.IdleTimeout.Minutes() != 15 {
 		t.Fatalf("defaults %+v", cfg)
+	}
+}
+
+// TIMELY_AGENT_REAL_HOME is honoured only with DB_SCHEMA and only inside
+// ~/.cache/p5-sandbox (phase 5 decision 20).
+func TestTestRealHomeOnlyInsideTheSandbox(t *testing.T) {
+	home := t.TempDir()
+	inside := filepath.Join(SandboxRoot(home), "home")
+	if err := os.MkdirAll(inside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := func(kv map[string]string) func(string) string { return func(k string) string { return kv[k] } }
+	if _, ok, err := TestRealHome(env(map[string]string{RealHomeEnv: inside}), home); ok || err != nil {
+		t.Fatal("honoured without DB_SCHEMA")
+	}
+	dir, ok, err := TestRealHome(env(map[string]string{RealHomeEnv: inside, "DB_SCHEMA": "p5"}), home)
+	if !ok || err != nil || filepath.Base(dir) != "home" {
+		t.Fatalf("inside the sandbox: %q %v %v", dir, ok, err)
+	}
+	for _, bad := range []string{home, filepath.Join(home, ".ssh"), SandboxRoot(home), filepath.Join(SandboxRoot(home), "..", "x"), filepath.Join(SandboxRoot(home), "missing")} {
+		if _, ok, err := TestRealHome(env(map[string]string{RealHomeEnv: bad, "DB_SCHEMA": "p5"}), home); ok || err == nil {
+			t.Fatalf("%s was not refused", bad)
+		}
+	}
+	link := filepath.Join(SandboxRoot(home), "escape")
+	if err := os.Symlink(home, link); err == nil {
+		if _, ok, err := TestRealHome(env(map[string]string{RealHomeEnv: link, "DB_SCHEMA": "p5"}), home); ok || err == nil {
+			t.Fatal("a symlink out of the sandbox was not refused")
+		}
+	}
+}
+
+// SetLimits resizes the worker cap and the idle time while workers run.
+func TestSetLimitsResizesTheSlots(t *testing.T) {
+	s := &Supervisor{cfg: Config{IdleTimeout: 15 * time.Minute, Logf: func(string, ...any) {}}, slots: newSlotSem(1)}
+	if !s.slots.tryAcquire() || s.slots.tryAcquire() {
+		t.Fatal("cap 1")
+	}
+	s.SetLimits(2, 3)
+	if !s.slots.tryAcquire() || s.slots.tryAcquire() || s.slots.inUse() != 2 || s.idleTimeout() != 3*time.Minute {
+		t.Fatal("cap 2, idle 3 minutes")
+	}
+	s.SetLimits(1, 0)
+	s.slots.release()
+	if s.slots.tryAcquire() {
+		t.Fatal("a slot over the smaller cap")
+	}
+	s.slots.release()
+	if !s.slots.tryAcquire() || s.idleTimeout() != 3*time.Minute {
+		t.Fatal("under the cap again")
 	}
 }

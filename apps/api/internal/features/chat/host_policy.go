@@ -1,0 +1,443 @@
+package chat
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+
+	"timely-api/internal/features/agent"
+)
+
+// Go's verdict for a host tool call (work packages decisions 5, 6 and 8):
+// the worker's timely_gate asks for every terminal, file, code, browser and
+// MCP call (gate.ask), and Go answers allow, approve (a host card) or block
+// from the account, the chat, its permission mode, the critical list
+// (agent.CriticalHost) and the chat's grants. The card text comes from the
+// call's real arguments.
+
+// hostTools are the tools the worker asks Go about as host calls
+// (policy.HOST_TOOLS, PROTOCOL.md 12.3).
+var hostTools = map[string]bool{
+	"terminal": true, "process": true, "process_manage": true, "read_file": true, "search_files": true,
+	"write_file": true, "patch": true, "execute_code": true, "browser_exec": true, "browser_cdp": true,
+	"browser_dialog": true, "vision_analyze": true,
+}
+
+// hostToolsets are the toolsets a host-allowed chat run gets (decision 9).
+var hostToolsets = []string{"terminal", "file", "code_execution", "browser-use", "browser-cdp"}
+
+// Block messages for host calls (the model reads them).
+const (
+	hostNotAllowed  = "This account can't use this computer. Turn it on in the desktop app, Settings → Server."
+	hostBotBlocked  = "Bots can't use this computer"
+	hostAnswerOnly  = "This turn only answers from your bots, so it can't use this computer or MCP servers"
+	hostSensitive   = "Sensitive chats can't use this computer or MCP servers"
+	hostMCPOff      = "You turned %s off in Settings → Assistant → MCP servers"
+	hostUnknownTool = "That isn't available in Timely yet"
+)
+
+// MCPAnnotations are an MCP tool's declared hints, as gate.ask carries them.
+type MCPAnnotations struct {
+	ReadOnly    *bool `json:"readOnlyHint,omitempty"`
+	Destructive *bool `json:"destructiveHint,omitempty"`
+	Idempotent  *bool `json:"idempotentHint,omitempty"`
+	OpenWorld   *bool `json:"openWorldHint,omitempty"`
+}
+
+// MCPRules are the account's external MCP servers as the gate needs them
+// (agentmcp.Service, through an adapter in cmd). Nil: every MCP tool is
+// Ask me first, no server is offered to a run, and a command server is
+// never approved.
+type MCPRules interface {
+	// Mode is use, ask or off.
+	Mode(ctx context.Context, uid, server string) string
+	// Classify says what a server's tool does, as a host action.
+	Classify(ctx context.Context, uid, server, tool string, ann MCPAnnotations) agent.HostAction
+	// ApproveStdio records the person's OK of a command server on its host
+	// card (hash: the entry the card showed).
+	ApproveStdio(ctx context.Context, uid, name, hash string) error
+	// Servers are the account's servers and their modes.
+	Servers(ctx context.Context, uid string) map[string]string
+}
+
+// MCP server modes.
+const (
+	mcpUse = "use"
+	mcpAsk = "ask"
+	mcpOff = "off"
+)
+
+// gateAsk is a gate.ask (PROTOCOL.md 5 and 12.3).
+type gateAsk struct {
+	Tool       string          `json:"tool"`
+	ToolCallID string          `json:"tool_call_id"`
+	Args       json.RawMessage `json:"args"`
+	ArgsHash   string          `json:"args_hash"`
+	Toolset    string          `json:"toolset"`
+	Inner      bool            `json:"inner"`
+	RunKind    string          `json:"run_kind"`
+	MCP        *struct {
+		Server      string         `json:"server"`
+		Tool        string         `json:"tool"`
+		Annotations MCPAnnotations `json:"annotations"`
+	} `json:"mcp"`
+	Tainted []TaintSource `json:"tainted_sources"`
+}
+
+// mcpServer is the MCP server a call belongs to ("" for none).
+func (a gateAsk) mcpServer() string {
+	if a.MCP != nil && a.MCP.Server != "" {
+		return a.MCP.Server
+	}
+	if s, ok := strings.CutPrefix(a.Toolset, "mcp-"); ok {
+		return s
+	}
+	return ""
+}
+
+// hostState is what a host decision reads: the account, the chat as it is
+// stored now (a stricter mode applies from the next call) and the run.
+type hostState struct {
+	hostAllowed bool
+	workingDir  string
+	// mode is the effective mode: Full Access without a step-up record is
+	// Auto (decision 7).
+	mode       agent.Mode
+	grants     HostGrants
+	tainted    bool
+	hosts      []string
+	answerOnly bool
+	sensitive  bool
+	noPersist  bool
+	mcp        MCPRules
+	uid        string
+}
+
+// hostDecision is Go's answer to one host call.
+type hostDecision struct {
+	verdict string // allow, approve or block
+	message string // a block's message
+	reason  string // why it was allowed (mode, grant) or carded
+	card    HostCard
+	grant   *HostGrant // what Allow for this chat would add
+	action  agent.HostAction
+}
+
+// decideHost is decision 5 for one call. ok is false for a tool that is
+// neither a host tool nor an MCP tool.
+func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, bool) {
+	server := ask.mcpServer()
+	isMCP := server != ""
+	if !isMCP && !hostTools[ask.Tool] {
+		return hostDecision{}, false
+	}
+	block := func(msg string) (hostDecision, bool) {
+		return hostDecision{verdict: "block", message: msg, reason: msg}, true
+	}
+	switch {
+	case ask.RunKind == "bot":
+		return block(hostBotBlocked)
+	case st.answerOnly:
+		return block(hostAnswerOnly)
+	case st.sensitive || st.noPersist:
+		return block(hostSensitive)
+	case !isMCP && !st.hostAllowed:
+		return block(hostNotAllowed)
+	}
+	args := map[string]any{}
+	_ = json.Unmarshal(ask.Args, &args)
+	var d hostDecision
+	forced := "" // a reason the call always asks in Auto, off the critical list
+	if isMCP {
+		mode := mcpAsk
+		if st.mcp != nil {
+			mode = st.mcp.Mode(ctx, st.uid, server)
+		}
+		tool := ask.Tool
+		if ask.MCP != nil && ask.MCP.Tool != "" {
+			tool = ask.MCP.Tool
+		}
+		d.card = HostCard{Kind: cardMCP, Title: "Use " + server + "?", Server: server, Command: clip(tool+" "+compactArgs(ask.Args), 4000)}
+		switch mode {
+		case mcpOff:
+			return block(fmt.Sprintf(hostMCPOff, server))
+		case mcpUse:
+			var ann MCPAnnotations
+			if ask.MCP != nil {
+				ann = ask.MCP.Annotations
+			}
+			if st.mcp != nil {
+				d.action = st.mcp.Classify(ctx, st.uid, server, tool, ann)
+			} else {
+				d.action = agent.HostAction{Kind: agent.HostSend}
+			}
+			d.grant = newGrant("mcp", "mcp:"+server+"/"+tool, "Use "+tool+" on "+server)
+		default: // ask, and anything unknown
+			d.verdict, d.reason = "approve", "You set "+server+" to Ask me first"
+			d.card.Reason = d.reason
+			return d, true
+		}
+	} else {
+		d.action, d.card, d.grant = hostCall(ask.Tool, args, st.workingDir)
+		switch ask.Tool {
+		case "execute_code":
+			forced = "runs code on this computer"
+		case "browser_exec", "browser_cdp", "browser_dialog":
+			// A script on the signed-in real profile can submit, send or
+			// sign in, and no literal check can tell (decision 6).
+			forced = "uses your signed-in browser"
+		}
+	}
+	scope := agent.HostScope{Workspace: st.workingDir, Hosts: st.hosts, Tainted: st.tainted}
+	item, why, critical := agent.CriticalHost(d.action, scope)
+	if strings.HasPrefix(ask.Tool, "browser_") && paymentLike(d.card.URL+" "+d.card.Command) {
+		item, why, critical = agent.CriticalPaying, "uses your signed-in browser on a payment or sign-in page", true
+	}
+	// Auto asks for every browser call and all code (forced): a grant
+	// never covers those in Auto, nor a critical-list item in any mode.
+	grantable := d.grant != nil && !critical && !(st.mode == agent.Auto && forced != "")
+	if forced != "" && !critical && st.mode == agent.Auto {
+		critical, why = true, forced
+		item = 0
+		if strings.HasPrefix(ask.Tool, "browser_") {
+			item = agent.CriticalSendingOut
+		}
+	}
+	switch st.mode {
+	case agent.Full:
+		d.verdict, d.reason = "allow", "Full Access"
+	case agent.Auto:
+		if critical {
+			d.verdict, d.reason = "approve", why
+		} else {
+			d.verdict, d.reason = "allow", "Auto"
+		}
+	default:
+		d.verdict, d.reason = "approve", "Supervised asks before every action"
+		if critical {
+			d.reason = why
+		}
+	}
+	if d.verdict == "approve" && grantable {
+		if g := st.grants.match(d.grant.Match); g != nil {
+			d.verdict, d.reason = "allow", "Allowed for this chat: "+g.Label
+		}
+	}
+	d.card.Reason = d.reason
+	if critical && d.verdict == "approve" {
+		d.card.CriticalItem = item
+	}
+	d.card.Grantable = d.verdict == "approve" && grantable
+	if !d.card.Grantable {
+		d.grant = nil
+	}
+	return d, true
+}
+
+// paymentLike is agent.paymentURL's rule for text that may hold a URL.
+var paymentLikeWords = regexp.MustCompile(`(?i)(checkout|payment|/pay\b|paypal|stripe|billing|/cart\b|purchase|subscribe|donate|log-?in|sign-?in|signon|/sso\b|oauth|/auth\b|password)`)
+
+func paymentLike(s string) bool { return paymentLikeWords.MatchString(s) }
+
+// match finds a grant with this kind key.
+func (g HostGrants) match(key string) *HostGrant {
+	for i := range g {
+		if g[i].Match == key {
+			return &g[i]
+		}
+	}
+	return nil
+}
+
+// newGrant is an "Allow for this chat" grant; Key is a short digest of
+// Match, safe in a URL.
+func newGrant(kind, match, label string) *HostGrant {
+	sum := sha256.Sum256([]byte(match))
+	return &HostGrant{Kind: kind, Key: hex.EncodeToString(sum[:8]), Match: match, Label: clip(label, 200)}
+}
+
+// grantSubcommand are the programs whose grant also names the first
+// subcommand ("git status", not every git).
+var grantSubcommand = map[string]bool{"git": true, "gh": true, "npm": true, "pnpm": true, "yarn": true, "npx": true, "uv": true,
+	"pip": true, "pip3": true, "cargo": true, "go": true, "make": true, "docker": true, "kubectl": true}
+
+// shellOperators make a command line ungrantable: "ls" must not carry "; rm".
+var shellOperators = []string{"|", ";", "&", ">", "<", "$(", "`", "\n", "\r"}
+
+// commandGrant is the grant for a terminal command, or nil: a command with a
+// shell operator, an environment assignment or sudo is never grantable.
+func commandGrant(command string) *HostGrant {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return nil
+	}
+	for _, op := range shellOperators {
+		if strings.Contains(command, op) {
+			return nil
+		}
+	}
+	words := strings.Fields(command)
+	prog := strings.Trim(words[0], `"'`)
+	if prog == "" || strings.Contains(prog, "=") || slices.Contains([]string{"sudo", "doas", "su", "env", "exec", "eval", "nohup", "time", "command", "builtin", "xargs"}, prog) {
+		return nil
+	}
+	key := prog
+	if grantSubcommand[prog] {
+		for _, w := range words[1:] {
+			w = strings.Trim(w, `"'`)
+			if w != "" && !strings.HasPrefix(w, "-") {
+				key += " " + w
+				break
+			}
+		}
+	}
+	return newGrant("terminal", "terminal:"+key, "Commands that start with "+key)
+}
+
+// folderGrant is the grant for a file tool in the folder of p.
+func folderGrant(tool, verb, p, workingDir string) *HostGrant {
+	p = strings.TrimSpace(p)
+	if p == "" || strings.HasPrefix(p, "~") || strings.HasPrefix(p, "$") {
+		return nil
+	}
+	if !path.IsAbs(p) {
+		if workingDir == "" {
+			return nil
+		}
+		p = path.Join(workingDir, p)
+	}
+	dir := path.Dir(path.Clean(p))
+	return newGrant("file", tool+":"+dir, verb+" files in "+dir)
+}
+
+// hostCall maps a host tool call onto the host action the critical list
+// judges (decision 6), the card it shows and the grant it may take.
+func hostCall(tool string, args map[string]any, workingDir string) (agent.HostAction, HostCard, *HostGrant) {
+	str := func(keys ...string) string {
+		for _, k := range keys {
+			if v, ok := args[k].(string); ok && strings.TrimSpace(v) != "" {
+				return dropNUL(v)
+			}
+		}
+		return ""
+	}
+	cwd := str("workdir", "cwd")
+	if cwd == "" {
+		cwd = workingDir
+	}
+	switch tool {
+	case "terminal":
+		command := str("command", "cmd")
+		return agent.HostAction{Kind: agent.HostTerminal, Command: command},
+			HostCard{Kind: cardTerminal, Title: "Run this command?", Command: clip(command, 4000), Cwd: clip(cwd, 1000)}, commandGrant(command)
+	case "process", "process_manage":
+		action := str("action")
+		command := strings.TrimSpace("process " + action + " " + str("session_id", "pid", "process_id"))
+		return agent.HostAction{Kind: agent.HostTerminal, Command: command},
+			HostCard{Kind: cardTerminal, Title: "Manage a running command?", Command: clip(command+" "+str("data", "input"), 4000), Cwd: clip(cwd, 1000)},
+			newGrant("terminal", "process:"+action, "Manage running commands ("+action+")")
+	case "read_file":
+		p := str("path", "file_path")
+		return agent.HostAction{Kind: agent.HostFileRead, Path: p},
+			HostCard{Kind: cardFile, Title: "Read this file?", Path: clip(p, 1000), Cwd: clip(cwd, 1000)}, folderGrant(tool, "Read", p, workingDir)
+	case "search_files":
+		p := str("path", "directory")
+		if p == "" {
+			p = workingDir
+		}
+		return agent.HostAction{Kind: agent.HostFileRead, Path: p},
+			HostCard{Kind: cardFile, Title: "Search these files?", Path: clip(p, 1000), Command: clip(str("pattern", "query", "regex"), 1000), Cwd: clip(cwd, 1000)},
+			folderGrant(tool, "Search", path.Join(p, "x"), workingDir)
+	case "write_file", "patch":
+		p := str("path", "file_path")
+		if p == "" {
+			p = patchPath(str("patch"))
+		}
+		return agent.HostAction{Kind: agent.HostFileWrite, Path: p},
+			HostCard{Kind: cardFile, Title: "Change this file?", Path: clip(p, 1000), Cwd: clip(cwd, 1000)}, folderGrant(tool, "Change", p, workingDir)
+	case "vision_analyze":
+		p := str("image_url", "path", "image_path")
+		return agent.HostAction{Kind: agent.HostFileRead, Path: p},
+			HostCard{Kind: cardFile, Title: "Read this image?", Path: clip(p, 1000)}, folderGrant(tool, "Read images", p, workingDir)
+	case "execute_code":
+		code := str("code", "script")
+		return agent.HostAction{Kind: agent.HostTerminal, Command: code},
+			HostCard{Kind: cardCode, Title: "Run this code?", Command: clip(code, 4000), Cwd: clip(cwd, 1000)}, nil
+	}
+	// browser_exec, browser_cdp, browser_dialog
+	target := str("url")
+	if target == "" {
+		target = firstURL(compactArgs(raw(args)))
+	}
+	var grant *HostGrant
+	if h := hostName(target); h != "" {
+		grant = newGrant("browser", tool+":"+h, "Use your browser on "+h)
+	}
+	return agent.HostAction{Kind: agent.HostFetch, URL: target},
+		HostCard{Kind: cardBrowser, Title: "Use your browser?", URL: clip(target, 2000), Command: clip(compactArgs(raw(args)), 4000)}, grant
+}
+
+var (
+	urlInText   = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>\\)]+`)
+	domainInMsg = regexp.MustCompile(`(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b`)
+	patchFile   = regexp.MustCompile(`(?m)^\*\*\* (?:Update|Add|Delete) File: (.+)$`)
+)
+
+func firstURL(s string) string { return urlInText.FindString(s) }
+
+// patchPath is the first file a V4A patch names.
+func patchPath(patch string) string {
+	if m := patchFile.FindStringSubmatch(patch); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+func hostName(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+}
+
+// compactArgs is a call's arguments as compact JSON for a card.
+func compactArgs(args json.RawMessage) string {
+	var v any
+	if json.Unmarshal(args, &v) != nil {
+		return ""
+	}
+	if m, ok := v.(map[string]any); ok && len(m) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+// personHosts are the sites the person named in the chat's own messages
+// (agent.HostScope.Hosts): a request elsewhere could carry data out.
+func personHosts(messages []Message) []string {
+	var out []string
+	for _, m := range messages {
+		if m.Role != "user" {
+			continue
+		}
+		for _, u := range urlInText.FindAllString(m.Content, -1) {
+			out = append(out, u)
+		}
+		for _, d := range domainInMsg.FindAllString(m.Content, -1) {
+			out = append(out, d)
+		}
+	}
+	return out
+}

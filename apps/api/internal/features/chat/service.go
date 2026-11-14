@@ -34,6 +34,8 @@ type Service struct {
 	live       *realtime.Hub
 	botNames   func(ctx context.Context, userID string) ([]BotName, error)
 	engine     AgentEngine
+	// mcp approves a command MCP server on its host card (phase 5).
+	mcp MCPRules
 	// stopLearning tells the worker a chat no longer learns, or with
 	// searchOnly no longer searches past chats (SetStopLearning).
 	stopLearning func(uid, cid string, searchOnly bool)
@@ -94,6 +96,11 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/chats/:id/steer", s.steer)
 	g.POST("/chats/:id/answer", s.answer)
 	g.POST("/chats/:id/undo", s.undo)
+	// Host cards (phase 5): the person's answer, Undo this change, and
+	// removing an "Allow for this chat" grant.
+	g.POST("/chats/:id/host-approval", s.hostApproval)
+	g.POST("/chats/:id/host-undo", s.hostUndo)
+	g.DELETE("/chats/:id/host-grants/:key", s.deleteGrant)
 	g.GET("/agent/chat-settings", s.getChatSettings)
 	g.PATCH("/agent/chat-settings", s.patchChatSettings)
 	g.GET("/agent/tool-specs", s.toolSpecs)
@@ -111,7 +118,7 @@ func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
 }
 func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "question", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "question", "host_request", "host_grants", "full_access", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
 	}
@@ -259,6 +266,17 @@ func (s *Service) create(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	var fullAccess FullAccessRecord
+	if permission == string(agent.Full) {
+		if in.Permission != "" {
+			if fullAccess, err = s.fullAccessStepUp(c, user(c), nil); err != nil {
+				return err
+			}
+		} else if prefs, perr := chatSettings(s.db, user(c)); perr == nil {
+			// The account's Full Access default carries its own step-up.
+			fullAccess = prefs.FullAccessDefault
+		}
+	}
 	if in.Context == nil {
 		in.Context = []ContextChip{}
 	}
@@ -280,7 +298,7 @@ func (s *Service) create(c *echo.Context) error {
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
 	firstMessage.BotTags = tags
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Permission: permission, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Permission: permission, FullAccess: fullAccess, HostGrants: HostGrants{}, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
@@ -415,6 +433,20 @@ func (s *Service) sendMessage(c *echo.Context, in sendInput, tags []string, card
 		if busy(row) {
 			return echo.NewHTTPError(409, "Stop or wait for the current run before sending another message")
 		}
+		if row.Status == statusHostApproval {
+			// A message never answers a host card (flag 2). A live card's
+			// run still waits on it; a parked card closes and the message
+			// is the next turn.
+			if row.HostRequest.Phase != hostParked {
+				return errHostLive
+			}
+			h := row.HostRequest
+			ev := hostEvent(row.UserID, row.ID, h.Run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, eventDenied, "", "a new message", nil, nil)
+			if err := tx.Create(&ev).Error; err != nil {
+				return err
+			}
+			closeHostCard(row, hostStopped, nil)
+		}
 		if len(row.Messages) > 150 {
 			return echo.NewHTTPError(400, "Start a new chat to continue")
 		}
@@ -467,6 +499,9 @@ func (s *Service) approve(c *echo.Context) error {
 		return echo.NewHTTPError(400, "Invalid approval")
 	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+		if row.Status == statusHostApproval {
+			return errHostWaiting
+		}
 		if row.Status != "approval" || row.Revision != in.Revision {
 			return echo.NewHTTPError(409, "This proposal changed. Review the latest version before applying")
 		}
@@ -517,7 +552,17 @@ func (s *Service) approve(c *echo.Context) error {
 func (s *Service) stop(c *echo.Context) error {
 	runID := ""
 	err := s.change(c, func(tx *gorm.DB, row *Conversation) error {
-		if busy(row) || row.Status == "approval" {
+		if busy(row) || row.Status == "approval" || row.Status == statusHostApproval {
+			if h := row.HostRequest; h.pending() {
+				// A host card closes unanswered: its call never runs (the
+				// engine denies a live one before it stops the run).
+				ev := hostEvent(row.UserID, row.ID, h.Run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, eventDenied, "", "stopped", nil, nil)
+				if err := tx.Create(&ev).Error; err != nil {
+					return err
+				}
+				closeHostCard(row, hostStopped, nil)
+			}
+			row.Continuation = HostContinuation{}
 			row.Status = "stopped"
 			row.Lease = ""
 			row.LeaseUntil = nil
@@ -568,6 +613,9 @@ func (s *Service) discardSteps(c *echo.Context) error {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+		if row.Status == statusHostApproval {
+			return errHostWaiting
+		}
 		if row.Status != "approval" {
 			return echo.NewHTTPError(409, "There is no proposal waiting for approval")
 		}
@@ -623,6 +671,9 @@ func (s *Service) reject(c *echo.Context) error {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
 	return s.change(c, func(tx *gorm.DB, row *Conversation) error {
+		if row.Status == statusHostApproval {
+			return errHostWaiting
+		}
 		if row.Status != "approval" {
 			return echo.NewHTTPError(409, "There is no proposal waiting for approval")
 		}
@@ -716,6 +767,8 @@ func (s *Service) retry(c *echo.Context) error {
 		// A retried run starts afresh; an agent run it had is over.
 		row.AgentRunID, row.AgentInstance = "", ""
 		closeQuestion(row, nil, outcomeStopped)
+		closeHostCard(row, hostStopped, nil)
+		row.Continuation = HostContinuation{}
 		if row.Phase == "apply" && len(row.Plan) > 0 && !hasPending(row.Plan) {
 			// Stopped after the last change was saved: finish the apply, which
 			// continues with the next batch or says the request is done.
@@ -778,6 +831,9 @@ func (s *Service) configure(c *echo.Context) error {
 		// NoLearning is "Don't learn from this chat"; it applies from the
 		// chat's next run.
 		NoLearning *bool `json:"noLearning"`
+		// Device is the device turning Full Access on (the step-up,
+		// phase 5 decision 7).
+		Device *HostDevice `json:"device"`
 	}
 	if err := c.Bind(&in); err != nil {
 		return echo.NewHTTPError(400, "Invalid settings")
@@ -821,6 +877,13 @@ func (s *Service) configure(c *echo.Context) error {
 			return echo.NewHTTPError(400, "Title must be between 1 and 120 characters")
 		}
 	}
+	// Full Access needs the step-up (decision 7) unless the chat already
+	// has it with its record.
+	var stepUp FullAccessRecord
+	var stepErr error
+	if in.Permission != nil && *in.Permission == string(agent.Full) {
+		stepUp, stepErr = s.fullAccessStepUp(c, user(c), in.Device)
+	}
 	err := s.save(c, func(tx *gorm.DB, row *Conversation) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
@@ -833,7 +896,17 @@ func (s *Service) configure(c *echo.Context) error {
 		}
 		if in.Permission != nil {
 			// Any time: a looser mode approves nothing already waiting, and
-			// the next proposal reads the new mode (permission_mode.go).
+			// the next proposal reads the new mode (permission_mode.go); a
+			// host card already waiting keeps waiting.
+			switch {
+			case *in.Permission != string(agent.Full):
+				row.FullAccess = FullAccessRecord{}
+			case row.Permission == string(agent.Full) && row.FullAccess.on():
+			case stepErr != nil:
+				return stepErr
+			default:
+				row.FullAccess = stepUp
+			}
 			row.Permission = *in.Permission
 		}
 		if in.Title != nil {
@@ -1058,6 +1131,17 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 	if c.Status == "running" && c.Question.RequestID != "" {
 		// A question card: the push says so instead of "finished".
 		data["question"] = c.Question.RequestID
+	}
+	if c.Status == statusHostApproval && c.HostRequest.pending() {
+		// A host card (phase 5): the push says what the assistant wants to
+		// do (contract 4), and the phone opens the chat at the card.
+		data["hostRequest"] = c.HostRequest.RequestID
+		if card := c.HostRequest.Card; card != nil {
+			data["hostKind"] = card.Kind
+			if card.Server != "" {
+				data["hostServer"] = card.Server
+			}
+		}
 	}
 	n := models.Notification{ID: id("ntf_"), UserID: c.UserID, Category: "agent", Title: c.Title, Body: body, EntityType: &kind, EntityID: &c.ID, DedupeKey: &key, Data: data, CreatedAt: time.Now().UTC()}
 	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&n)

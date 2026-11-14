@@ -427,13 +427,33 @@ func TestIntegrationAgentEngineMigrations(t *testing.T) {
 	if again.Question.RequestID != "req-1" || len(again.Question.Questions) != 1 || again.Question.Questions[0].Choices[1] != "Tue" || !again.Question.AskedAt.Equal(asked) {
 		t.Fatalf("question round trip %+v", again.Question)
 	}
-	if err = goose.Down(sqlDB, "."); err != nil {
+	// Phase 5: the host card columns, '{}' and '[]' by default, and the model
+	// reads and writes them.
+	var hostRequest, hostGrants string
+	db.Raw("SELECT host_request::text, host_grants::text FROM agent_conversations WHERE id = 'chat_old'").Row().Scan(&hostRequest, &hostGrants)
+	if hostRequest != "{}" || hostGrants != "[]" {
+		t.Fatalf("host defaults %q %q", hostRequest, hostGrants)
+	}
+	again.HostRequest = HostRequest{RequestID: "req-h", Run: "run-1", Phase: hostParked, Tool: "terminal", Card: &HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "ls"}}
+	again.HostGrants = HostGrants{*commandGrant("ls")}
+	if err = db.Save(&again).Error; err != nil {
 		t.Fatal(err)
 	}
-	var columns int64
-	db.Raw("SELECT count(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'agent_conversations' AND column_name = 'question'", schema).Scan(&columns)
-	if columns != 0 {
-		t.Fatal("the down step kept agent_conversations.question")
+	var hosted Conversation
+	db.First(&hosted, "id = 'chat_old'")
+	if hosted.HostRequest.RequestID != "req-h" || hosted.HostRequest.Card.Command != "ls" || len(hosted.HostGrants) != 1 || hosted.HostGrants[0].Match != "terminal:ls" {
+		t.Fatalf("host round trip %+v %+v", hosted.HostRequest, hosted.HostGrants)
+	}
+	// Down to before the question card (phase 5's steps go first).
+	if err = goose.DownTo(sqlDB, ".", 20261112190000); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"question", "host_request", "host_grants", "continuation", "full_access"} {
+		var columns int64
+		db.Raw("SELECT count(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'agent_conversations' AND column_name = ?", schema, column).Scan(&columns)
+		if columns != 0 {
+			t.Fatalf("the down step kept agent_conversations.%s", column)
+		}
 	}
 	if err = goose.Up(sqlDB, "."); err != nil {
 		t.Fatal(err)

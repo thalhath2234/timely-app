@@ -438,3 +438,30 @@ func TestAgentModelForSensitiveCLIGetsItsOwnGrant(t *testing.T) {
 		t.Fatalf("the Sensitive grant reached the CLI unmarked: %+v", fake.messages)
 	}
 }
+
+// A grant lasts as long as the account's worker (phase 5 decision 18): when
+// it exits, its key stops working, other accounts keep theirs, and the next
+// run gets a new key.
+func TestGatewayRevokesAnAccountsGrantsWhenItsWorkerExits(t *testing.T) {
+	fake := &gatewayFake{reply: chat.WireMessage{Role: "assistant", Content: "x"}}
+	g, key := startTestGateway(t, fake)
+	sensitive := g.grant("user-a", ClaudeCLI, "sonnet", true)
+	other := g.grant("user-b", ClaudeCLI, "sonnet", false)
+	if resp := gatewayPost(t, g, key, strings.Replace(gatewayRequest, "%s", "", 1)); resp.StatusCode != 200 {
+		t.Fatalf("before the exit: %d", resp.StatusCode)
+	}
+	g.RevokeAccount("user-a")
+	for _, k := range []string{key, sensitive} {
+		if resp := gatewayPost(t, g, k, strings.Replace(gatewayRequest, "%s", "", 1)); resp.StatusCode != 401 {
+			t.Fatalf("a revoked key still works: %d", resp.StatusCode)
+		}
+	}
+	if _, ok := g.caller(&http.Request{Header: http.Header{"Authorization": {"Bearer " + other}}}); !ok {
+		t.Fatal("another account lost its grant")
+	}
+	if again := g.grant("user-a", ClaudeCLI, "sonnet", false); again == key {
+		t.Fatal("the next worker got the revoked key back")
+	}
+	var nilGateway *Gateway
+	nilGateway.RevokeAccount("user-a") // no gateway: nothing to revoke
+}

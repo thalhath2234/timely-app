@@ -57,6 +57,17 @@
 //	{"fake": "subagent", "goal": "...", "child": "sess", "taint": [{...}], "ms": 0, "status": "completed"}
 //	                                               phase 4: event subagent start, a taint line of the
 //	                                               child's sources (via "subagent", child), event subagent stop
+//	{"fake": "host", "tool": "terminal", "args": {...}, "tool_call_id": "c1", "request_id": "req-c1",
+//	 "live_ms": 0, "checkpoint": "", "checkpoint_dir": "", "auto": false, "crash_ms": 0, "toolset": "", "mcp": {...}}
+//	                                               phase 5: one host call. pre_approved (same tool and
+//	                                               args hash) runs it once without asking; else gate.ask;
+//	                                               allow runs it; approve sends approval.request and waits
+//	                                               for approval.answer (once runs it, deny: BLOCKED text),
+//	                                               run.stop or the live wait (run.start host_live_wait_s,
+//	                                               or live_ms), after which it sends approval.parked and
+//	                                               run.done approval_parked. A call that ran sends host.ran
+//	                                               (with the checkpoint); auto first sends approval.auto;
+//	                                               crash_ms exits the worker during the wait
 //	{"fake": "crash", "code": 7}                   exit the worker process at once, mid-run
 //	{"fake": "refuse", "code": "busy", "message": "..."}   first line only: answer the run.start with an error
 //
@@ -79,6 +90,7 @@
 // The fake also answers hello with a passing ready (FailSelfTest makes it
 // fail; WebBackends and SkillsUpstream fill its phase 3 fields), ping with pong, sends heartbeats, acks run.steer (recorded),
 // approval.answer, clarify.answer (ok only while that card waits;
+// checkpoint.restore: ok, except for the checkpoint "gone";
 // bad_message without request_id) and session.delete (busy while the conversation has a live
 // run), refuses a second live run in one conversation or a fourth in the
 // account (busy) and a live run id (duplicate_run), and on shutdown or stdin

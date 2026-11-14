@@ -150,6 +150,14 @@ func (s *Service) work(ctx context.Context) {
 			if c.Status == "queued" {
 				c.RunEngine = runEngine(tx, &c, s.sensitiveNoPersist)
 				c.AgentRunID, c.AgentInstance = "", ""
+				// A parked host card's approved call (phase 5 decision 3):
+				// the claim takes it off the row in this transaction and
+				// this run alone carries it, so it runs at most once.
+				if c.Continuation.pending() {
+					cont := c.Continuation
+					c.PreApproved = &cont
+					c.Continuation = HostContinuation{}
+				}
 			}
 			// One expired lease can be safely resumed: writes and checkpoints commit together.
 			lease := now.Add(3 * time.Minute)

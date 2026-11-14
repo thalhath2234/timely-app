@@ -53,6 +53,10 @@ const (
 	txtUndone               = "undone"
 	txtSteered              = "steered"
 	txtPushQuestion         = "pushQuestion"
+	// Phase 5: a host card's push, and the notice for a host call that
+	// never ran (denied on a parked card, expired), with what it was.
+	txtPushHost = "pushHost"
+	txtNotRun   = "notRun"
 )
 
 var texts = map[string]map[string]string{
@@ -101,6 +105,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "Undoing that change.",
 		txtSteered:              "Sent to the running reply.",
 		txtPushQuestion:         "Timely has a question.",
+		txtPushHost:             "Your assistant needs your OK.",
+		txtNotRun:               "Not run: %s",
 	},
 	"ja": {
 		txtDone:                 "完了しました。変更は保存されています。",
@@ -147,6 +153,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "その変更を元に戻しています。",
 		txtSteered:              "実行中の返信に送りました。",
 		txtPushQuestion:         "Timely から質問があります。",
+		txtPushHost:             "アシスタントがあなたの許可を待っています。",
+		txtNotRun:               "実行していません: %s",
 	},
 	"zh": {
 		txtDone:                 "完成——您的更改已保存。",
@@ -193,6 +201,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "正在撤销该更改。",
 		txtSteered:              "已发送给正在进行的回复。",
 		txtPushQuestion:         "Timely 有一个问题。",
+		txtPushHost:             "助手需要你的确认。",
+		txtNotRun:               "未运行：%s",
 	},
 	"ko": {
 		txtDone:                 "완료되었습니다. 변경 사항이 저장되었습니다.",
@@ -239,6 +249,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "해당 변경을 되돌리는 중입니다.",
 		txtSteered:              "진행 중인 답변에 보냈습니다.",
 		txtPushQuestion:         "Timely에게 질문이 있습니다.",
+		txtPushHost:             "어시스턴트가 승인을 기다리고 있습니다.",
+		txtNotRun:               "실행하지 않음: %s",
 	},
 	"es": {
 		txtDone:                 "Listo: tus cambios están guardados.",
@@ -285,6 +297,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "Deshaciendo ese cambio.",
 		txtSteered:              "Enviado a la respuesta en curso.",
 		txtPushQuestion:         "Timely tiene una pregunta.",
+		txtPushHost:             "Tu asistente necesita tu aprobación.",
+		txtNotRun:               "No se ejecutó: %s",
 	},
 	"fr": {
 		txtDone:                 "Terminé — vos modifications sont enregistrées.",
@@ -331,6 +345,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "Annulation de cette modification.",
 		txtSteered:              "Envoyé à la réponse en cours.",
 		txtPushQuestion:         "Timely a une question.",
+		txtPushHost:             "Votre assistant attend votre accord.",
+		txtNotRun:               "Non exécuté : %s",
 	},
 	"de": {
 		txtDone:                 "Fertig – deine Änderungen sind gespeichert.",
@@ -377,6 +393,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "Diese Änderung wird rückgängig gemacht.",
 		txtSteered:              "An die laufende Antwort gesendet.",
 		txtPushQuestion:         "Timely hat eine Frage.",
+		txtPushHost:             "Dein Assistent braucht dein OK.",
+		txtNotRun:               "Nicht ausgeführt: %s",
 	},
 	"pt": {
 		txtDone:                 "Pronto — suas alterações foram salvas.",
@@ -423,6 +441,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "Desfazendo essa alteração.",
 		txtSteered:              "Enviado para a resposta em andamento.",
 		txtPushQuestion:         "O Timely tem uma pergunta.",
+		txtPushHost:             "Seu assistente precisa da sua aprovação.",
+		txtNotRun:               "Não executado: %s",
 	},
 	"it": {
 		txtDone:                 "Fatto: le modifiche sono salvate.",
@@ -469,6 +489,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "Annullamento di questa modifica.",
 		txtSteered:              "Inviato alla risposta in corso.",
 		txtPushQuestion:         "Timely ha una domanda.",
+		txtPushHost:             "Il tuo assistente ha bisogno del tuo OK.",
+		txtNotRun:               "Non eseguito: %s",
 	},
 	"ru": {
 		txtDone:                 "Готово — изменения сохранены.",
@@ -515,6 +537,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "Отменяю это изменение.",
 		txtSteered:              "Отправлено в текущий ответ.",
 		txtPushQuestion:         "У Timely есть вопрос.",
+		txtPushHost:             "Ассистенту нужно ваше разрешение.",
+		txtNotRun:               "Не выполнено: %s",
 	},
 	"ar": {
 		txtDone:                 "تم — حُفظت تغييراتك.",
@@ -561,6 +585,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "جارٍ التراجع عن هذا التغيير.",
 		txtSteered:              "أُرسلت إلى الرد الجاري.",
 		txtPushQuestion:         "لدى Timely سؤال.",
+		txtPushHost:             "يحتاج مساعدك إلى موافقتك.",
+		txtNotRun:               "لم يُشغَّل: %s",
 	},
 	"hi": {
 		txtDone:                 "हो गया — आपके बदलाव सहेज दिए गए हैं।",
@@ -607,6 +633,8 @@ var texts = map[string]map[string]string{
 		txtUndone:               "वह बदलाव वापस लिया जा रहा है।",
 		txtSteered:              "चल रहे जवाब को भेजा गया।",
 		txtPushQuestion:         "Timely का एक सवाल है।",
+		txtPushHost:             "आपके सहायक को आपकी अनुमति चाहिए।",
+		txtNotRun:               "नहीं चलाया गया: %s",
 	},
 }
 

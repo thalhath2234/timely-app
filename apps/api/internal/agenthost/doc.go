@@ -104,10 +104,9 @@
 //     (*UnavailableError wrapping ErrNoRuntime, ErrWorktreeShared or
 //     ErrClosed): no runtime, a git worktree checkout (GitWorktree) without a
 //     DB_SCHEMA of its own (plan 6.7), or shutting down. It starts nothing.
-//   - Host-allowed account: HostAccounts reads TIMELY_AGENT_HOST_ACCOUNTS
-//     (the server fallback until Settings -> Server, phase 5) and honours
-//     only the first account on the local backend (plan 12), logging any
-//     other it ignores.
+//   - Host-allowed accounts: HostAccounts reads TIMELY_AGENT_HOST_ACCOUNTS,
+//     every id it lists (Q-5.2), and HostAllowed unites it with the
+//     accounts turned on in Settings -> Server (instance_settings).
 //   - Tests: package agenthosttest is a scriptable fake worker (protocol 1,
 //     no Python) that other packages run under a real Supervisor by
 //     re-executing their test binary; it replays JSONL fixtures per run.start.
@@ -131,6 +130,17 @@
 //     until its resume is called, so a backup restore can swap the home.
 //   - agenthosttest scripts learning.* and settings.update replies and emits
 //     learning messages (Kit.LearningReply, Kit.Emit).
+//
+// # Phase 5 additions
+//
+//   - SetLimits changes the worker cap and idle time while workers run
+//     (Settings -> Server); a smaller cap stops nothing, it only waits.
+//   - TestRealHome: a test API (DB_SCHEMA) may point the real home workers
+//     see at a folder under ~/.cache/p5-sandbox (TIMELY_AGENT_REAL_HOME),
+//     never anywhere else (work packages decision 20).
+//   - agenthosttest plays host calls (the "host" directive: gate.ask,
+//     approval.request, the live wait and parking, pre_approved, host.ran)
+//     and answers checkpoint.restore.
 //
 // The package is not wired into the API by itself; phase 2's chat engine
 // (chat/engine_agent.go, cmd/agent_engine.go) is its first caller.

@@ -44,6 +44,15 @@ type workerEvent struct {
 		ChildSessionID string `json:"child_session_id"`
 		Goal           string `json:"goal"`
 		Status         string `json:"status"`
+		// approval.request, approval.parked, approval.auto and host.ran
+		// (phase 5, PROTOCOL.md 12.4 and 12.6). Status above is host.ran's.
+		ArgsHash      string `json:"args_hash"`
+		Command       string `json:"command"`
+		Description   string `json:"description"`
+		PatternKey    string `json:"pattern_key"`
+		LiveWaitS     int    `json:"live_wait_s"`
+		Checkpoint    string `json:"checkpoint"`
+		CheckpointDir string `json:"checkpoint_dir"`
 	} `json:"payload"`
 }
 

@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"timely-api/internal/agenthost"
+	"timely-api/internal/features/agent"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/realtime"
 	"timely-api/internal/utils"
@@ -62,6 +63,10 @@ type WorkerEngine struct {
 	started   map[*agenthost.Worker]int64
 	closing   bool
 	wg        sync.WaitGroup
+	// stopSweep ends the host card sweep (Shutdown), and sweeping waits for
+	// it (apart from wg, which counts followers and forgets).
+	stopSweep context.CancelFunc
+	sweeping  sync.WaitGroup
 
 	// activityWrites counts activity checkpoints (tests check the throttle).
 	activityWrites atomic.Int64
@@ -91,10 +96,31 @@ type WorkerEngineOptions struct {
 	// Codex without the loopback gateway); the run then fails with "Use
 	// classic for this chat".
 	Unsupported func(error) bool
-	// HostAllowed reports the account the host allows on its computer
-	// (agenthost.HostAccounts), whose Timely block drops the scope line
-	// (Q-2.1).
-	HostAllowed func(uid string) bool
+	// HostAllowed reports whether the host allows the account on its
+	// computer (instance.Store.IsHostAllowed: Settings → Server united with
+	// TIMELY_AGENT_HOST_ACCOUNTS, Q-5.2). Its Timely block drops the scope
+	// line (Q-2.1) and its chat runs get the host toolsets (phase 5).
+	HostAllowed func(ctx context.Context, uid string) bool
+	// HostWorkingDir is the account's working folder ("" for its agent
+	// workspace), the scope the critical list judges paths by (decision 10).
+	HostWorkingDir func(ctx context.Context, uid string) string
+	// RenderedHost reports whether the account's running worker was
+	// rendered host-allowed (known false when no render is recorded): a
+	// worker rendered otherwise refuses the host toolsets, so Start asks it
+	// to restart once idle.
+	RenderedHost func(uid string) (allowed, known bool)
+	// MCP are the account's external MCP servers (agentmcp); nil: every MCP
+	// tool asks first and no server is offered.
+	MCP MCPRules
+	// LiveWait is how long a host card's run waits live (run.start
+	// host_live_wait_s, ten minutes); ParkFor how long a parked card waits
+	// (the account's approval timeout); HostSweepEvery how often parked
+	// cards are checked for expiry; OrphanAfter how old a live card no
+	// process follows must be before the sweep parks it.
+	LiveWait       time.Duration
+	ParkFor        func(ctx context.Context, uid string) time.Duration
+	HostSweepEvery time.Duration
+	OrphanAfter    time.Duration
 	// ActivityEvery is the activity throttle (1 s, plan 5.4); RenewEvery how
 	// often a live run's lease is renewed (20 s; the lease lasts 3 minutes).
 	ActivityEvery time.Duration
@@ -138,7 +164,16 @@ func NewWorkerEngine(s *Service, opts WorkerEngineOptions) *WorkerEngine {
 		opts.Logf = log.Printf
 	}
 	if opts.HostAllowed == nil {
-		opts.HostAllowed = func(string) bool { return false }
+		opts.HostAllowed = func(context.Context, string) bool { return false }
+	}
+	if opts.LiveWait <= 0 {
+		opts.LiveWait = defaultLiveWait
+	}
+	if opts.HostSweepEvery <= 0 {
+		opts.HostSweepEvery = defaultHostSweep
+	}
+	if opts.OrphanAfter <= 0 {
+		opts.OrphanAfter = orphanAfter
 	}
 	if opts.Unsupported == nil {
 		opts.Unsupported = func(error) bool { return false }
@@ -155,7 +190,17 @@ func NewWorkerEngine(s *Service, opts WorkerEngineOptions) *WorkerEngine {
 
 // Attach gives the engine its supervisor (built with Handle and
 // WorkerExited in its Config).
-func (e *WorkerEngine) Attach(sup *agenthost.Supervisor) { e.sup = sup }
+func (e *WorkerEngine) Attach(sup *agenthost.Supervisor) {
+	e.sup = sup
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.stopSweep == nil && !e.closing {
+		ctx, cancel := context.WithCancel(context.Background())
+		e.stopSweep = cancel
+		e.sweeping.Add(1)
+		go e.sweepLoop(ctx)
+	}
+}
 
 // Messages to the model and the person.
 const (
@@ -232,6 +277,21 @@ type agentRun struct {
 	// the worker either took it (closed "submitted") or did not.
 	closedAsks  map[string]string
 	sentAnswers map[string]map[string]any
+
+	// Host cards (phase 5). hostAllowed and fullAccess are what run.start
+	// said. Owned by the follower: cards are the host verdicts by tool
+	// call id, hostQueue the cards waiting for the one on the row,
+	// ranLater the host.ran checkpoints held back during a wait. Guarded
+	// by mu: hostWait is the request the row's live card names while the
+	// worker waits (no lease is held then), answered the person's choice
+	// by request id (a re-attach the worker did not take falls back on it).
+	hostAllowed bool
+	fullAccess  bool
+	cards       map[string]hostPending
+	hostQueue   []workerEvent
+	ranLater    []workerEvent
+	hostWait    string
+	answered    map[string]string
 }
 
 // runItem is one thing a follower handles: a worker message, or the end of
@@ -305,6 +365,9 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	if e.sup == nil || e.opts.Model == nil {
 		return unavailable(c, errNoEngine.Error())
 	}
+	// The claim's continuation (a parked card's approved call): every
+	// checkpoint below reloads c from the row, which never stores it.
+	pre := c.PreApproved
 	// A Sensitive chat reaches Start only as a no-persist run (runEngine,
 	// the test-only switch): nothing of it is stored in the worker's home,
 	// and its tools keep its searches and titles away from Jev, as classic.
@@ -341,6 +404,15 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 			language = tri.language
 		}
 	}
+	// A worker rendered for another host-allowed state (the account was
+	// turned on or off in Settings → Server since it started) refuses or
+	// lacks the host toolsets: it restarts once idle, before this run.
+	hostAllowed := e.opts.HostAllowed(ctx, c.UserID)
+	if e.opts.RenderedHost != nil {
+		if rendered, known := e.opts.RenderedHost(c.UserID); known && rendered != hostAllowed {
+			e.sup.RestartWhenIdle(c.UserID)
+		}
+	}
 	ensureCtx, cancelEnsure := context.WithTimeout(ctx, 2*time.Minute)
 	w, err := e.sup.Ensure(ensureCtx, c.UserID)
 	cancelEnsure()
@@ -349,6 +421,19 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		return unavailable(c, workerReason(err))
 	}
 	e.sendForgets(w, c.UserID, c.ID)
+	// The run uses the host toolsets only on a worker rendered for them.
+	hostForRun := hostAllowed
+	if e.opts.RenderedHost != nil {
+		if rendered, known := e.opts.RenderedHost(c.UserID); known {
+			hostForRun = hostAllowed && rendered
+		}
+	}
+	// The gateway's grant lasts as long as the worker it was made for
+	// (phase 5 decision 18): a worker that exited since the model was
+	// resolved took its grant with it, so resolve it again for this one.
+	if again, err := e.opts.Model(ctx, c.UserID, c.Provider, c.Model, RunModelOptions{Sensitive: c.Sensitive}); err == nil {
+		model = again
+	}
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	if noPersist {
@@ -359,20 +444,29 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		c.Language = language
 	}
 	setup := e.runSetup(ctx, c, tools, noPersist)
+	setup.host = e.hostToolsets(ctx, c, tools, noPersist, hostForRun)
+	setup.toolsets = runToolsets(setup, tools.web.on)
 	if tools.web.on {
 		// The timely web backend searches with the chat's own provider
 		// (Q-3.8), as classic's web_search does.
 		toolCtx = e.s.withRunCompleter(toolCtx, c)
 	}
-	block := timelyBlock(c, tools, e.opts.HostAllowed(c.UserID))
+	block := timelyBlock(c, tools, hostAllowed)
 	if !noPersist {
 		block += askHint
 	}
 	input := e.s.turnInput(ctx, c)
+	if pre != nil && pre.pending() {
+		// A parked card's continuation (decision 3): the turn runs exactly
+		// the approved call, which the worker's gate lets through once.
+		input = pre.Text
+	}
+	fullAccess := hostForRun && effectiveMode(c.Permission, c.FullAccess) == agent.Full
 	r := &agentRun{id: id("run_"), uid: c.UserID, cid: c.ID, instance: e.instance(w), worker: w,
 		ctx: toolCtx, cancel: cancel, tools: tools, live: nil, noPersist: noPersist}
 	r.live = newLiveRun(r.id)
 	r.queue.signal = make(chan struct{}, 1)
+	r.hostAllowed, r.fullAccess = hostForRun, fullAccess
 	// The row names the run before the worker hears of it, so Stop and
 	// Delete always reach it. A restore's reseed is taken here: this run's
 	// run.start carries it.
@@ -415,7 +509,9 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"toolsets":        setup.toolsets,
 		"flags": map[string]any{"sensitive": c.Sensitive, "answer_only": tools.answerOnly, "web": tools.web.on,
 			"rich_ui": c.RichUI, "from_bot": false, "learning_writes": setup.learningWrites, "search_history": setup.searchHistory,
-			"no_persist": noPersist},
+			"no_persist": noPersist, "host_allowed": hostForRun, "full_access": fullAccess},
+		// How long a host card's run waits live before it parks (Q-5.1).
+		"host_live_wait_s": int(e.opts.LiveWait / time.Second),
 		// How long a question card waits (phase 4 decision 3).
 		"clarify_timeout_s": int(e.opts.ClarifyTimeout / time.Second),
 		// No Timely cap (Q-2.3): Hermes' own turn limit applies.
@@ -425,6 +521,11 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"tainted_conversations": setup.taintedConversations,
 		"search_exclude":        setup.searchExclude,
 		"search_allow":          setup.searchAllow,
+	}
+	if pre != nil && pre.pending() {
+		fields["pre_approved"] = map[string]any{"tool": pre.Tool, "args_hash": pre.ArgsHash, "tool_call_id": pre.ToolCallID}
+		p := pre
+		e.s.logHostEvent(nil, hostEvent(c.UserID, c.ID, r.id, p.ToolCallID, p.RequestID, p.Tool, p.ArgsHash, eventAllowed, "", "continuation of an approved parked card", nil, nil), e.opts.Logf)
 	}
 	e.mu.Lock()
 	seeded, unsettled := e.seeded[c.ID], e.unsettled[c.ID]
@@ -604,6 +705,17 @@ func (e *WorkerEngine) Stop(uid, cid, runID string) {
 	r := e.runs[runID]
 	e.mu.Unlock()
 	if r != nil && r.uid == uid && r.cid == cid {
+		r.mu.Lock()
+		waiting := r.hostWait
+		r.hostWait = ""
+		r.mu.Unlock()
+		if waiting != "" {
+			// The card closed with the Stop: its call is denied before the
+			// run is interrupted, so it never runs (PROTOCOL.md 12.4).
+			if err := e.sendHostAnswer(r, waiting, hostDeny); err != nil {
+				e.opts.Logf("agent engine: denying run %s's host card on Stop: %v", r.id, err)
+			}
+		}
 		e.stopWorkerRun(r, "user")
 	}
 }
@@ -1021,13 +1133,16 @@ func (e *WorkerEngine) sendForgets(w *agenthost.Worker, uid, keep string) {
 func (e *WorkerEngine) Shutdown(ctx context.Context) error {
 	e.mu.Lock()
 	e.closing = true
+	if e.stopSweep != nil {
+		e.stopSweep()
+	}
 	e.mu.Unlock()
 	var err error
 	if e.sup != nil {
 		err = e.sup.Shutdown(ctx)
 	}
 	done := make(chan struct{})
-	go func() { e.wg.Wait(); close(done) }()
+	go func() { e.wg.Wait(); e.sweeping.Wait(); close(done) }()
 	select {
 	case <-done:
 	case <-ctx.Done():
@@ -1061,7 +1176,7 @@ func (e *WorkerEngine) loop(r *agentRun) {
 	// last flush is old enough (and then once more if that one failed), else
 	// by the timer.
 	arm := func() {
-		if !r.unsaved() || flushC != nil {
+		if !r.unsaved() || flushC != nil || r.hostWaiting() != "" {
 			return
 		}
 		wait := e.opts.ActivityEvery - time.Since(r.lastFlush)
@@ -1150,7 +1265,11 @@ func (e *WorkerEngine) end(r *agentRun) {
 func (e *WorkerEngine) save(r *agentRun, fn func(*gorm.DB, *Conversation) error) error {
 	r.mu.Lock()
 	r.conv.Lease = r.lease
+	waiting := r.hostWait
 	r.mu.Unlock()
+	if waiting != "" {
+		return errHostWait
+	}
 	err := e.s.checkpoint(context.Background(), &r.conv, fn)
 	if err != nil && fenced(err) {
 		e.stopWorkerRun(r, "fenced")
@@ -1182,6 +1301,10 @@ func fenced(err error) bool {
 // flush writes the run's activity, tool state and new taint: the throttled
 // activity checkpoint.
 func (e *WorkerEngine) flush(r *agentRun) {
+	if r.hostWaiting() != "" {
+		// Held until the host card's answer re-attaches the run.
+		return
+	}
 	e.retryCloses(r)
 	r.dirty = false
 	r.lastFlush = time.Now()
@@ -1217,8 +1340,13 @@ func (e *WorkerEngine) flush(r *agentRun) {
 // process may adopt with Lost).
 func (e *WorkerEngine) renew(r *agentRun) {
 	r.mu.Lock()
-	lease := r.lease
+	lease, waiting := r.lease, r.hostWait
 	r.mu.Unlock()
+	if waiting != "" {
+		// A host card waits: the row holds no lease (decision 1), and the
+		// answer gives the run a fresh one.
+		return
+	}
 	if e.s.renewLease(context.Background(), r.uid, r.cid, lease) {
 		return
 	}
@@ -1226,7 +1354,7 @@ func (e *WorkerEngine) renew(r *agentRun) {
 	if err := e.s.db.Select("id", "status", "agent_run_id").Where("id = ? AND user_id = ?", r.cid, r.uid).Limit(1).Find(&rows).Error; err != nil {
 		return
 	}
-	if len(rows) == 0 || rows[0].Status != "running" || rows[0].AgentRunID != r.id {
+	if len(rows) == 0 || (rows[0].Status != "running" && rows[0].Status != statusHostApproval) || rows[0].AgentRunID != r.id {
 		e.stopWorkerRun(r, "lease lost")
 	}
 }
@@ -1243,10 +1371,19 @@ func (e *WorkerEngine) publish(r *agentRun, d *liveDelta) {
 func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 	switch it.end {
 	case "lost":
+		// A live host card's worker died: nothing ran, so the card parks
+		// and stays answerable (decision 2) instead of failing the run.
+		if e.parkLost(r) {
+			e.unsettle(r.cid)
+			return true
+		}
 		e.fail(r, tr(r.conv.Language, txtAgentLost), ActionRetry)
 		return true
 	case "abandon":
 		return true
+	case "reattached":
+		e.reattached(r)
+		return false
 	}
 	m := it.msg
 	switch m.Type {
@@ -1263,6 +1400,18 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 			e.ask(r, ev)
 		case "clarify.closed":
 			e.closeAsked(r, ev)
+		case "approval.request":
+			e.askHost(r, ev)
+		case "approval.parked":
+			p := ev.Payload
+			e.s.logHostEvent(nil, hostEvent(r.uid, r.cid, r.id, p.ToolCallID, p.RequestID, p.Tool, p.ArgsHash, eventParked, "", "the live wait ended", nil, nil), e.opts.Logf)
+		case "approval.auto":
+			// Hermes' own second approval for a call Timely let through,
+			// answered once by the worker (decision 4).
+			p := ev.Payload
+			e.s.logHostEvent(nil, hostEvent(r.uid, r.cid, r.id, p.ToolCallID, p.RequestID, "", "", eventAuto, "once", p.PatternKey, nil, nil), e.opts.Logf)
+		case "host.ran":
+			e.hostRan(r, ev)
 		}
 		changed, delta := r.live.event(ev, time.Now().UTC())
 		if delta != nil {
@@ -1388,6 +1537,9 @@ type runDone struct {
 	// PendingSteer is what the person sent while the last reply streamed,
 	// which no tool batch took in (Hermes' pending_steer).
 	PendingSteer string `json:"pending_steer"`
+	// Parked is the host card whose live wait ended the turn
+	// (turn_exit_reason approval_parked, phase 5).
+	Parked *runParked `json:"parked"`
 }
 
 // done ends the turn: the reply, or the recorded proposal held or applied
@@ -1407,6 +1559,11 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 	}
 	e.opts.Logf("agent engine: run %s ended (%s): %d input, %d output tokens, cost %s", r.id, d.Reason, d.Tokens["input_tokens"], d.Tokens["output_tokens"], cost)
 	r.taint = append(r.taint, d.Tainted...)
+	if d.Reason == "approval_parked" && !d.Interrupted {
+		// A host card's live wait ended: the card parks (decision 2).
+		e.parkRun(r, d)
+		return
+	}
 	final := strings.TrimSpace(d.Final)
 	endTurn := d.Reason == "end_turn"
 	// A turn Hermes could not finish carries its own advice as the final
@@ -1419,7 +1576,14 @@ func (e *WorkerEngine) done(r *agentRun, m agenthost.Message) {
 	if failedTurn {
 		final = ""
 	}
+	r.mu.Lock()
+	stopSent := !r.stopSent.IsZero()
+	r.mu.Unlock()
 	switch {
+	case d.Interrupted && !stopSent && r.hostWaiting() != "" && e.parkLost(r):
+		// The worker ended a run that waited on a host card without a Stop
+		// (it shut down): nothing ran, so the card parks.
+		e.unsettle(r.cid)
 	case d.Interrupted && !endTurn && e.isClosing():
 		e.fail(r, tr(r.conv.Language, txtAgentLost), ActionRetry)
 	case d.Interrupted && !endTurn:

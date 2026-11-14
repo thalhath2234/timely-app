@@ -26,6 +26,10 @@ type runSetup struct {
 	// back without its chat, or the chat was deleted and its session.delete
 	// is still pending).
 	taintedConversations, searchExclude, searchAllow []string
+	// host are the host and MCP toolsets the run gets (phase 5): the host
+	// toolsets for a host-allowed account, mcp-<server> for each server
+	// that is not Off; none for an answer-only or no-persist run.
+	host []string
 }
 
 // runSetup decides a run's flags from the account's learning switches and
@@ -151,7 +155,7 @@ func runToolsets(setup runSetup, web bool) []string {
 	if setup.asks {
 		out = append(out, "clarify", "delegation")
 	}
-	return out
+	return append(out, setup.host...)
 }
 
 // withRunCompleter attaches the client of the provider and model the run
@@ -170,14 +174,15 @@ func (s *Service) withRunCompleter(ctx context.Context, c *Conversation) context
 }
 
 // gate answers a gate.ask: web_search and web_extract run when the run has
-// the web (flags.web); every other tool keeps phase 2's block.
+// the web (flags.web); host and MCP calls get Go's host verdict (phase 5,
+// host_policy.go); every other tool keeps phase 2's block.
 func (e *WorkerEngine) gate(r *agentRun, m agenthost.Message) {
-	var ask struct {
-		Tool    string        `json:"tool"`
-		Tainted []TaintSource `json:"tainted_sources"`
-	}
+	var ask gateAsk
 	_ = m.Decode(&ask)
 	r.noteTaint(ask.Tainted)
+	if !webTools[ask.Tool] && e.gateHost(r, m, ask) {
+		return
+	}
 	verdict, message := gateVerdict(r.tools, ask.Tool)
 	_ = r.worker.Reply(m, agenthost.TypeGateVerdict, map[string]any{"verdict": verdict, "message": message})
 }

@@ -3,6 +3,8 @@ package agenthosttest
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -43,7 +45,7 @@ type fakeRun struct {
 	stop      chan struct{} // closed by run.stop
 	stopOnce  sync.Once
 	replies   chan map[string]any // tool.result / gate.verdict for this run's requests
-	approvals chan string         // approval.answer ids while waiting for one
+	approvals chan approvalAnswer // approval.answer while waiting for one
 	waitingOK bool                // guarded by fake.mu: waiting for an approval.answer
 	// clarify is the request id of the question card the run waits on
 	// (guarded by fake.mu, "" when none); answers gets its clarify.answer.
@@ -54,6 +56,15 @@ type fakeRun struct {
 	text       strings.Builder
 	lastResult string
 	sentDone   bool
+
+	// Phase 5: run.start's host_live_wait_s and pre_approved (used once).
+	liveWait    time.Duration
+	preApproved map[string]any
+}
+
+// approvalAnswer is one approval.answer the run took.
+type approvalAnswer struct {
+	id, request, choice string
 }
 
 func runFake(scriptPath string) int {
@@ -200,6 +211,8 @@ func (f *fake) handle(m map[string]any) {
 		f.approvalAnswer(m)
 	case "clarify.answer":
 		f.clarifyAnswer(m)
+	case "checkpoint.restore":
+		f.checkpointRestore(m)
 	case "tool.result", "gate.verdict":
 		f.mu.Lock()
 		r := f.pending[id]
@@ -473,8 +486,14 @@ func (f *fake) runStart(m map[string]any) {
 	}
 	r := &fakeRun{
 		id: run, startID: id, conversation: conv, sessionKey: str(m, "session_key"), userMessage: str(m, "user_message"),
-		stop: make(chan struct{}), replies: make(chan map[string]any, 1), approvals: make(chan string, 1),
-		answers: make(chan map[string]any, 1),
+		stop: make(chan struct{}), replies: make(chan map[string]any, 1), approvals: make(chan approvalAnswer, 1),
+		answers: make(chan map[string]any, 1), liveWait: 10 * time.Minute,
+	}
+	if n, ok := m["host_live_wait_s"].(float64); ok && n > 0 {
+		r.liveWait = time.Duration(n * float64(time.Second))
+	}
+	if pre, ok := m["pre_approved"].(map[string]any); ok {
+		r.preApproved = pre
 	}
 	f.runs[run] = r
 	f.runsDone.Add(1)
@@ -495,7 +514,7 @@ func (f *fake) approvalAnswer(m map[string]any) {
 		// Queued under f.mu, so the wait directive sees it the moment
 		// waitingOK drops. waitingOK is only set while approvals is empty.
 		r.waitingOK = false
-		r.approvals <- id
+		r.approvals <- approvalAnswer{id: id, request: str(m, "request_id"), choice: str(m, "choice")}
 	}
 	f.mu.Unlock()
 	switch {
@@ -867,6 +886,8 @@ func (f *fake) directive(r *fakeRun, directive string, obj map[string]any) bool 
 		}
 	case "clarify":
 		return f.clarify(r, obj)
+	case "host":
+		return f.host(r, obj)
 	case "subagent":
 		return f.subagent(r, obj)
 	case "crash":
@@ -912,4 +933,159 @@ func (f *fake) substitute(r *fakeRun, v any) any {
 		).Replace(v)
 	}
 	return v
+}
+
+// argsHash is the fake's policy.args_hash: sha256 of the arguments as
+// compact JSON with sorted keys (64 hex).
+func argsHash(args any) string {
+	raw, _ := json.Marshal(args)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// host plays the host directive (phase 5, PROTOCOL.md 12): one host or MCP
+// call. A call run.start pre-approved (same tool and args hash, once) runs
+// without asking; any other asks Go (gate.ask). allow runs it; approve
+// sends event approval.request and waits for approval.answer (once runs it,
+// deny gives Hermes' BLOCKED text), run.stop or the live wait, after which
+// the card parks: event approval.parked, then run.done approval_parked. A
+// call that ran sends event host.ran (with "checkpoint" and
+// "checkpoint_dir" when the line names them); "auto": true first sends
+// approval.auto, Hermes' second approval answered once. false means the
+// run was stopped or ended.
+func (f *fake) host(r *fakeRun, obj map[string]any) bool {
+	tool := str(obj, "tool")
+	if tool == "" {
+		tool = "terminal"
+	}
+	args, _ := obj["args"].(map[string]any)
+	if args == nil {
+		args = map[string]any{}
+	}
+	call := str(obj, "tool_call_id")
+	if call == "" {
+		f.mu.Lock()
+		f.nextReq++
+		call = fmt.Sprintf("call-%s-%d", r.id, f.nextReq)
+		f.mu.Unlock()
+	}
+	hash := argsHash(args)
+	ran := func() bool {
+		if auto, _ := obj["auto"].(bool); auto {
+			f.send(map[string]any{"type": "event", "run": r.id, "kind": "approval.auto",
+				"payload": map[string]any{"request_id": "auto-" + call, "tool_call_id": call, "pattern_key": "dangerous:rm"}})
+		}
+		payload := map[string]any{"tool_call_id": call, "tool": tool, "args_hash": hash, "status": "ok"}
+		if cp := str(obj, "checkpoint"); cp != "" {
+			payload["checkpoint"], payload["checkpoint_dir"] = cp, str(obj, "checkpoint_dir")
+		}
+		f.send(map[string]any{"type": "event", "run": r.id, "kind": "host.ran", "payload": payload})
+		r.lastResult = "ran " + tool + " " + resultText(args)
+		return true
+	}
+	f.mu.Lock()
+	pre := r.preApproved
+	if pre != nil && str(pre, "tool") == tool && str(pre, "args_hash") == hash {
+		r.preApproved = nil // once
+		f.mu.Unlock()
+		return ran()
+	}
+	f.nextReq++
+	reqID := fmt.Sprintf("w-%s-%d", r.id, f.nextReq)
+	f.pending[reqID] = r
+	f.mu.Unlock()
+	ask := map[string]any{"type": "gate.ask", "id": reqID, "run": r.id, "tool_call_id": call, "tool": tool, "args": args,
+		"args_hash": hash, "toolset": str(obj, "toolset"), "tainted_sources": []any{}, "run_kind": "chat"}
+	if inner, _ := obj["inner"].(bool); inner {
+		ask["inner"] = true
+	}
+	if mcp, ok := obj["mcp"].(map[string]any); ok {
+		ask["mcp"] = mcp
+	}
+	if kind := str(obj, "run_kind"); kind != "" {
+		ask["run_kind"] = kind
+	}
+	f.send(ask)
+	var verdict map[string]any
+	select {
+	case verdict = <-r.replies:
+	case <-r.stop:
+		return false
+	case <-f.quit:
+		return false
+	}
+	switch str(verdict, "verdict") {
+	case "allow":
+		return ran()
+	case "approve":
+	default:
+		r.lastResult = str(verdict, "message")
+		return true
+	}
+	request := str(obj, "request_id")
+	if request == "" {
+		request = "req-" + call
+	}
+	wait := r.liveWait
+	if ms, _ := obj["live_ms"].(float64); ms > 0 {
+		wait = time.Duration(ms) * time.Millisecond
+	}
+	f.arm(r)
+	f.send(map[string]any{"type": "event", "run": r.id, "kind": "approval.request", "payload": map[string]any{
+		"request_id": request, "tool_call_id": call, "tool": tool, "args_hash": hash, "pattern_key": "plugin_rule:timely:" + call,
+		"description": "Timely approval", "command": resultText(args), "timeout_s": 3660, "live_wait_s": int(wait / time.Second)}})
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	var crash <-chan time.Time
+	if ms, _ := obj["crash_ms"].(float64); ms > 0 {
+		// The worker process dies while the card waits.
+		crash = time.After(time.Duration(ms) * time.Millisecond)
+	}
+	select {
+	case <-crash:
+		fmt.Fprintln(os.Stderr, "fake worker: crashing during a host card's wait as the fixture asks")
+		os.Exit(7)
+		return false
+	case a := <-r.approvals:
+		if a.choice == "once" {
+			return ran()
+		}
+		r.lastResult = "BLOCKED: Action denied by user"
+		return true
+	case <-t.C:
+		f.mu.Lock()
+		r.waitingOK = false
+		select {
+		case <-r.approvals: // an answer that lost the race to the timer
+		default:
+		}
+		f.mu.Unlock()
+		parked := map[string]any{"request_id": request, "tool": tool, "args_hash": hash, "tool_call_id": call}
+		f.send(map[string]any{"type": "event", "run": r.id, "kind": "approval.parked", "payload": parked})
+		f.forget(r)
+		f.send(map[string]any{"type": "run.done", "id": r.startID, "run": r.id, "final_response": r.text.String(),
+			"completed": false, "interrupted": false, "turn_exit_reason": "approval_parked", "parked": parked, "tokens": zeroTokens(),
+			"estimated_cost_usd": nil, "turn_id": "", "tainted_sources": []any{}})
+		r.sentDone = true
+		return true
+	case <-r.stop:
+		f.mu.Lock()
+		r.waitingOK = false
+		f.mu.Unlock()
+		return false
+	case <-f.quit:
+		return false
+	}
+}
+
+// checkpointRestore answers checkpoint.restore (PROTOCOL.md 12.6): a
+// checkpoint named "gone" no longer exists; any other restores the one
+// file "<working_dir>/restored.txt".
+func (f *fake) checkpointRestore(m map[string]any) {
+	id, cp := str(m, "id"), str(m, "checkpoint")
+	if cp == "gone" || cp == "" {
+		f.send(map[string]any{"type": "checkpoint.result", "id": id, "ok": false, "restored": []string{}, "error": "no such checkpoint"})
+		return
+	}
+	f.send(map[string]any{"type": "checkpoint.result", "id": id, "ok": true, "restored": []string{filepath.Join(str(m, "working_dir"), "restored.txt")}})
 }

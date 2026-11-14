@@ -1061,6 +1061,24 @@ const (
 	digestBotsMark   = "\n\nFrom your bots:"
 )
 
+// hostPushBody is a host card's push (contract 4).
+func hostPushBody(kind, server string) string {
+	switch kind {
+	case "file":
+		return "Your assistant wants to change a file."
+	case "browser":
+		return "Your assistant wants to use your browser."
+	case "mcp":
+		if server != "" {
+			return "Your assistant wants to use " + server + "."
+		}
+		return "Your assistant wants to use an MCP server."
+	case "mcp_server":
+		return "Your assistant wants to add an MCP server."
+	}
+	return "Your assistant wants to run a command."
+}
+
 // notificationPushMessage is the push a device gets for a notification. A
 // Bot alert goes on the "bots" channel, so people can give it its own sound,
 // and carries what the phone needs to offer Resume. With the alert text
@@ -1075,6 +1093,10 @@ func notificationPushMessage(ntf *models.Notification, token string, settings mo
 			body = "Your assistant needs approval."
 		case "failed":
 			body = "Your assistant needs attention."
+		case "host_approval":
+			// A host card (phase 5, contract 4): what the assistant wants
+			// to do on this computer, never the command itself.
+			body = hostPushBody(ntf.Data.String("hostKind"), ntf.Data.String("hostServer"))
 		default:
 			body = "Your assistant has finished."
 			if ntf.Data.String("question") != "" {
@@ -1094,6 +1116,12 @@ func notificationPushMessage(ntf *models.Notification, token string, settings mo
 		"botId":          ntf.Data.String("botId"),
 		// A smart alert about several tasks opens the first one.
 		"taskIds": ntf.Data["taskIds"],
+	}
+	if ntf.Category == "agent" {
+		if req := ntf.Data.String("hostRequest"); req != "" {
+			// A host card's request: the phone opens the chat at the card.
+			data["hostRequest"] = req
+		}
 	}
 	switch ntf.Category {
 	case models.NotifyBot:

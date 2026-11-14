@@ -299,8 +299,8 @@ func TestIntegrationAgentEngineRunSetupFlags(t *testing.T) {
 }
 
 // gate.ask: the web tools are allowed while the run has the web and
-// blocked with "Web search is off in this chat" otherwise; every other tool
-// keeps phase 2's block.
+// blocked with "Web search is off in this chat" otherwise; a host tool of an
+// account that is not host-allowed is blocked (phase 5).
 func TestIntegrationAgentEngineGateVerdicts(t *testing.T) {
 	h := newEngineHarness(t)
 	ask := func(callID, tool string) obj {
@@ -320,7 +320,9 @@ func TestIntegrationAgentEngineGateVerdicts(t *testing.T) {
 		_ = r.Decode(&v)
 		verdicts = append(verdicts, v.Verdict+": "+v.Message)
 	}
-	want := []string{"allow: ", "allow: ", "block: " + gateBlocked, "block: " + webOff, "block: " + webOff, "block: " + gateBlocked}
+	// terminal is a host tool since phase 5: an account that is not
+	// host-allowed is told so.
+	want := []string{"allow: ", "allow: ", "block: " + hostNotAllowed, "block: " + webOff, "block: " + webOff, "block: " + hostNotAllowed}
 	if !slices.Equal(verdicts, want) {
 		t.Fatalf("verdicts\n%q\nwant\n%q", verdicts, want)
 	}

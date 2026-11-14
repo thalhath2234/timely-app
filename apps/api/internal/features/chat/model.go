@@ -70,6 +70,10 @@ type Message struct {
 	// Question is a "question" message's card: what was asked, what the
 	// person answered, and how the wait ended.
 	Question *AnsweredQuestion `json:"question,omitempty"`
+	// Host is a "host" message's card once it closed (phase 5): what the
+	// assistant asked to run, what the person chose and, for a call that
+	// changed files, the checkpoint "Undo this change" restores.
+	Host *ClosedHost `json:"host,omitempty"`
 }
 type Step struct {
 	Tool      string          `json:"tool"`
@@ -158,9 +162,21 @@ type Conversation struct {
 	// Question is the question card the live agent run waits on (Q-4.3),
 	// empty ({}) otherwise. The row stays 'running' while it waits: Stop,
 	// Delete, the lease and Lost treat it as any live run (question.go).
-	Question  ChatQuestion `gorm:"serializer:json;type:jsonb;not null;default:'{}'" json:"question"`
-	CreatedAt time.Time    `json:"createdAt"`
-	UpdatedAt time.Time    `json:"updatedAt"`
+	Question ChatQuestion `gorm:"serializer:json;type:jsonb;not null;default:'{}'" json:"question"`
+	// HostRequest is the host card the row waits on (status host_approval,
+	// phase 5), empty ({}) otherwise (host.go). HostGrants are the chat's
+	// "Allow for this chat" grants, Continuation a parked card's approved
+	// call for the next claim, FullAccess the step-up record without which
+	// a chat on 'full' acts as Auto.
+	HostRequest  HostRequest      `gorm:"serializer:json;type:jsonb;not null;default:'{}'" json:"hostRequest"`
+	HostGrants   HostGrants       `gorm:"serializer:json;type:jsonb;not null;default:'[]'" json:"hostGrants"`
+	Continuation HostContinuation `gorm:"serializer:json;type:jsonb;not null;default:'{}'" json:"-"`
+	FullAccess   FullAccessRecord `gorm:"serializer:json;type:jsonb;not null;default:'{}'" json:"fullAccess"`
+	// PreApproved is the continuation a claim took off the row for the run
+	// it starts (never stored).
+	PreApproved *HostContinuation `gorm:"-" json:"-"`
+	CreatedAt   time.Time         `json:"createdAt"`
+	UpdatedAt   time.Time         `json:"updatedAt"`
 }
 
 // The engines a chat run can use.

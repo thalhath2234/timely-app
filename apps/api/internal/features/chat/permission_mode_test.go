@@ -159,6 +159,12 @@ func TestIntegrationPermissionSwitches(t *testing.T) {
 	if err := s.plan(context.Background(), &c); err != nil || c.Status != "approval" {
 		t.Fatalf("Supervised: %s %v", c.Status, err)
 	}
+	// Full Access needs the step-up (phase 5 decision 7): the desktop
+	// window's shell token.
+	if code, body := serve(t, s, "PATCH", "/chats/"+c.ID, `{"permission":"full"}`); code != 403 {
+		t.Fatalf("Full Access without the step-up: %d %s", code, body)
+	}
+	asDesktopWindow(t)
 	code, body := serve(t, s, "PATCH", "/chats/"+c.ID, `{"permission":"full"}`)
 	if code != 200 {
 		t.Fatalf("PATCH permission: %d %s", code, body)
