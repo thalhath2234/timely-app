@@ -201,8 +201,15 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 		item, why, critical = agent.CriticalPaying, "uses your signed-in browser on a payment or sign-in page", true
 	}
 	// Auto asks for every browser call and all code (forced): a grant
-	// never covers those in Auto, nor a critical-list item in any mode.
-	grantable := d.grant != nil && !critical && !(st.mode == agent.Auto && forced != "")
+	// never covers those in Auto. A grant never covers a critical-list item
+	// in Auto, and in Supervised only item 6 (the call comes after reading
+	// outside pages): the person already approves every call there, and the
+	// output of the first command taints the chat, so without this "Allow for
+	// this chat" would end after one command. Deleting, sending out, paying,
+	// installing and settings stay card-only in every mode (decision 8).
+	supervised := st.mode != agent.Auto && st.mode != agent.Full
+	grantable := d.grant != nil && (!critical || (supervised && item == agent.CriticalTainted)) &&
+		!(st.mode == agent.Auto && forced != "")
 	if forced != "" && !critical && st.mode == agent.Auto {
 		critical, why = true, forced
 		item = 0

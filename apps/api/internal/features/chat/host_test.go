@@ -80,6 +80,14 @@ func TestDecideHost(t *testing.T) {
 	granted.grants = HostGrants{*commandGrant("git status")}
 	grantedAuto := baseState(agent.Auto)
 	grantedAuto.grants = HostGrants{*commandGrant("rm x")}
+	taintedSup := baseState(agent.Supervised)
+	taintedSup.tainted = true
+	taintedGranted := taintedSup
+	taintedGranted.grants = HostGrants{*commandGrant("git status")}
+	taintedGrantedRm := taintedSup
+	taintedGrantedRm.grants = HostGrants{*commandGrant("rm x")}
+	taintedGrantedAuto := tainted
+	taintedGrantedAuto.grants = HostGrants{*commandGrant("git status")}
 	mcpAsk := askOf("mcp_notes_create", map[string]any{"title": "x"})
 	mcpAsk.Toolset = "mcp-notes"
 	mcpSend := askOf("mcp_mail_send_email", map[string]any{"to": "a@b.c"})
@@ -135,6 +143,10 @@ func TestDecideHost(t *testing.T) {
 		{"a grant in supervised for the browser on a named site", askOf("browser_exec", map[string]any{"url": "https://example.org/a"}), baseState(agent.Supervised), "approve", 0, true, ""},
 		{"an operator is never granted", askOf("terminal", map[string]any{"command": "git status; rm -rf x"}), granted, "approve", agent.CriticalDeleting, false, ""},
 		{"a grant never covers a critical item", askOf("terminal", map[string]any{"command": "rm -rf /tmp/x"}), grantedAuto, "approve", agent.CriticalDeleting, false, ""},
+		{"supervised after outside content still asks, and may be granted", askOf("terminal", map[string]any{"command": "git status"}), taintedSup, "approve", agent.CriticalTainted, true, ""},
+		{"a grant covers the same kind after outside content in supervised", askOf("terminal", map[string]any{"command": "git status --short"}), taintedGranted, "allow", 0, false, ""},
+		{"a grant for a delete is no grant after outside content", askOf("terminal", map[string]any{"command": "rm -rf /tmp/x"}), taintedGrantedRm, "approve", agent.CriticalDeleting, false, ""},
+		{"auto after outside content is never granted", askOf("terminal", map[string]any{"command": "git status"}), taintedGrantedAuto, "approve", agent.CriticalTainted, false, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			d, ok := decideHost(ctx, c.ask, c.st)
