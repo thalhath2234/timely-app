@@ -75,7 +75,7 @@ func publicProblem(ctx context.Context, r Resolver, host string) string {
 	}
 	for _, a := range addrs {
 		if !netguard.PublicAddr(a) {
-			return "This address now points at a private network or this computer, so the assistant can't reach it from here."
+			return "This address now points at a private network or this computer."
 		}
 	}
 	return ""

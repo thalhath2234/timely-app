@@ -68,6 +68,7 @@ import LoadError from "@/app/_components/_ui/loadError";
 import { useChatSettings } from "@/app/utils/hooks/chat";
 import LearnedSummaryRow from "@/app/_components/settings/learnedSummaryRow";
 import { WebSearchGroup } from "@/app/_components/settings/webSearchKey";
+import McpServersGroup from "@/app/_components/settings/agentMcp";
 
 export const CLI_INSTALL_URLS = {
   claude: "https://docs.anthropic.com/en/docs/claude-code/overview",
@@ -1680,6 +1681,12 @@ export default function AgentSettings() {
           <WebSearchGroup
             providerName={data.defaultProvider ? PROVIDER_LABELS[data.defaultProvider] : ""}
           />
+        </>
+      )}
+      {/* Its own query: the servers list works while the providers load or fail. */}
+      <McpServersGroup />
+      {data && (
+        <>
           <OpenRouterCard data={data} />
           <DecisionsCard />
           <MoreApiKeys data={data} />

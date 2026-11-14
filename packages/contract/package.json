@@ -8,6 +8,7 @@
     "./account": "./src/account.ts",
     "./agentChat": "./src/agentChat.ts",
     "./agentLearning": "./src/agentLearning.ts",
+    "./agentMcp": "./src/agentMcp.ts",
     "./autosaveQueue": "./src/autosaveQueue.ts",
     "./bots": "./src/bots.ts",
     "./bulkEdit": "./src/bulkEdit.ts",
