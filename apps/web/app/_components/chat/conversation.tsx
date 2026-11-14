@@ -15,7 +15,7 @@ import {
   type PermissionMode,
   type QuestionAnswer,
 } from "@timely/contract/agentChat";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isBotPlan } from "@timely/contract/changeReview";
 import {
   ArrowUpRight,
@@ -50,6 +50,7 @@ import {
   useChatSettings,
   useReplyDraft,
 } from "@/app/utils/hooks/chat";
+import { getInstanceSettings } from "@/app/utils/api/instance";
 import { cn } from "@/app/utils/cn";
 import LoadError from "@/app/_components/_ui/loadError";
 import { useBots } from "@/app/utils/hooks/bots";
@@ -583,6 +584,18 @@ export default function Conversation({
     mutationFn: (key: string) => removeHostGrant(id ?? "", key),
     onSuccess: (next) => cache.setQueryData(chatKey(next.id), next),
   });
+  // Only an account the owner let use this computer can get a host card, so
+  // only its chats list "Allowed for this chat" (a chat that already has
+  // grants keeps the list so they can be removed).
+  const computer = useQuery({
+    queryKey: ["instance-settings"],
+    queryFn: getInstanceSettings,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const offersGrants =
+    !!computer.data?.thisAccountHostAllowed ||
+    (chat?.hostGrants?.length ?? 0) > 0;
   // Applies from the next tool call; a looser mode approves nothing waiting.
   // Full Access needs the step-up: the desktop window's bridge sends it.
   function choosePermission(next: PermissionMode) {
@@ -1117,8 +1130,11 @@ export default function Conversation({
           onChange: choosePermission,
           onChangeDefault: changeDefaultPermission,
           unsent: !id,
-          grants: id ? (chat?.hostGrants ?? []) : undefined,
+          grants: id && offersGrants ? (chat?.hostGrants ?? []) : undefined,
           onRemoveGrant: (key) => dropGrant.mutate(key),
+          grantError: dropGrant.isError
+            ? "Couldn't remove it. Try again."
+            : undefined,
         }}
         busy={busy || hostUi.locked}
         steering={steering}

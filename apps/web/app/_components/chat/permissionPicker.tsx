@@ -318,6 +318,7 @@ export function ChatPermissionMenu({
   unsent,
   grants,
   onRemoveGrant,
+  grantError,
 }: {
   value: PermissionMode;
   /** The account's default for new chats, named in the footer. */
@@ -330,6 +331,8 @@ export function ChatPermissionMenu({
   /** What "Allow for this chat" allowed here, each with Remove. */
   grants?: HostGrant[];
   onRemoveGrant?: (key: string) => void;
+  /** Why the last Remove failed, shown under the list. */
+  grantError?: string;
 }) {
   const fullAccess = useFullAccess(unsent);
   return (
@@ -342,7 +345,11 @@ export function ChatPermissionMenu({
       fullAccess={fullAccess}
       extra={
         grants ? (
-          <GrantsList grants={grants} onRemove={onRemoveGrant} />
+          <GrantsList
+            grants={grants}
+            onRemove={onRemoveGrant}
+            error={grantError}
+          />
         ) : undefined
       }
       // Opens over the composer box, not the chip, so it fits a phone-width window.
@@ -396,9 +403,11 @@ export function ChatPermissionMenu({
 export function GrantsList({
   grants,
   onRemove,
+  error,
 }: {
   grants: HostGrant[];
   onRemove?: (key: string) => void;
+  error?: string;
 }) {
   return (
     <div
@@ -435,6 +444,11 @@ export function GrantsList({
             </li>
           ))}
         </ul>
+      )}
+      {error && (
+        <p role="alert" className="py-1 text-xs leading-4 text-destructive">
+          {error}
+        </p>
       )}
       <p className="pb-1 text-[11px] leading-4 text-muted-foreground">
         {GRANTS_HINT}

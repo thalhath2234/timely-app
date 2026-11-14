@@ -127,12 +127,15 @@ export default function HostCard({
   sending,
   error,
   note,
+  unlocking,
   onAnswer,
 }: {
   request: HostRequest;
   rule?: HostApprovalRule;
   /** An answer (or the unlock before it) is on its way. */
   sending: HostChoice | null;
+  /** The unlock prompt is open: the request has not been sent yet. */
+  unlocking?: boolean;
   error?: string;
   /** What the last unlock said when it sent nothing. */
   note?: string;
@@ -152,15 +155,21 @@ export default function HostCard({
     HostChoice,
     { variant: "primary" | "outline" | "ghost"; icon?: ReactNode }
   > = {
+    // A card for something on the critical list pushes neither choice.
     once: {
-      variant: "primary",
-      icon: <FingerprintPattern size={16} color={colors.primaryForeground} />,
+      variant: view.critical ? "outline" : "primary",
+      icon: (
+        <FingerprintPattern
+          size={16}
+          color={view.critical ? colors.foreground : colors.primaryForeground}
+        />
+      ),
     },
     chat: {
       variant: "outline",
       icon: <FingerprintPattern size={16} color={colors.foreground} />,
     },
-    deny: { variant: "ghost" },
+    deny: { variant: view.critical ? "outline" : "ghost" },
   };
   return (
     <View
@@ -281,7 +290,9 @@ export default function HostCard({
         {busy
           ? sending === "deny"
             ? "Telling the assistant no…"
-            : "Waiting for your phone to unlock…"
+            : unlocking
+              ? "Waiting for your phone to unlock…"
+              : "Sending your answer…"
           : note ||
             blocked ||
             [view.grant, unlockNote].filter(Boolean).join(" ")}

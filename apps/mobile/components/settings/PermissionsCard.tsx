@@ -118,10 +118,10 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
         />
         <ListRow
           testID="permissions-host-timeout"
-          title="Cards wait up to"
-          meta="Then the card closes and nothing runs"
+          title="Paused cards wait up to"
+          meta="A card first waits 10 minutes with the reply paused on it. Then it waits this long more, and closes without running"
           trailing={timeoutLabel(settings.hostApprovalTimeoutMinutes)}
-          accessibilityLabel={`Cards wait up to ${timeoutLabel(settings.hostApprovalTimeoutMinutes)}`}
+          accessibilityLabel={`Paused cards wait up to ${timeoutLabel(settings.hostApprovalTimeoutMinutes)}`}
           onPress={() => setChoosing("timeout")}
         />
       </ListGroup>
@@ -173,7 +173,7 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
       <BottomSheet
         open={choosing !== null}
         onClose={() => setChoosing(null)}
-        title={choosing === "rule" ? "Host cards" : choosing === "timeout" ? "Cards wait up to" : "Full Access allowed on"}
+        title={choosing === "rule" ? "Host cards" : choosing === "timeout" ? "Paused cards wait up to" : "Full Access allowed on"}
         subtitle={choosing === "rule" ? "Who can say Run once or Allow for this chat" : undefined}
       >
         <View style={styles.group}>

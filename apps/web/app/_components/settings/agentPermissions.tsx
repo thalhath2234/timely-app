@@ -179,13 +179,13 @@ export default function PermissionsGroups({
             />
           </ListRow>
           <ListRow
-            label="Cards wait up to"
+            label="Paused cards wait up to"
             wrapMeta
-            meta="Then the card closes and nothing runs"
+            meta="A card first waits 10 minutes with the reply paused on it. Then it waits this long more, and closes without running"
           >
             <Select
               variant="row"
-              aria-label="Cards wait up to"
+              aria-label="Paused cards wait up to"
               value={String(settings.hostApprovalTimeoutMinutes ?? 60)}
               onChange={(value) =>
                 patch.mutate({ hostApprovalTimeoutMinutes: Number(value) })

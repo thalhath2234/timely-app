@@ -25,6 +25,8 @@ export type ComposerPermission = {
   /** What "Allow for this chat" allowed here (absent before the chat exists). */
   grants?: HostGrant[];
   onRemoveGrant?: (key: string) => void;
+  /** Why the last Remove failed. */
+  grantError?: string;
 };
 
 export function ContextChips({
@@ -225,6 +227,7 @@ export default function Composer({
                   unsent={permission.unsent}
                   grants={permission.grants}
                   onRemoveGrant={permission.onRemoveGrant}
+                  grantError={permission.grantError}
                   disabled={pending}
                 />
               )}

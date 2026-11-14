@@ -307,12 +307,16 @@ export default function HostCard({
               <Button
                 key={choice}
                 size="sm"
+                // A card for something on the critical list pushes neither
+                // choice: the destructive one is not the filled button.
                 variant={
-                  choice === "once"
-                    ? "primary"
-                    : choice === "chat"
-                      ? "outline"
-                      : "ghost"
+                  view.critical
+                    ? "outline"
+                    : choice === "once"
+                      ? "primary"
+                      : choice === "chat"
+                        ? "outline"
+                        : "ghost"
                 }
                 disabled={busy || !a.enabled}
                 loading={sending === choice}

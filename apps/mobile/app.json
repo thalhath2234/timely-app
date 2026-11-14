@@ -72,7 +72,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Approve your assistant's requests on this computer with Face ID."
+          "faceIDPermission": "Use Face ID to approve what your assistant runs on your computer."
         }
       ]
     ],

@@ -83,7 +83,8 @@ import {
 } from "../../lib/hooks";
 import { offersDontLearn } from "../../lib/chat/learning";
 import { getLearningEvents } from "../../lib/api/learning";
-import { ApiError } from "../../lib/api/client";
+import { ApiError, api } from "../../lib/api/client";
+import type { InstanceSettings } from "@timely/contract/instanceSettings";
 import { chipUndoAlso } from "@timely/contract/agentLearning";
 import { ChatMenuSheet } from "./LearningCards";
 import {
@@ -236,6 +237,8 @@ export default function Assistant() {
   const hostUi = hostComposer(hostCard, hosting);
   // What the last unlock said when it sent nothing (cancelled, failed, no screen lock).
   const [hostNote, setHostNote] = useState("");
+  // The unlock prompt is open (not yet the request): the card says which.
+  const [hostUnlocking, setHostUnlocking] = useState(false);
   // What the agent learned in this chat (plan 9b.4): an older server
   // without /agent/learning answers 404 and no chip or card shows.
   const learningSettings = useLearningSettingsQuery(
@@ -660,7 +663,14 @@ export default function Assistant() {
               answerDevice("phone", phoneName(), unlocked),
             ),
           ),
-        unlockDevice,
+        async (prompt) => {
+          setHostUnlocking(true);
+          try {
+            return await unlockDevice(prompt);
+          } finally {
+            setHostUnlocking(false);
+          }
+        },
       );
       if (!sent.sent) throw new UnlockRefused(sent.message);
       return sent.value;
@@ -685,6 +695,16 @@ export default function Assistant() {
     onSettled: () => {
       void query.refetch();
     },
+  });
+  // Only an account the owner let use this computer can get a host card, so
+  // only its chats list "Allowed for this chat" (a chat that already has
+  // grants keeps the list so they can be removed).
+  const computer = useQuery({
+    queryKey: ["instance-settings"],
+    queryFn: () => api<InstanceSettings>("/instance/settings"),
+    enabled: !offline,
+    retry: false,
+    staleTime: 60_000,
   });
   const grantMutation = useMutation({
     scope,
@@ -1626,6 +1646,7 @@ export default function Assistant() {
                             : null
                         }
                         note={hostNote}
+                        unlocking={hostUnlocking}
                         error={
                           hostMutation.isError &&
                           !(hostMutation.error instanceof UnlockRefused) &&
@@ -1741,7 +1762,13 @@ export default function Assistant() {
         saving={agentMutation.isPending}
         allowedOn={agentSettings.data?.fullAccessAllowedOn}
         unsent={!id}
-        grants={id ? (chat?.hostGrants ?? []) : undefined}
+        grants={
+          id &&
+          (computer.data?.thisAccountHostAllowed ||
+            (chat?.hostGrants?.length ?? 0) > 0)
+            ? (chat?.hostGrants ?? [])
+            : undefined
+        }
         onRemoveGrant={offline ? undefined : (key) => grantMutation.mutate(key)}
         onPick={pickPermission}
         onPickDefault={
