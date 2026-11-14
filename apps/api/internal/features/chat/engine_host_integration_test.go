@@ -705,7 +705,7 @@ func TestIntegrationAgentEngineHostLostWaitsPark(t *testing.T) {
 // Run once on a live card whose worker no longer waits (it parked as the
 // answer went out) becomes the continuation, once.
 func TestIntegrationAgentEngineHostLiveAnswerNotTakenContinues(t *testing.T) {
-	h := hostHarness(t)
+	h := hostHarness(t, func(o *WorkerEngineOptions) { o.OrphanAfter = 100 * time.Millisecond })
 	c := h.chat("List my files", "supervised", "late", lines(ls("call_1"), reply("ran", 0)))
 	c = h.hostWaiting(c.ID, hostLive)
 	// The worker's live wait already ended: it refuses the answer.
@@ -717,6 +717,9 @@ func TestIntegrationAgentEngineHostLiveAnswerNotTakenContinues(t *testing.T) {
 	r.mu.Unlock()
 	h.e.stopWorkerRun(r, "test")
 	h.wait(c.ID, "the run ended", func(Conversation) bool { return !h.e.Follows("user-a", c.ID, r.id) })
+	// Nothing follows the run now; until its heartbeat on the card goes stale
+	// the answer is retried (another process might still follow it).
+	h.wait(c.ID, "the card is orphaned", func(c Conversation) bool { return h.e.LiveOrphaned(c.HostRequest, time.Now().UTC()) || c.HostRequest.Phase == hostParked })
 	h.kit.Fixture("cont", lines(ls("call_1"), reply("continued", 0))).ForConversation(c.ID, "cont")
 	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
 		t.Fatalf("answer %d %s", code, body)

@@ -40,7 +40,7 @@ var (
 	errHostExpired  = echo.NewHTTPError(409, "This card expired")
 	// errHostElsewhere is an answer that reached an API process that does not
 	// follow the live card's run while another one does.
-	errHostElsewhere = echo.NewHTTPError(409, "The assistant is waiting on this card in another window. Try again in a moment.")
+	errHostElsewhere = echo.NewHTTPError(409, "The assistant is waiting on this card in another window. Try again in a minute.")
 )
 
 // hostEngine is an engine that runs host cards (WorkerEngine).
