@@ -16,8 +16,8 @@ Every API process runs three `Service.work` lanes, and the main checkout and eve
 ## Run it
 
 ```bash
-make verify-agent-runs                 # ~3.5 min: read guards from code, check drift, run TLC on both checks
-make verify-agent-runs ARGS=--mutants  # ~80 s in all: also prove each guard matters
+make verify-agent-runs                 # ~3.5 min: read guards from code, check drift, run TLC on the three checks
+make verify-agent-runs ARGS=--mutants  # ~8 min more: also prove each guard matters
 ```
 
 Needs Java 11+ and Go. `run.sh` downloads `tla2tools.jar` v1.7.4 (sha256-pinned in `run.sh`) once to `~/.cache/timely-verify/` (`TIMELY_VERIFY_CACHE` overrides), and runs TLC in a temp dir, so nothing lands in the repo. No database, no dev servers, no ports.
@@ -108,9 +108,11 @@ TLC prints numbered states, each labelled with the action that produced it. Tran
 
 ## Coverage record
 
+Last proven able to fail (2026-11-14, phase 5): `--mutants` caught all fourteen guards; the five host guards in the host check (HostAnswerFenced -> HostResolvesOnce, ClaimSkipsHostWait -> NoLeaseOnHostWait, ApproveRefusesHost -> HostNotAProposal, ContinuationClearedAtClaim -> ContinuationOnce, StopDeniesHost -> NoHostToolAfterStop). Apply about 1.01 million states (21 s), turn about 6.0 million (135 s, down from 10.4 million with the two narrowings), host about 1.46 million (36 s).
+
 Model changed 2026-11-14 (phase 5, Q-5.1): host cards. The row gains the status `host_approval`, `host`, `hphase` and `cont`; the worker side `wreq`, `wrun`, `wstopped`; actions AskHost, ParkHost, ParkOrphan, AnswerHostLive, DeliverHost, AnswerHostParked, ExpireHost and RunHostTool; Stop, Delete, Retry and Send close a host card (Send only a parked one: a live card refuses a message); the claim takes the continuation off the row and the lane's copy carries it to Start (`pre`). Properties HostResolvesOnce, NoHostToolAfterStop, HostNotAProposal, NoLeaseOnHostWait and ContinuationOnce; guards `HostAnswerFenced`, `ClaimSkipsHostWait`, `ApproveRefusesHost`, `ContinuationClearedAtClaim`, `StopDeniesHost` (each removed breaks its property in the host check; `run.sh --mutants` tries host guards on the host check only). Two narrowings the code justifies, found by the host check: Lost's clearRun branch fires only when no follower follows the run (the agent engine runs in one API process per schema, and Lost re-attaches a live follower of its own process), and DiscardReview never lands on an agent run's row (receipts are photo chats, always classic). Before them the host check found two spurious traces: a Lost that cleared the run of a follower that would have been re-attached, and a receipt discard on an agent row, each letting a Stop miss the run whose answer was in flight.
 
-Sync commit: `d881922abc558e5c6cf50e0b9f3058195991d679` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
+Sync commit: `0a00bab4f988ec1e86eeafb2fb98a28d5f79f92a` (the model was last confirmed to describe the code at this commit; `coverage.lock` holds the per-function fingerprints).
 
 - `apps/api/internal/features/chat/runner.go`: `(*Service).work` (claim, engine dispatch, failure checkpoint), `runClassic`, `keepLease`, `apply`, `retrySerializable`, `serializationFailure`
 - `apps/api/internal/features/chat/service.go`: `(*Service).change`, `save`, `send`, `approve`, `stop`, `reject`, `remove`, `retry`, `checkpoint`, `configure`, `steer`, `busy`
@@ -150,7 +152,7 @@ Last proven able to fail (2026-11-13, phase 4): `--mutants` caught all nine guar
 Bounds:
 - host (`AgentRunHost.cfg`): 2 lanes and their followers, 1 plan step, 4 claims, 1 Stop, 1 Retry, 1 crash, 1 new message, no permission switch, starting Auto, Delete allowed, both engines, no question card, one host card; about 1.46 million distinct states, 20 s.
 - apply (`AgentRunApply.cfg`): 3 lanes, 2 plan steps, 4 claims, 1 Stop, 2 Retries, 1 crash, 1 new message, Delete allowed, no agent engine, no mode switch; about 1.01 million distinct states, 14 s.
-- turn (`AgentRunTurn.cfg`): 2 lanes and the followers they start, 1 plan step, 4 claims, 1 Stop, 1 Retry, 1 crash, 1 new message, 1 permission switch, 1 question card, starting Supervised, Delete allowed, both engines; about 10.4 million distinct states, 190 s (1.75 million and 30 s before the question card).
+- turn (`AgentRunTurn.cfg`): 2 lanes and the followers they start, 1 plan step, 4 claims, 1 Stop, 1 Retry, 1 crash, 1 new message, 1 permission switch, 1 question card, starting Supervised, Delete allowed, both engines; about 6.0 million distinct states, 135 s (1.75 million and 30 s before the question card).
 
 A pass covers every interleaving within these bounds, not every size.
 
