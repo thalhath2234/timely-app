@@ -58,7 +58,10 @@ export function ListRow({
   const body = (
     <>
       {tone === "add" && !icon ? <Plus className="size-4 shrink-0 text-primary" /> : icon}
-      <span className="flex min-w-0 flex-1 flex-col">
+      {/* w-0 with flex-1: the label column grows into what the value leaves, but its long
+          (nowrap) text never counts toward the row's minimum width, so a row with a long
+          meta line can't push the whole column wider than a phone. */}
+      <span className="flex w-0 min-w-0 flex-1 flex-col">
         <span
           className={cn(
             "truncate text-[13px] font-medium",
