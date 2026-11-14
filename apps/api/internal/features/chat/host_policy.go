@@ -496,7 +496,14 @@ func hostCall(tool string, args map[string]any, workingDir, sessionCwd string) (
 			files = append(files, patchOp{path: p})
 		}
 		if tool == "patch" {
-			files = append(files, patchOps(str("patch"))...)
+			for _, op := range patchOps(str("patch")) {
+				// `path` and a header often name the same file: show it once
+				// (a delete of it is still its own entry).
+				if len(files) == 1 && files[0].path == op.path && !op.delete {
+					continue
+				}
+				files = append(files, op)
+			}
 		}
 		action := agent.HostAction{Kind: agent.HostFileWrite, Cwd: where} // no file named: critical, nobody can read it
 		for i, f := range files {

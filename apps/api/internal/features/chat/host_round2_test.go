@@ -289,3 +289,12 @@ func TestBrowserCardShowsTheScriptNotTheJSON(t *testing.T) {
 		t.Errorf("checkout script: %+v", d.card)
 	}
 }
+
+// A patch whose `path` and header name the same file shows it once.
+func TestPatchCardNamesAFileOnce(t *testing.T) {
+	patch := "*** Begin Patch\n*** Update File: /home/me/work/a.txt\n@@\n-x\n+y\n*** End Patch"
+	d := decideCall(t, baseState(agent.Supervised), "patch", map[string]any{"mode": "patch", "path": "/home/me/work/a.txt", "patch": patch})
+	if d.card.Path != "/home/me/work/a.txt" || d.card.Title != "Change this file?" || !d.card.Grantable {
+		t.Errorf("card %+v", d.card)
+	}
+}
