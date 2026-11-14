@@ -8,9 +8,10 @@ import (
 )
 
 // Annotations are the hints a server declares for a tool (MCP ToolAnnotations).
-// nil means the server said nothing. They can only raise a tool's risk: a
-// server is outside content, so "readOnlyHint: true" never makes a tool whose
-// name sends or spends read as a read.
+// nil means the server said nothing. A hint never lowers what the name says:
+// a server is outside content, so "readOnlyHint: true" never makes a tool whose
+// name sends, spends, changes settings or deletes read as a read, and
+// "destructiveHint: true" raises a tool to a delete whatever its name.
 type Annotations struct {
 	ReadOnly    *bool `json:"readOnlyHint,omitempty"`
 	Destructive *bool `json:"destructiveHint,omitempty"`
@@ -24,6 +25,7 @@ const (
 	ClassSend   = "send"   // sends, posts or shares something other people see: critical in Auto
 	ClassPay    = "pay"    // spends or moves money: critical in Auto
 	ClassConfig = "config" // changes the server's settings, keys or permissions: critical in Auto
+	ClassDelete = "delete" // deletes, removes or destroys something (name, or destructiveHint): critical in Auto, item 1
 	ClassWrite  = "write"  // changes something on the server, nothing leaves the account: critical only after outside content
 	ClassRead   = "read"   // reads
 )
@@ -34,8 +36,12 @@ var (
 	payVerbs  = words("pay", "payment", "payments", "charge", "refund", "purchase", "buy", "checkout", "transfer", "withdraw", "deposit", "payout", "sell")
 	// Weak words are also nouns ("list_comments", "get_order"): they count only when the name
 	// does not open with a read verb.
-	sendNouns   = words("email", "mail", "message", "dm", "sms", "text", "comment", "call")
-	payNouns    = words("order", "invoice", "trade", "subscribe")
+	sendNouns = words("email", "mail", "message", "dm", "sms", "text", "comment", "call")
+	payNouns  = words("order", "invoice", "trade", "subscribe")
+	// Delete words, like send verbs, decide wherever they stand; the weak ones are also nouns
+	// ("clear_cache" is fine to read about in "get_clear_rate") and count only off a read verb.
+	deleteVerbs = words("delete", "remove", "destroy", "drop", "purge", "erase", "wipe", "revoke", "cancel", "archive", "trash", "truncate", "terminate", "unsubscribe")
+	deleteWeak  = words("close", "clear", "reset", "kill", "unlink", "disable", "deactivate")
 	configWords = words("config", "configure", "setting", "settings", "preference", "preferences", "permission", "permissions", "credential", "credentials", "token", "tokens", "secret", "secrets", "webhook", "webhooks", "integration", "integrations")
 	readWords   = words("get", "list", "search", "read", "fetch", "find", "query", "describe", "view", "show", "lookup", "look", "count", "check", "browse", "inspect", "summarize", "retrieve", "export", "download", "explain", "analyze", "compare", "resolve", "ping", "docs", "whoami")
 )
@@ -93,11 +99,14 @@ func Class(tool string, ann Annotations) string {
 	}
 	readOnly := ann.ReadOnly != nil && *ann.ReadOnly
 	destructive := ann.Destructive != nil && *ann.Destructive
+	if destructive || has(deleteVerbs) || (!readFirst && has(deleteWeak)) {
+		return ClassDelete
+	}
 	openWorld := ann.OpenWorld != nil && *ann.OpenWorld
 	switch {
 	case readOnly:
 		return ClassRead
-	case readFirst && !destructive:
+	case readFirst:
 		return ClassRead // "search_web" reaches the open web but sends nothing out
 	case openWorld:
 		return ClassSend // a write that reaches outside the server's own data
@@ -119,6 +128,8 @@ func action(class, server string) agent.HostAction {
 		return agent.HostAction{Kind: agent.HostPay, URL: here}
 	case ClassConfig:
 		return agent.HostAction{Kind: agent.HostConfig}
+	case ClassDelete:
+		return agent.HostAction{Kind: agent.HostDelete}
 	case ClassRead:
 		return agent.HostAction{Kind: agent.HostFetch, URL: here}
 	}

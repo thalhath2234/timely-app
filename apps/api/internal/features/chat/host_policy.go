@@ -6,10 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"path"
 	"regexp"
-	"slices"
 	"strings"
 
 	"timely-api/internal/features/agent"
@@ -39,7 +37,7 @@ const (
 	hostBotBlocked  = "Bots can't use this computer"
 	hostAnswerOnly  = "This turn only answers from your bots, so it can't use this computer or MCP servers"
 	hostSensitive   = "Sensitive chats can't use this computer or MCP servers"
-	hostMCPOff      = "You turned %s off in Settings → Assistant → MCP servers"
+	hostMCPOff      = "You turned %s off in Settings → Agent → MCP servers"
 	hostUnknownTool = "That isn't available in Timely yet"
 )
 
@@ -200,26 +198,32 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 	if strings.HasPrefix(ask.Tool, "browser_") && paymentLike(d.card.URL+" "+d.card.Command) {
 		item, why, critical = agent.CriticalPaying, "uses your signed-in browser on a payment or sign-in page", true
 	}
-	// Auto asks for every browser call and all code (forced): a grant
-	// never covers those in Auto. A grant never covers a critical-list item
-	// in Auto, and in Supervised only item 6 (the call comes after reading
-	// outside pages): the person already approves every call there, and the
-	// output of the first command taints the chat, so without this "Allow for
-	// this chat" would end after one command. Deleting, sending out, paying,
-	// installing and settings stay card-only in every mode (decision 8).
-	supervised := st.mode != agent.Auto && st.mode != agent.Full
-	grantable := d.grant != nil && (!critical || (supervised && item == agent.CriticalTainted)) &&
-		!(st.mode == agent.Auto && forced != "")
-	if forced != "" && !critical && st.mode == agent.Auto {
+	// A grant never covers a critical-list item, whatever the mode: deleting,
+	// sending out, paying, installing, settings, and a call that comes after
+	// outside content (item 6) all stay card-only (decision 8). Keeping the
+	// rule the same in Supervised and Auto is what makes Supervised never
+	// looser than Auto for the same call and grants (review of the exit check).
+	// Auto asks for every browser call and all code (forced), and Full Access
+	// still asks for the signed-in browser: a grant never covers those there.
+	browser := strings.HasPrefix(ask.Tool, "browser_")
+	askedForced := forced != "" && (st.mode == agent.Auto || (st.mode == agent.Full && browser))
+	grantable := d.grant != nil && !critical && !askedForced
+	if askedForced && !critical {
 		critical, why = true, forced
 		item = 0
-		if strings.HasPrefix(ask.Tool, "browser_") {
+		if browser {
 			item = agent.CriticalSendingOut
 		}
 	}
 	switch st.mode {
 	case agent.Full:
-		d.verdict, d.reason = "allow", "Full Access"
+		if critical && browser {
+			// Plan 14: no network-level private-address control stands behind
+			// the signed-in browser yet, so Full Access does not lift its card.
+			d.verdict, d.reason = "approve", why
+		} else {
+			d.verdict, d.reason = "allow", "Full Access"
+		}
 	case agent.Auto:
 		if critical {
 			d.verdict, d.reason = "approve", why
@@ -291,9 +295,18 @@ func commandGrant(command string) *HostGrant {
 		}
 	}
 	words := strings.Fields(command)
-	prog := strings.Trim(words[0], `"'`)
-	if prog == "" || strings.Contains(prog, "=") || slices.Contains([]string{"sudo", "doas", "su", "env", "exec", "eval", "nohup", "time", "command", "builtin", "xargs"}, prog) {
+	prog := strings.TrimLeft(strings.Trim(words[0], `"'`), `\`)
+	if prog == "" || strings.Contains(prog, "=") || ungrantable(path.Base(prog)) {
 		return nil
+	}
+	// Any option that hands the program code to run (-c, -e, --eval) or a
+	// command to run (find -exec, git -c alias.x=!cmd) makes the line a
+	// different command each time: "same kind of command" can't hold.
+	for _, w := range words[1:] {
+		w = strings.Trim(w, `"'`)
+		if codeOption(w) {
+			return nil
+		}
 	}
 	key := prog
 	if grantSubcommand[prog] {
@@ -306,6 +319,38 @@ func commandGrant(command string) *HostGrant {
 		}
 	}
 	return newGrant("terminal", "terminal:"+key, "Commands that start with "+key)
+}
+
+// ungrantableProgs run other code or other programs, so a grant keyed on
+// the program name would cover anything: privilege wrappers, shells,
+// interpreters and programs that run a command they are given.
+var ungrantableProgs = programSet("sudo", "doas", "su", "env", "exec", "eval", "nohup", "time", "command", "builtin", "xargs",
+	"sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "csh", "tcsh", "mksh", "cmd", "cmd.exe",
+	"python", "python2", "python3", "pypy", "pypy3", "node", "nodejs", "bun", "deno", "perl", "ruby", "php", "lua", "osascript",
+	"rscript", "julia", "pwsh", "powershell", "awk", "gawk", "mawk", "sed",
+	"timeout", "nice", "ionice", "stdbuf", "setsid", "watch", "flock", "taskset", "busybox", "unbuffer", "chronic",
+	"find", "parallel", "script", "expect", "ssh", "screen", "tmux")
+
+func programSet(items ...string) map[string]bool {
+	out := map[string]bool{}
+	for _, i := range items {
+		out[i] = true
+	}
+	return out
+}
+
+var pythonLike = regexp.MustCompile(`^(python|pypy)[0-9.]+$`)
+
+func ungrantable(prog string) bool { return ungrantableProgs[prog] || pythonLike.MatchString(prog) }
+
+// codeOption reports whether a word is an option that carries code or a
+// command to run.
+func codeOption(w string) bool {
+	switch w {
+	case "--eval", "--print", "--command", "-exec", "-execdir", "-ok", "-okdir", "-command", "-encodedcommand":
+		return true
+	}
+	return false
 }
 
 // folderGrant is the grant for a file tool in the folder of p.
@@ -346,9 +391,19 @@ func hostCall(tool string, args map[string]any, workingDir string) (agent.HostAc
 			HostCard{Kind: cardTerminal, Title: "Run this command?", Command: clip(command, 4000), Cwd: clip(cwd, 1000)}, commandGrant(command)
 	case "process", "process_manage":
 		action := str("action")
-		command := strings.TrimSpace("process " + action + " " + str("session_id", "pid", "process_id"))
-		return agent.HostAction{Kind: agent.HostTerminal, Command: command},
-			HostCard{Kind: cardTerminal, Title: "Manage a running command?", Command: clip(command+" "+str("data", "input"), 4000), Cwd: clip(cwd, 1000)},
+		session := str("session_id", "pid", "process_id")
+		data := str("data", "input")
+		command := strings.TrimSpace("process " + action + " " + session)
+		card := HostCard{Kind: cardTerminal, Title: "Manage a running command?", Cwd: clip(cwd, 1000)}
+		if action == "write" || action == "submit" {
+			// What is typed into a running command is a command: the
+			// critical list judges it, and no grant covers it, because the
+			// next input can be anything (Hermes runs no guard on stdin).
+			card.Title, card.Command = "Type into a running command?", clip(data, 4000)
+			return agent.HostAction{Kind: agent.HostTerminal, Command: data}, card, nil
+		}
+		card.Command = clip(command, 4000)
+		return agent.HostAction{Kind: agent.HostTerminal, Command: command}, card,
 			newGrant("terminal", "process:"+action, "Manage running commands ("+action+")")
 	case "read_file":
 		p := str("path", "file_path")
@@ -383,12 +438,11 @@ func hostCall(tool string, args map[string]any, workingDir string) (agent.HostAc
 	if target == "" {
 		target = firstURL(compactArgs(raw(args)))
 	}
-	var grant *HostGrant
-	if h := hostName(target); h != "" {
-		grant = newGrant("browser", tool+":"+h, "Use your browser on "+h)
-	}
+	// No grant: a script on the signed-in profile can do anything on the
+	// site it names, and Auto asks for every browser call, so a grant in
+	// Supervised would be looser than Auto for the same call.
 	return agent.HostAction{Kind: agent.HostFetch, URL: target},
-		HostCard{Kind: cardBrowser, Title: "Use your browser?", URL: clip(target, 2000), Command: clip(compactArgs(raw(args)), 4000)}, grant
+		HostCard{Kind: cardBrowser, Title: "Use your browser?", URL: clip(target, 2000), Command: clip(compactArgs(raw(args)), 4000)}, nil
 }
 
 var (
@@ -405,17 +459,6 @@ func patchPath(patch string) string {
 		return strings.TrimSpace(m[1])
 	}
 	return ""
-}
-
-func hostName(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
 }
 
 // compactArgs is a call's arguments as compact JSON for a card.

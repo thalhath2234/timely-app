@@ -157,8 +157,13 @@ func TestClassifyFromNamesAndAnnotations(t *testing.T) {
 		{"get_message", Annotations{}, ClassRead}, {"list_comments", Annotations{}, ClassRead}, {"search_orders", Annotations{}, ClassRead},
 		{"get_settings", Annotations{}, ClassRead}, {"search_web", Annotations{OpenWorld: &yes}, ClassRead},
 		{"lookup", Annotations{ReadOnly: &yes}, ClassRead}, {"anything", Annotations{ReadOnly: &yes}, ClassRead},
-		{"create_note", Annotations{}, ClassWrite}, {"delete_note", Annotations{Destructive: &yes}, ClassWrite},
-		{"get_thing", Annotations{Destructive: &yes}, ClassWrite},
+		{"create_note", Annotations{}, ClassWrite}, {"delete_note", Annotations{Destructive: &yes}, ClassDelete},
+		{"get_thing", Annotations{Destructive: &yes}, ClassDelete},
+		{"delete_repository", Annotations{}, ClassDelete}, {"remove_all_files", Annotations{Destructive: &yes}, ClassDelete}, {"drop_database", Annotations{}, ClassDelete},
+		{"destroyVolume", Annotations{}, ClassDelete}, {"purge_cache", Annotations{ReadOnly: &yes}, ClassDelete}, {"close_issue", Annotations{}, ClassDelete}, {"cancel_event", Annotations{}, ClassDelete},
+		{"archive_thread", Annotations{}, ClassDelete}, {"revoke_access", Annotations{}, ClassDelete}, {"wipe_device", Annotations{}, ClassDelete},
+		{"update_note", Annotations{Destructive: &yes}, ClassDelete}, {"create_note", Annotations{Destructive: &no}, ClassWrite},
+		{"list_closed_issues", Annotations{}, ClassRead}, {"get_deleted_items", Annotations{}, ClassRead}, {"list_reset_rules", Annotations{}, ClassRead},
 		{"sync", Annotations{OpenWorld: &yes, ReadOnly: &no}, ClassSend}, {"update_page", Annotations{}, ClassWrite},
 		{"", Annotations{}, ClassWrite},
 	} {
@@ -178,6 +183,7 @@ func TestClassifyReturnsTheHostActionThePermissionModesJudge(t *testing.T) {
 	}{
 		"send_message": {agent.HostSend, true}, "pay_invoice": {agent.HostPay, true}, "update_settings": {agent.HostConfig, true},
 		"list_notes": {agent.HostFetch, false}, "create_note": {agent.HostInput, false},
+		"delete_repository": {agent.HostDelete, true}, "drop_database": {agent.HostDelete, true}, "remove_all_files": {agent.HostDelete, true},
 	} {
 		a := s.Classify(ctx, "u", "srv", tool)
 		_, _, critical := agent.CriticalHost(a, scope)
@@ -253,6 +259,26 @@ func TestStemIsTheNameForEveryNameWeAllow(t *testing.T) {
 	for _, bad := range []string{"", "a b", "../x", "a/b", "-x", strings.Repeat("a", 49)} {
 		if nameRe.MatchString(bad) {
 			t.Errorf("%q passes as a name", bad)
+		}
+	}
+}
+
+// Review finding: a tool that deletes or destroys is critical item 1 in Auto
+// even when it is untainted and "Can use"; destructiveHint raises any tool
+// to it, and a readOnlyHint never lowers a name that deletes.
+func TestDeletingToolsAreCriticalItem1(t *testing.T) {
+	yes := true
+	for _, c := range []struct {
+		tool string
+		ann  Annotations
+	}{
+		{"delete_repository", Annotations{}}, {"delete_repository", Annotations{Destructive: &yes}},
+		{"remove_all_files", Annotations{Destructive: &yes}}, {"drop_database", Annotations{}},
+		{"purge_cache", Annotations{ReadOnly: &yes}}, {"sync_everything", Annotations{Destructive: &yes}},
+	} {
+		item, _, ok := agent.CriticalHost(action(Class(c.tool, c.ann), "srv"), agent.HostScope{})
+		if !ok || item != agent.CriticalDeleting {
+			t.Errorf("%s %+v: critical %v item %d, want item 1 untainted", c.tool, c.ann, ok, item)
 		}
 	}
 }

@@ -128,6 +128,18 @@ func TestDecideHost(t *testing.T) {
 		{"auto item 6: a write after outside content", askOf("write_file", map[string]any{"path": "notes.md", "content": "x"}), tainted, "approve", agent.CriticalTainted, false, ""},
 		{"auto read after outside content", askOf("read_file", map[string]any{"path": "notes.md"}), tainted, "allow", 0, false, ""},
 		{"auto always asks for code", askOf("execute_code", map[string]any{"code": "print(1)"}), baseState(agent.Auto), "approve", 0, false, ""},
+		{"full still asks for the signed-in browser", askOf("browser_exec", map[string]any{"code": "page.goto('http://'+'127.0.0.1:8081/')"}), baseState(agent.Full), "approve", agent.CriticalSendingOut, false, ""},
+		{"full still asks for the CDP browser", askOf("browser_cdp", map[string]any{"method": "Page.navigate"}), baseState(agent.Full), "approve", agent.CriticalSendingOut, false, ""},
+		{"auto item 1: a wrapped delete", askOf("terminal", map[string]any{"command": "bash -c 'rm -rf ~/Documents'"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
+		{"auto item 1: an xargs delete", askOf("terminal", map[string]any{"command": "ls ~/Documents | xargs rm -rf"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
+		{"auto item 1: inline python", askOf("terminal", map[string]any{"command": "python3 -c \"__import__('shutil').rmtree('/home/me/x')\""}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
+		{"auto item 1: a link to a file outside the folder", askOf("terminal", map[string]any{"command": "ln -s /home/me/.bashrc /home/me/work/rc"}), baseState(agent.Auto), "approve", agent.CriticalSettings, false, ""},
+		{"auto item 4: a wrapped install", askOf("terminal", map[string]any{"command": "bash -c 'pip install evilpkg'"}), baseState(agent.Auto), "approve", agent.CriticalInstalling, false, ""},
+		{"auto item 1: typing a delete into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "rm -rf ~/Documents"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
+		{"auto item 1: typing a delete with the process tool", askOf("process", map[string]any{"action": "write", "session_id": "proc_1", "data": "rm -rf ~/Documents\n"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
+		{"auto typing a harmless answer into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "y"}), baseState(agent.Auto), "allow", 0, false, ""},
+		{"supervised typing into a running command is never grantable", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "ls"}), baseState(agent.Supervised), "approve", 0, false, ""},
+		{"supervised polling a running command is grantable", askOf("process_manage", map[string]any{"action": "poll", "session_id": "proc_1"}), baseState(agent.Supervised), "approve", 0, true, ""},
 		{"full runs rm -rf", askOf("terminal", map[string]any{"command": "rm -rf /tmp/x"}), baseState(agent.Full), "allow", 0, false, ""},
 		{"full still asks for Ask me first", mcpAsk, baseState(agent.Full), "approve", 0, false, ""},
 		{"an account that is not host-allowed", askOf("terminal", map[string]any{"command": "ls"}), notHost, "block", 0, false, hostNotAllowed},
@@ -135,16 +147,16 @@ func TestDecideHost(t *testing.T) {
 		{"bots never", bot, baseState(agent.Full), "block", 0, false, hostBotBlocked},
 		{"answer-only turns never", askOf("read_file", map[string]any{"path": "x"}), answerOnly, "block", 0, false, hostAnswerOnly},
 		{"sensitive chats never", askOf("read_file", map[string]any{"path": "x"}), sensitive, "block", 0, false, hostSensitive},
-		{"MCP off", mcpOffAsk, baseState(agent.Full), "block", 0, false, "You turned old off in Settings → Assistant → MCP servers"},
+		{"MCP off", mcpOffAsk, baseState(agent.Full), "block", 0, false, "You turned old off in Settings → Agent → MCP servers"},
 		{"MCP ask in auto", mcpAsk, baseState(agent.Auto), "approve", 0, false, ""},
 		{"MCP read in auto", mcpRead, baseState(agent.Auto), "allow", 0, false, ""},
 		{"a grant covers the same kind", askOf("terminal", map[string]any{"command": "git status --short"}), granted, "allow", 0, false, ""},
 		{"a grant covers nothing else", askOf("terminal", map[string]any{"command": "git log"}), granted, "approve", 0, true, ""},
-		{"a grant in supervised for the browser on a named site", askOf("browser_exec", map[string]any{"url": "https://example.org/a"}), baseState(agent.Supervised), "approve", 0, true, ""},
+		{"the browser is never granted", askOf("browser_exec", map[string]any{"url": "https://example.org/a"}), baseState(agent.Supervised), "approve", 0, false, ""},
 		{"an operator is never granted", askOf("terminal", map[string]any{"command": "git status; rm -rf x"}), granted, "approve", agent.CriticalDeleting, false, ""},
 		{"a grant never covers a critical item", askOf("terminal", map[string]any{"command": "rm -rf /tmp/x"}), grantedAuto, "approve", agent.CriticalDeleting, false, ""},
-		{"supervised after outside content still asks, and may be granted", askOf("terminal", map[string]any{"command": "git status"}), taintedSup, "approve", agent.CriticalTainted, true, ""},
-		{"a grant covers the same kind after outside content in supervised", askOf("terminal", map[string]any{"command": "git status --short"}), taintedGranted, "allow", 0, false, ""},
+		{"supervised after outside content asks and is not grantable", askOf("terminal", map[string]any{"command": "git status"}), taintedSup, "approve", agent.CriticalTainted, false, ""},
+		{"a grant never covers a call after outside content, in supervised either", askOf("terminal", map[string]any{"command": "git status --short"}), taintedGranted, "approve", agent.CriticalTainted, false, ""},
 		{"a grant for a delete is no grant after outside content", askOf("terminal", map[string]any{"command": "rm -rf /tmp/x"}), taintedGrantedRm, "approve", agent.CriticalDeleting, false, ""},
 		{"auto after outside content is never granted", askOf("terminal", map[string]any{"command": "git status"}), taintedGrantedAuto, "approve", agent.CriticalTainted, false, ""},
 	} {
@@ -181,7 +193,7 @@ func TestHostCardsShowTheRealArguments(t *testing.T) {
 	if d.card.Kind != cardBrowser || d.card.URL != "https://example.org/a" {
 		t.Fatalf("browser card %+v", d.card)
 	}
-	if w := d.card.wire(); w["kind"] != cardBrowser || w["url"] != "https://example.org/a" || w["grantable"] != true {
+	if w := d.card.wire(); w["kind"] != cardBrowser || w["url"] != "https://example.org/a" || w["grantable"] != false {
 		t.Fatalf("wire card %v", w)
 	}
 }
@@ -205,7 +217,21 @@ func TestCommandGrant(t *testing.T) {
 		"env FOO=bar ls":       "",
 		"ls\nrm -rf ~":         "",
 		"":                     "",
-		"python3 -c 'print()'": "terminal:python3",
+		"python3 -c 'print()'": "",
+		"python3 --version":    "",
+		"bash --version":       "",
+		"bash run.sh":          "",
+		"node index.js":        "",
+		"node -e x":            "",
+		"sh -c ls":             "",
+		"perl -e 1":            "",
+		"timeout 5 ls":         "",
+		"nice ls":              "",
+		"find . -name x":       "",
+		"busybox ls":           "",
+		"\\ls":                 "terminal:ls",
+		"awk 1 f":              "",
+		"cat notes.txt":        "terminal:cat",
 	} {
 		g := commandGrant(cmd)
 		got := ""
@@ -261,4 +287,84 @@ func TestCloseHostCardAndContinuation(t *testing.T) {
 	if !strings.Contains(string(raw), `"hostRequest":{}`) || !strings.Contains(string(raw), `"hostGrants":[]`) || strings.Contains(string(raw), "continuation") {
 		t.Fatalf("an empty row's host fields: %s", raw)
 	}
+}
+
+// Review findings: a grant never covers a shell, an interpreter or a wrapper
+// ("same kind of command", Q-5.1), and never what is typed into a running
+// command.
+func TestGrantsDoNotCoverCodeRunners(t *testing.T) {
+	ctx := context.Background()
+	for _, grantedCmd := range []string{"python3 --version", "bash --version", "node --version", "ls -la"} {
+		g := commandGrant(grantedCmd)
+		st := baseState(agent.Supervised)
+		if g != nil {
+			st.grants = HostGrants{*g}
+		}
+		for _, cmd := range []string{
+			`python3 -c "__import__('shutil').rmtree('/home/me/Documents')"`,
+			"bash -c 'rm -rf ~/Documents'",
+			"node -e \"require('fs').rmSync('x')\"",
+		} {
+			d, _ := decideHost(ctx, askOf("terminal", map[string]any{"command": cmd}), st)
+			if d.verdict == "allow" {
+				t.Errorf("a grant for %q let %q through (%s)", grantedCmd, cmd, d.reason)
+			}
+		}
+	}
+	// An old grant stored before the rule (a hand-made "process:submit" key) does not cover typing either.
+	st := baseState(agent.Supervised)
+	st.grants = HostGrants{*newGrant("terminal", "process:submit", "Manage running commands (submit)")}
+	d, _ := decideHost(ctx, askOf("process_manage", map[string]any{"action": "submit", "session_id": "p", "data": "rm -rf ~/Documents"}), st)
+	if d.verdict != "approve" {
+		t.Errorf("a process:submit grant covered typing: %s %s", d.verdict, d.reason)
+	}
+}
+
+// Review finding: with the same grants and the same outside content,
+// Supervised is never looser than Auto, and Full never asks less than Auto
+// except where Full Access says it does.
+func TestSupervisedIsNeverLooserThanAuto(t *testing.T) {
+	ctx := context.Background()
+	rank := map[string]int{"block": 2, "approve": 1, "allow": 0}
+	asks := []gateAsk{
+		askOf("terminal", map[string]any{"command": "git status"}),
+		askOf("terminal", map[string]any{"command": "ls"}),
+		askOf("terminal", map[string]any{"command": "python3 script.py"}),
+		askOf("terminal", map[string]any{"command": "make deploy"}),
+		askOf("terminal", map[string]any{"command": "git push origin x"}),
+		askOf("terminal", map[string]any{"command": "bash -c 'rm -rf ~/Documents'"}),
+		askOf("read_file", map[string]any{"path": "notes.md"}),
+		askOf("write_file", map[string]any{"path": "notes.md", "content": "x"}),
+		askOf("write_file", map[string]any{"path": "/srv/x", "content": "x"}),
+		askOf("browser_exec", map[string]any{"url": "https://example.org/a"}),
+		askOf("process_manage", map[string]any{"action": "submit", "session_id": "p", "data": "ls"}),
+		askOf("process_manage", map[string]any{"action": "poll", "session_id": "p"}),
+	}
+	for _, ask := range asks {
+		_, _, grant := hostCall(ask.Tool, mustArgs(ask), "/home/me/work")
+		for _, withGrant := range []bool{false, true} {
+			for _, tainted := range []bool{false, true} {
+				build := func(mode agent.Mode) hostDecision {
+					st := baseState(mode)
+					st.tainted = tainted
+					if withGrant && grant != nil {
+						st.grants = HostGrants{*grant}
+					}
+					d, _ := decideHost(ctx, ask, st)
+					return d
+				}
+				sup, auto := build(agent.Supervised), build(agent.Auto)
+				if rank[sup.verdict] < rank[auto.verdict] {
+					t.Errorf("%s %s (grant %v, tainted %v): supervised %s (%s) is looser than auto %s (%s)",
+						ask.Tool, string(ask.Args), withGrant, tainted, sup.verdict, sup.reason, auto.verdict, auto.reason)
+				}
+			}
+		}
+	}
+}
+
+func mustArgs(a gateAsk) map[string]any {
+	m := map[string]any{}
+	_ = json.Unmarshal(a.Args, &m)
+	return m
 }

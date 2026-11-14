@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -343,6 +344,7 @@ const (
 	HostFileRead   = "file_read"   // Path
 	HostFileWrite  = "file_write"  // Path: write or patch
 	HostFileDelete = "file_delete" // Path
+	HostDelete     = "delete"      // a connected service's tool that deletes, removes or destroys something (MCP)
 	HostFetch      = "fetch"       // URL: web fetch or browser navigation
 	HostInput      = "input"       // URL: typing into a page
 	HostSubmit     = "submit"      // URL: a form submit or a submitting click
@@ -405,6 +407,8 @@ func hostItem(h HostAction, scope HostScope) (int, string) {
 			return CriticalDeleting, "deletes a file outside the agent's folder"
 		}
 		return 0, ""
+	case HostDelete:
+		return CriticalDeleting, "deletes something on a connected service"
 	case HostFetch:
 		if !scope.known(h.URL) {
 			return CriticalSendingOut, "opens a site the person has not mentioned"
@@ -517,6 +521,10 @@ var (
 	urlPattern   = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>|;)]+`)
 	redirectTo   = regexp.MustCompile(`(?:^|[^>&0-9])>\|?\s*([^\s>&|;]+)`)
 	appendTo     = regexp.MustCompile(`>>\s*([^\s>&|;]+)`)
+	// substitution matches the innermost $( ), <( ), >( ) and backtick groups.
+	substitution = regexp.MustCompile("[$<>]\\(([^()]*)\\)|`([^`]*)`")
+	// pipeToInterpreter is a shell or interpreter reading its program from a pipe.
+	pipeToInterpreter = regexp.MustCompile(`\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*/)?(?:a|ba|z|da|k|c|tc|mk)?sh(?:\s+-[A-Za-z]+)*\s*(?:$|[;&|)\n])|\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*/)?(?:python[0-9.]*|node|nodejs|perl|ruby|php|lua|pwsh|powershell)(?:\s+-[A-Za-z]*)?\s*(?:$|[;&|)\n])`)
 )
 
 func commandItem(line string, scope HostScope) (int, string) {
@@ -556,6 +564,14 @@ func commandItem(line string, scope HostScope) (int, string) {
 	for _, part := range commandSplit.Split(line, -1) {
 		consider(simpleCommandItem(part, scope))
 	}
+	// A command run inside $( ), backticks or <( ) is judged on its own, and
+	// a shell or interpreter at the end of a pipe runs whatever it is fed.
+	for _, m := range substitution.FindAllStringSubmatch(line, -1) {
+		consider(commandItem(m[1]+m[2], scope))
+	}
+	if pipeToInterpreter.MatchString(line) {
+		consider(CriticalDeleting, "runs commands it was handed")
+	}
 	// Any request to a host the person has not mentioned could carry data
 	// out in its address, whichever program makes it.
 	if best == 0 || best > CriticalSendingOut {
@@ -578,11 +594,145 @@ func fields(part string) []string {
 	return words
 }
 
+// wrapper programs run the command that follows their own options. valued
+// are the options that take the next word as their value; operands are the
+// plain words that come before the command (a duration, a lock file).
+type wrapper struct {
+	valued   []string
+	operands int
+}
+
+var wrappers = map[string]wrapper{
+	"env":      {valued: []string{"-u", "-C", "-S", "--unset", "--chdir"}},
+	"nohup":    {},
+	"time":     {valued: []string{"-f", "-o"}},
+	"command":  {},
+	"builtin":  {},
+	"exec":     {valued: []string{"-a"}},
+	"nice":     {valued: []string{"-n", "--adjustment"}},
+	"ionice":   {valued: []string{"-c", "-n", "-p", "--class", "--classdata"}},
+	"stdbuf":   {},
+	"setsid":   {},
+	"timeout":  {valued: []string{"-s", "-k", "--signal", "--kill-after"}, operands: 1},
+	"watch":    {valued: []string{"-n", "-d", "--interval"}},
+	"flock":    {valued: []string{"-w", "-E", "--timeout"}, operands: 1},
+	"taskset":  {operands: 1},
+	"xargs":    {valued: []string{"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "-J"}},
+	"busybox":  {},
+	"unbuffer": {},
+	"chronic":  {},
+}
+
+// unwrap drops a wrapper's own options and operands, leaving the command it runs.
+func unwrap(w wrapper, args []string) []string {
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") && args[0] != "--" {
+		valued := slices.Contains(w.valued, args[0])
+		args = args[1:]
+		if valued && len(args) > 0 {
+			args = args[1:]
+		}
+	}
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
+	for i := 0; i < w.operands && len(args) > 0; i++ {
+		args = args[1:]
+	}
+	return args
+}
+
+// shellPrograms run a command line they are given with -c.
+var shellPrograms = set("sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "csh", "tcsh", "mksh", "cmd", "cmd.exe")
+
+// interpreters run code given inline (-c, -e, a heredoc, stdin). inline
+// lists the options that carry it; cluster is the letter that may sit in a
+// cluster of short options (python -Sc, perl -ne).
+var interpreters = map[string]struct {
+	inline  []string
+	cluster string
+}{
+	"python": {[]string{"-c"}, "c"}, "python2": {[]string{"-c"}, "c"}, "python3": {[]string{"-c"}, "c"},
+	"pypy": {[]string{"-c"}, "c"}, "pypy3": {[]string{"-c"}, "c"},
+	"node": {[]string{"-e", "--eval", "-p", "--print"}, ""}, "nodejs": {[]string{"-e", "--eval", "-p", "--print"}, ""},
+	"bun": {[]string{"-e", "--eval", "-p", "--print"}, ""}, "deno": {[]string{"eval"}, ""},
+	"perl": {[]string{"-e", "-E"}, "eE"}, "ruby": {[]string{"-e"}, "e"}, "php": {[]string{"-r"}, ""},
+	"lua": {[]string{"-e"}, ""}, "osascript": {[]string{"-e"}, ""}, "rscript": {[]string{"-e"}, ""},
+	"julia":      {[]string{"-e", "-E", "--eval"}, ""},
+	"pwsh":       {[]string{"-c", "-command", "-encodedcommand", "-e", "-ec"}, ""},
+	"powershell": {[]string{"-c", "-command", "-encodedcommand", "-e", "-ec"}, ""},
+}
+
+// pythonVersion matches python3.12 and friends.
+var pythonVersion = regexp.MustCompile(`^(python|pypy)[0-9.]+$`)
+
+// shellPayload is the command line a shell is given with -c (or cmd's /c),
+// "" when it has none.
+func shellPayload(args []string) (string, bool) {
+	for i, a := range args {
+		if a == "--" {
+			return "", false
+		}
+		lower := strings.ToLower(a)
+		isFlag := (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && len(a) > 1 && strings.Contains(a, "c") && strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyz") == "") || lower == "/c" || lower == "/k"
+		if isFlag {
+			return strings.Join(args[i+1:], " "), true
+		}
+		if !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "/") {
+			return "", false // a script file: its code is not on the line
+		}
+	}
+	return "", false
+}
+
+// inlineCode reports whether an interpreter is handed its program on the
+// command line, a heredoc or stdin: code nobody can read on a card.
+func inlineCode(prog string, args []string, part string) bool {
+	info, ok := interpreters[prog]
+	if !ok && pythonVersion.MatchString(prog) {
+		info, ok = interpreters["python"], true
+	}
+	if !ok {
+		return false
+	}
+	if strings.Contains(part, "<<") {
+		return true
+	}
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "-" {
+			return true
+		}
+		if prog == "deno" {
+			return a == "eval"
+		}
+		if !strings.HasPrefix(a, "-") {
+			return false // the script it runs
+		}
+		if slices.Contains(info.inline, strings.ToLower(a)) || slices.Contains(info.inline, a) {
+			return true
+		}
+		if strings.HasPrefix(a, "--") {
+			continue
+		}
+		if info.cluster != "" && strings.ContainsAny(a[1:], info.cluster) && strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == "" {
+			return true
+		}
+		for _, f := range info.inline { // -cprint(1): the code attached to the option
+			if len(f) == 2 && strings.HasPrefix(a, f) && len(a) > 2 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func simpleCommandItem(part string, scope HostScope) (int, string) {
 	words := fields(part)
 	elevated := false
 	for len(words) > 0 {
-		w := words[0]
+		w := strings.TrimLeft(words[0], `\`)
 		switch {
 		case w == "sudo" || w == "doas" || w == "su":
 			elevated = true
@@ -591,11 +741,12 @@ func simpleCommandItem(part string, scope HostScope) (int, string) {
 				words = words[1:]
 			}
 			continue
-		case w == "env" || w == "nohup" || w == "time" || w == "command" || w == "exec" || w == "nice" || w == "builtin":
-			words = words[1:]
-			continue
 		case strings.Contains(w, "=") && !strings.HasPrefix(w, "-") && !strings.HasPrefix(w, "="):
 			words = words[1:] // FOO=bar before the program
+			continue
+		}
+		if wr, ok := wrappers[path.Base(w)]; ok {
+			words = unwrap(wr, words[1:])
 			continue
 		}
 		break
@@ -606,9 +757,22 @@ func simpleCommandItem(part string, scope HostScope) (int, string) {
 		}
 		return 0, ""
 	}
-	prog := path.Base(words[0])
+	prog := path.Base(strings.TrimLeft(words[0], `\`))
 	args := words[1:]
-	item, reason := programItem(prog, args, scope)
+	var item int
+	var reason string
+	switch {
+	case prog == "eval":
+		item, reason = commandItem(strings.Join(args, " "), scope)
+	case shellPrograms[prog]:
+		if payload, ok := shellPayload(args); ok {
+			item, reason = commandItem(payload, scope)
+		}
+	case inlineCode(prog, args, part):
+		item, reason = CriticalDeleting, "runs code written on the spot"
+	default:
+		item, reason = programItem(prog, args, scope)
+	}
 	if item == 0 && elevated {
 		return CriticalSettings, "runs as administrator"
 	}
@@ -682,8 +846,14 @@ func programItem(prog string, args []string, scope HostScope) (int, string) {
 		return CriticalDeleting, "deletes or overwrites data"
 	case "find":
 		for i, a := range args {
-			if a == "-delete" || (a == "-exec" && i+1 < len(args) && path.Base(args[i+1]) == "rm") {
+			if a == "-delete" || (oneOf(a, "-exec", "-execdir", "-ok", "-okdir") && i+1 < len(args) && path.Base(args[i+1]) == "rm") {
 				return CriticalDeleting, "deletes the files it finds"
+			}
+			// -exec, -execdir, -ok and -okdir run a command on each file.
+			if oneOf(a, "-exec", "-execdir", "-ok", "-okdir") && i+1 < len(args) {
+				if item, reason := simpleCommandItem(strings.Join(args[i+1:], " "), scope); item != 0 {
+					return item, reason
+				}
 			}
 		}
 	case "mv", "cp", "rsync", "install", "ln", "tee":
@@ -708,6 +878,22 @@ func programItem(prog string, args []string, scope HostScope) (int, string) {
 				}
 			}
 			return 0, ""
+		}
+		if prog == "ln" && len(ops) > 0 {
+			// A link inside the folder that points outside it lets a later
+			// write through the folder reach the target.
+			targets := ops
+			if len(ops) >= 2 {
+				targets = ops[:len(ops)-1]
+			}
+			for _, op := range targets {
+				if configPath(op) {
+					return CriticalSettings, "links to a settings file"
+				}
+				if !scope.inside(op) {
+					return CriticalDeleting, "links to a file outside the agent's folder"
+				}
+			}
 		}
 		if len(ops) >= 2 {
 			dest := ops[len(ops)-1]
