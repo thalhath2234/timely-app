@@ -265,6 +265,8 @@ TIMELY_SEAMS = [
     ("default browser detection", "hermes_cli/browser_connect.py", "detect_default_chromium"),
     ("real profile snapshot", "hermes_cli/browser_connect.py", "snapshot_real_profile"),
     ("browser cleanup (worker exit)", "tools/browser_session_lifecycle.py", "cleanup_all_browsers"),
+    ("MCP wire cap transport (address guard R8)", "tools/mcp_tool_errors.py", "_make_mcp_body_cap_transport"),
+    ("MCP redirect-aware client factory (address guard R8)", "tools/mcp_tool_errors.py", "_make_redirect_header_stripper"),
     ("MCP discovery per run", "tools/mcp_tool_discovery.py", "discover_mcp_tools"),
     ("MCP token folder", "tools/mcp_oauth.py", "_get_token_dir"),
     ("MCP token file names", "tools/mcp_oauth.py", "_safe_filename"),

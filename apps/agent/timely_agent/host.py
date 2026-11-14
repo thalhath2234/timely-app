@@ -12,10 +12,12 @@ every approval it raises on the run's session key, on the thread that waits for 
   (a soft interrupt): ``run.done {turn_exit_reason: "approval_parked", parked}`` (decision 2).
 - Any other approval is Hermes' own (its terminal guard's dangerous-command prompt, the
   execute_code whole-script prompt, a protected-path write) for the call this thread executes.
-  When Timely already let that call run (``RunContext.approved_calls``: Go's ``allow``, the
-  person's Run once, a pre-approved continuation call), the worker answers it ``once`` and sends
-  ``event approval.auto``: the person sees one card per call (decision 4). Otherwise it is denied
-  and logged (fail closed).
+  When a person already stood behind that call (``RunContext.is_backed``: Run once, an Allow for
+  this chat, a pre-approved continuation call, or Full Access), the worker answers it ``once`` and
+  sends ``event approval.auto``: the person sees one card per call (decision 4). When Go let the
+  call run by its mode alone (Auto) and Hermes' own check still flags it, nobody approved it: the
+  flag becomes a card (``approval.request`` with ``hermes_flag``) the person answers like any
+  other. Otherwise it is denied and logged (fail closed).
 
 **Full Access** (``flags.full_access`` with permission ``full``): ``enable_session_yolo`` for the
 run's session, so Hermes raises no second prompt; Hermes' hardline floor (``_floor_block``) runs
@@ -139,11 +141,21 @@ def notifier(run_of: Callable[[], Optional[bridge.RunContext]], emit: Callable[[
         # the call Hermes is executing on this thread (its approval context), else the one the gate let
         # through on this thread last (an execute_code inner call has no id in the context)
         current = context_call_id() or executing_call(run)
-        if current and run.is_approved(current):
+        if current and run.is_backed(current):
             n = resolve_gateway_approval(session_key, "once", request_id=request_id)
             logger.info("run %s: Hermes' approval %s for approved call %s answered once (%d)",
                         run.run_id, pattern_key, current, n)
             emit("approval.auto", {"request_id": request_id, "tool_call_id": current, "pattern_key": pattern_key})
+            return
+        if current and run.is_approved(current):
+            # Go let this call run by its mode alone (Auto) and Hermes' own check flagged it
+            # (a dangerous command or a protected path Go's list did not see): no person stood
+            # behind the call, so the flag becomes a card, never an automatic yes.
+            info = run.asked_for(current) or {}
+            run.note_asked(current, {"tool": info.get("tool") or run.call_tool(current),
+                                     "args_hash": info.get("args_hash") or run.approved_calls.get(current, ""),
+                                     "toolset": info.get("toolset", "")})
+            _open_card(run, emit, session_key, request_id, current, data, hermes_flag=True)
             return
         resolve_gateway_approval(session_key, "deny", request_id=request_id)
         _log("warn", f"run {run.run_id}: {policy.UNMATCHED_APPROVAL} ({pattern_key}, call {current or '?'}): denied")
@@ -152,13 +164,15 @@ def notifier(run_of: Callable[[], Optional[bridge.RunContext]], emit: Callable[[
 
 
 def _open_card(run: bridge.RunContext, emit: Callable[[str, dict], None], session_key: str,
-               request_id: str, call_id: str, data: dict) -> None:
+               request_id: str, call_id: str, data: dict, hermes_flag: bool = False) -> None:
     info = run.asked_for(call_id) or {}
     req = HostRequest(request_id=request_id, run=run, session_key=session_key, call_id=call_id,
                       tool=str(info.get("tool") or ""), args_hash=str(info.get("args_hash") or ""))
     wait = max(0.0, float(run.host_live_wait_s))
     payload = _scalars(data)
     payload.update(tool_call_id=call_id, tool=req.tool, args_hash=req.args_hash, live_wait_s=int(round(wait)))
+    if hermes_flag:
+        payload["hermes_flag"] = True
     with _lock:
         _requests[request_id] = req
     try:
@@ -263,6 +277,30 @@ def answer(run: bridge.RunContext, session_key: str, request_id: str, choice: st
 def forget_run(run: bridge.RunContext) -> None:
     for req in pending(run.run_id):
         _settled(req)
+
+
+# ---------------------------------------------------------------- the floor for typed input
+
+STDIN_ACTIONS = ("write", "submit")
+STDIN_TOOLS = ("process", "process_manage")
+
+
+def stdin_floor(tool: str, args: dict) -> str:
+    """The refusal text when what a call types into a running command is on Hermes' unconditional
+    floor (``rm -rf /``, ``mkfs``, a fork bomb, ...), else "". Hermes runs no guard on a process's
+    stdin (``process`` ``write``/``submit``), so the hardline floor is applied here, in every mode."""
+    if tool not in STDIN_TOOLS or args.get("action") not in STDIN_ACTIONS:
+        return ""
+    data = args.get("data")
+    if not isinstance(data, str):
+        data = args.get("input")
+    if not isinstance(data, str) or not data.strip():
+        return ""
+    from tools.approval import _floor_block
+    result = _floor_block(data.strip())
+    if not result:
+        return ""
+    return str(result.get("message") or "Blocked: that input is on Hermes' unconditional blocklist.")
 
 
 # ---------------------------------------------------------------- Full Access (YOLO)
@@ -376,15 +414,31 @@ def checkpoint_for(run: bridge.RunContext, tool: str, args: dict) -> tuple[str, 
     return "", ""
 
 
+def ran_state(status: Optional[str], fenced: bool, stopping: bool) -> str:
+    """``host.ran`` status for Hermes' ``post_tool_call`` status: ``ok`` only for a call that finished
+    ("ok" or no status). Hermes' ``cancelled`` (the run was interrupted or the slot abandoned: the
+    call may never have started) and ``timeout`` are never ``ok``; ``blocked`` and the dispatch
+    fence say the call never started; ``error`` after a Stop reads ``interrupted``."""
+    if fenced or status == "blocked":
+        return "blocked"
+    if status in (None, "", "ok", "success"):
+        return "ok"
+    if status == "cancelled":
+        return "cancelled"
+    if status == "timeout":
+        return "timeout"
+    if status == "error":
+        return "interrupted" if stopping else "error"
+    return "error"  # an unknown status is never "ok"
+
+
 def report_ran(run: bridge.RunContext, tool: str, args: dict, call_id: str, status: Optional[str]) -> None:
     """``event host.ran`` once a host or MCP call finished (any status)."""
     if run.emit is None:
         return
     with run._lock:
         fenced = call_id in run.fence_blocked or tool in run.fence_blocked
-    state = "blocked" if fenced or status == "blocked" else "error" if status == "error" else "ok"
-    if state == "error" and run.stopping:
-        state = "interrupted"
+    state = ran_state(status, fenced, run.stopping)
     payload: dict[str, Any] = {"tool_call_id": call_id, "tool": tool, "args_hash": policy.args_hash(args),
                                "status": state}
     if state == "ok":

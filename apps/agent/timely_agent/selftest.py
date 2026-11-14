@@ -264,6 +264,9 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
         problems = host_problems(_account_state(want_home), load_config(), os.environ)
         if not host.fence_active():
             problems.append("the dispatch fence (R6) is missing: a host tool could start after Stop")
+        from timely_agent import mcp_net_guard
+        if not mcp_net_guard.active():
+            problems.append("the MCP address guard (R8) is missing: a remote MCP server could reach a private address")
         if not real_profile.active():
             problems.append("the real-home browser override (R7) is missing")
         elif _account_state(want_home).get("use_real_profile") is True:

@@ -80,7 +80,8 @@ def plain_agent():
 
 
 def _worker(a: harness.Agent) -> harness.Worker:
-    w, ready = harness.ready_worker(a)
+    # the fake servers listen on loopback, which the MCP address guard (R8) refuses unless told
+    w, ready = harness.ready_worker(a, a.argv("--mcp-loopback"))
     assert ready["self_test"]["ok"], ready["self_test"]
     return w
 

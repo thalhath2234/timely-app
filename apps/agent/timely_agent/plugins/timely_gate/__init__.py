@@ -63,8 +63,12 @@ Phase 5 (host tools, PROTOCOL.md section 12; ``timely_agent.host``):
    otherwise the call always asks Go, never ``LOCAL_ALLOW``. ``gate.ask`` carries ``args_hash``,
    ``toolset``, ``inner: true`` for a call made inside ``execute_code`` (Hermes gives it no call id;
    the gate names it ``<execute_code id>:inner:<n>``) and ``mcp {server, tool, annotations}``.
-   An ``allow`` records the call as Timely-approved; an ``approve`` records what the card is for and,
-   in Full Access, turns the run's YOLO off first so the card reaches the person.
+   What a ``process``/``process_manage`` ``write`` or ``submit`` types into a running command is
+   checked against Hermes' hardline floor first, in every mode (Hermes guards no stdin).
+   An ``allow`` records the call as Timely-approved (``by: "auto"``: by Auto's mode alone, so
+   Hermes' own second prompt for it becomes a card instead of an automatic yes); an ``approve``
+   records what the card is for and, in Full Access, turns the run's YOLO off first so the card
+   reaches the person.
 
 ``post_tool_call`` sends ``event host.ran`` for every host or MCP call that finished, with the
 checkpoint Hermes took before it (``checkpoint``, ``checkpoint_dir``).
@@ -251,6 +255,14 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
             return {"action": "block", "message": policy.NOT_HOST_ALLOWED}
         if tool_name in policy.SKILLS_READ_TOOLS and _in_skills_folder(args):
             return None
+        if is_host:
+            try:
+                refusal = host.stdin_floor(tool_name, args)
+            except Exception as exc:  # fail closed: a broken check must not let typed input through
+                logger.warning("stdin floor check failed for %s: %s", tool_name, exc)
+                refusal = f"Blocked: Timely could not check what {tool_name} would type ({type(exc).__name__})."
+            if refusal:
+                return {"action": "block", "message": refusal}
     pre = run.pre_approved if run else None
     if pre and pre.get("tool") == tool_name and pre.get("args_hash") == digest:
         run.pre_approved = None  # exactly one matching call
@@ -280,7 +292,9 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
         return {"action": "block", "message": policy.STOPPED}
     if verdict == "allow":
         if tool_call_id:
-            run.approve_call(tool_call_id, digest)
+            # ``by: "auto"``: Go let it through by Auto's mode alone, so no person stands behind it
+            # (Hermes' own dangerous-command prompt for it becomes a card, not an automatic yes).
+            run.approve_call(tool_call_id, digest, backed=reply.get("by") != "auto")
             host.mark_executing(run, tool_call_id)
         return None
     if verdict == "approve":

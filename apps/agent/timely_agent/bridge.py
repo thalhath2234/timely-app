@@ -266,6 +266,10 @@ class RunContext:
     # call id -> args hash. Hermes' own second approval for one of them is answered once
     # (``approval.auto``); any other approval Hermes raises is denied (decision 4).
     approved_calls: dict[str, str] = field(default_factory=dict, repr=False)
+    # Of those, the calls only Go's mode let through (Auto): no person stood behind them, so Hermes'
+    # own dangerous-command or protected-path prompt for one of them is NOT answered for the person
+    # (it becomes a card).
+    unbacked_calls: set[str] = field(default_factory=set, repr=False)
     # Calls Go answered ``approve`` (the card is pending): call id -> {tool, args_hash, toolset}.
     asked: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
     # The host card the live wait parked (``run.done.parked``), and every request it withdrew.
@@ -383,14 +387,25 @@ class RunContext:
             return f"{outer}:inner:{self._inner_seq}"
 
     # ------------------------------------------------------------ host tools (phase 5)
-    def approve_call(self, tool_call_id: str, args_hash: str) -> None:
-        """Timely let this call run (Go's allow, Run once, a pre-approved continuation call)."""
+    def approve_call(self, tool_call_id: str, args_hash: str, backed: bool = True) -> None:
+        """Timely let this call run (Go's allow, Run once, a pre-approved continuation call).
+        ``backed`` is False for an allow Go gave by mode alone (Auto): a person did not choose it."""
         with self._lock:
             self.approved_calls[tool_call_id] = args_hash
+            if backed:
+                self.unbacked_calls.discard(tool_call_id)
+            else:
+                self.unbacked_calls.add(tool_call_id)
 
     def is_approved(self, tool_call_id: str) -> bool:
         with self._lock:
             return bool(tool_call_id) and tool_call_id in self.approved_calls
+
+    def is_backed(self, tool_call_id: str) -> bool:
+        """Approved, and a person (Run once, an Allow for this chat, a pre-approved continuation)
+        or Full Access stands behind it, not Auto's mode alone."""
+        with self._lock:
+            return bool(tool_call_id) and tool_call_id in self.approved_calls and tool_call_id not in self.unbacked_calls
 
     def note_asked(self, tool_call_id: str, info: dict[str, Any]) -> None:
         with self._lock:

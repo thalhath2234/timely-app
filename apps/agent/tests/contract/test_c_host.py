@@ -30,8 +30,11 @@ pytestmark = pytest.mark.skipif(IS_WINDOWS, reason="POSIX shell commands; the sa
 FAKE_MCP = HERE / "fake_mcp_echo.py"
 
 
-def _verdict(w, account, ask, verdict, message=""):
-    w.send({"type": "gate.verdict", "id": ask["id"], "account": account, "verdict": verdict, "message": message})
+def _verdict(w, account, ask, verdict, message="", by=""):
+    reply = {"type": "gate.verdict", "id": ask["id"], "account": account, "verdict": verdict, "message": message}
+    if by:
+        reply["by"] = by  # who stands behind an allow: auto, full, grant (PROTOCOL.md 12.3)
+    w.send(reply)
 
 
 def _answer(w, account, run_id, request_id, choice, mid=None):
@@ -39,7 +42,7 @@ def _answer(w, account, run_id, request_id, choice, mid=None):
             "run": run_id, "request_id": request_id, "choice": choice})
 
 
-def play(w, account, run_id, *, verdict="approve", choice="once", on=None, timeout=120.0):
+def play(w, account, run_id, *, verdict="approve", choice="once", on=None, timeout=120.0, by=""):
     """Play Go for one run: ``gate.ask`` gets ``verdict`` (a string, or a function of the ask),
     ``approval.request`` gets ``choice`` (None leaves it waiting). ``on(msg)`` sees every message.
     Returns ``(run.done, every message)``."""
@@ -52,7 +55,7 @@ def play(w, account, run_id, *, verdict="approve", choice="once", on=None, timeo
         t = msg.get("type")
         if t == "gate.ask" and msg.get("run") == run_id:
             v = verdict(msg) if callable(verdict) else verdict
-            _verdict(w, account, msg, v, "Run this command?" if v == "approve" else "Blocked by the test")
+            _verdict(w, account, msg, v, "Run this command?" if v == "approve" else "Blocked by the test", by)
         elif t == "event" and msg.get("run") == run_id and msg.get("kind") == "approval.request" and choice:
             _answer(w, account, run_id, msg["payload"]["request_id"], choice)
         elif t == "run.done" and msg.get("run") == run_id:
@@ -209,6 +212,50 @@ def test_hardline_floor_holds_in_full_access(hagent, hworker, stub, command):
     # (the checkpoint Hermes takes first names the command in its git commit message: not a run)
     assert not [r for r in exec_trap.records(hagent.trap_log)[before:]
                 if command in r["cmd"] and exec_trap._shell(r["cmd"])]
+
+
+@pytest.mark.parametrize("command,choice", [("bash -c 'rm -rf {work}/t3y-x'", "deny"), ("bash -c 'rm -rf {work}/t3y-x'", "once"),
+                                            ("ls {work} | xargs rm -rf", "deny")])
+def test_auto_allowed_command_that_hermes_flags_becomes_a_card(hagent, hworker, stub, command, choice):
+    """Review finding: Go let a wrapped delete through by Auto's mode (``by: auto``), so no person
+    stood behind it. Hermes' own dangerous-command prompt must reach the person as a card
+    (``hermes_flag``), not be answered once by the worker: Deny starts nothing, Run once runs it
+    under the trap (nothing is deleted), and the person sees exactly one card either way."""
+    command = command.format(work=hagent.work)
+    (hagent.work / "t3y-x").mkdir(exist_ok=True)
+    run_id = f"t3y-{abs(hash((command, choice))) % 10000}"
+    before = len(exec_trap.trapped(hagent.trap_log))
+    hworker.send(_start(hagent, stub, run_id, f"CALL terminal {json.dumps({'command': command})}", ["terminal"],
+                        permission="auto"))
+    done, seen = play(hworker, hagent.account, run_id, verdict="allow", choice=choice, by="auto")
+    requests = events(seen, "approval.request")
+    assert len(requests) == 1 and requests[0].get("hermes_flag") is True, (requests, done)
+    trapped = exec_trap.trapped(hagent.trap_log)[before:]
+    if choice == "deny":
+        assert not trapped and events(seen, "approval.auto") == [], (trapped, seen)
+        assert "BLOCKED" in done["final_response"], done
+    else:
+        assert any("rm -rf" in t["cmd"] for t in trapped), (trapped, done)
+        assert len(events(seen, "approval.auto")) <= 1
+    assert (hagent.work / "t3y-x").is_dir()
+
+
+@pytest.mark.parametrize("mode", ["auto", "full"])
+def test_hardline_command_typed_into_a_running_command_is_refused_in_every_mode(hagent, hworker, stub, mode):
+    """Review finding: Hermes runs no guard on a process's stdin, so ``process_manage`` submit of
+    ``rm -rf /`` met no floor. The gate refuses it before Go is asked, in every mode; a harmless
+    input still goes to Go."""
+    args = {"action": "submit", "session_id": "proc_t4z", "data": "rm -rf /"}
+    extra = {"permission": "full", "flags": {"host_allowed": True, "full_access": True}} if mode == "full" else {}
+    run_id = f"t4z-{mode}"
+    hworker.send(_start(hagent, stub, run_id, f"CALL process_manage {json.dumps(args)}", ["terminal"], **extra))
+    done, seen = play(hworker, hagent.account, run_id, verdict="allow", by=mode)
+    assert asks(seen) == [] and "BLOCKED" in done["final_response"], (done, seen)
+    ok = {"action": "submit", "session_id": "proc_t4z", "data": "y"}
+    run_id = f"t4z-ok-{mode}"
+    hworker.send(_start(hagent, stub, run_id, f"CALL process_manage {json.dumps(ok)}", ["terminal"], **extra))
+    done, seen = play(hworker, hagent.account, run_id, verdict="allow", by=mode)
+    assert len(asks(seen)) == 1
 
 
 def test_full_access_runs_a_dangerous_command_without_a_second_card(hagent, hworker, stub):
@@ -535,6 +582,42 @@ def test_mcp_requests_route_to_mcp_admin_or_answer_unsupported(hagent, hworker):
     hworker.send({"type": "mcp.nope", "id": "m-2", "account": hagent.account})
     reply = hworker.recv(timeout=60, skip=("heartbeat", "log", "event"))
     assert reply["type"] == "error" and reply["code"] == "unknown_type", reply
+
+
+def test_mcp_probe_refuses_a_private_address(hagent, hworker):
+    """Review finding (override R8): the worker's MCP client never connects to a private address,
+    whatever Go validated. A local listener on loopback is the "internal service"; the probe must
+    answer with an error and the listener must see nothing (Go's own check drops such a URL before
+    a spawn, this is the second line behind redirects and OAuth metadata)."""
+    import http.server
+    import threading
+
+    hits: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def _any(self):
+            hits.append(f"{self.command} {self.path}")
+            self.send_response(200)
+            self.end_headers()
+
+        do_GET = do_POST = do_HEAD = _any
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/mcp"
+        hworker.send({"type": "mcp.probe", "id": "m-ssrf", "account": hagent.account, "name": "internal",
+                      "entry": {"url": url}, "timeout": 5})
+        reply = hworker.recv(timeout=60, skip=("heartbeat", "log", "event"))
+    finally:
+        server.shutdown()
+    assert reply["type"] == "mcp.result" and reply["id"] == "m-ssrf", reply
+    data = reply["data"]
+    assert data["tools"] == [] and data.get("error"), data
+    assert hits == [], hits
 
 
 # ---------------------------------------------------------------- context files, shutdown

@@ -343,6 +343,8 @@ class Worker:
         from timely_agent import host, real_profile
         host.install_fence()  # R6: no host tool starts after Stop
         real_profile.install()  # R7: the real browser profile is the real home's
+        from timely_agent import mcp_net_guard
+        mcp_net_guard.install()  # R8: a remote MCP server never reaches a private address
         # Bridge the account's terminal.* config into the TERMINAL_* process env, as Hermes' CLI and
         # gateway do at start: some readers (HOME for children: terminal.home_mode) only look there.
         # hermes_cli.config's bridge leaves out home_mode (only gateway/run.py bridges it), so

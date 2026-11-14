@@ -34,6 +34,9 @@ starts is recorded in LOG and a destructive command line is replaced by a harmle
 ``--slow-fence S`` makes the dispatch fence (runtime override R6) wait S seconds before it checks
 whether the run was stopped: the "Stop right after Run once" test lands its Stop in that window.
 
+``--mcp-loopback`` lets the MCP address guard (override R8) connect to loopback, for the MCP tests whose
+fake servers listen there; without it the guard refuses every private address, loopback included.
+
 ``--maintenance-s S`` sets the worker's maintenance tick (MCP token read-back) to S seconds.
 
 Everything else is the real boot path: the wrapper loads ``boot.py`` from its own file and
@@ -234,6 +237,11 @@ def _install_slow_fence(seconds: float) -> None:
     host.FENCE_DELAY_S = seconds
 
 
+def _install_mcp_loopback() -> None:
+    from timely_agent import mcp_net_guard
+    mcp_net_guard.LOOPBACK_OK_FOR_TESTS = True
+
+
 def _install_maintenance(seconds: float) -> None:
     from timely_agent import worker
     worker.MAINTENANCE_S = seconds
@@ -271,6 +279,8 @@ def main(argv: list[str]) -> int:
         elif flag == "--slow-fence":
             seconds = float(argv.pop(0))
             patches.append(lambda seconds=seconds: _install_slow_fence(seconds))
+        elif flag == "--mcp-loopback":
+            patches.append(_install_mcp_loopback)
         elif flag == "--maintenance-s":
             seconds = float(argv.pop(0))
             patches.append(lambda seconds=seconds: _install_maintenance(seconds))

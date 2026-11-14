@@ -1659,6 +1659,22 @@
       "signature": "def cleanup_all_browsers() -> None",
       "sha256": "2ca85f96191d68a8ea0ac31dc071ea98caff62d43c1a54e48765f63e725be04f"
     },
+    "MCP wire cap transport (address guard R8)": {
+      "file": "tools/mcp_tool_errors.py",
+      "qualname": "_make_mcp_body_cap_transport",
+      "line": 341,
+      "end_line": 400,
+      "signature": "def _make_mcp_body_cap_transport(httpx_mod, inner_transport, limit: int=_MCP_HTTP_MAX_BODY_BYTES)",
+      "sha256": "1df6ff2690a62a62870832a25177f20caea5362a8d8a204bff0d95dda94a37be"
+    },
+    "MCP redirect-aware client factory (address guard R8)": {
+      "file": "tools/mcp_tool_errors.py",
+      "qualname": "_make_redirect_header_stripper",
+      "line": 286,
+      "end_line": 322,
+      "signature": "def _make_redirect_header_stripper(httpx_mod, original_url, *, strict: bool=False, configured_header_names: set[str] | frozenset[str]=frozenset())",
+      "sha256": "9435a1cf98c1853d8b9d672593e502ec701d2c16454fd96691844d8be5af8143"
+    },
     "MCP discovery per run": {
       "file": "tools/mcp_tool_discovery.py",
       "qualname": "discover_mcp_tools",

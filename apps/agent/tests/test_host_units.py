@@ -158,11 +158,13 @@ def test_full_access_live_wait_and_pre_approved_shapes():
 
 # ---------------------------------------------------------------- the gate's host rules (fake Go)
 
-def _gate(run: bridge.RunContext, tool: str, args: dict, call_id: str = "call_1", verdict: str = "allow"):
+def _gate(run: bridge.RunContext, tool: str, args: dict, call_id: str = "call_1", verdict: str = "allow",
+          by: str = ""):
     from timely_agent.plugins import timely_gate
     asked: list[dict] = []
     old = bridge.ask
-    bridge.ask = lambda msg, timeout: asked.append(msg) or {"type": "gate.verdict", "verdict": verdict}
+    reply = {"type": "gate.verdict", "verdict": verdict, **({"by": by} if by else {})}
+    bridge.ask = lambda msg, timeout: asked.append(msg) or reply
     token = bridge.current_run.set(run)
     try:
         return timely_gate.pre_tool_call(tool_name=tool, args=args, tool_call_id=call_id), asked
@@ -463,3 +465,103 @@ def test_c14_render_account_through_the_cli_drops_host_settings_for_a_non_host_a
     assert set(a.rendered["host_ignored"]) == {"home_mode", "checkpoints", "use_real_profile"}
     state = config_render.account_state(a.home)
     assert state["host_allowed"] is False and state["use_real_profile"] is False
+
+
+# ---------------------------------------------------------------- review findings: who stands behind a call
+
+def test_gate_an_auto_allow_has_no_person_behind_it_but_a_grant_and_full_access_do():
+    run = _run(host_allowed=True)
+    for call, by, backed in (("a", "auto", False), ("g", "grant", True), ("f", "full", True), ("n", "", True)):
+        verdict, _ = _gate(run, "terminal", {"command": "ls"}, call_id=call, verdict="allow", by=by)
+        assert verdict is None and run.is_approved(call) and run.is_backed(call) is backed, (call, by)
+    run.approve_call("a", "h")  # a person's Run once on that call later backs it
+    assert run.is_backed("a")
+
+
+def test_bridge_hermes_flag_on_a_call_go_allowed_by_auto_becomes_a_card(fake_hermes):
+    """Review finding: Go's Auto allow is not a person's OK, so Hermes' own dangerous-command prompt
+    for that call must reach the person as a card (``hermes_flag``), never an automatic ``once``."""
+    from timely_agent import host
+    run, events = _bridge_run(host_live_wait_s=60)
+    run.approve_call("call_1", "a" * 64, backed=False)
+    run.note_call("terminal", "call_1")
+    notify = host.notifier(lambda: run, run.emit, "k")
+    fake_hermes.pending.add("req-1")
+    host.mark_executing(run, "call_1")
+    notify({"request_id": "req-1", "pattern_key": "recursive_delete", "description": "recursive delete"})
+    assert not any(c == "once" for _, c, _, _ in fake_hermes.resolved)
+    assert not [e for e in events if e[0] == "approval.auto"]
+    kind, payload = events[0]
+    assert kind == "approval.request" and payload["hermes_flag"] is True and payload["tool_call_id"] == "call_1"
+    assert payload["tool"] == "terminal" and payload["args_hash"] == "a" * 64
+    # Run once on that card backs the call, and the next prompt for it is answered
+    assert host.answer(run, "k", "req-1", "once") is True and run.is_backed("call_1")
+    fake_hermes.pending.add("req-2")
+    notify({"request_id": "req-2", "pattern_key": "recursive_delete"})
+    assert ("k", "once", "req-2", False) in fake_hermes.resolved
+
+
+def test_bridge_hermes_flag_after_a_grant_or_full_access_is_answered_once(fake_hermes):
+    from timely_agent import host
+    for by in ("grant", "full"):
+        run, events = _bridge_run()
+        run.approve_call("call_1", "a" * 64, backed=by != "auto")
+        notify = host.notifier(lambda r=run: r, run.emit, "k")
+        fake_hermes.pending.add(f"req-{by}")
+        host.mark_executing(run, "call_1")
+        notify({"request_id": f"req-{by}", "pattern_key": "recursive_delete"})
+        assert ("k", "once", f"req-{by}", False) in fake_hermes.resolved
+        assert [e[0] for e in events] == ["approval.auto"]
+
+
+@pytest.mark.parametrize("status,fenced,stopping,want", [
+    (None, False, False, "ok"), ("ok", False, False, "ok"), ("blocked", False, False, "blocked"),
+    ("cancelled", False, False, "cancelled"), ("cancelled", False, True, "cancelled"),
+    ("timeout", False, False, "timeout"), ("error", False, False, "error"), ("error", False, True, "interrupted"),
+    ("ok", True, False, "blocked"), ("cancelled", True, True, "blocked"), ("surprise", False, False, "error"),
+])
+def test_host_ran_status_is_ok_only_for_a_call_that_finished(status, fenced, stopping, want):
+    """Review finding: Hermes' ``cancelled`` (slot abandoned after a Stop) and ``timeout`` used to
+    read ``ok``, so the audit and the card believed a call ran that never started."""
+    from timely_agent import host
+    assert host.ran_state(status, fenced, stopping) == want
+
+
+def test_report_ran_never_looks_up_a_checkpoint_for_a_call_that_is_not_ok(monkeypatch):
+    from timely_agent import host
+    run, events = _bridge_run()
+    called = []
+    monkeypatch.setattr(host, "checkpoint_for", lambda *a: called.append(a) or ("abc", "/w"))
+    host.report_ran(run, "write_file", {"path": "x"}, "call_1", "cancelled")
+    assert events == [("host.ran", {"tool_call_id": "call_1", "tool": "write_file",
+                                    "args_hash": policy.args_hash({"path": "x"}), "status": "cancelled"})]
+    assert called == []
+    host.report_ran(run, "write_file", {"path": "x"}, "call_2", "ok")
+    assert events[1][1]["checkpoint"] == "abc" and called
+
+
+def test_stdin_floor_refuses_what_hermes_would_block_typed_into_a_running_command(monkeypatch):
+    """Hermes guards no stdin: ``process`` write/submit of a hardline command is refused by the
+    gate (the real ``_floor_block`` is exercised in the contract test)."""
+    import sys
+    import types
+    from timely_agent import host
+    mod = types.ModuleType("tools.approval")
+    mod._floor_block = lambda c: {"approved": False, "message": "BLOCKED (hardline)"} if "rm -rf /" in c else None
+    pkg = types.ModuleType("tools")
+    pkg.__path__ = []
+    monkeypatch.setitem(sys.modules, "tools", pkg)
+    monkeypatch.setitem(sys.modules, "tools.approval", mod)
+    for tool in ("process", "process_manage"):
+        for action in ("write", "submit"):
+            assert host.stdin_floor(tool, {"action": action, "data": "rm -rf /\n"}).startswith("BLOCKED")
+            assert host.stdin_floor(tool, {"action": action, "input": "rm -rf /"}).startswith("BLOCKED")
+            assert host.stdin_floor(tool, {"action": action, "data": "y"}) == ""
+        assert host.stdin_floor(tool, {"action": "poll", "data": "rm -rf /"}) == ""
+    assert host.stdin_floor("terminal", {"command": "rm -rf /"}) == ""
+    verdict, asked = _gate(_run(host_allowed=True), "process_manage",
+                           {"action": "submit", "session_id": "p", "data": "rm -rf /"}, verdict="allow")
+    assert verdict["action"] == "block" and verdict["message"].startswith("BLOCKED") and asked == []
+    verdict, asked = _gate(_run(host_allowed=True), "process_manage",
+                           {"action": "submit", "session_id": "p", "data": "y"}, verdict="allow")
+    assert verdict is None and len(asked) == 1
