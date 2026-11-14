@@ -867,7 +867,9 @@ AskHost(f) ==
 \* withdraws the request and ends the run (run.done approval_parked), and
 \* the follower's parkRun / parkLost parks the card; the row names no run.
 \* A live answer that re-attached the run but did not reach the worker (the
-\* row runs under the answer's lease) becomes the continuation instead.
+\* row runs under the answer's lease) becomes the continuation instead,
+\* whether or not HostAnswer has given the follower that lease yet (the row
+\* says what the answer asked: its closed card, answeredOnRow).
 ParkHost(f) ==
     /\ f \in fol
     /\ f.run = wrun /\ wreq = "waiting"
@@ -875,7 +877,8 @@ ParkHost(f) ==
     /\ fol' = fol \ {f}
     /\ IF HostWait(row) /\ row.run = f.run
        THEN row' = [row EXCEPT !.hphase = "parked", !.run = NoRun]
-       ELSE IF ~row.deleted /\ row.status = "running" /\ row.run = f.run /\ f.lease # NoLease /\ row.lease = f.lease
+       ELSE IF ~row.deleted /\ row.status = "running" /\ row.run = f.run
+               /\ ((f.lease # NoLease /\ row.lease = f.lease) \/ (f.lease = NoLease /\ row.lease # NoLease))
        THEN row' = [row EXCEPT !.status = "queued", !.phase = "plan", !.run = NoRun, !.lease = NoLease,
                                !.expired = FALSE, !.cont = TRUE]
        ELSE UNCHANGED row
@@ -915,7 +918,7 @@ AnswerHostLive ==
          /\ f.run = wrun
          /\ row' = [row EXCEPT !.status = "running", !.lease = nextLease, !.expired = FALSE,
                                !.run = wrun, !.host = NoRun, !.hphase = "none"]
-         /\ fol' = (fol \ {f}) \cup {[f EXCEPT !.lease = nextLease]}
+         /\ UNCHANGED fol \* the follower adopts the lease later (AdoptLease)
     /\ sent' = nextLease
     /\ nextLease' = nextLease + 1
     /\ resolved' = resolved + 1
@@ -923,6 +926,18 @@ AnswerHostLive ==
                    doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
     /\ UNCHANGED qvars
     /\ UNCHANGED <<wreq, wrun, wstopped, hostAsked, ran, hostHalted, ranAfterStop, hostClaimed, hostProposal>>
+
+\* HostAnswer (after the answer's commit): the follower of the run adopts the
+\* answer's lease. Until then the follower holds none, and its own run.done
+\* may already be handled (ParkHost).
+AdoptLease(f) ==
+    /\ f \in fol /\ f.lease = NoLease
+    /\ ~row.deleted /\ row.status = "running" /\ row.run = f.run /\ row.lease # NoLease
+    /\ fol' = (fol \ {f}) \cup {[f EXCEPT !.lease = row.lease]}
+    /\ UNCHANGED <<row, mem, pc, cursor, writes, nextLease, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
+    /\ UNCHANGED <<wreq, wrun, wstopped, hostAsked, sent, ran, resolved, hostHalted, ranAfterStop, hostClaimed, hostProposal>>
 
 AnswerHostParked ==
     /\ hostAsked > 0 /\ resolved < 2
@@ -956,7 +971,7 @@ AnswerHostLiveDeny ==
          /\ f.run = wrun
          /\ row' = [row EXCEPT !.status = "running", !.lease = nextLease, !.expired = FALSE,
                                !.run = wrun, !.host = NoRun, !.hphase = "none"]
-         /\ fol' = (fol \ {f}) \cup {[f EXCEPT !.lease = nextLease]}
+         /\ UNCHANGED fol \* the follower adopts the lease later (AdoptLease)
     /\ wreq' = IF wreq = "waiting" THEN "closed" ELSE wreq
     /\ nextLease' = nextLease + 1
     /\ resolved' = resolved + 1
@@ -1054,7 +1069,7 @@ Next ==
          \/ PlanRun(w) \/ StartRun(w) \/ Lost(w) \/ Crash(w)
     \/ \E f \in fol : FollowerRenew(f) \/ FollowerEnd(f) \/ FollowerCrash(f)
                      \/ Ask(f) \/ CloseQuestion(f)
-                     \/ AskHost(f) \/ ParkHost(f) \/ RunHostTool(f)
+                     \/ AskHost(f) \/ ParkHost(f) \/ RunHostTool(f) \/ AdoptLease(f)
     \/ Expire \/ Approve \/ Stop \/ Retry \/ Send \/ Reject \/ DiscardReview
     \/ SetPermission \/ Steer \/ Delete \/ Answer \/ ReopenQuestion
     \/ ParkOrphan \/ AnswerHostLive \/ AnswerHostParked \/ DeliverHost \/ ExpireHost
