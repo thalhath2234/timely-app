@@ -6,7 +6,7 @@ Everything here acts on the machine that runs the stack. Follow the sandbox rule
 
 ## Sub-features
 
-- `host-run-once`: "List the files in my workspace" raises a card with the command and the working folder; Run once runs it, the output reaches the reply, and the closed card reads `Ran`.
+- `host-run-once`: "List the files in my workspace" raises a card with the command and the working folder; Run once runs it, the output reaches the reply, and the closed card reads `Ran` (right after the answer it reads `Approved, waiting to run` until the worker reports the call ran; a Stop or a refused continuation leaves `Approved, did not run`).
 - `host-deny`: Deny on a card for a destructive command (`rm -rf <sandbox>/p5-victim`): "Nothing ran", the model reads Hermes' refusal, no spawn.
 - `host-stop`: Stop run while a card waits closes it `Stopped before you answered`, runs nothing, and a late answer gets 409.
 - `host-allow-chat`: Allow for this chat on a file read; a second read in the same folder runs with no card, and the closed card reads `Allowed for this chat`.
@@ -18,7 +18,7 @@ Everything here acts on the machine that runs the stack. Follow the sandbox rule
 
 ## How to get to it (user POV)
 
-- Web: `/chat`. A card is `data-testid="host-card"` with `data-state` (`live`, `parked`); its buttons are `Run once`, `Allow for this chat` and `Deny`. A closed card is `data-testid="host-closed"` with `data-state` `ran`, `allowed`, `denied`, `expired` or `stopped`; `Undo this change` sits on a closed card whose call left a checkpoint.
+- Web: `/chat`. A card is `data-testid="host-card"` with `data-state` (`live`, `parked`); its buttons are `Run once`, `Allow for this chat` and `Deny`. A closed card is `data-testid="host-closed"` with `data-state` `ran`, `allowed`, `denied`, `expired`, `stopped`, `approved` (answered, not run yet) or `notrun`; `Undo this change` sits on a closed card whose call left a checkpoint.
 - The header pill and the history row read `Needs your OK` (live) or `Waiting for your OK` (parked).
 - Settings → Agent: `Permissions` → Host cards ("Who can approve a card": Any of my devices or Only the desktop window; "Cards wait up to": 10 minutes to 1 hour); `MCP servers` (Add a server: Catalog, An address, A command; each server's mode: Can use, Ask me first, Off).
 - Settings → Server (desktop window only): "Let the assistant use this computer" and "Working folder". A browser cannot reach this tab.
@@ -42,7 +42,7 @@ Preconditions:
 Steps:
 
 - **Shell token.** The same PUT without the header, with a wrong header, and through `http://127.0.0.1:4002/api-proxy/...` with the right header each answer 404. Directly from loopback with the right header it answers 200, and `GET /instance/settings` lists the account with `source: desktop`. Record the four codes in `shell-token-checks.txt`.
-- **Run once.** Send "List the files in my workspace". `wait --testid host-card`: it reads `Run this command?`, `Needs your OK`, the command, "In <work folder>" and `Supervised asks before every action`. `click --role button --name "Run once"`, then `wait --testid host-closed`. The reply is "Done after tool: " followed by the command's output, and the closed card reads `Ran`.
+- **Run once.** Send "List the files in my workspace". `wait --testid host-card`: it reads `Run this command?`, `Needs your OK`, the command, "In <work folder>" and `Supervised asks before every action`. `click --role button --name "Run once"`, then `wait --testid host-closed`. The reply is "Done after tool: " followed by the command's output, and the closed card reads `Ran` (right after the answer it reads `Approved, waiting to run` until the worker reports the call ran; a Stop or a refused continuation leaves `Approved, did not run`).
 - **Deny.** Send "Remove my scratch folder" (the phrase maps to `TERMINAL rm -rf <work>/p5-victim`). The card has no Allow for this chat (a delete is never grantable). `Deny`: the card closes `Denied`, "Nothing ran. The assistant was told you said no.", the reply holds `BLOCKED: Action denied by user`.
 - **Stop.** Send a command, wait for the card, `click --role button --name "Stop run"`. The card closes `Stopped before you answered`, the chat is `stopped`, a late `POST /chats/<id>/host-approval` gets 409, and the command never started.
 - **Allow for this chat.** Send "Read both of my notes" (a `SCRIPT` of two `read_file` calls in the work folder). Click `Allow for this chat` on the first card. The second read runs with no second card, the closed card reads `Allowed for this chat`, and the run replies.
@@ -58,7 +58,7 @@ Steps:
 - Phone-width checks on the web app (390) are the desktop layout in a narrow window, not the phone app. The phone app is Expo web on `:8082`, which needs its own Metro and about 1 GB; stop Next (`web.sid`) first on a loaded machine, as the API alone serves it.
 - The MCP routes are registered in `cmd/main.go` (`registerAgentMCP`). When `GET /agent/mcp/servers` is not 200, the Settings section shows an error: check the API log.
 - Hermes refuses `write_file` over a file the run has not read ("Refusing to overwrite"), so a rewrite needs a read first, and that makes it two cards.
-- The second card of a run reads "comes after reading outside pages" (critical item 6) because a command's or a file's output is outside content. In Supervised such a card still offers Allow for this chat (a grant covers item 6 there), in Auto it does not, and a delete, send, payment, install or settings card never does.
+- The second card of a run reads "Asks because it comes after reading outside content (pages, files or command output)" (critical item 6) because a command's or a file's output is outside content. No such card offers Allow for this chat in any mode (a grant never covers a critical-list item, item 6 included), and neither does a delete, send, payment, install or settings card, a shell or interpreter (`bash`, `python3`, ...), code, a browser call or what is typed into a running command. A read (`read_file`, `search_files`) after outside content is not held, so Allow for this chat on a read keeps working.
 - "Undo this change" appears only when Hermes took a new checkpoint for this run. A write that leaves the folder exactly as an earlier checkpoint had it creates none, so overwrite with different content than the last test.
 - A parked card shows `Paused: waiting for your OK`, and the card in an "Add an MCP server" chat is parked from the start (no run waits on it). Its copy, "The assistant stopped to wait", is the same.
 - A call stopped in the worker's dispatch fence reports `host.ran` `blocked`. Still check the process list or the exec trap for "nothing ran".

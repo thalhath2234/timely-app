@@ -86,9 +86,12 @@ script or sends raw browser commands, so the owner answered Q-5.3 as follows:
   Edge default profile into its own folder and drives that copy), and
   `browser_exec` is allowed. The rule that the model never runs script in a page
   does not hold in chat.
-- Every browser call is a host card in Supervised and in Auto (a script on a
-  signed-in profile can submit, send or buy, and no literal check can tell), and
-  Allow for this chat never covers it in Auto. Full Access lifts the card as it
+- Every browser call is a host card in every mode (a script on a signed-in
+  profile can submit, send or buy, and no literal check can tell), and Allow for
+  this chat never covers one. Full Access does not lift this card yet: the
+  network-level control that keeps the browser off loopback, LAN and metadata
+  addresses (plan section 14) is not built, and a literal check misses an address
+  built at run time or a redirect. Once it is, Full Access may lift the card as it
   does for any host tool.
 - Bots never get `browser_exec`. They keep the read-only `bot_browse` and the
   Secure Store logins described above, which this amendment does not change.
