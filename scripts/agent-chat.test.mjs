@@ -1,5 +1,6 @@
 // Chat on the agent engine (packages/contract/src/agentChat.ts): streamed reply
-// deltas, the permission copy both apps show, and question cards (phase 4).
+// deltas, the permission copy both apps show, question cards (phase 4) and
+// host cards (phase 5).
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import {
@@ -28,6 +29,23 @@ import {
   questionStatusWord,
   questionTimeLeft,
   questionWaiting,
+  HOST_BUTTONS,
+  HOST_CARD_STATE_WORDS,
+  HOST_ERRORS,
+  HOST_STATUS_WORDS,
+  HOST_TIMEOUT_LIMITS,
+  HOST_UNDO,
+  cardStatusWord,
+  hostCanUndo,
+  hostCardState,
+  hostCardTitle,
+  hostChoices,
+  hostNeedsUnlock,
+  hostSecondsLeft,
+  hostStatusWord,
+  hostSubject,
+  hostTimeLeft,
+  hostWaiting,
 } from "../packages/contract/src/agentChat.ts";
 
 const delta = (run, offset, text) => ({ type: "delta", kind: "chat", id: "chat_1", document: { run, offset, text } });
@@ -102,11 +120,14 @@ describe("permission copy", () => {
     );
   });
 
-  test("Full Access never promises that nothing asks in phase 2", () => {
-    for (const text of [PERMISSION_COPY.full.description, PERMISSION_COPY.full.short, FULL_ACCESS_CONFIRM]) {
-      assert.doesNotMatch(text, /never asks|nothing asks|without asking/i);
-      assert.match(text, /like Auto/);
+  test("Full Access says what it lifts and what stays (phase 5)", () => {
+    for (const text of [PERMISSION_COPY.full.description, PERMISSION_COPY.full.short]) {
+      assert.match(text, /Timely data still asks? like Auto/);
+      assert.doesNotMatch(text, /never asks|nothing asks|for now/i);
     }
+    for (const lifted of ["commands", "files", "code", "your browser", "MCP tools"]) assert.ok(FULL_ACCESS_CONFIRM.includes(lifted), lifted);
+    for (const kept of ["wipe a disk", "keys", "other accounts", "outside pages"]) assert.ok(FULL_ACCESS_CONFIRM.includes(kept), kept);
+    assert.match(FULL_ACCESS_CONFIRM, /Turn it on for this chat\?$/);
     assert.equal(FULL_ACCESS_PHONE_NOTE, "Turn on from the desktop app");
   });
 
@@ -126,7 +147,14 @@ describe("permission copy", () => {
   });
 
   test("defaults and engine words", () => {
-    assert.deepEqual(DEFAULT_CHAT_SETTINGS, { engine: "classic", chatPermission: "supervised", botPermission: "auto", fullAccessAllowedOn: "desktop" });
+    assert.deepEqual(DEFAULT_CHAT_SETTINGS, {
+      engine: "classic",
+      chatPermission: "supervised",
+      botPermission: "auto",
+      fullAccessAllowedOn: "desktop",
+      hostApprovalRule: "devices",
+      hostApprovalTimeoutMinutes: 60,
+    });
     assert.equal(ENGINE_COPY.classic.name, "Classic");
     assert.equal(ENGINE_COPY.agent.name, "New");
     assert.equal(USE_CLASSIC_ACTION, "use_classic");
@@ -214,5 +242,88 @@ describe("question cards", () => {
       { question: "Which rooms?", answer: "A, C" },
       { question: "Anything else?", answer: "—" },
     ]);
+  });
+});
+
+describe("host cards", () => {
+  const now = Date.parse("2026-11-14T10:00:00Z");
+  const card = { kind: "terminal", title: "Run this command?", command: "ls -la", cwd: "/work", reason: "Supervised asks before every action", grantable: true };
+  const live = { requestId: "req-1", run: "run_1", phase: "live", tool: "terminal", card, liveUntil: "2026-11-14T10:09:30Z", expiresAt: undefined };
+  const parked = { ...live, phase: "parked", liveUntil: "2026-11-14T09:50:00Z", expiresAt: "2026-11-14T10:45:00Z" };
+
+  test("the words both apps show", () => {
+    assert.deepEqual(HOST_BUTTONS, { once: "Run once", chat: "Allow for this chat", deny: "Deny" });
+    assert.deepEqual(HOST_STATUS_WORDS, { live: "Needs your OK", parked: "Waiting for your OK" });
+    assert.deepEqual(Object.values(HOST_CARD_STATE_WORDS), [
+      "Needs your OK",
+      "Paused: waiting for your OK",
+      "Ran",
+      "Allowed for this chat",
+      "Denied",
+      "Expired, not run",
+      "Stopped before you answered",
+    ]);
+    assert.equal(HOST_UNDO, "Undo this change");
+    assert.equal(HOST_ERRORS.phoneLocked, "Unlock your phone to approve this");
+    assert.deepEqual(HOST_TIMEOUT_LIMITS, { min: 10, max: 60, default: 60 });
+  });
+
+  test("titles by kind, as Go words them", () => {
+    assert.deepEqual(
+      ["terminal", "file", "code", "browser", "mcp_server"].map((kind) => hostCardTitle({ kind })),
+      ["Run this command?", "Change this file?", "Run this code?", "Use your browser?", "Add this MCP server?"],
+    );
+    assert.equal(hostCardTitle({ kind: "mcp", server: "github" }), "Use github?");
+    assert.equal(hostSubject(card), "ls -la");
+    assert.equal(hostSubject({ ...card, command: undefined, path: "notes.md" }), "notes.md");
+    assert.equal(hostSubject(null), "");
+  });
+
+  test("waiting and status words for live and parked cards", () => {
+    assert.equal(hostWaiting({ status: "host_approval", hostRequest: live }), true);
+    assert.equal(hostWaiting({ status: "host_approval", hostRequest: {} }), false);
+    assert.equal(hostWaiting({ status: "running", hostRequest: live }), false);
+    assert.equal(hostStatusWord({ status: "host_approval", hostRequest: live }), "Needs your OK");
+    assert.equal(hostStatusWord({ status: "host_approval", hostRequest: parked }), "Waiting for your OK");
+    assert.equal(hostStatusWord({ status: "idle", hostRequest: {} }), null);
+    const question = { requestId: "q", run: "r", questions: [{ qid: "q0", question: "Which?", choices: null, recommended: null, multiSelect: false }] };
+    assert.equal(cardStatusWord({ status: "running", question }), "Needs your answer");
+    assert.equal(cardStatusWord({ status: "host_approval", hostRequest: parked, question: {} }), "Waiting for your OK");
+    assert.equal(cardStatusWord({ status: "idle" }), null);
+  });
+
+  test("card states, open and closed", () => {
+    assert.equal(hostCardState(live), "live");
+    assert.equal(hostCardState(parked), "parked");
+    for (const outcome of ["ran", "allowed", "denied", "expired", "stopped"]) assert.equal(hostCardState({ tool: "terminal", outcome }), outcome);
+    assert.equal(hostCardState({ tool: "terminal", outcome: "bogus" }), "stopped");
+    assert.equal(hostCardState(null), "live");
+  });
+
+  test("choices: Allow for this chat only when grantable; the phone unlocks except to deny", () => {
+    assert.deepEqual(hostChoices(live), ["once", "chat", "deny"]);
+    assert.deepEqual(hostChoices({ ...live, card: { ...card, grantable: false } }), ["once", "deny"]);
+    assert.deepEqual(hostChoices(null), ["once", "deny"]);
+    assert.equal(hostNeedsUnlock("once", "phone"), true);
+    assert.equal(hostNeedsUnlock("chat", "phone"), true);
+    assert.equal(hostNeedsUnlock("deny", "phone"), false);
+    assert.equal(hostNeedsUnlock("once", "web"), false);
+  });
+
+  test("time left: the live wait, then the parked expiry", () => {
+    assert.equal(hostSecondsLeft(live, now), 570);
+    assert.equal(hostTimeLeft(live, now), "9 min left");
+    assert.equal(hostSecondsLeft(parked, now), 2700);
+    assert.equal(hostTimeLeft(parked, now), "45 min left");
+    assert.equal(hostTimeLeft({ ...live, liveUntil: "2026-11-14T10:00:45Z" }, now), "45 s left");
+    assert.equal(hostTimeLeft({ ...live, liveUntil: "2026-11-14T09:00:00Z" }, now), "");
+    assert.equal(hostSecondsLeft({ phase: "live" }, now), null);
+  });
+
+  test("Undo this change while a checkpoint exists and was not undone", () => {
+    assert.equal(hostCanUndo({ tool: "write_file", outcome: "ran", checkpoint: "abc" }), true);
+    assert.equal(hostCanUndo({ tool: "write_file", outcome: "ran", checkpoint: "abc", undoneAt: "2026-11-14T10:01:00Z" }), false);
+    assert.equal(hostCanUndo({ tool: "terminal", outcome: "ran" }), false);
+    assert.equal(hostCanUndo(null), false);
   });
 });

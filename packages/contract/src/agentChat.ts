@@ -46,26 +46,43 @@ export type ChatDelta = {
   document: { run: string; offset: number; text: string };
 };
 
+/** Who may answer a host card (Q-5.7): any signed-in device (a phone unlocks
+ * first), or only the desktop window. */
+export type HostApprovalRule = "devices" | "desktop";
+
 /** GET /agent/chat-settings. */
 export type AgentChatSettings = {
   engine: AccountEngine;
   chatPermission: PermissionMode;
   botPermission: PermissionMode;
   fullAccessAllowedOn: FullAccessAllowedOn;
+  /** Phase 5: who may answer host cards, and how long a parked card waits
+   * (10 to 60 minutes). Absent from an older server. */
+  hostApprovalRule?: HostApprovalRule;
+  hostApprovalTimeoutMinutes?: number;
+  /** The step-up that turned a Full Access default on ({} when none). */
+  fullAccessDefault?: FullAccessRecord;
   /** Whether the agent engine can run for this account now, and why not. */
   engineAvailable: boolean;
   engineReason: string;
 };
 
-/** The fields of PATCH /agent/chat-settings. */
-export type AgentChatSettingsPatch = Partial<Pick<AgentChatSettings, "engine" | "chatPermission" | "botPermission" | "fullAccessAllowedOn">>;
+/** The fields of PATCH /agent/chat-settings. Turning a default to Full
+ * Access, Full Access "Allowed on" any device, or host cards back to any
+ * device needs the step-up (the desktop window; a phone that unlocked where
+ * Full Access is allowed on any device): 403 otherwise. */
+export type AgentChatSettingsPatch = Partial<
+  Pick<AgentChatSettings, "engine" | "chatPermission" | "botPermission" | "fullAccessAllowedOn" | "hostApprovalRule" | "hostApprovalTimeoutMinutes">
+> & { device?: HostDevice };
 
-/** The account defaults before anything is saved (Q-2.2, Q-P1). */
-export const DEFAULT_CHAT_SETTINGS: Omit<AgentChatSettings, "engineAvailable" | "engineReason"> = {
+/** The account defaults before anything is saved (Q-2.2, Q-P1, Q-5.1, Q-5.7). */
+export const DEFAULT_CHAT_SETTINGS: Omit<AgentChatSettings, "engineAvailable" | "engineReason" | "fullAccessDefault"> = {
   engine: "classic",
   chatPermission: "supervised",
   botPermission: "auto",
   fullAccessAllowedOn: "desktop",
+  hostApprovalRule: "devices",
+  hostApprovalTimeoutMinutes: 60,
 };
 
 export const PERMISSION_MODES: readonly PermissionMode[] = ["supervised", "auto", "full"];
@@ -81,9 +98,9 @@ export type PermissionCopy = {
   tone: "green" | "indigo" | "amber";
 };
 
-/** Mode names and descriptions, the same on web, desktop and phone. In phase 2
- * Full Access works like Auto for Timely data, so its copy never promises that
- * nothing asks. */
+/** Mode names and descriptions, the same on web, desktop and phone. Full
+ * Access (phase 5) lifts host cards (commands, files, code, the browser, MCP
+ * tools); changes to Timely data still follow Auto, and the floors stay. */
 export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
   supervised: {
     name: "Supervised",
@@ -101,8 +118,9 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
   },
   full: {
     name: "Full Access",
-    description: "Works like Auto for now: the changes Auto asks about still ask. Everything is logged, and changes that can be undone show Undo.",
-    short: "Works like Auto for now. Turn on from the desktop app",
+    description:
+      "Runs commands, files, code, your browser and MCP tools on this computer without a card. Changes to your Timely data still ask like Auto, and commands that wipe a disk or the system are always refused. Everything is logged.",
+    short: "Runs host actions without a card. Timely data still asks like Auto",
     icon: "bolt",
     tone: "amber",
   },
@@ -111,12 +129,14 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
 /** Under the picker: the choice is the chat's own. */
 export const CHAT_PERMISSION_NOTE = "Only this chat. New chats start on your default.";
 
-/** The phone shows Full Access disabled with this line (phase 2: no step-up yet). */
+/** Where Full Access cannot be turned on (the step-up, decision 7): the
+ * phone, unless Full Access is allowed on any device. */
 export const FULL_ACCESS_PHONE_NOTE = "Turn on from the desktop app";
 
-/** The one-time confirmation before turning Full Access on (web and desktop). */
+/** The one-time confirmation before turning Full Access on: what it lifts and
+ * what stays. */
 export const FULL_ACCESS_CONFIRM =
-  "Full Access works like Auto for now: deleting, sending your data out, paying, installing and settings changes still ask. Turn it on for this chat?";
+  "Full Access lifts every card for commands, files, code, your browser and MCP tools: the assistant runs them as you on this computer. Still in place: commands that wipe a disk or the system are refused, your keys stay out of its reach, other accounts stay apart, and what it learns from outside pages waits for you. Turn it on for this chat?";
 
 /** Settings → Permissions footer: floors no mode lifts. */
 export const ALWAYS_BLOCKED_NOTE = "Still blocked in every mode: commands that wipe a disk or the system, and handing out your keys.";
@@ -363,4 +383,199 @@ export function answerSummary(card: AnsweredQuestion): { question: string; answe
     const answer = Array.isArray(value) ? value.join(", ") : typeof value === "string" ? value : "—";
     return { question: q.question, answer };
   });
+}
+
+// ---------------------------------------------------------------- host cards (phase 5)
+
+/** What a host card is about (gate.verdict card.kind). */
+export type HostCardKind = "terminal" | "file" | "code" | "browser" | "mcp" | "mcp_server";
+
+/** A host card as Go builds it from the call's real arguments. Command, path
+ * and URL are plain text: never draw them as links (a tainted model may have
+ * written them). */
+export type HostCard = {
+  kind: HostCardKind;
+  title: string;
+  command?: string;
+  path?: string;
+  url?: string;
+  cwd?: string;
+  server?: string;
+  envNames?: string[];
+  /** Why it asks: Go's reason (the critical-list reason, the mode, Ask me first). */
+  reason: string;
+  /** The critical-list item (agent/permission.go), when it is one. */
+  criticalItem?: number;
+  /** Whether "Allow for this chat" is offered. */
+  grantable: boolean;
+};
+
+/** One "Allow for this chat" grant (DELETE /chats/:id/host-grants/:key removes it). */
+export type HostGrant = { kind: string; key: string; match: string; label: string; at?: string };
+
+export type HostPhase = "live" | "parked";
+
+/** The host card a chat waits on (`hostRequest`, status `host_approval`); `{}` when none. */
+export type HostRequest = {
+  requestId?: string;
+  run?: string;
+  phase?: HostPhase;
+  tool?: string;
+  toolCallId?: string;
+  argsHash?: string;
+  card?: HostCard;
+  askedAt?: string;
+  /** Until when the run waits live (Run once continues the same reply). */
+  liveUntil?: string;
+  /** Until when a parked card waits (then "Expired, not run"). */
+  expiresAt?: string;
+  grant?: HostGrant;
+};
+
+/** The device an answer or a step-up comes from. The server sets `shell` for
+ * the desktop window; a phone sends `unlocked` after device unlock. */
+export type HostDevice = { kind: "desktop" | "web" | "phone"; name?: string; unlocked?: boolean; shell?: boolean };
+
+/** The step-up that turned Full Access on; `{}` when none (Full then acts as Auto). */
+export type FullAccessRecord = { at?: string; device?: HostDevice };
+
+export type HostChoice = "once" | "chat" | "deny";
+
+/** POST /chats/:id/host-approval. */
+export type HostAnswerInput = { revision?: number; requestId: string; choice: HostChoice; device?: HostDevice };
+
+/** How a host card closed (a "host" message's `host.outcome`). */
+export type HostOutcome = "ran" | "allowed" | "denied" | "expired" | "stopped";
+
+/** A "host" message: a closed host card, or (auto) a call that ran without
+ * one and left a checkpoint. */
+export type ClosedHost = {
+  requestId?: string;
+  toolCallId?: string;
+  tool: string;
+  card?: HostCard;
+  outcome: HostOutcome;
+  device?: HostDevice;
+  auto?: boolean;
+  checkpoint?: string;
+  checkpointDir?: string;
+  undoneAt?: string;
+};
+
+export type HostCardState = HostPhase | HostOutcome;
+
+/** The buttons, in the order drawn. */
+export const HOST_BUTTONS: Record<HostChoice, string> = { once: "Run once", chat: "Allow for this chat", deny: "Deny" };
+
+/** The card's state words, open and closed (contract 8). */
+export const HOST_CARD_STATE_WORDS: Record<HostCardState, string> = {
+  live: "Needs your OK",
+  parked: "Paused: waiting for your OK",
+  ran: "Ran",
+  allowed: "Allowed for this chat",
+  denied: "Denied",
+  expired: "Expired, not run",
+  stopped: "Stopped before you answered",
+};
+
+/** The chat's status word while a host card waits (header, list, sidebar, Activity). */
+export const HOST_STATUS_WORDS: Record<HostPhase, string> = { live: "Needs your OK", parked: "Waiting for your OK" };
+
+/** The activity line and closed card action. */
+export const HOST_UNDO = "Undo this change";
+
+/** The answers the server refuses (409 and 403), as it words them. */
+export const HOST_ERRORS = {
+  answered: "This card was already answered",
+  stale: "This card changed. Read the new one first.",
+  live: "Answer the card above first, or stop this reply",
+  phoneLocked: "Unlock your phone to approve this",
+  desktopOnly: "Approve this card in the desktop app",
+  fullAccess: "Turn on Full Access from the desktop app",
+  undoGone: "This change can't be undone any more",
+} as const;
+
+/** How long a parked card may wait (minutes). */
+export const HOST_TIMEOUT_LIMITS = { min: 10, max: 60, default: 60 } as const;
+
+/** A card's title by kind, as Go words it (Go sends the title too). */
+export function hostCardTitle(card: Pick<HostCard, "kind" | "server">): string {
+  switch (card.kind) {
+    case "terminal":
+      return "Run this command?";
+    case "file":
+      return "Change this file?";
+    case "code":
+      return "Run this code?";
+    case "browser":
+      return "Use your browser?";
+    case "mcp":
+      return `Use ${card.server || "this MCP server"}?`;
+    case "mcp_server":
+      return "Add this MCP server?";
+  }
+}
+
+/** The one line a card is about: its command, path, URL or server. */
+export function hostSubject(card: HostCard | null | undefined): string {
+  if (!card) return "";
+  return (card.command || card.path || card.url || card.server || "").trim();
+}
+
+/** Whether the chat waits on a host card. */
+export function hostWaiting(row: { status?: string; hostRequest?: HostRequest | null } | null | undefined): boolean {
+  return row?.status === "host_approval" && !!row.hostRequest?.requestId;
+}
+
+/** The status word for a chat waiting on a host card, or null. */
+export function hostStatusWord(row: { status?: string; hostRequest?: HostRequest | null } | null | undefined): string | null {
+  if (!hostWaiting(row)) return null;
+  return HOST_STATUS_WORDS[row!.hostRequest!.phase === "parked" ? "parked" : "live"];
+}
+
+/** The status word for a chat waiting on any card (question or host), or null. */
+export function cardStatusWord(
+  row: { status?: string; question?: ChatQuestion | null; hostRequest?: HostRequest | null } | null | undefined,
+): string | null {
+  return questionStatusWord(row) ?? hostStatusWord(row);
+}
+
+/** The state an open card or a closed one shows. */
+export function hostCardState(card: HostRequest | ClosedHost | null | undefined): HostCardState {
+  if (card && "outcome" in card && card.outcome) {
+    return (["ran", "allowed", "denied", "expired", "stopped"] as const).includes(card.outcome) ? card.outcome : "stopped";
+  }
+  return (card as HostRequest | null | undefined)?.phase === "parked" ? "parked" : "live";
+}
+
+/** The choices an open card offers, in order: Allow for this chat only when grantable. */
+export function hostChoices(request: HostRequest | null | undefined): HostChoice[] {
+  return request?.card?.grantable ? ["once", "chat", "deny"] : ["once", "deny"];
+}
+
+/** Whether the phone must unlock before sending this choice (Deny never needs it). */
+export function hostNeedsUnlock(choice: HostChoice, device: HostDevice["kind"]): boolean {
+  return device === "phone" && choice !== "deny";
+}
+
+/** Whole seconds until the live wait ends (live) or the card expires (parked),
+ * 0 once it passed, or null without a time. */
+export function hostSecondsLeft(request: HostRequest | null | undefined, now: Date | number = Date.now()): number | null {
+  const until = request?.phase === "parked" ? request?.expiresAt : request?.liveUntil;
+  const at = until ? Date.parse(until) : NaN;
+  if (!Number.isFinite(at)) return null;
+  const t = typeof now === "number" ? now : now.getTime();
+  return Math.max(0, Math.ceil((at - t) / 1000));
+}
+
+/** "9 min left", "45 s left", or "" once it passed. Minutes round down. */
+export function hostTimeLeft(request: HostRequest | null | undefined, now: Date | number = Date.now()): string {
+  const left = hostSecondsLeft(request, now);
+  if (left === null || left <= 0) return "";
+  return left >= 60 ? `${Math.floor(left / 60)} min left` : `${left} s left`;
+}
+
+/** Whether "Undo this change" is offered for a closed card or a change. */
+export function hostCanUndo(closed: ClosedHost | null | undefined): boolean {
+  return !!closed?.checkpoint && !closed.undoneAt;
 }
