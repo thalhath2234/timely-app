@@ -474,10 +474,6 @@ func parkCard(row *Conversation, now time.Time, wait time.Duration) {
 func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 	e.keepRunTaint(r)
 	taint := r.taint
-	r.mu.Lock()
-	lease := r.lease
-	answered := maps.Clone(r.answered)
-	r.mu.Unlock()
 	parked := runParked{}
 	if d.Parked != nil {
 		parked = *d.Parked
@@ -491,6 +487,15 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 		if err := e.s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), r.uid, r.cid, &row); err != nil {
 			return err
 		}
+		// Read under the row's lock: an answer commits under its own lock, and
+		// HostAnswer gives the run its lease only after that commit.
+		r.mu.Lock()
+		lease := r.lease
+		answered := maps.Clone(r.answered)
+		r.mu.Unlock()
+		// The answer may have committed (the row runs under its lease) before
+		// HostAnswer reached this run: the row's closed card says what it chose.
+		onRow := answeredOnRow(&row, parked.RequestID)
 		mergeTaint(&row, taint)
 		mergeTaint(&row, r.tools.bots.taint())
 		reply := func() {
@@ -507,8 +512,8 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 			// A continuation that parked on a new card before its approved
 			// call ran loses that approval: say so, never leave it "approved".
 			settleLostContinuation(&row, r.tools.contRequest)
-		case row.Status == "running" && row.AgentRunID == r.id && lease != "" && row.Lease == lease:
-			choice := answered[parked.RequestID]
+		case row.Status == "running" && row.AgentRunID == r.id && (lease != "" && row.Lease == lease || onRow != ""):
+			choice := firstNonEmpty(answered[parked.RequestID], onRow)
 			pend := r.cards[parked.ToolCallID]
 			card := pend.card
 			req := HostRequest{RequestID: parked.RequestID, Run: r.id, Phase: hostParked, Tool: firstNonEmpty(parked.Tool, pend.tool),
@@ -549,6 +554,29 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 	if err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, gorm.ErrRecordNotFound) && !fenced(err) {
 		e.opts.Logf("agent engine: parking run %s: %v", r.id, err)
 	}
+}
+
+// answeredOnRow is what the person chose for the card requestID, read from its
+// closed message when the answer committed and its call has not settled yet
+// ("" when there is no such card): hostOnce, hostChat or hostDeny.
+func answeredOnRow(row *Conversation, requestID string) string {
+	if requestID == "" {
+		return ""
+	}
+	for i := len(row.Messages) - 1; i >= 0; i-- {
+		m := row.Messages[i]
+		if m.Kind != "host" || m.Host == nil || m.Host.RequestID != requestID {
+			continue
+		}
+		switch m.Host.Outcome {
+		case hostApproved:
+			return firstNonEmpty(m.Host.Choice, hostOnce)
+		case hostDenied:
+			return hostDeny
+		}
+		return ""
+	}
+	return ""
 }
 
 // queuedNotRun says that a second card of a parallel batch, still waiting in

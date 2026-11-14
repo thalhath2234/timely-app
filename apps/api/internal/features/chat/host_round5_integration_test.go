@@ -142,3 +142,59 @@ func TestIntegrationAgentEngineHostLiveCardFollowedByAnotherProcessIsLeftAlone(t
 		t.Fatalf("%d run.starts: a continuation was queued", n)
 	}
 }
+
+// lateAnswerEngine is the engine when the follower handles the worker's
+// run.done (approval_parked) in the window between the answer's commit and
+// HostAnswer giving the run the answer's lease: HostAnswer waits until the
+// run has left the follower, then calls the real one.
+type lateAnswerEngine struct {
+	*WorkerEngine
+	late atomic.Bool
+}
+
+func (w *lateAnswerEngine) HostAnswer(ctx context.Context, uid, cid, runID, requestID, choice, lease string) error {
+	if w.late.Load() {
+		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			w.WorkerEngine.mu.Lock()
+			_, there := w.WorkerEngine.runs[runID]
+			w.WorkerEngine.mu.Unlock()
+			if !there {
+				break
+			}
+		}
+	}
+	return w.WorkerEngine.HostAnswer(ctx, uid, cid, runID, requestID, choice, lease)
+}
+
+// Review round 6: the worker's run.done (approval_parked) reaches the
+// follower after the answer committed but before the answer gave the run its
+// lease. The row says what the answer asked for, so the follower still does
+// the clean-up (card A's lost approval reads Not run).
+func TestIntegrationAgentEngineHostParkBeforeTheAnswerAdoptsItsLeaseKeepsTheCleanUp(t *testing.T) {
+	h := hostHarness(t, func(o *WorkerEngineOptions) { o.LiveWait = time.Second })
+	w := &lateAnswerEngine{WorkerEngine: h.e}
+	h.s.SetAgentEngine(w)
+	c := h.chat("List my files", "supervised", "r6-first", lines(ls("call_ls"), reply("x", 0)))
+	c = h.hostWaiting(c.ID, hostParked)
+	h.kit.Fixture("r6-second", lines(host("call_pwd", "terminal", obj{"command": "pwd"}, obj{"live_ms": 1500}), ls("call_ls"), reply("x", 0))).ForConversation(c.ID, "r6-second")
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer A: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "card B live", func(c Conversation) bool {
+		return c.Status == statusHostApproval && c.HostRequest.Phase == hostLive && c.HostRequest.ToolCallID == "call_pwd"
+	})
+	h.kit.Fixture("r6-third", lines(host("call_pwd", "terminal", obj{"command": "pwd"}), reply("done", 0))).ForConversation(c.ID, "r6-third")
+	w.late.Store(true)
+	// B's wait (1.5 s) ends while the answer is held back.
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer B: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "idle after B's continuation", func(c Conversation) bool { return c.Status == "idle" && lastMessage(c).Content == "done" })
+	byCall := map[string]string{}
+	for _, cl := range closedHost(c) {
+		byCall[cl.ToolCallID] = cl.Outcome
+	}
+	if byCall["call_ls"] != hostNotRun || byCall["call_pwd"] != hostRan {
+		t.Fatalf("closed cards %v: card A's call never ran and nothing carries it, B ran", byCall)
+	}
+}
