@@ -166,7 +166,11 @@ func ConfigFromEnv(getenv func(string) string, workDir string) Config {
 	env.Packaged = runtime.Packaged
 	// A test API's sandboxed "real" home (decision 20).
 	if dir, ok, herr := TestRealHome(getenv, env.RealHome); herr != nil {
-		log.Printf("agent engine: %v", herr)
+		// Fail closed: a refused sandbox folder must never leave the workers
+		// on the owner's real home. No worker starts until it is fixed.
+		log.Printf("agent engine: %v: no worker will start", herr)
+		runtime.Program = ""
+		err = fmt.Errorf("%w: %v", ErrNoRuntime, herr)
 	} else if ok {
 		log.Printf("agent engine: workers see %s as the real home (%s, test only)", dir, RealHomeEnv)
 		env.RealHome = dir

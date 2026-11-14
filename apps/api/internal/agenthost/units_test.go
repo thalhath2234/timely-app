@@ -316,3 +316,32 @@ func TestSetLimitsResizesTheSlots(t *testing.T) {
 		t.Fatal("under the cap again")
 	}
 }
+
+// A refused TIMELY_AGENT_REAL_HOME (missing, outside the sandbox) fails
+// closed: no worker may start on the owner's real home (review round 2).
+func TestConfigFromEnvRefusedRealHomeFailsClosed(t *testing.T) {
+	real, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home")
+	}
+	for name, raw := range map[string]string{
+		"missing":  filepath.Join(SandboxRoot(real), "no-such-home-for-this-test"),
+		"outside":  t.TempDir(),
+		"the home": real,
+		"dotfiles": filepath.Join(real, ".ssh"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := map[string]string{"DB_SCHEMA": "p5probe", RealHomeEnv: raw, "TIMELY_DATA_DIR": t.TempDir()}
+			cfg := ConfigFromEnv(func(k string) string { return env[k] }, t.TempDir())
+			if cfg.Env.RealHome == real && cfg.Runtime.Program != "" {
+				t.Fatal("a refused real home left the workers on the real home")
+			}
+			if cfg.Runtime.Program != "" || !errors.Is(cfg.RuntimeErr, ErrNoRuntime) || !strings.Contains(cfg.RuntimeErr.Error(), RealHomeEnv) {
+				t.Fatalf("a refused real home left the runtime usable: %+v %v", cfg.Runtime, cfg.RuntimeErr)
+			}
+			if (&Supervisor{cfg: cfg}).Available() == nil {
+				t.Fatal("Available says the engine can run")
+			}
+		})
+	}
+}
