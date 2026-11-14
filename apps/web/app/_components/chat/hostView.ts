@@ -120,9 +120,12 @@ export function hostCardView(
     state: parked ? "parked" : "live",
     title: card?.title?.trim() || hostCardTitle({ kind, server: card?.server }),
     stateWord: HOST_CARD_STATE_WORDS[parked ? "parked" : "live"],
-    lead: parked
-      ? "The assistant stopped to wait. Run once starts it again to run exactly this."
-      : "The assistant is waiting for you. Nothing runs until you choose.",
+    lead:
+      kind === "mcp_server"
+        ? "This server is not added yet. It starts only after you choose."
+        : parked
+          ? "The assistant stopped to wait. Run once starts it again to run exactly this."
+          : "The assistant is waiting for you. Nothing runs until you choose.",
     kind,
     subjectLabel: subjectLabel(kind),
     subject: subjectText(card),

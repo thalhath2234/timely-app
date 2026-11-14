@@ -260,7 +260,7 @@ export default function HostCard({
               : "Sending your answer…"
             : blocked || view.grant}
         </span>
-        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+        <span className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1">
           {order.map((choice) => {
             const a = access.find((x) => x.choice === choice)!;
             return (
