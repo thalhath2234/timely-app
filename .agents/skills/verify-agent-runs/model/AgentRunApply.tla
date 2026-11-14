@@ -32,7 +32,9 @@
 (* the run ends and the card parks (ParkHost, ParkOrphan). Run once on a   *)
 (* live card re-attaches the run under a fresh lease (AnswerHostLive,      *)
 (* DeliverHost); on a parked card it queues a continuation the claim       *)
-(* takes off the row (AnswerHostParked, Claim). Stop and Delete deny a     *)
+(* takes off the row (AnswerHostParked, Claim); a deny closes either card *)
+(* without a call (AnswerHostLiveDeny, AnswerHostParkedDeny). Stop and    *)
+(* Delete deny a                                                           *)
 (* waiting card and stop the worker's run; the worker runs the approved    *)
 (* call at most once (RunHostTool).                                        *)
 (*                                                                         *)
@@ -214,9 +216,11 @@ Claimable(r) ==
 \* runEngine(): a fresh run picks its engine now (the chat's choice, else
 \* the account's); apply, photo phases and Sensitive chats run classic. A
 \* resumed lease keeps the engine and the agent run it had.
+\* A parked card's approved call (cont) is forced to the agent engine: a
+\* classic lane could not run it (d46111f6), so it never gets one.
 Engines(base) ==
     IF base.status = "queued" /\ base.phase = "plan" /\ AllowAgent
-    THEN {"classic", "agent"} ELSE {"classic"}
+    THEN (IF base.cont THEN {"agent"} ELSE {"classic", "agent"}) ELSE {"classic"}
 
 \* A fresh claim takes the continuation off the row (the lane's copy keeps
 \* it for Start's run.start pre_approved).
@@ -929,6 +933,46 @@ AnswerHostParked ==
     /\ UNCHANGED qvars
     /\ UNCHANGED <<wreq, wrun, hostAsked, sent, ran, hostHalted, ranAfterStop, hostClaimed, hostProposal>>
 
+\* Deny (answerHost with choice deny, from the person or, with a reason, from
+\* the sweep that denies the cards of an account turned off, Q-5.2) and the
+\* answer made after a parked card's hour (the same close as ExpireHost) never
+\* reach RunHostTool: a live card's run is re-attached and the worker's
+\* request closes with the deny; a parked card closes the row (idle), no
+\* continuation is queued, and a run nobody follows is stopped. Fenced like
+\* Run once (HostAnswerFenced), so a stale deny is a 409 too.
+AnswerHostLiveDeny ==
+    /\ hostAsked > 0 /\ resolved < 2 /\ sent = NoLease
+    /\ ~row.deleted
+    /\ nextLease <= MaxLeases
+    /\ HostAnswerOK
+    /\ (HostAnswerFenced => row.hphase = "live" /\ row.run = row.host)
+    /\ \E f \in fol :
+         /\ f.run = wrun
+         /\ row' = [row EXCEPT !.status = "running", !.lease = nextLease, !.expired = FALSE,
+                               !.run = wrun, !.host = NoRun, !.hphase = "none"]
+         /\ fol' = (fol \ {f}) \cup {[f EXCEPT !.lease = nextLease]}
+    /\ wreq' = IF wreq = "waiting" THEN "closed" ELSE wreq
+    /\ nextLease' = nextLease + 1
+    /\ resolved' = resolved + 1
+    /\ UNCHANGED <<mem, pc, cursor, writes, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
+    /\ UNCHANGED <<wrun, wstopped, hostAsked, sent, ran, hostHalted, ranAfterStop, hostClaimed, hostProposal>>
+
+AnswerHostParkedDeny ==
+    /\ hostAsked > 0 /\ resolved < 2
+    /\ ~row.deleted
+    /\ HostAnswerOK
+    /\ (HostAnswerFenced => row.hphase = "parked" \/ ~\E f \in fol : f.run = row.run)
+    /\ row' = [row EXCEPT !.status = "idle", !.run = NoRun, !.lease = NoLease,
+                          !.expired = FALSE, !.host = NoRun, !.hphase = "none"]
+    /\ resolved' = resolved + 1
+    /\ wstopped' = IF row.run # NoRun THEN wstopped \cup {row.run} ELSE wstopped
+    /\ UNCHANGED <<mem, pc, cursor, fol, writes, nextLease, proposals, halted, wroteWhileHalted,
+                   doneNotices, unapproved, wroteUnapproved, stops, retries, crashes, sends, switches>>
+    /\ UNCHANGED qvars
+    /\ UNCHANGED <<wreq, wrun, hostAsked, sent, ran, hostHalted, ranAfterStop, hostClaimed, hostProposal>>
+
 \* HostAnswer's approval.answer once reaches the worker. A request still
 \* waiting, of a run not stopped, is approved; otherwise the worker refuses
 \* it and hostAnswerNotTaken, fenced on the answer's lease, queues the
@@ -993,6 +1037,7 @@ Next ==
     \/ Expire \/ Approve \/ Stop \/ Retry \/ Send \/ Reject \/ DiscardReview
     \/ SetPermission \/ Steer \/ Delete \/ Answer \/ ReopenQuestion
     \/ ParkOrphan \/ AnswerHostLive \/ AnswerHostParked \/ DeliverHost \/ ExpireHost
+    \/ AnswerHostLiveDeny \/ AnswerHostParkedDeny
 
 Spec == Init /\ [][Next]_vars
 
