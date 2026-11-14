@@ -273,8 +273,17 @@ func (s *Service) create(c *echo.Context) error {
 				return err
 			}
 		} else if prefs, perr := chatSettings(s.db, user(c)); perr == nil {
-			// The account's Full Access default carries its own step-up.
-			fullAccess = prefs.FullAccessDefault
+			// The account's Full Access default is what the desktop window
+			// set; it needs the same step-up as naming Full Access does. Any
+			// other device (a browser, a phone not unlocked, a phone when
+			// Full Access is desktop only) gets an Auto chat instead.
+			if _, serr := s.fullAccessStepUp(c, user(c), nil); serr == nil {
+				fullAccess = prefs.FullAccessDefault
+			} else if errors.Is(serr, errFullAccess) {
+				permission = string(agent.Auto)
+			} else {
+				return serr
+			}
 		}
 	}
 	if in.Context == nil {
