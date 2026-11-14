@@ -13,6 +13,7 @@ import {
   modeLabel,
   serverStatus,
   serverTarget,
+  toolsEmptyText,
   serversSummary,
   toolAlwaysAsks,
   toolClassLabel,
@@ -111,7 +112,7 @@ export function ServerRow({ server, waiting, onPress }: { server: McpServer; wai
       title={server.name}
       // The status comes first and has a line of its own: a command or an
       // address that wraps must not push it off the row.
-      meta={[line, server.flag || middleClip(serverTarget(server), 44)].filter(Boolean).join("\n")}
+      meta={[line, server.flag || middleClip(serverTarget(server), 26)].filter(Boolean).join("\n")}
       trailing={<ModeBadge mode={server.mode} />}
       accessibilityLabel={`${server.name}, ${modeLabel(server.mode)}, ${line}`}
       onPress={onPress}
@@ -163,7 +164,7 @@ export function ServerSheet({
           <View style={{ gap: 12 }}>
             {server.description ? <Text style={styles.meta}>{server.description}</Text> : null}
             {server.flag ? <Text style={styles.warn}>{server.flag}. Its sending and deleting tools always ask in Auto.</Text> : null}
-            <View style={styles.group} accessibilityRole="radiogroup">
+            <View style={styles.group} accessibilityRole="radiogroup" accessibilityLabel={`${server.name} mode`}>
               {MCP_MODES.map((m, index) => (
                 <View key={m.value}>
                   {index > 0 ? <View style={styles.divider} /> : null}
@@ -221,7 +222,7 @@ export function ServerSheet({
               ) : tools.data?.error ? (
                 <Text style={styles.meta}>{tools.data.needsSignIn ? "Sign in to see this server's tools." : tools.data.error}</Text>
               ) : (tools.data?.tools ?? []).length === 0 ? (
-                <Text style={styles.meta}>{server.mode === "off" ? "Turn it on to see its tools." : "No tools listed."}</Text>
+                <Text style={styles.meta}>{toolsEmptyText(server)}</Text>
               ) : (
                 (tools.data?.tools ?? []).map((tool) => (
                   <View key={tool.name} style={styles.tool}>

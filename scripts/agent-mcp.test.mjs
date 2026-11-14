@@ -14,6 +14,7 @@ import {
   parseArgs,
   parseEnv,
   serverStatus,
+  toolsEmptyText,
   serverTarget,
   serversSummary,
   suggestName,
@@ -142,4 +143,13 @@ test("a row shows the address or the exact command", () => {
   assert.equal(serverTarget({ transport: "remote", url: "https://mcp.stripe.com" }), "mcp.stripe.com");
   assert.equal(serverTarget({ transport: "command", command: "npx", args: ["-y", "my pkg"] }), 'npx -y "my pkg"');
   assert.equal(commandLine({ command: "srv" }), "srv");
+});
+
+test("an empty tools list says why, not that the server has none", () => {
+  const ok = { status: "ready", mode: "ask" };
+  assert.equal(toolsEmptyText(ok), "No tools listed.");
+  assert.match(toolsEmptyText({ ...ok, mode: "off" }), /Turn it on/);
+  assert.match(toolsEmptyText({ ...ok, status: "not_approved" }), /Add it first/);
+  assert.match(toolsEmptyText({ ...ok, status: "waiting_for_ok" }), /Approve its card/);
+  assert.match(toolsEmptyText({ ...ok, status: "unavailable" }), /not available/);
 });

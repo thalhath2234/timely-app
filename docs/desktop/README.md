@@ -316,7 +316,7 @@ the token and the window's `session` cookie, and sends it to the API on loopback
 | `hostAccounts.set` | `PUT /instance/host-accounts` | `uid`, `on` |
 | `hostAccounts.workingDir` | `PUT /instance/host-accounts` | `uid`, `workingDir` ("" clears) |
 | `agentLimits.set` | `PUT /instance/agent-limits` | `maxWorkers`, `idleMinutes` (integers) |
-| `chat.permission` | `PATCH /chats/:chatId` | `chatId`, `permission` (Full Access needs this window) |
+| `chat.permission` | `PATCH /chats/:chatId` | `chatId`, `permission` (Full Access needs this window, or an unlocked phone when Settings allows it on any device) |
 | `settings.permissions` | `PATCH /agent/chat-settings` | a flat object of the account's permission settings |
 | `chat.hostApproval` | `POST /chats/:chatId/host-approval` | `chatId`, `revision`, `requestId`, `choice`; the main process adds `device: {kind: "desktop", name: <this computer>}` |
 

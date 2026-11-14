@@ -394,7 +394,7 @@ export function HostToolsSection() {
         description={HOST_LIMIT_COPY}
         checked={state.checked}
         disabled={!state.editable || !state.canTurnOff || !uid}
-        hint={state.note || undefined}
+        hint={state.note || (state.editable && state.checked && mine?.workingDir ? "Turning this off also forgets the working folder." : undefined)}
         busy={busy}
         onChange={(next) => uid && save.mutate(() => setHostAccount(uid, next))}
       />
@@ -444,7 +444,7 @@ export function HostToolsSection() {
           )}
           <p className="text-xs text-muted-foreground">
             Each account is turned on separately: sign in as it in the desktop app to turn it on, or ask whoever runs this server to add
-            it (TIMELY_AGENT_HOST_ACCOUNTS).{state.editable ? " Turn another account off here." : ""} Every other account can still chat
+            it (TIMELY_AGENT_HOST_ACCOUNTS).{state.editable && rows.some((row) => row.source === "desktop" && !row.you) ? " Turn another account off here." : ""} Every other account can still chat
             with the assistant, but gets no commands, files or browser.
           </p>
         </div>

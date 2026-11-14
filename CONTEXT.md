@@ -96,11 +96,11 @@ An account that may use the computer the app runs on: its Agent runs get the ter
 _Avoid_: admin, trusted account, host-trusted (the ADRs' older word), superuser
 
 **Parked card**:
-A Host card whose run stopped waiting after 10 minutes. The chat reads "Waiting for your OK" and nothing runs. The card stays for up to an hour (10 to 60 minutes in Settings → Permissions, "Cards wait up to"); Run once then starts the assistant again to run exactly that call. When the time passes, the card closes as "Expired, not run".
+A Host card whose run stopped waiting after 10 minutes. The chat reads "Waiting for your OK" and nothing runs. The card stays for up to an hour (10 to 60 minutes in Settings → Permissions, "Paused cards wait up to"); Run once then starts the assistant again to run exactly that call. When the time passes, the card closes as "Expired, not run".
 _Avoid_: pending card, expired card (that is what it becomes), timed-out card
 
 **Allow for this chat**:
-A choice on a Host card that lets later calls of the same kind in this chat run without asking again: the same program for commands (and the same subcommand for tools like git or npm), the same folder for files, the same site for the browser, the same server and tool for MCP. It never covers a command with a pipe, redirect or `sudo`, code, an item on the Critical list, or an MCP server set to Ask me first. It lasts as long as the chat and is listed on the chat's permission sheet with Remove.
+A choice on a Host card that lets later calls of the same kind in this chat run without asking again: the same program for commands (and the same subcommand for tools like git or npm), the same folder for files, the same server and tool for MCP. It never covers a command with a pipe, redirect or `sudo`, code, a browser call (every one asks), an item on the Critical list, or an MCP server set to Ask me first. The one exception on the Critical list is a change after the chat read outside content (item 6) when everything it read was local (a file or a command's own output): that card can be allowed for the chat. It lasts as long as the chat and is listed on the chat's permission sheet with Remove.
 _Avoid_: always allow, trust this command, remember (in copy)
 
 **Working folder**:
@@ -140,11 +140,11 @@ What runs a chat's turns: Classic (Timely's own loop, the default) or New (the a
 _Avoid_: backend, provider (that is the Agent provider), model
 
 **Permission mode**:
-How much a chat's agent may do without asking: Supervised (every change waits for Approve), Auto (changes apply at once with Undo, except the Critical list), or Full Access (no Host card for commands, files, code, the browser or MCP tools; it needs a confirmation from the desktop window that names what it lifts, and it never lifts the floors: wiping the disk or system and handing out keys). A Full Access that was not confirmed there acts as Auto. New chats take the account's default (Supervised unless changed); each chat can be switched from the composer chip. A looser mode never approves a change already waiting; a stricter one holds the next.
+How much a chat's agent may do without asking: Supervised (every change waits for Approve), Auto (changes apply at once with Undo, except the Critical list), or Full Access (no Host card for commands, files or code, or for a tool of an MCP server set to Use; a browser call and a tool of a server set to Ask me first still show a card in every mode; turning it on needs a confirmation from the desktop window, or from an unlocked phone when Settings allows Full Access on any device, that names what it lifts, and it never lifts the floors: wiping the disk or system and handing out keys). A Full Access that was not confirmed acts as Auto, and a new chat made from any other device takes Auto, not the account's Full Access default. New chats take the account's default (Supervised unless changed); each chat can be switched from the composer chip. A looser mode never approves a change already waiting; a stricter one holds the next.
 _Avoid_: autonomy level, trust level, YOLO (in copy)
 
 **Critical list**:
-The changes Auto always asks about first: deleting or overwriting (deletes, more than 10 items at once, whole-content replacements), sending the person's data out, buying, paying or signing in, installing software, changing settings or permissions (Bots included), and any change after the chat read outside pages. It lives in Go (`agent/permission.go`).
+The changes Auto always asks about first: deleting or overwriting (deletes, more than 10 items at once, whole-content replacements), sending the person's data out, buying, paying or signing in, installing software, changing settings or permissions (Bots included), and any change after the chat read outside content (a page, a file or command output). It lives in Go (`agent/permission.go`).
 _Avoid_: dangerous actions, blocklist (the floors no mode lifts are separate)
 
 **Taint**:

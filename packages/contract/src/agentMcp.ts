@@ -149,6 +149,24 @@ export function serverStatus(s: Pick<McpServer, "status" | "mode" | "warning" | 
   return { text: s.signsIn && s.signedIn ? "Signed in" : "Connected", tone: "ok" };
 }
 
+/** What the Tools list says when it is empty: a server that is off, not added
+ * yet or not available has no list to show because nothing asked it, not
+ * because it has no tools. */
+export function toolsEmptyText(s: Pick<McpServer, "status" | "mode">): string {
+  if (s.mode === "off") return "Turn it on to see its tools.";
+  switch (s.status) {
+    case "waiting_for_ok":
+      return "Approve its card to see its tools.";
+    case "not_approved":
+      return "Add it first to see its tools: ask again from this row.";
+    case "unavailable":
+      return "Its tools can't be listed while it is not available.";
+    case "needs_sign_in":
+      return "Sign in to see its tools.";
+  }
+  return "No tools listed.";
+}
+
 /** "3 servers, 1 needs you" for the closed row. */
 export function serversSummary(servers: Pick<McpServer, "status" | "mode">[] | undefined): string {
   if (!servers || servers.length === 0) return MCP_SUMMARY_EMPTY;

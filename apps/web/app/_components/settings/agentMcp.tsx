@@ -19,6 +19,7 @@ import {
   parseEnv,
   serverStatus,
   serverTarget,
+  toolsEmptyText,
   suggestName,
   toolAlwaysAsks,
   toolClassLabel,
@@ -239,7 +240,7 @@ function ServerDetails({ server, onSignIn, signingIn }: { server: McpServer; onS
             {tools.data.needsSignIn ? "Sign in to see this server's tools." : tools.data.error}
           </p>
         ) : list.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{server.mode === "off" ? "Turn it on to see its tools." : "No tools listed."}</p>
+          <p className="text-xs text-muted-foreground">{toolsEmptyText(server)}</p>
         ) : (
           <ul className="flex flex-col gap-1.5" aria-label={`${server.name} tools`}>
             {list.map((tool) => (
@@ -287,6 +288,7 @@ function AddPanel({
     <div className="mt-3 flex flex-col gap-3 rounded-[12px] border border-border bg-card p-3.5" data-testid="mcp-add">
       <SegmentedControl<AddKind>
         aria-label="How to add a server"
+        fill
         value={kind}
         onChange={setKind}
         options={[
