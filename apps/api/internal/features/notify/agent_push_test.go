@@ -83,7 +83,8 @@ func TestAgentHostPushSaysWhatItWantsToDo(t *testing.T) {
 	for hostKind, want := range map[string]string{
 		"terminal": "Your assistant wants to run a command.", "file": "Your assistant wants to change a file.",
 		"browser": "Your assistant wants to use your browser.", "mcp": "Your assistant wants to use github.",
-		"code": "Your assistant wants to run a command.", "mcp_server": "Your assistant wants to add an MCP server.",
+		"file_read": "Your assistant wants to read a file.",
+		"code":      "Your assistant wants to run a command.", "mcp_server": "Your assistant wants to add an MCP server.",
 	} {
 		n := &models.Notification{ID: "ntf-h", Category: "agent", Title: "rm -rf secrets", Body: "Your assistant needs your OK.", EntityType: &kind, EntityID: &cid,
 			Data: models.JobPayload{"status": "host_approval", "hostRequest": "req-1", "hostKind": hostKind, "hostServer": "github"}}

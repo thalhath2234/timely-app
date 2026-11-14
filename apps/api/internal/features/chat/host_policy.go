@@ -126,6 +126,11 @@ type hostDecision struct {
 	card    HostCard
 	grant   *HostGrant // what Allow for this chat would add
 	action  agent.HostAction
+	// by is who stands behind an allow: "auto" (the mode alone), "full"
+	// (Full Access) or "grant" (the person's Allow for this chat). The worker
+	// answers Hermes' own second prompt only for a call a person or Full
+	// Access stands behind.
+	by string
 }
 
 // decideHost is decision 5 for one call. ok is false for a tool that is
@@ -222,13 +227,13 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 			// the signed-in browser yet, so Full Access does not lift its card.
 			d.verdict, d.reason = "approve", why
 		} else {
-			d.verdict, d.reason = "allow", "Full Access"
+			d.verdict, d.reason, d.by = "allow", "Full Access", "full"
 		}
 	case agent.Auto:
 		if critical {
 			d.verdict, d.reason = "approve", why
 		} else {
-			d.verdict, d.reason = "allow", "Auto"
+			d.verdict, d.reason, d.by = "allow", "Auto", "auto"
 		}
 	default:
 		d.verdict, d.reason = "approve", "Supervised asks before every action"
@@ -238,7 +243,7 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 	}
 	if d.verdict == "approve" && grantable {
 		if g := st.grants.match(d.grant.Match); g != nil {
-			d.verdict, d.reason = "allow", "Allowed for this chat: "+g.Label
+			d.verdict, d.reason, d.by = "allow", "Allowed for this chat: "+g.Label, "grant"
 		}
 	}
 	d.card.Reason = d.reason

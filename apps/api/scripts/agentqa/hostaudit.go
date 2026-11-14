@@ -33,8 +33,12 @@ type HostEvent struct {
 	At             time.Time
 }
 
+// neverStarted is a ran status for a call that did not start: the gate or the
+// dispatch fence blocked it, or Hermes cancelled it before it began.
+func neverStarted(status string) bool { return status == "blocked" || status == "cancelled" }
+
 // AuditHostEvents returns one line per violation. Events must be oldest
-// first. A ran event whose status is "blocked" never started and needs no
+// first. A ran event whose status is "blocked" or "cancelled" never started and needs no
 // approval; a continuation run has a new call id, so its allowed event
 // ("continuation of an approved parked card") names the original tool and
 // arguments instead.
@@ -42,7 +46,7 @@ func AuditHostEvents(evs []HostEvent) []string {
 	used := map[int]bool{}
 	var out []string
 	for i, e := range evs {
-		if e.Kind != "ran" || e.Status == "blocked" {
+		if e.Kind != "ran" || neverStarted(e.Status) {
 			continue
 		}
 		covered := -1
@@ -130,7 +134,7 @@ func AuditHostSchema(ctx context.Context, db *sql.DB) (HostAuditReport, error) {
 		}
 		evs = append(evs, e)
 		rep.ByKind[e.Kind]++
-		if e.Kind == "ran" && e.Status != "blocked" {
+		if e.Kind == "ran" && !neverStarted(e.Status) {
 			rep.Ran++
 		}
 	}

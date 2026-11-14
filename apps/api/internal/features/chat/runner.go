@@ -192,6 +192,12 @@ func (s *Service) work(ctx context.Context) {
 				row.Status = "failed"
 				row.Error = msg
 				row.ErrorAction = failureAction(err)
+				if c.PreApproved != nil {
+					// The continuation of a parked card never started (a refused
+					// start, the engine changed, the account is no longer
+					// host-allowed): the approved call did not run.
+					settleHostCards(row, "", c.PreApproved.RequestID)
+				}
 				if row.Phase == "apply" {
 					// Name the step that stopped the run; retry resets it to pending.
 					for i := range row.Plan {

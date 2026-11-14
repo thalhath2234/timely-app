@@ -48,6 +48,14 @@ const (
 	hostDenied  = "denied"
 	hostExpired = "expired"
 	hostStopped = "stopped"
+	// hostApproved is the interim state of a card the person answered Run
+	// once or Allow for this chat: the call has not run yet. Only the
+	// worker's host.ran (status ok) turns it into Ran or Allowed for this
+	// chat; a Stop, a failed or refused continuation, or a turn that ends
+	// without the call turns it into hostNotRun (review of the exit check:
+	// a card must never say Ran for a call that did not).
+	hostApproved = "approved"
+	hostNotRun   = "notrun"
 )
 
 // Host card kinds (gate.verdict card.kind, PROTOCOL.md 12.3).
@@ -192,6 +200,12 @@ type ClosedHost struct {
 	Card       *HostCard   `json:"card,omitempty"`
 	Outcome    string      `json:"outcome"`
 	Device     *HostDevice `json:"device,omitempty"`
+	// Choice is what the person answered (once, chat) on a card that asked;
+	// it says what an approved card becomes when its call runs.
+	Choice string `json:"choice,omitempty"`
+	// ArgsHash names the call the card asked for, so a continuation turn's
+	// host.ran (a new call id) finds it.
+	ArgsHash string `json:"argsHash,omitempty"`
 	// Auto marks a call that ran without a card (Auto, Full Access or a
 	// grant): the message exists for its checkpoint.
 	Auto bool `json:"auto,omitempty"`
@@ -218,6 +232,10 @@ func hostOutcomeText(card *HostCard, tool, outcome string) string {
 		return "Host card: the person denied " + what
 	case hostExpired:
 		return "Host card expired, not run: " + what
+	case hostApproved:
+		return "Host card: the person approved " + what + ", it has not run yet"
+	case hostNotRun:
+		return "Host card: the person approved " + what + ", but it did not run"
 	}
 	return "Host card closed before the person answered, not run: " + what
 }
@@ -226,19 +244,72 @@ func hostOutcomeText(card *HostCard, tool, outcome string) string {
 // closed and clears it (status is the caller's). It returns the message id
 // ("" when no card waited).
 func closeHostCard(row *Conversation, outcome string, device *HostDevice) string {
+	return closeHostCardAs(row, outcome, device, "")
+}
+
+// closeHostCardAs is closeHostCard for an answered card: choice (once, chat)
+// is kept on the closed card.
+func closeHostCardAs(row *Conversation, outcome string, device *HostDevice, choice string) string {
 	h := row.HostRequest
 	if !h.pending() {
 		return ""
 	}
 	m := message("assistant", hostOutcomeText(h.Card, h.Tool, outcome))
 	m.Kind = "host"
-	m.Host = &ClosedHost{RequestID: h.RequestID, ToolCallID: h.ToolCallID, Tool: h.Tool, Card: h.Card, Outcome: outcome, Device: device}
+	m.Host = &ClosedHost{RequestID: h.RequestID, ToolCallID: h.ToolCallID, Tool: h.Tool, Card: h.Card, Outcome: outcome, Device: device,
+		Choice: choice, ArgsHash: h.ArgsHash}
 	if h.Run != "" {
 		m.Engine, m.AgentRun = engineAgent, h.Run
 	}
 	row.Messages = append(row.Messages, m)
 	row.HostRequest = HostRequest{}
 	return m.ID
+}
+
+// settleHostCard moves an approved card to how its call ended. ran is true
+// when the call started (host.ran ok, error or timeout): Ran, or Allowed for
+// this chat after that choice; otherwise it did not run.
+func settleHostCard(m *Message, ran bool) {
+	if m.Kind != "host" || m.Host == nil {
+		return
+	}
+	to := hostNotRun
+	if ran {
+		to = hostRan
+		if m.Host.Choice == hostChat {
+			to = hostAllowed
+		}
+	}
+	m.Host.Outcome = to
+	m.Content = hostOutcomeText(m.Host.Card, m.Host.Tool, to)
+}
+
+// settleHostCards turns the approved cards of a run (by the run that asked,
+// or by the request a continuation carries) that never saw their call run
+// into "not run". It reports whether it changed any.
+func settleHostCards(row *Conversation, runID, requestID string) bool {
+	changed := false
+	for i := range row.Messages {
+		m := &row.Messages[i]
+		if m.Kind != "host" || m.Host == nil || m.Host.Outcome != hostApproved {
+			continue
+		}
+		if (runID != "" && m.AgentRun == runID) || (requestID != "" && m.Host.RequestID == requestID) {
+			settleHostCard(m, false)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// settleAllHostCards is settleHostCards for every approved card of a chat
+// that has no run any more (Retry).
+func settleAllHostCards(row *Conversation) {
+	for i := range row.Messages {
+		if m := &row.Messages[i]; m.Kind == "host" && m.Host != nil && m.Host.Outcome == hostApproved {
+			settleHostCard(m, false)
+		}
+	}
 }
 
 // notRun is the notice for a host call that will not run.

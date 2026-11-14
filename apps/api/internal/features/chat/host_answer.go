@@ -33,6 +33,7 @@ var (
 	errFullAccess   = echo.NewHTTPError(403, "Turn on Full Access from the desktop app")
 	errDesktopRule  = echo.NewHTTPError(403, "Change this from the desktop app")
 	errUndoGone     = echo.NewHTTPError(409, "This change can't be undone any more")
+	errNotGrantable = echo.NewHTTPError(409, "This card can't be allowed for the whole chat. Choose Run once or Deny.")
 	errNoHostEngine = echo.NewHTTPError(409, "The assistant isn't running here")
 )
 
@@ -131,9 +132,15 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		if h.RequestID != requestID {
 			return errHostStale
 		}
+		if choice == hostChat && (h.Grant == nil || h.Card == nil || !h.Card.Grantable) {
+			return errNotGrantable // the apps hide the button; the server holds the line
+		}
 		asked = h
 		live = h.Phase == hostLive && row.AgentRunID != "" && row.AgentRunID == h.Run && he != nil && he.Follows(uid, cid, h.Run)
-		outcome := map[string]string{hostOnce: hostRan, hostChat: hostAllowed, hostDeny: hostDenied}[choice]
+		// Run once and Allow for this chat close the card as approved, not as
+		// ran: the call has not run yet, and may never (Stop, a refused
+		// continuation). The worker's host.ran settles it.
+		outcome := map[string]string{hostOnce: hostApproved, hostChat: hostApproved, hostDeny: hostDenied}[choice]
 		kind := eventApproved
 		if choice == hostDeny {
 			kind = eventDenied
@@ -142,7 +149,11 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		if err := tx.Create(&ev).Error; err != nil {
 			return err
 		}
-		closeHostCard(&row, outcome, dev)
+		if choice == hostDeny {
+			closeHostCard(&row, outcome, dev)
+		} else {
+			closeHostCardAs(&row, outcome, dev, choice)
+		}
 		if choice == hostChat && h.Grant != nil && row.HostGrants.match(h.Grant.Match) == nil {
 			g := *h.Grant
 			now := time.Now().UTC()
@@ -326,40 +337,67 @@ func (s *Service) hostUndo(c *echo.Context) error {
 		return echo.NewHTTPError(400, "Invalid request")
 	}
 	uid, cid := user(c), c.Param("id")
-	var row Conversation
-	if err := s.find(s.db, uid, cid, &row); err != nil {
+	// Claim the undo under the row's lock before the worker restores, so two
+	// devices asking at once restore the checkpoint once: the first marks it
+	// undone, the second finds it so and is refused. A failed restore puts
+	// the mark back.
+	var h ClosedHost
+	var undoneRun string
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var latest Conversation
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &latest); err != nil {
+			return err
+		}
+		i := slices.IndexFunc(latest.Messages, func(m Message) bool {
+			return m.Host != nil && m.Host.Checkpoint == in.CheckpointID
+		})
+		if i < 0 || latest.Messages[i].Host.UndoneAt != nil {
+			return errUndoGone
+		}
+		now := time.Now().UTC()
+		latest.Messages[i].Host.UndoneAt = &now
+		h, undoneRun = *latest.Messages[i].Host, latest.Messages[i].AgentRun
+		latest.Revision++
+		return tx.Save(&latest).Error
+	})
+	if err != nil {
 		return err
 	}
-	i := slices.IndexFunc(row.Messages, func(m Message) bool {
-		return m.Host != nil && m.Host.Checkpoint == in.CheckpointID
-	})
-	if i < 0 || row.Messages[i].Host.UndoneAt != nil {
-		return errUndoGone
+	unclaim := func() {
+		_ = s.db.Transaction(func(tx *gorm.DB) error {
+			var latest Conversation
+			if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &latest); err != nil {
+				return err
+			}
+			for j := range latest.Messages {
+				if m := &latest.Messages[j]; m.Host != nil && m.Host.Checkpoint == in.CheckpointID {
+					m.Host.UndoneAt = nil
+				}
+			}
+			latest.Revision++
+			return tx.Save(&latest).Error
+		})
 	}
 	he, ok := s.engine.(hostEngine)
 	if !ok {
+		unclaim()
 		return errNoHostEngine
 	}
-	h := row.Messages[i].Host
 	restored, err := he.HostUndo(c.Request().Context(), uid, cid, h.Checkpoint, h.CheckpointDir)
 	if errors.Is(err, errCheckpointGone) {
+		unclaim()
 		return errUndoGone
 	}
 	if err != nil {
+		unclaim()
 		return echo.NewHTTPError(503, "Undo did not reach the assistant. Try again.")
 	}
-	ev := hostEvent(uid, cid, row.Messages[i].AgentRun, h.ToolCallID, h.RequestID, h.Tool, "", eventUndone, "", "", device(c, nil),
+	ev := hostEvent(uid, cid, undoneRun, h.ToolCallID, h.RequestID, h.Tool, "", eventUndone, "", "", device(c, nil),
 		map[string]any{"checkpoint": h.Checkpoint, "restored": restored})
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		var latest Conversation
 		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &latest); err != nil {
 			return err
-		}
-		for j := range latest.Messages {
-			if m := &latest.Messages[j]; m.Host != nil && m.Host.Checkpoint == in.CheckpointID {
-				now := time.Now().UTC()
-				m.Host.UndoneAt = &now
-			}
 		}
 		latest.Messages = append(latest.Messages, notice("Undid the change to "+clip(strings.Join(restored, ", "), 400)))
 		latest.Revision++

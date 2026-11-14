@@ -292,6 +292,14 @@ type agentRun struct {
 	ranLater    []workerEvent
 	hostWait    string
 	answered    map[string]string
+	// requestCall is each live card's tool call by request id and
+	// answeredCalls the choice given for a call by tool call id: host.ran
+	// needs both to settle the card the person approved (guarded by mu).
+	requestCall   map[string]string
+	answeredCalls map[string]string
+	// cont is the parked card's continuation this run carries (nil
+	// otherwise): its host.ran settles the card by tool and arguments.
+	cont *HostContinuation
 }
 
 // runItem is one thing a follower handles: a worker message, or the end of
@@ -486,6 +494,9 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	}
 	r.conv, r.lease = *c, c.Lease
 	tools.load(c, r.id)
+	if pre != nil && pre.pending() {
+		tools.contRequest, r.cont = pre.RequestID, pre
+	}
 	// The checkpoint read the row under the lock configure takes too: a
 	// "Don't learn from this chat" saved while triage or a cold worker held
 	// Start up reaches this run.start.

@@ -1066,6 +1066,8 @@ func hostPushBody(kind, server string) string {
 	switch kind {
 	case "file":
 		return "Your assistant wants to change a file."
+	case "file_read":
+		return "Your assistant wants to read a file."
 	case "browser":
 		return "Your assistant wants to use your browser."
 	case "mcp":

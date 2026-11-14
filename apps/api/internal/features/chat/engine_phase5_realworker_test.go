@@ -55,7 +55,7 @@ import (
 
 // hostRunViolations is the exit check over a chat's (or a whole test
 // database's) host events, oldest first: every call that ran, whatever its
-// status except "blocked" (which never started), has an approved or allowed
+// status except "blocked" and "cancelled" (which never started), has an approved or allowed
 // event before it, and each such event covers one run only. A continuation
 // run has a new call id, so its allowed event ("continuation of an approved
 // parked card") names the original tool and arguments instead, and matches
@@ -71,7 +71,7 @@ func hostRunViolations(evs []AgentHostEvent) []string {
 			Status string `json:"status"`
 		}
 		_ = json.Unmarshal(e.Detail, &detail)
-		if detail.Status == "blocked" {
+		if detail.Status == "blocked" || detail.Status == "cancelled" {
 			continue
 		}
 		covered := -1
@@ -629,7 +629,7 @@ func executed(evs []AgentHostEvent) []string {
 			Status string `json:"status"`
 		}
 		_ = json.Unmarshal(e.Detail, &d)
-		if d.Status != "blocked" {
+		if d.Status != "blocked" && d.Status != "cancelled" {
 			out = append(out, d.Status)
 		}
 	}
@@ -772,10 +772,23 @@ func TestIntegrationAgentEngineRealWorkerHostStop(t *testing.T) {
 	if n := w.sb.mentions("p5-stopped-after"); n != 0 {
 		t.Fatalf("an approved command started %d times after Stop", n)
 	}
-	// What the worker reports for the call it did not start is its own
-	// matter (it says "ok" today for a call the fence stopped); that nothing
-	// started is the trap's word above.
-	t.Logf("host.ran statuses after Stop right after Run once: %v (the trap saw no process)", executed(w.hostEvents(c.ID)))
+	// What the worker reports for the call it did not start must not read
+	// "ok": the audit and the card's closed state go by it.
+	for _, status := range executed(w.hostEvents(c.ID)) {
+		if status == "ok" {
+			t.Fatalf("host.ran said ok for a call that never started (the trap saw no process): %v", executed(w.hostEvents(c.ID)))
+		}
+	}
+	// And the card the person approved never claims a run that did not
+	// happen: Run once was answered, then Stop landed before the tool started.
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostNotRun {
+		t.Fatalf("the card after Stop right after Run once: %+v", cl)
+	}
+	for _, m := range c.Messages {
+		if strings.Contains(m.Content, "chose Run once") {
+			t.Fatalf("the thread says the person chose Run once for a call that never ran: %q", m.Content)
+		}
+	}
 	if waiting := w.lanes(); waiting == 0 {
 		t.Fatal("the lane watch never saw a card waiting")
 	}

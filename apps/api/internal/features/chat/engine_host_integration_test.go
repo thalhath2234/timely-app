@@ -415,7 +415,12 @@ func TestIntegrationAgentEngineHostAllowForThisChat(t *testing.T) {
 	if c.HostRequest.Card.Grantable || c.HostRequest.Grant != nil {
 		t.Fatalf("a command with an operator is grantable: %+v", c.HostRequest.Card)
 	}
-	if code, _ := h.answerCard(c.ID, "req-c4", hostChat, ""); code != 200 {
+	// The server holds the line the apps draw: Allow for this chat on a card
+	// that cannot be granted is refused, and the card still waits.
+	if code, body := h.answerCard(c.ID, "req-c4", hostChat, ""); code != 409 || !strings.Contains(body, "can't be allowed for the whole chat") {
+		t.Fatalf("Allow for this chat on an ungrantable card: %d %s", code, body)
+	}
+	if code, _ := h.answerCard(c.ID, "req-c4", hostOnce, ""); code != 200 {
 		t.Fatal("answer c4")
 	}
 	c = h.wait(c.ID, "replied", statusIs("idle"))
@@ -838,4 +843,107 @@ func TestIntegrationAgentEngineHostRowShape(t *testing.T) {
 		t.Fatalf("another account's card: %d", code)
 	}
 	_ = agent.Auto
+}
+
+// Review finding: a card the person answered is "approved", not "ran", until
+// the worker says the call ran. A live Run once and an Allow for this chat
+// settle on host.ran; the thread text and the closed card never claim a run
+// that did not happen.
+func TestIntegrationAgentEngineHostApprovedCardSettlesOnHostRan(t *testing.T) {
+	h := hostHarness(t)
+	c := h.chat("List my files", "supervised", "settle", lines(
+		host("c1", "terminal", obj{"command": "git status"}),
+		host("c2", "terminal", obj{"command": "ls -la"}),
+		reply("Done.", 0),
+	))
+	c = h.hostWaiting(c.ID, hostLive)
+	if code, body := h.answerCard(c.ID, "req-c1", hostChat, ""); code != 200 {
+		t.Fatalf("Allow for this chat: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "asked for ls", func(c Conversation) bool { return c.HostRequest.ToolCallID == "c2" })
+	// the first card is already settled by its host.ran: Allowed for this chat
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostAllowed || cl[0].Choice != hostChat || !strings.Contains(c.Messages[len(c.Messages)-1].Content, "allowed git status for this chat") {
+		t.Fatalf("after the call ran: %+v", cl)
+	}
+	if code, body := h.answerCard(c.ID, "req-c2", hostOnce, ""); code != 200 {
+		t.Fatalf("Run once: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	cl := closedHost(c)
+	if len(cl) != 2 || cl[1].Outcome != hostRan || cl[1].Choice != hostOnce || cl[1].ArgsHash == "" {
+		t.Fatalf("closed %+v", cl)
+	}
+}
+
+// A card approved with Run once on a parked card whose continuation is
+// stopped before it is claimed never ran: Stop turns it into "not run" and
+// clears the continuation (review finding, path a).
+func TestIntegrationAgentEngineHostStopBeforeTheContinuationIsClaimed(t *testing.T) {
+	h := hostHarness(t)
+	card := &HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "ls -la"}
+	approved := message("assistant", hostOutcomeText(card, "terminal", hostApproved))
+	approved.Kind, approved.AgentRun = "host", "run_old"
+	approved.Host = &ClosedHost{RequestID: "req-old", ToolCallID: "call_ls", Tool: "terminal", Card: card, Outcome: hostApproved, Choice: hostOnce, ArgsHash: strings.Repeat("a", 64)}
+	lease := time.Now().UTC().Add(time.Hour)
+	// running with a valid lease: no lane claims it, and Stop reaches it as it would a queued continuation
+	c := h.idleChat(func(c *Conversation) {
+		c.Status, c.Lease, c.LeaseUntil = "running", "lease_x", &lease
+		c.Messages = append(c.Messages, approved)
+		c.Continuation = HostContinuation{Tool: "terminal", ArgsHash: strings.Repeat("a", 64), ToolCallID: "call_ls", RequestID: "req-old", Text: "run it"}
+	})
+	if code, body := h.post("/chats/"+c.ID+"/stop", ""); code != 200 {
+		t.Fatalf("stop: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "stopped", statusIs("stopped"))
+	cl := closedHost(c)
+	if len(cl) != 1 || cl[0].Outcome != hostNotRun || c.Continuation.pending() || !strings.Contains(c.Messages[1].Content, "did not run") {
+		t.Fatalf("after Stop: %+v continuation %+v", cl, c.Continuation)
+	}
+	// Retry on a row that still holds an approved card settles it too
+	againID := id("chat_")
+	h.kit.Fixture("retry", lines(reply("ok", 0))).ForConversation(againID, "retry")
+	again := h.idleChat(func(c *Conversation) {
+		c.ID, c.Status = againID, "stopped"
+		c.Messages = append(c.Messages, approved)
+	})
+	if code, body := h.post("/chats/"+again.ID+"/retry", fmt.Sprintf(`{"revision":%d}`, again.Revision)); code != 200 {
+		t.Fatalf("retry: %d %s", code, body)
+	}
+	var got Conversation
+	if err := h.db.First(&got, "id = ?", again.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cl := closedHost(got); len(cl) != 1 || cl[0].Outcome == hostApproved || cl[0].Outcome == hostRan {
+		t.Fatalf("after Retry: %+v", cl)
+	}
+}
+
+// A continuation that does not repeat the approved call, or that cannot start
+// it (the account is no longer host-allowed), leaves the card "not run"
+// (review finding, paths c and d).
+func TestIntegrationAgentEngineHostContinuationWithoutTheCallIsNotRun(t *testing.T) {
+	for name, allowed := range map[string]bool{"the model does not repeat the call": true, "the account is no longer host-allowed": false} {
+		t.Run(name, func(t *testing.T) {
+			h := hostHarness(t, func(o *WorkerEngineOptions) {
+				o.HostAllowed = func(_ context.Context, uid string) bool { return allowed && uid == "user-a" }
+			})
+			card := &HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "ls -la"}
+			approved := message("assistant", hostOutcomeText(card, "terminal", hostApproved))
+			approved.Kind, approved.AgentRun = "host", "run_old"
+			approved.Host = &ClosedHost{RequestID: "req-old", ToolCallID: "call_ls", Tool: "terminal", Card: card, Outcome: hostApproved, Choice: hostOnce, ArgsHash: strings.Repeat("a", 64)}
+			cid := id("chat_")
+			h.kit.Fixture("no-call", lines(reply("I will not run it.", 0))).ForConversation(cid, "no-call")
+			c := h.idleChat(func(c *Conversation) {
+				c.ID, c.Status, c.Phase, c.Permission, c.Engine = cid, "queued", "plan", "supervised", engineAgent
+				c.Provider, c.Model, c.Client = "openrouter", "stub-model", "web"
+				c.Messages = append(c.Messages, approved)
+				c.Continuation = HostContinuation{Tool: "terminal", ArgsHash: strings.Repeat("a", 64), ToolCallID: "call_ls", RequestID: "req-old", Text: "run it"}
+			})
+			c = h.wait(c.ID, "the continuation ended", func(c Conversation) bool { return c.Status == "idle" || c.Status == "failed" })
+			cl := closedHost(c)
+			if len(cl) != 1 || cl[0].Outcome != hostNotRun || strings.Contains(c.Messages[1].Content, "chose Run once") {
+				t.Fatalf("after a continuation that never ran the call: %+v / %q", cl, c.Messages[1].Content)
+			}
+		})
+	}
 }

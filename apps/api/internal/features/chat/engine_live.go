@@ -51,6 +51,7 @@ type workerEvent struct {
 		Description   string `json:"description"`
 		PatternKey    string `json:"pattern_key"`
 		LiveWaitS     int    `json:"live_wait_s"`
+		HermesFlag    bool   `json:"hermes_flag"`
 		Checkpoint    string `json:"checkpoint"`
 		CheckpointDir string `json:"checkpoint_dir"`
 	} `json:"payload"`

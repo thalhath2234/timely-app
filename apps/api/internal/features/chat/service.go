@@ -562,6 +562,10 @@ func (s *Service) stop(c *echo.Context) error {
 				}
 				closeHostCard(row, hostStopped, nil)
 			}
+			// A card the person approved whose call has not run yet (the live
+			// run it re-attached, or the continuation waiting to be claimed)
+			// ends here: it is not run, whatever Run once said.
+			settleHostCards(row, row.AgentRunID, row.Continuation.RequestID)
 			row.Continuation = HostContinuation{}
 			row.Status = "stopped"
 			row.Lease = ""
@@ -768,6 +772,7 @@ func (s *Service) retry(c *echo.Context) error {
 		row.AgentRunID, row.AgentInstance = "", ""
 		closeQuestion(row, nil, outcomeStopped)
 		closeHostCard(row, hostStopped, nil)
+		settleAllHostCards(row)
 		row.Continuation = HostContinuation{}
 		if row.Phase == "apply" && len(row.Plan) > 0 && !hasPending(row.Plan) {
 			// Stopped after the last change was saved: finish the apply, which
@@ -1138,6 +1143,9 @@ func notify(tx *gorm.DB, c *Conversation, body string) error {
 		data["hostRequest"] = c.HostRequest.RequestID
 		if card := c.HostRequest.Card; card != nil {
 			data["hostKind"] = card.Kind
+			if card.Kind == cardFile && (strings.HasPrefix(card.Title, "Read") || strings.HasPrefix(card.Title, "Search")) {
+				data["hostKind"] = "file_read" // a read or a search: the push must not say "change"
+			}
 			if card.Server != "" {
 				data["hostServer"] = card.Server
 			}

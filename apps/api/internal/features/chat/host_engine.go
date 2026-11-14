@@ -70,6 +70,9 @@ func (e *WorkerEngine) gateHost(r *agentRun, m agenthost.Message, ask gateAsk) b
 	if d.verdict == "approve" {
 		reply["card"] = d.card.wire()
 	}
+	if d.verdict == "allow" && d.by != "" {
+		reply["by"] = d.by
+	}
 	if r.cards == nil {
 		r.cards = map[string]hostPending{}
 	}
@@ -233,6 +236,16 @@ func (e *WorkerEngine) writeHostCard(r *agentRun, ev workerEvent) {
 		// worker denies those). Show what Hermes says, and grant nothing.
 		card = HostCard{Kind: cardTerminal, Title: "Run this?", Command: clip(firstNonEmpty(p.Command, p.Description, tool), 4000), Reason: "The assistant asks to run this"}
 	}
+	grant := pend.grant
+	if p.HermesFlag {
+		// Go let this call run by its mode alone, and Hermes' own check
+		// flagged it: the person decides, once, and nothing grants it.
+		card.Reason = "Hermes' own safety check flagged this: " + firstNonEmpty(clip(p.Description, 200), "a dangerous command or a protected file")
+		if card.CriticalItem == 0 {
+			card.CriticalItem = agent.CriticalDeleting
+		}
+		card.Grantable, grant = false, nil
+	}
 	now := time.Now().UTC()
 	wait := e.opts.LiveWait
 	if p.LiveWaitS > 0 {
@@ -240,7 +253,7 @@ func (e *WorkerEngine) writeHostCard(r *agentRun, ev workerEvent) {
 	}
 	until := now.Add(wait)
 	req := HostRequest{RequestID: clip(dropNUL(p.RequestID), 200), Run: r.id, Phase: hostLive, Tool: clip(tool, 200), ToolCallID: clip(p.ToolCallID, 200),
-		ArgsHash: clip(argsHash, 100), Card: &card, AskedAt: &now, LiveUntil: &until, Grant: pend.grant}
+		ArgsHash: clip(argsHash, 100), Card: &card, AskedAt: &now, LiveUntil: &until, Grant: grant}
 	activity := r.live.activity()
 	taint := r.taint
 	r.taint = nil
@@ -261,6 +274,10 @@ func (e *WorkerEngine) writeHostCard(r *agentRun, ev workerEvent) {
 	if err == nil {
 		r.mu.Lock()
 		r.hostWait, r.lease = req.RequestID, ""
+		if r.requestCall == nil {
+			r.requestCall = map[string]string{}
+		}
+		r.requestCall[req.RequestID] = req.ToolCallID
 		r.mu.Unlock()
 		r.dirty = false
 		return
@@ -332,6 +349,12 @@ func (e *WorkerEngine) HostAnswer(ctx context.Context, uid, cid, runID, requestI
 		r.answered = map[string]string{}
 	}
 	r.answered[requestID] = choice
+	if call := r.requestCall[requestID]; call != "" && choice != hostDeny {
+		if r.answeredCalls == nil {
+			r.answeredCalls = map[string]string{}
+		}
+		r.answeredCalls[call] = choice
+	}
 	if r.hostWait == requestID {
 		r.hostWait = ""
 	}
@@ -361,7 +384,7 @@ func (e *WorkerEngine) reattached(r *agentRun) {
 	ran := r.ranLater
 	r.ranLater = nil
 	for _, ev := range ran {
-		e.hostRan(r, ev)
+		e.settleRan(r, ev)
 	}
 	r.dirty = true
 }
@@ -445,7 +468,7 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 			card := pend.card
 			req := HostRequest{RequestID: parked.RequestID, Run: r.id, Phase: hostParked, Tool: firstNonEmpty(parked.Tool, pend.tool),
 				ToolCallID: parked.ToolCallID, ArgsHash: firstNonEmpty(parked.ArgsHash, pend.argsHash), Card: &card, AskedAt: &now}
-			endRun(&row, r.tools)
+			endRunState(&row, r.tools) // the approved card stays: its continuation runs the call
 			row.Lease, row.LeaseUntil = "", nil
 			reply()
 			switch choice {
@@ -512,10 +535,12 @@ func (s *Service) parkOrphan(ctx context.Context, uid, cid, run string, wait tim
 	})
 }
 
-// hostRan handles host.ran: the call finished. It is logged; a checkpoint
-// Hermes took before the call changed files goes on the call's closed card,
-// or on a message of its own for a call that ran without one, so "Undo this
-// change" can restore it.
+// hostRan handles host.ran: the call finished (or never started). It is
+// logged, and it settles the card the person approved for it: Ran or Allowed
+// for this chat only when the call started, "not run" when it did not (a
+// fence, a Hermes cancellation, a Stop). A checkpoint Hermes took before the
+// call changed files goes on the call's closed card, or on a message of its
+// own for a call that ran without one, so "Undo this change" can restore it.
 func (e *WorkerEngine) hostRan(r *agentRun, ev workerEvent) {
 	p := ev.Payload
 	detail := map[string]any{"status": p.Status}
@@ -523,20 +548,66 @@ func (e *WorkerEngine) hostRan(r *agentRun, ev workerEvent) {
 		detail["checkpoint"], detail["checkpoint_dir"] = p.Checkpoint, p.CheckpointDir
 	}
 	e.s.logHostEvent(nil, hostEvent(r.uid, r.cid, r.id, p.ToolCallID, "", p.Tool, p.ArgsHash, eventRan, "", "", nil, detail), e.opts.Logf)
-	if p.Checkpoint == "" || p.Status != "ok" {
-		return
+	e.settleRan(r, ev)
+}
+
+// started is whether a host.ran status says the call started.
+func started(status string) bool { return status == "ok" || status == "error" || status == "timeout" }
+
+// approvedCard finds the approved card a host.ran belongs to: by tool call
+// id for a live answer, by request, tool and arguments for a continuation.
+func (r *agentRun) approvedCard(row *Conversation, p struct{ tool, call, hash string }) int {
+	for i := len(row.Messages) - 1; i >= 0; i-- {
+		m := &row.Messages[i]
+		if m.Kind != "host" || m.Host == nil || m.Host.Outcome != hostApproved {
+			continue
+		}
+		if p.call != "" && m.Host.ToolCallID == p.call {
+			return i
+		}
+		if r.cont != nil && m.Host.RequestID == r.cont.RequestID && p.tool == r.cont.Tool && p.hash == r.cont.ArgsHash {
+			return i
+		}
+	}
+	return -1
+}
+
+// settleRan writes what a host.ran changes on the row: the approved card's
+// outcome and the checkpoint. A wait on another card holds it back (the row
+// is not saveable then); reattached replays it.
+func (e *WorkerEngine) settleRan(r *agentRun, ev workerEvent) {
+	p := ev.Payload
+	r.mu.Lock()
+	_, answered := r.answeredCalls[p.ToolCallID]
+	r.mu.Unlock()
+	checkpoint := p.Checkpoint != "" && p.Status == "ok"
+	if !checkpoint && !answered && r.cont == nil {
+		return // a call that needs no card settled and left no checkpoint
 	}
 	if r.hostWaiting() != "" {
 		r.ranLater = append(r.ranLater, ev)
 		return
 	}
 	pend := r.cards[p.ToolCallID]
+	key := struct{ tool, call, hash string }{p.Tool, p.ToolCallID, p.ArgsHash}
 	err := e.save(r, func(tx *gorm.DB, row *Conversation) error {
-		for i := len(row.Messages) - 1; i >= 0; i-- {
-			if m := &row.Messages[i]; m.Kind == "host" && m.Host != nil && m.Host.ToolCallID == p.ToolCallID && p.ToolCallID != "" {
+		i := r.approvedCard(row, key)
+		if i >= 0 {
+			settleHostCard(&row.Messages[i], started(p.Status))
+		}
+		if !checkpoint {
+			return nil
+		}
+		for j := len(row.Messages) - 1; j >= 0; j-- {
+			if m := &row.Messages[j]; m.Kind == "host" && m.Host != nil && p.ToolCallID != "" && m.Host.ToolCallID == p.ToolCallID {
 				m.Host.Checkpoint, m.Host.CheckpointDir = clip(p.Checkpoint, 200), clip(p.CheckpointDir, 2000)
 				return nil
 			}
+		}
+		if i >= 0 { // a continuation's call has its own id: the card it settled carries the checkpoint
+			m := &row.Messages[i]
+			m.Host.Checkpoint, m.Host.CheckpointDir = clip(p.Checkpoint, 200), clip(p.CheckpointDir, 2000)
+			return nil
 		}
 		card := pend.card
 		if card.Title == "" {
@@ -551,7 +622,7 @@ func (e *WorkerEngine) hostRan(r *agentRun, ev workerEvent) {
 		return nil
 	})
 	if err != nil && !fenced(err) {
-		e.opts.Logf("agent engine: recording run %s's checkpoint: %v", r.id, err)
+		e.opts.Logf("agent engine: recording run %s's host call: %v", r.id, err)
 	}
 }
 
