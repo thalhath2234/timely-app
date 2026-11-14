@@ -337,6 +337,17 @@ describe("host cards", () => {
   });
 });
 
+describe("the Auto description names everything Auto asks before (review round 6)", () => {
+  test("code, the browser and changes after outside content are there, and it does not say only", () => {
+    for (const text of [PERMISSION_COPY.auto.description, PERMISSION_COPY.auto.short]) {
+      assert.match(text, /running code/);
+      assert.match(text, /browser/);
+      assert.doesNotMatch(text, /\bonly\b/);
+    }
+    assert.match(PERMISSION_COPY.auto.description, /outside content/);
+  });
+});
+
 describe("a new chat that starts in Full Access (phase 5 review round 6)", () => {
   test("the desktop window creates it Supervised and then turns Full Access on through the bridge", () => {
     assert.deepEqual(newChatAccess("full", "supervised", true), { create: "supervised", thenFull: true });

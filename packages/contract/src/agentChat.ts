@@ -111,8 +111,9 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
   },
   auto: {
     name: "Auto",
-    description: "Does the everyday work on its own. Asks before deleting, sending your data out, paying, installing or changing settings.",
-    short: "Asks only before deleting, sending your data out, paying, installing or changing settings",
+    description:
+      "Does the everyday work on its own. Asks before deleting, sending your data out, paying, installing, changing settings, running code, using your browser, and changes after it reads outside content.",
+    short: "Asks before deleting, sending your data out, paying, installing, changing settings, running code or using your browser",
     icon: "shield",
     tone: "indigo",
   },

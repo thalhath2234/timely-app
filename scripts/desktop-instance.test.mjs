@@ -185,6 +185,13 @@ test("host section: editable only in the desktop window, and a server-set accoun
   assert.deepEqual(off, { editable: true, canTurnOff: true, checked: false, note: "" });
   assert.match(HOST_LIMIT_COPY, /runs as you on this computer/);
   assert.match(HOST_LIMIT_COPY, /every account's data/);
+  // Only a Supervised chat asks before each call: the copy says what each mode does (review round 6).
+  for (const text of [HOST_LIMIT_COPY, phoneHostLine(hostSettings).hint]) {
+    assert.doesNotMatch(text, /approve each one( on a card first)?\./);
+    assert.match(text, /Supervised/);
+    assert.match(text, /Auto/);
+    assert.match(text, /Full Access/);
+  }
 });
 
 test("phone: a read-only Yes or No for this account", () => {
