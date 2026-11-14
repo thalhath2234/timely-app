@@ -64,3 +64,33 @@ func TestHostCallCardShowsTheRealFolder(t *testing.T) {
 		}
 	}
 }
+
+// Review round 6: the agent cannot give its own chat Full Access through the
+// database. A database client asks in Auto and Supervised and is never
+// grantable, so an earlier "Allow for this chat" on a harmless query covers
+// nothing; reading the files that hold the database password asks too.
+func TestHostCallDatabaseAndSecretsAsk(t *testing.T) {
+	update := `PGPASSWORD=root123 psql -h localhost -U timely -d timely -c "update conversations set permission='full'"`
+	for _, mode := range []agent.Mode{agent.Auto, agent.Supervised} {
+		for name, c := range map[string]struct {
+			tool string
+			args map[string]any
+		}{
+			"psql update":         {"terminal", map[string]any{"command": update}},
+			"cat .env":            {"terminal", map[string]any{"command": "cat /home/me/Dev/timely-app/.env"}},
+			"read_file .env":      {"read_file", map[string]any{"path": "/home/me/Dev/timely-app/.env"}},
+			"read desktop config": {"read_file", map[string]any{"path": "/home/me/.config/Timely/config.json"}},
+			"truncate":            {"terminal", map[string]any{"command": `psql -c "TRUNCATE tasks"`}},
+		} {
+			d := decideCall(t, baseState(mode), c.tool, c.args)
+			if d.verdict != "approve" || d.card.Grantable {
+				t.Errorf("%v, %s: %s by %s, grantable %v", mode, name, d.verdict, d.by, d.card.Grantable)
+			}
+		}
+	}
+	st := baseState(agent.Supervised)
+	st.grants = HostGrants{*commandGrant(`psql -d timely -c "select count(*) from tasks"`)}
+	if d := decideCall(t, st, "terminal", map[string]any{"command": update}); d.verdict != "approve" {
+		t.Errorf("a grant made from a SELECT covered the UPDATE: %s by %s", d.verdict, d.by)
+	}
+}

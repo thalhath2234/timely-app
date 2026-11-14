@@ -422,6 +422,9 @@ func hostItem(h HostAction, scope HostScope) (int, string) {
 	case HostTerminal:
 		return commandItem(h.Command, scope)
 	case HostFileRead:
+		if secretFiles.MatchString(strings.TrimSpace(h.Path)) {
+			return CriticalSettings, "reads a file that holds passwords or sign-ins"
+		}
 		return 0, ""
 	case HostFileWrite:
 		if scope.config(h.Path) || repoConfigPaths.MatchString(h.Path) {
@@ -636,10 +639,15 @@ func configPath(p string) bool {
 var (
 	commandSplit = regexp.MustCompile(`\|\||&&|[;\n|&]`)
 	pipeToShell  = regexp.MustCompile(`(?i)\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b|\b(ba|z)?sh\s+-c\s+["']?\$\((curl|wget)\b`)
-	sqlDestroy   = regexp.MustCompile(`(?i)\b(drop\s+(table|database|schema|index)|truncate\s+(table\s+)?\w|delete\s+from)\b|\b(flushall|flushdb)\b|\.drop(?:Database)?\(|\bdeleteMany\(`)
-	urlPattern   = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>|;)]+`)
-	redirectTo   = regexp.MustCompile(`(?:^|[^>&0-9])>\|?\s*([^\s>&|;]+)`)
-	appendTo     = regexp.MustCompile(`>>\s*([^\s>&|;]+)`)
+	// sqlDestroy reads SQL that deletes data or structure: DROP of anything
+	// that holds data or rules, TRUNCATE of a named table (a bare name must
+	// end the statement or its quote, so prose such as "truncate long
+	// titles" is not one), DELETE FROM, ALTER TABLE ... DROP, and the
+	// stores' wipe commands.
+	sqlDestroy = regexp.MustCompile(`(?i)\b(drop\s+(table|database|schema|index|view|function|procedure|owned|role|user|group|collection|materialized|sequence|type|extension|trigger|domain|tablespace|policy|publication|subscription)|alter\s+table\b[^;]*?\bdrop|delete\s+from)\b|\btruncate\s+table\s+["\w]|\btruncate\s+(?:only\s+)?["\w.]+\s*(?:[;"')]|$|cascade\b|restart\b|continue\b)|\b(flushall|flushdb)\b|\.drop(?:Database)?\(|\bdeleteMany\(`)
+	urlPattern = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>|;)]+`)
+	redirectTo = regexp.MustCompile(`(?:^|[^>&0-9])>\|?\s*([^\s>&|;]+)`)
+	appendTo   = regexp.MustCompile(`>>\s*([^\s>&|;]+)`)
 	// substitution matches the innermost $( ), <( ), >( ) and backtick groups.
 	substitution = regexp.MustCompile("[$<>]\\(([^()]*)\\)|`([^`]*)`")
 	// pipeToInterpreter is a shell or interpreter reading its program from a pipe.
@@ -1053,6 +1061,9 @@ func oneOf(s string, options ...string) bool {
 // permission_more.go).
 func programItem(prog string, args []string, scope HostScope) (int, string) {
 	item, why := programItem0(prog, args, scope)
+	if i2, w2 := timelyDataItem(prog, args); i2 != 0 && (item == 0 || i2 < item) {
+		item, why = i2, w2
+	}
 	if i2, w2 := moreProgramItem(prog, args, scope); i2 != 0 && (item == 0 || i2 < item) {
 		return i2, w2
 	}
@@ -1414,4 +1425,52 @@ func looksLikeHost(op string) bool {
 	}
 	host := strings.SplitN(op, "/", 2)[0]
 	return hostShape.MatchString(host) && !fileShape.MatchString(host)
+}
+
+// Timely's own data. The agent runs as the same OS user as the API, and
+// Timely keeps its settings, permissions and every chat's mode in Postgres:
+// one UPDATE from a database client would turn Full Access on for the chat
+// with no card, and the database password sits in the repo's .env and the
+// desktop's config.json. So a database client is never run unasked (item 5,
+// never grantable, as every item up to 5 is), and neither is a read of a
+// file that holds those secrets.
+
+// databaseClients are programs that talk to a database. Their grants would
+// be keyed on the program name, so one harmless SELECT could cover an UPDATE:
+// each call asks.
+var databaseClients = set("psql", "pgcli", "pg_dump", "pg_dumpall", "pg_restore", "createdb", "dropdb", "createuser", "dropuser",
+	"createlang", "droplang", "reindexdb", "vacuumdb", "clusterdb", "pg_ctl", "pg_basebackup", "sqlite3", "litecli", "mysql", "mycli",
+	"mysqldump", "mysqladmin", "mysqlsh", "mariadb", "mongo", "mongosh", "mongodump", "mongorestore", "usql", "cockroach", "duckdb")
+
+// secretFiles are files that hold passwords, keys or sign-ins: the repo's
+// .env files (not .env.example), the desktop app's config.json and browser
+// profile stores, Postgres' password file and a process's environment.
+var secretFiles = regexp.MustCompile(`(?i)(^|[/=])\.env(\.(local|prod\w*|dev\w*|secret\w*))?$|/Timely[^/]*/(config\.json|Cookies|Local State|Login Data|Network/Cookies)$|(^|[/=])\.pgpass$|/proc/(self|\d+|[^/]*)/environ$`)
+
+// timelyDataItem judges a program on what it reaches: Timely's database or a
+// secret file, by name and by its operands.
+func timelyDataItem(prog string, args []string) (int, string) {
+	switch prog {
+	case "dropdb", "dropuser":
+		return CriticalDeleting, "deletes a database or a database user"
+	case "pg_restore":
+		if hasFlag(args, "c", "--clean") {
+			return CriticalDeleting, "deletes database data"
+		}
+	case "mysqladmin":
+		for _, a := range args {
+			if a == "drop" {
+				return CriticalDeleting, "deletes database data"
+			}
+		}
+	}
+	if databaseClients[prog] {
+		return CriticalSettings, "talks to a database directly (Timely keeps its settings and permissions in one)"
+	}
+	for _, a := range args {
+		if secretFiles.MatchString(strings.Trim(a, `"'`)) {
+			return CriticalSettings, "reads a file that holds passwords or sign-ins"
+		}
+	}
+	return 0, ""
 }
