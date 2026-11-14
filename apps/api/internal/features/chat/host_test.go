@@ -347,7 +347,7 @@ func TestSupervisedIsNeverLooserThanAuto(t *testing.T) {
 		askOf("process_manage", map[string]any{"action": "poll", "session_id": "p"}),
 	}
 	for _, ask := range asks {
-		_, _, grant := hostCall(ask.Tool, mustArgs(ask), "/home/me/work", "")
+		_, _, grant := hostCall(ask.Tool, mustArgs(ask), "/home/me/work", "", "/home/me")
 		for _, withGrant := range []bool{false, true} {
 			for _, tainted := range []bool{false, true} {
 				build := func(mode agent.Mode) hostDecision {

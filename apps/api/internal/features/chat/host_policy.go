@@ -202,7 +202,7 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 			return d, true
 		}
 	} else {
-		d.action, d.card, d.grant = hostCall(ask.Tool, args, st.workingDir, ask.Cwd)
+		d.action, d.card, d.grant = hostCall(ask.Tool, args, st.workingDir, ask.Cwd, st.home)
 		d.card.SessionCwd = clip(dropNUL(strings.TrimSpace(ask.Cwd)), 1000)
 		// The hardline floor holds in every mode, Full Access included: Hermes'
 		// own floor misses a program written with its path or behind a wrapper.
@@ -449,7 +449,7 @@ func folderGrant(tool, verb, p, workingDir string) *HostGrant {
 
 // hostCall maps a host tool call onto the host action the critical list
 // judges (decision 6), the card it shows and the grant it may take.
-func hostCall(tool string, args map[string]any, workingDir, sessionCwd string) (agent.HostAction, HostCard, *HostGrant) {
+func hostCall(tool string, args map[string]any, workingDir, sessionCwd, home string) (agent.HostAction, HostCard, *HostGrant) {
 	str := func(keys ...string) string {
 		for _, k := range keys {
 			if v, ok := args[k].(string); ok && strings.TrimSpace(v) != "" {
@@ -458,15 +458,29 @@ func hostCall(tool string, args map[string]any, workingDir, sessionCwd string) (
 		}
 		return ""
 	}
-	// The folder the call runs in: its own workdir, else the folder the
-	// terminal session is in now, else the working folder. Relative paths are
-	// judged from there.
-	cwd := str("workdir", "cwd")
-	if cwd == "" {
-		cwd = strings.TrimSpace(dropNUL(sessionCwd))
-	}
+	// The folder the call runs in, read the way Hermes reads it: only the
+	// terminal takes a `workdir` (`~` and `~/x` expand to the home, a
+	// relative one starts in the folder the terminal session is in now);
+	// every other tool runs in the session's folder, else the working
+	// folder. No other key (`cwd`, `workdir` on a file tool) moves a call,
+	// so none may move the folder judged here.
+	cwd := strings.TrimSpace(dropNUL(sessionCwd))
 	if cwd == "" {
 		cwd = workingDir
+	}
+	if tool == "terminal" {
+		if w := strings.TrimSpace(str("workdir")); w != "" {
+			switch {
+			case w == "~" && home != "":
+				cwd = home
+			case strings.HasPrefix(w, "~/") && home != "":
+				cwd = path.Join(home, w[2:])
+			case path.IsAbs(w) || cwd == "":
+				cwd = w
+			default:
+				cwd = path.Join(cwd, w)
+			}
+		}
 	}
 	where := cwd
 	if where != "" && !path.IsAbs(where) && workingDir != "" {
