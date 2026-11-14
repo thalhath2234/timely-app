@@ -357,6 +357,9 @@ func main() {
 	// Settings -> Server: the two PUT routes answer 404 to anyone but the
 	// desktop window, before sign-in is asked.
 	instanceHandler.Routes(e, middleware.JWTMiddleware(authService))
+	// Settings -> Assistant -> MCP servers: the signed-in routes and the
+	// public, state-checked OAuth callback.
+	registerAgentMCP(e, e.Group("", middleware.JWTMiddleware(authService)), agentStack)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

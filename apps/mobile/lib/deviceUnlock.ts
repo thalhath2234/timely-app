@@ -26,7 +26,26 @@ export const UNLOCK_UNAVAILABLE = "Set a screen lock on this phone to approve he
 export const UNLOCK_FAILED = "Couldn't unlock this phone, so nothing was sent.";
 export const UNLOCK_CANCELLED = "Unlock cancelled, so nothing was sent.";
 
+/**
+ * Expo web has no lock screen, so a development bundle on the web lets a browser driver stand in
+ * for it: `globalThis.__TIMELY_TEST_UNLOCK__ = "pass" | "cancel" | "fail"` (set before the page
+ * loads, with Playwright's addInitScript). Never present in a release build (`__DEV__` is false
+ * there) and never on a device.
+ */
+function devWebAuthenticator(): Authenticator | null {
+  const g = globalThis as { __DEV__?: boolean; __TIMELY_TEST_UNLOCK__?: string; document?: unknown };
+  if (!g.__DEV__ || typeof g.document === "undefined") return null;
+  const mode = g.__TIMELY_TEST_UNLOCK__;
+  if (mode !== "pass" && mode !== "cancel" && mode !== "fail") return null;
+  return {
+    available: async () => true,
+    authenticate: async () => (mode === "pass" ? { ok: true } : { ok: false, cancelled: mode === "cancel" }),
+  };
+}
+
 async function platformAuthenticator(): Promise<Authenticator> {
+  const dev = devWebAuthenticator();
+  if (dev) return dev;
   const LocalAuthentication = await import("expo-local-authentication");
   return {
     available: async () => {

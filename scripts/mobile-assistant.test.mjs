@@ -1006,6 +1006,9 @@ test("a question alert offers no blind Reply, and the Reply of any alert names n
   assert.equal(categoryFor({ category: "agent", data: { status: "approval" } }), "timely_agent_review");
   assert.equal(categoryFor({ category: "agent", data: { status: "failed", question: "req-1" } }), "timely_agent_failed");
   assert.equal(categoryFor({ category: "agent", data: { status: "idle" } }), "timely_agent_done");
+  // A host card cannot be answered by typing: Review opens the chat on the card, no Reply.
+  assert.equal(categoryFor({ category: "agent", data: { status: "host_approval" } }), "timely_agent_host");
+  assert.deepEqual(NOTIFICATION_CATEGORIES.timely_agent_host.map((a) => [a.id, Boolean(a.textInput)]), [["open", false]]);
   // The Reply says it read no card: a waiting card gets 409 "Read it first", not this text as its answer.
   assert.deepEqual(replyBody("  Monday  ", "ntf-1"), { content: "Monday", requestId: "ntf-1", questionRequestId: "" });
 });
@@ -1578,6 +1581,17 @@ const unlockWith = (result) => {
   };
   return { auth, calls };
 };
+
+test("the web test hook never unlocks outside a development bundle in a browser", async () => {
+  // Node has no document and no __DEV__: the hook is ignored and the platform module (absent here) decides.
+  globalThis.__TIMELY_TEST_UNLOCK__ = "pass";
+  try {
+    const result = await unlockDevice("Approve");
+    assert.equal(result.ok, false);
+  } finally {
+    delete globalThis.__TIMELY_TEST_UNLOCK__;
+  }
+});
 
 test("unlockDevice maps the platform's answer: passed, cancelled, failed, no screen lock, a broken module", async () => {
   assert.deepEqual(await unlockDevice("Approve", unlockWith("ok").auth), {

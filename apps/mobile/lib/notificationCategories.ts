@@ -54,6 +54,8 @@ export const NOTIFICATION_CATEGORIES: Record<string, QuickAction[]> = {
   // A question card the run waits on: the alert shows no question text, so it offers no blind Reply
   // (a typed message would answer a card nobody read); Answer opens the chat on the card.
   timely_agent_question: [open("Answer")],
+  // A host card waits for Run once, Allow for this chat or Deny: a typed Reply cannot answer it.
+  timely_agent_host: [open("Review")],
   timely_agent_failed: [open("Open chat"), { id: "retry", title: "Try again" }],
   timely_digest: [open("Open Today")],
   timely_bot_paused: [{ id: "resume_bot", title: "Resume" }, open("Open")],
@@ -90,6 +92,7 @@ export function categoryFor(item: NotificationLike): string | null {
     case "agent": {
       const status = text(data.status);
       if (status === "approval" || status === "choose") return "timely_agent_review";
+      if (status === "host_approval") return "timely_agent_host";
       if (status === "failed") return "timely_agent_failed";
       if (data.question) return "timely_agent_question";
       return "timely_agent_done";

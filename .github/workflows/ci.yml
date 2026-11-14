@@ -93,6 +93,7 @@ jobs:
       - run: make test-electron-supervisor
       - run: make test-desktop-instance
       - run: make test-agent-chat
+      - run: make test-agent-mcp
       - run: make test-agent-learning
       - run: make test-stage-agent
 
