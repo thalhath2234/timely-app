@@ -770,7 +770,7 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 		case needsHostAccess(h) && !e.opts.HostAllowed(ctx, row.UserID):
 			// Turning an account off denies its waiting cards (Q-5.2); the
 			// worker of a live one gets the deny.
-			if _, err := e.s.answerHostWhy(ctx, row.UserID, row.ID, h.RequestID, hostDeny, nil, "the account can't use this computer any more"); err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, errHostAnswered) && !errors.Is(err, errHostStale) {
+			if _, err := e.s.answerHost(ctx, row.UserID, row.ID, h.RequestID, hostDeny, nil, "the account can't use this computer any more"); err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, errHostAnswered) && !errors.Is(err, errHostStale) {
 				e.opts.Logf("agent engine: denying a host card of an account that was turned off: %v", err)
 			}
 		case h.Phase == hostParked && h.ExpiresAt != nil && now.After(*h.ExpiresAt):

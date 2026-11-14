@@ -112,7 +112,7 @@ func (s *Service) hostApproval(c *echo.Context) error {
 			return errDesktopOnly
 		}
 	}
-	row, err := s.answerHost(c.Request().Context(), uid, c.Param("id"), in.RequestID, in.Choice, dev)
+	row, err := s.answerHost(c.Request().Context(), uid, c.Param("id"), in.RequestID, in.Choice, dev, "")
 	if err != nil {
 		return err
 	}
@@ -120,18 +120,14 @@ func (s *Service) hostApproval(c *echo.Context) error {
 	return c.JSON(200, row)
 }
 
-// answerHost is the fenced answer (decision 3): it commits only while the
+// answerHost is the fenced answer (decision 3; a non-empty why is the reason a
+// deny was made by the system and not by the person: the account was turned
+// off): it commits only while the
 // row waits on this card. A live card whose run this process follows is
 // re-attached (the row runs again under a fresh lease the run adopts) and
 // the answer then goes to the worker; a parked card (or a live one nobody
 // here follows) queues the continuation for Run once, or closes Not run.
-func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice string, dev *HostDevice) (Conversation, error) {
-	return s.answerHostWhy(ctx, uid, cid, requestID, choice, dev, "")
-}
-
-// answerHostWhy is answerHost; a non-empty why is the reason a deny was made
-// by the system and not by the person (the account was turned off).
-func (s *Service) answerHostWhy(ctx context.Context, uid, cid, requestID, choice string, dev *HostDevice, why string) (Conversation, error) {
+func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice string, dev *HostDevice, why string) (Conversation, error) {
 	he, _ := s.engine.(hostEngine)
 	var row Conversation
 	var asked HostRequest
