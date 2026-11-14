@@ -161,7 +161,7 @@ export default function PermissionsGroups({
         <ListGroup>
           <ListRow
             label="Host cards"
-            meta="Who can say Run once or Allow for this chat"
+            meta="Who can approve a card"
           >
             <Select
               variant="row"

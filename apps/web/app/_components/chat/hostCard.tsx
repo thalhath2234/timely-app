@@ -84,10 +84,13 @@ function Subject({
 }) {
   return (
     <div className="min-w-0">
-      <span className={eyebrow}>{label}</span>
+      <span id={`${id}-label`} className={eyebrow}>
+        {label}
+      </span>
       <pre
         id={id}
         data-testid="host-subject"
+        aria-labelledby={`${id}-label`}
         tabIndex={0}
         className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
@@ -275,6 +278,7 @@ export default function HostCard({
                 loading={sending === choice}
                 aria-describedby={subjectId}
                 data-choice={choice}
+                className="[@media(pointer:coarse)]:h-11"
                 onClick={() => onAnswer(choice)}
               >
                 {labels[choice]}
@@ -396,6 +400,7 @@ export function ClosedHostCard({
               <Button
                 size="sm"
                 variant="outline"
+                className="[@media(pointer:coarse)]:h-11"
                 disabled={pending}
                 onClick={() => onUndo(host.checkpoint ?? "")}
               >

@@ -111,7 +111,7 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
         <ListRow
           testID="permissions-host-rule"
           title="Host cards"
-          meta="Who can say Run once or Allow for this chat"
+          meta="Who can approve a card"
           trailing={ruleLabel(rule)}
           accessibilityLabel={`Host cards: ${ruleLabel(rule)}`}
           onPress={() => setChoosing("rule")}

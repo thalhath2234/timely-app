@@ -393,8 +393,11 @@ export default function Conversation({
   const lastHost = [...(chat?.messages ?? [])]
     .reverse()
     .find((m) => m.kind === "host" && m.host && !m.host.auto);
-  const hostClosedNote =
-    lastHost && !hosting ? hostClosedAnnouncement(lastHost.host) : "";
+  const hostClosedNote = hosting
+    ? `${HOST_STATUS_WORDS[hostCard?.phase === "parked" ? "parked" : "live"]}: ${hostCard?.card?.title ?? ""}`
+    : lastHost
+      ? hostClosedAnnouncement(lastHost.host)
+      : "";
   useEffect(() => {
     const row = questionRow.current;
     if (!questionId || !row) return;
