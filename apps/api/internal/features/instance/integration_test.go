@@ -408,12 +408,28 @@ func TestIntegrationHostAccountsRoutes(t *testing.T) {
 	if out["thisAccountHostAllowed"] != false || out["shell"] != false || out["maxWorkers"] != float64(3) || out["idleMinutes"] != float64(15) {
 		t.Errorf("carol's settings: %v", out)
 	}
-	if got := strings.Join(hostIDs(out), ","); got != alice+","+bob+","+server {
-		t.Errorf("host accounts = %s", got)
+	// Review finding: a signed-in account that is not host-allowed, in a plain
+	// browser (no shell token), reads no other account's id, email or folder:
+	// only how many others there are.
+	if got := hostIDs(out); len(got) != 0 || out["otherHostAccounts"] != float64(3) {
+		t.Errorf("carol (not host-allowed, no token) sees accounts %v, others %v", got, out["otherHostAccounts"])
+	}
+	if raw, _ := json.Marshal(out); strings.Contains(string(raw), "bob@example.test") || strings.Contains(string(raw), alice) || strings.Contains(string(raw), "server@example.test") {
+		t.Errorf("carol's settings name another account: %s", raw)
+	}
+	// A host-allowed account in a plain browser sees its own row and a count.
+	if _, own := call(t, loopback.URL, http.MethodGet, "/instance/settings", bob, "", ""); strings.Join(hostIDs(own), ",") != bob ||
+		own["otherHostAccounts"] != float64(2) || own["thisAccountHostAllowed"] != true || own["shell"] != false {
+		t.Errorf("bob's own settings in a browser: %v", own)
+	}
+	// The desktop window sees every account with its email and source.
+	_, full := call(t, loopback.URL, http.MethodGet, "/instance/settings", carol, testToken, "")
+	if got := strings.Join(hostIDs(full), ","); got != alice+","+bob+","+server {
+		t.Errorf("the desktop window's host accounts = %s", got)
 	}
 	sources := map[string]string{}
 	emails := map[string]string{}
-	for _, a := range out["hostAccounts"].([]any) {
+	for _, a := range full["hostAccounts"].([]any) {
 		m := a.(map[string]any)
 		sources[m["uid"].(string)], emails[m["uid"].(string)] = m["source"].(string), m["email"].(string)
 	}

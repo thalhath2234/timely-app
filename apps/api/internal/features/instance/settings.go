@@ -45,11 +45,16 @@ type SettingsAccount struct {
 
 // SettingsResponse is the contract in packages/contract/src/instanceSettings.ts.
 type SettingsResponse struct {
-	HostAccounts           []SettingsAccount `json:"hostAccounts"`
-	ThisAccountHostAllowed bool              `json:"thisAccountHostAllowed"`
-	ThisAccountWorkingDir  string            `json:"thisAccountWorkingDir"`
-	MaxWorkers             int               `json:"maxWorkers"`
-	IdleMinutes            int               `json:"idleMinutes"`
+	HostAccounts []SettingsAccount `json:"hostAccounts"`
+	// OtherHostAccounts counts the host-allowed accounts that are not the
+	// signed-in one. Outside the desktop window the list above holds the
+	// signed-in account's own row only: other accounts' emails and folders
+	// are not another account's to read (ADR 0001, phase 5).
+	OtherHostAccounts      int    `json:"otherHostAccounts"`
+	ThisAccountHostAllowed bool   `json:"thisAccountHostAllowed"`
+	ThisAccountWorkingDir  string `json:"thisAccountWorkingDir"`
+	MaxWorkers             int    `json:"maxWorkers"`
+	IdleMinutes            int    `json:"idleMinutes"`
 	// Shell is true when this very request came from the desktop window, the
 	// only place these settings can be changed.
 	Shell bool `json:"shell"`
@@ -67,13 +72,19 @@ func (h *Handler) settings(c *echo.Context, store *Store) (SettingsResponse, err
 	if err != nil {
 		return SettingsResponse{}, err
 	}
+	shell := ShellRequest(c)
 	emails := h.emailsOf(ctx, accounts)
-	out := SettingsResponse{HostAccounts: []SettingsAccount{}, Shell: ShellRequest(c)}
+	out := SettingsResponse{HostAccounts: []SettingsAccount{}, Shell: shell}
 	for _, a := range accounts {
-		out.HostAccounts = append(out.HostAccounts, SettingsAccount{UID: a.UID, Email: emails[a.UID], WorkingDir: a.WorkingDir, Source: a.Source})
 		if a.UID == uid {
 			out.ThisAccountHostAllowed = true
 			out.ThisAccountWorkingDir = a.WorkingDir
+		} else {
+			out.OtherHostAccounts++
+		}
+		if shell || a.UID == uid {
+			// Only the desktop window sees every account's email and folder.
+			out.HostAccounts = append(out.HostAccounts, SettingsAccount{UID: a.UID, Email: emails[a.UID], WorkingDir: a.WorkingDir, Source: a.Source})
 		}
 	}
 	limits, err := store.AgentLimits(ctx)

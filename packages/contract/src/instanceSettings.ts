@@ -21,7 +21,10 @@ export type InstanceHostAccount = {
 
 /** `GET /instance/settings`. */
 export type InstanceSettings = {
+  /** Every host-allowed account in the desktop window; only the signed-in account's own row anywhere else. */
   hostAccounts: InstanceHostAccount[];
+  /** How many other accounts may use this computer (their emails and folders are the desktop window's to read). */
+  otherHostAccounts: number;
   /** The signed-in account may use this computer. */
   thisAccountHostAllowed: boolean;
   thisAccountWorkingDir: string;
