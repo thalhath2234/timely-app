@@ -293,8 +293,8 @@ function AddPanel({
         onChange={setKind}
         options={[
           { value: "catalog", label: "Catalog" },
-          { value: "address", label: "An address" },
-          { value: "command", label: "A command" },
+          { value: "address", label: "Address" },
+          { value: "command", label: "Command" },
         ]}
       />
       {kind === "catalog" ? <CatalogPicker onDone={onDone} onSignIn={onSignIn} /> : null}
