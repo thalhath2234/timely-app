@@ -75,3 +75,35 @@ lockfile with integrity hashes and install scripts off, run directly (never
 through npx resolution, @latest or docker) with a stripped environment, and
 approved again after any change. Only the person adds one; chat, MCP, API keys
 and Bots never can.
+
+## Amendment (2026-11-14, agent phase 5): external MCP servers on the new engine
+
+On the new engine (ADR 0026) the MCP client is Hermes', not Timely's, and the
+gate in front of it enforces the person's choice. The labels stay: Settings →
+Assistant → MCP servers lists Hermes' curated catalog and custom servers, each
+set to Can use, Ask me first (the default when added) or Off.
+
+- **The whole catalog, sending included** (the owner's Q-5.6). Messaging-category
+  servers and tools that send, pay or change settings are offered like any
+  other; this amends decision 6 (no messaging tools) for external MCP servers
+  only. Hermes' messaging platform adapters stay out.
+- **What the gate does.** Off is not offered to the model and never runs. Ask me
+  first is a host card for every call. Can use runs a read at once, and a tool
+  found to send, pay or change settings by its name or annotations is a card in
+  Auto (a write also becomes one after outside content). A server that hides a
+  sending tool behind a neutral name runs under Can use, which is why a mail
+  server belongs on Ask me first. A server's read-only hint never lowers a name
+  that sends.
+- **Addresses and secrets.** Remote servers are open to every account; a
+  `command` server only to a host-allowed account, through a host card showing
+  the exact command, arguments and variable names, again after any change. Go
+  checks every remote address on save and again, resolving the host, before each
+  spawn; private, loopback, tailnet and metadata addresses are dropped. Sign-in
+  tokens and variable values are sealed in `agent_secrets` like provider keys,
+  never backed up, and sit as files in the agent home while a worker runs, where
+  an approved command can read them. The OAuth callback comes back through
+  Timely's origin with a one-use state.
+- **Not carried over.** Tool watches and fixed calls belong to the old rules
+  engine, and Hermes' client does not fingerprint tool definitions, so a changed
+  tool is not held for review. Results are wrapped as untrusted data and count
+  as outside content for the chat.

@@ -94,8 +94,9 @@ recommended answer to Q-5.1, which also asks whether to add "Allow for this
 chat" as a grant Timely keeps itself). Hermes' "always allow" lists are never
 offered, and no skill, memory or prompt can grant an approval. A worker whose
 gate plugin is not loaded refuses to serve, and a gate that does not answer in
-time denies. Whether a card may be approved only in the desktop window or on
-any device after device unlock is open (Q-5.7). Only a host-trusted account
+time denies. A card may be approved from any of the owner's devices, with device unlock
+on the phone, or only in the desktop window if the owner picks that (Q-5.7,
+answered 2026-11-14). Only a host-trusted account
 (below) can run commands or touch files on the host at all.
 
 **Timely apps only.** The agent and Bots are reachable only through Timely web,
@@ -120,13 +121,13 @@ Nobody is host-trusted by default. It is not a role: it grants no access to
 other accounts through Timely's API, and the API still returns not-found for
 cross-account reads. But an approved host command of a host-trusted account
 runs as the host's OS user and can read the host, including other accounts'
-agent homes, the database files and other workers' environments. So at most one
-account may be host-trusted on the local terminal backend; a second is refused
-with that reason, unless a sandboxed (Docker) terminal backend exists, which
-then becomes mandatory for every host-trusted account. Accounts that are not
-host-trusted keep the agent's other features but never get terminal, file or
-code tools or MCP servers that start a program on the host. These rules are the
-recommended answer to Q-5.2.
+agent homes, the database files and other workers' environments. The owner
+answered Q-5.2 on 2026-11-14: several accounts may be host-trusted (the app
+says host-allowed), each turned on separately, with no cap, because the terminal
+is the local backend on the real home (Q-5.4, Q-5.5) and a sandboxed backend is
+later. Settings → Server says so when one is turned on. Accounts that are not
+host-allowed keep the agent's other features but never get terminal, file,
+code or browser tools or MCP servers that start a program on the host.
 
 ## Consequences
 
@@ -167,9 +168,9 @@ recommended answer to Q-5.2.
     Timely typing the saved password becomes an adapter. ADR 0022 never lets
     the model run script in a page, on any page, and every Hermes browser tool
     either runs script or sends raw browser commands. Adopting them in chat
-    therefore amends that rule, and Q-5.3 in the plan decides how far: pages
-    that are not signed in only, or signed-in pages too. Until the owner
-    answers, ADR 0022's rule stands and the script-running tools stay off.
+    therefore amends that rule. The owner answered Q-5.3 on 2026-11-14: chat
+    uses the real profile and its sign-ins, and `browser_exec` is allowed in
+    chat; bots still never get it.
   - ADR 0023: Go as Timely's MCP client is superseded by Hermes' MCP client,
     with the gate enforcing the person's Tool choice; Can use, Ask me first and
     Off stay, and MCP servers that start a program on the host are for the
@@ -188,8 +189,12 @@ recommended answer to Q-5.2.
     runs, where an approved host command can read them; they are never backed
     up. Tool-definition fingerprinting stays: the gate blocks a tool whose
     definition differs from the one the person approved until they review it.
-    The plan has not designed that for Hermes' client yet; it belongs to
-    phase 5.
+    Phase 5 built the sealed tokens, the address check before every
+    spawn and the gate's Can use, Ask me first and Off; Hermes' client has no
+    tool-definition fingerprint, so a tool whose definition changed is not held
+    for review (the person sets Ask me first for a server they do not trust).
+    The owner answered Q-5.6 on 2026-11-14: the whole catalog is offered, with
+    every tool, sending tools included.
   - ADR 0013 to ADR 0020 stand.
 
 ## The owner's answers (2026-11-13, phase 4)
@@ -220,6 +225,39 @@ recommended answer to Q-5.2.
   unchanged, and the answer is accepted only while the run that asked is
   still live (checked in TLA+). Bots never ask and never start Sub-tasks.
   A Sub-task's outside read counts as the chat's own.
+
+## The owner's answers (2026-11-14, phase 5)
+
+- **Q-5.1** The host card offers Run once, Deny and Allow for this chat, a
+  Timely-side grant for the same kind of call in that chat (Hermes' own
+  allowlists are never written). A card waits live for 10 minutes, then
+  parked for up to an hour (10 to 60 minutes in Settings); Run once on a
+  parked card starts a continuation turn that runs exactly the approved call.
+  The card is a new row status, `host_approval`, so no lane or lease is held
+  while it waits, Approve and Reject refuse it, and Stop and Delete deny it.
+- **Q-5.2** Several accounts may be host-allowed, each turned on separately in
+  the desktop window or, on a server, in `TIMELY_AGENT_HOST_ACCOUNTS`. This
+  amends ADR 0001's host-trusted account (above): the limit is recorded, not
+  removed. Chat-only agent features stay open to every account.
+- **Q-5.3** The agent's browser tools use the owner's real profile and
+  sign-ins, and `browser_exec` is allowed in chat. This amends ADR 0022 for
+  chat. In Auto, every browser call is still a card.
+- **Q-5.4 and Q-5.5** The terminal always runs on the real home, on the local
+  backend only. Git and gh credentials work, and so does anything else an
+  approved command can read.
+- **Q-5.6** External MCP servers: the whole catalog, every tool, each server
+  Can use, Ask me first or Off. This amends decision 6 for external MCP
+  servers. A tool that sends, pays or changes settings is found by its name
+  and annotations; a neutrally named sending tool runs under Can use, so Ask me
+  first is the setting for a mail server.
+- **Q-5.7** A host card can be approved from any of the owner's devices, with
+  device unlock on the phone. The server cannot verify the unlock; the owner
+  can pick "Only the desktop window" instead.
+- Limits the owner accepted with these answers: an approved command runs as
+  the host's OS user and reads what that user reads; the worker cap and idle
+  minutes are Settings → Server values kept in `instance_settings`; Full
+  Access needs a step-up the desktop window provides, and every stored `full`
+  became `auto` when phase 5 shipped.
 
 ## Considered Options
 

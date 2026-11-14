@@ -174,6 +174,12 @@ Chats on the New engine need a model, and a fresh account has none. To verify th
    - The test switches (`TIMELY_AGENT_CLARIFY_TIMEOUT_S`, `TIMELY_AGENT_SENSITIVE_NO_PERSIST`, the fixtures) work only with `DB_SCHEMA` set.
 3. For fixture pages, run the API under `unshare -rm` with `mount --bind <hosts> /etc/hosts`, mapping the fixture names to `93.184.216.34`. Hermes' SSRF floor resolves every `web_extract` host in the worker and fails closed. Nothing connects to that address, because Go's `FixtureFetcher` answers. A live Claude Code check needs an API outside the namespace, which runs as uid 0.
 4. Phone: `make dev-mobile-web` in the scratch worktree, which serves Expo web on `:8082` against `:8081`.
+5. Host cards (`features/agent-host-cards.md`): host tools act on this machine, so they run only on a throwaway "real" home.
+   - `make agent-host-sandbox` makes `$HOME/.cache/p5-sandbox/{home,work,chrome-profile}`; `make agent-host-sandbox-clean` removes it. The working folder, the "real" home and any browser profile of a check live there and nowhere else.
+   - Add `TIMELY_AGENT_REAL_HOME=$HOME/.cache/p5-sandbox/home` (refused outside that folder), `TIMELY_AGENT_HOST_LIVE_WAIT_S`, `TIMELY_AGENT_HOST_PARK_S`, `TIMELY_AGENT_IDLE_MINUTES=1` and a random `TIMELY_SHELL_TOKEN` to the API's environment, all honoured only with `DB_SCHEMA` set. Turn the test account on with `PUT /instance/host-accounts` and that token, directly on `:8081` from loopback.
+   - Only harmless commands. A destructive command is only denied, with a path that does not exist.
+   - The stub shim has host shorthands (`TERMINAL`, `READ_FILE`, `WRITE_FILE`, `MCP_TOOL`). A live Claude Code check uses a new chat and a script that approves only an `ls`, `cat` or `echo` line or a path inside the sandbox.
+   - After a drive, `cd apps/api && go run ./scripts/agentqa -audit-host -dsn "$DSN"` must end `PASS`.
 
 `doctor` accepts this API when it runs in the recorded `api` session. The API marks itself non-dumpable (`internal/procguard`), so `doctor` reads the environment and working directory of `air` instead of the API binary's. The recipe is [features/agent-question-cards.md](features/agent-question-cards.md).
 

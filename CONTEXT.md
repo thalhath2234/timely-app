@@ -87,6 +87,26 @@ _Avoid_: clarify, clarification (Clarify is the Inbox step), prompt, choices car
 Part of an Agent run's work handed to a helper agent that runs inside the same run and reports back. A run gets at most three sub-tasks, and they share one budget. A sub-task can read but never proposes changes. Each shows as a "Sub-task: …" line while it works. Outside content a sub-task reads gives the chat its Taint.
 _Avoid_: subagent, child agent (in copy), delegate (a Bot's link to another Bot is Pass to), task (Work is a separate concept)
 
+**Host card**:
+A card an Agent run on the New engine puts in the chat when it wants to run a command, change or read a file, drive the browser, run code or use an MCP server on the person's own computer. It shows exactly what it would do (the command, path, address or tool, and the folder) and the chat reads "Needs your OK". Run once lets that one call go ahead, Allow for this chat also covers later calls of the same kind in this chat, and Deny tells the assistant no. Run once and Allow for this chat on the phone ask for fingerprint, face or screen lock first. The run waits live for 10 minutes; after that the card is a Parked card. Stop, deleting the chat or a lost run closes it, and a closed card stays in the thread (Ran, Allowed for this chat, Denied, Expired, Stopped). Approve and Reject never act on it: they are for proposals.
+_Avoid_: approval prompt, permission popup, confirm dialog
+
+**Host-allowed account**:
+An account that may use the computer the app runs on: its Agent runs get the terminal, file, code and browser tools and may add MCP servers that start a program. Whoever runs the host decides, in Settings → Server in the desktop window or with `TIMELY_AGENT_HOST_ACCOUNTS` on a server; several accounts can be turned on, each separately, and nobody is by default. It grants no access to another account through Timely. An approved command runs as the person who runs the app and can read whatever that person can, other accounts' data included.
+_Avoid_: admin, trusted account, host-trusted (the ADRs' older word), superuser
+
+**Parked card**:
+A Host card whose run stopped waiting after 10 minutes. The chat reads "Waiting for your OK" and nothing runs. The card stays for up to an hour (10 to 60 minutes in Settings → Permissions, "Cards wait up to"); Run once then starts the assistant again to run exactly that call. When the time passes, the card closes as "Expired, not run".
+_Avoid_: pending card, expired card (that is what it becomes), timed-out card
+
+**Allow for this chat**:
+A choice on a Host card that lets later calls of the same kind in this chat run without asking again: the same program for commands (and the same subcommand for tools like git or npm), the same folder for files, the same site for the browser, the same server and tool for MCP. It never covers a command with a pipe, redirect or `sudo`, code, an item on the Critical list, or an MCP server set to Ask me first. It lasts as long as the chat and is listed on the chat's permission sheet with Remove.
+_Avoid_: always allow, trust this command, remember (in copy)
+
+**Working folder**:
+The folder a Host-allowed account's commands start in and its files tools resolve names from, chosen in Settings → Server in the desktop window. With none chosen it is the account's agent workspace. A folder the person chose also lets the folder's own agent instructions (an `AGENTS.md`) apply, and reading one counts as outside content for Taint. Commands run with the person's real home folder either way.
+_Avoid_: workspace (that is the Timely Workspace), project folder, cwd (in copy)
+
 **Quick prompt**:
 The floating chat bar opened with Ctrl/Cmd+Shift+J from any screen. It carries Chat context, image attach, Web search and the model choice. Sending starts the conversation and hands it to the Activity island.
 _Avoid_: agent modal, chat overlay (in copy)
@@ -120,7 +140,7 @@ What runs a chat's turns: Classic (Timely's own loop, the default) or New (the a
 _Avoid_: backend, provider (that is the Agent provider), model
 
 **Permission mode**:
-How much a chat's agent may do without asking: Supervised (every change waits for Approve), Auto (changes apply at once with Undo, except the Critical list), or Full Access (meant to ask about nothing once host tools arrive; in phase 2 it behaves as Auto for Timely data; offered in the web and desktop apps, shown disabled on the phone). New chats take the account's default (Supervised unless changed); each chat can be switched from the composer chip. A looser mode never approves a change already waiting; a stricter one holds the next.
+How much a chat's agent may do without asking: Supervised (every change waits for Approve), Auto (changes apply at once with Undo, except the Critical list), or Full Access (no Host card for commands, files, code, the browser or MCP tools; it needs a confirmation from the desktop window that names what it lifts, and it never lifts the floors: wiping the disk or system and handing out keys). A Full Access that was not confirmed there acts as Auto. New chats take the account's default (Supervised unless changed); each chat can be switched from the composer chip. A looser mode never approves a change already waiting; a stricter one holds the next.
 _Avoid_: autonomy level, trust level, YOLO (in copy)
 
 **Critical list**:
