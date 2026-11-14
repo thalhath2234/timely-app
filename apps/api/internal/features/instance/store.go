@@ -252,6 +252,13 @@ func ValidateWorkingDir(dir string) (string, error) {
 	if err != nil || !info.IsDir() {
 		return "", invalid("That folder doesn't exist on this computer.")
 	}
+	// A link to the home (or to a folder above it, or to the root) would make
+	// all of that "inside" the folder: the folder is what the link leads to.
+	if real, rerr := filepath.EvalSymlinks(clean); rerr == nil {
+		clean = filepath.Clean(real)
+	} else {
+		return "", invalid("That folder doesn't exist on this computer.")
+	}
 	// The working folder is where the agent may delete and overwrite without
 	// asking in Auto: the disk's root, the home folder and any folder above
 	// the home would make everything "inside" it.
@@ -260,6 +267,9 @@ func ValidateWorkingDir(dir string) (string, error) {
 	}
 	if home, herr := os.UserHomeDir(); herr == nil && home != "" {
 		home = filepath.Clean(home)
+		if real, rerr := filepath.EvalSymlinks(home); rerr == nil {
+			home = filepath.Clean(real)
+		}
 		if clean == home || strings.HasPrefix(home+string(filepath.Separator), clean+string(filepath.Separator)) {
 			return "", invalid("Pick a project folder, not your whole home folder.")
 		}

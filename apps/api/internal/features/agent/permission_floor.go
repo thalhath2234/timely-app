@@ -3,6 +3,7 @@ package agent
 import (
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -474,10 +475,15 @@ func floorOne(op string, scope HostScope) bool {
 		}
 		return false
 	}
-	for _, d := range floorDirs(scope) {
-		if op == d {
-			return true
-		}
+	dirs := floorDirs(scope)
+	if slices.Contains(dirs, op) {
+		return true
+	}
+	// A link leads to where it points: `rm -rf link/*` in a folder whose
+	// `link` is the home erases the home (the critical list reads links the
+	// same way, realInside).
+	if real := resolveLinks(op); real != op && slices.Contains(dirs, real) {
+		return true
 	}
 	return false
 }
@@ -492,6 +498,12 @@ func floorDirs(scope HostScope) []string {
 	if scope.Home != "" {
 		for d := path.Clean(scope.Home); d != "/" && d != "."; d = path.Dir(d) {
 			out = append(out, d)
+		}
+		// The home may itself sit behind a link (/home/me -> /data/me).
+		if real := resolveLinks(path.Clean(scope.Home)); real != path.Clean(scope.Home) {
+			for d := real; d != "/" && d != "."; d = path.Dir(d) {
+				out = append(out, d)
+			}
 		}
 	}
 	return out
