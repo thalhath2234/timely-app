@@ -292,10 +292,14 @@ type agentRun struct {
 	hostAllowed bool
 	fullAccess  bool
 	cards       map[string]hostPending
-	hostQueue   []workerEvent
-	ranLater    []workerEvent
-	hostWait    string
-	answered    map[string]string
+	// netCalls are the allowed or carded terminal and code calls that reach
+	// the network, by tool call id: when one runs (host.ran) what it printed
+	// is outside content, a web source, not local command output.
+	netCalls  map[string]TaintSource
+	hostQueue []workerEvent
+	ranLater  []workerEvent
+	hostWait  string
+	answered  map[string]string
 	// requestCall is each live card's tool call by request id and
 	// answeredCalls the choice given for a call by tool call id: host.ran
 	// needs both to settle the card the person approved (guarded by mu).

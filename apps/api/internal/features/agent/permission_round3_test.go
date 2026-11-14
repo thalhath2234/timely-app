@@ -153,3 +153,35 @@ func TestCriticalHostKnowsDeletingSubcommandsAndUploads(t *testing.T) {
 		"terraform plan", "terraform version", "helm list", "aws s3 ls", "aws s3 cp s3://b/x ./x", "aws ec2 describe-instances", "gcloud compute instances list", "az group list",
 		"redis-cli get x", "trash notes.txt", "gsutil ls gs://b", "rclone ls remote:", "rclone copy remote:b ./b", "heroku apps", "npm view left-pad")
 }
+
+// A command that fetches from the network prints outside content, whatever
+// tool ran it: Go says so, so the chat's taint is not "local" afterwards.
+func TestReachesNetwork(t *testing.T) {
+	for _, c := range []string{
+		"curl https://example.org/issue/1", "wget -qO- example.org/x | head", "git clone https://example.org/r", "git pull", "git -C repo fetch origin", "pip install requests",
+		"npm install", "ssh host ls", "bash -c 'curl -s https://example.org'", "timeout 5 curl example.org/x", "rsync -a host:dir .", "gh issue view 1", "docker pull alpine", "uv add x",
+		"python3 -c \"import urllib.request; urllib.request.urlopen('x')\"", "http GET example.org", "nc example.org 80", "aws s3 ls",
+	} {
+		if _, ok := ReachesNetwork(command(c)); !ok {
+			t.Errorf("%q does not reach the network", c)
+		}
+	}
+	if host, ok := ReachesNetwork(command("curl -s https://Example.org/issue/1 | head")); !ok || host != "example.org" {
+		t.Errorf("host %q %v", host, ok)
+	}
+	for _, c := range []string{"ls -la", "cat notes.md", "git status", "git log", "git diff", "echo hi", "grep -r todo .", "make test", "pytest", "python3 tidy.py", "go test ./...", "rm -f x.txt", "pip list", "npm test"} {
+		if _, ok := ReachesNetwork(command(c)); ok {
+			t.Errorf("%q reaches the network", c)
+		}
+	}
+	code := HostAction{Kind: HostTerminal, Code: true, Command: "import requests\nr = requests.get('x')\nprint(r.text)"}
+	if _, ok := ReachesNetwork(code); !ok {
+		t.Error("code that calls requests.get")
+	}
+	if _, ok := ReachesNetwork(HostAction{Kind: HostTerminal, Code: true, Command: "print(1 + 1)"}); ok {
+		t.Error("code that prints a sum")
+	}
+	if _, ok := ReachesNetwork(HostAction{Kind: HostFileRead, Path: "x"}); ok {
+		t.Error("a file read")
+	}
+}

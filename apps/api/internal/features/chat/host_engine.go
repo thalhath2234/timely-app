@@ -79,6 +79,7 @@ func (e *WorkerEngine) gateHost(r *agentRun, m agenthost.Message, ask gateAsk) b
 	}
 	if d.verdict != "block" {
 		r.cards[ask.ToolCallID] = hostPending{card: d.card, grant: d.grant, tool: ask.Tool, argsHash: ask.ArgsHash, verdict: d.verdict}
+		r.noteNetwork(ask.ToolCallID, ask.Tool, d.action)
 	}
 	_ = r.worker.Reply(m, agenthost.TypeGateVerdict, reply)
 	detail := map[string]any{"toolset": ask.Toolset, "mode": string(st.mode)}
@@ -591,12 +592,56 @@ func (s *Service) parkOrphan(ctx context.Context, uid, cid, run string, wait tim
 // own for a call that ran without one, so "Undo this change" can restore it.
 func (e *WorkerEngine) hostRan(r *agentRun, ev workerEvent) {
 	p := ev.Payload
+	if started(p.Status) {
+		r.networkRan(p.ToolCallID, p.Tool, p.ArgsHash)
+	}
 	detail := map[string]any{"status": p.Status}
 	if p.Checkpoint != "" {
 		detail["checkpoint"], detail["checkpoint_dir"] = p.Checkpoint, p.CheckpointDir
 	}
 	e.s.logHostEvent(nil, hostEvent(r.uid, r.cid, r.id, p.ToolCallID, "", p.Tool, p.ArgsHash, eventRan, "", "", nil, detail), e.opts.Logf)
 	e.settleRan(r, ev)
+}
+
+// noteNetwork remembers a terminal or code call whose command reaches the
+// network (agent.ReachesNetwork): the worker reports its output as local
+// ("terminal", "code"), and Go knows better.
+func (r *agentRun) noteNetwork(call, tool string, action agent.HostAction) {
+	if call == "" || (tool != "terminal" && tool != "execute_code" && tool != "process" && tool != "process_manage") {
+		return
+	}
+	host, ok := agent.ReachesNetwork(action)
+	if !ok {
+		return
+	}
+	if r.netCalls == nil {
+		r.netCalls = map[string]TaintSource{}
+	}
+	r.netCalls[call] = TaintSource{Kind: "web", Tool: tool, Host: host}
+}
+
+// networkRan turns the call that has just run into an outside (web) taint
+// source when it reached the network. A continuation's pre-approved call has
+// no gate.ask: its card, which the row kept, is read instead.
+func (r *agentRun) networkRan(call, tool, argsHash string) {
+	src, ok := r.netCalls[call]
+	if ok {
+		delete(r.netCalls, call)
+	} else if r.cont != nil && tool == r.cont.Tool && argsHash == r.cont.ArgsHash {
+		for i := len(r.conv.Messages) - 1; i >= 0; i-- {
+			m := r.conv.Messages[i]
+			if m.Kind != "host" || m.Host == nil || m.Host.RequestID != r.cont.RequestID || m.Host.Card == nil {
+				continue
+			}
+			if host, net := agent.ReachesNetwork(agent.HostAction{Kind: agent.HostTerminal, Command: m.Host.Card.Command, Code: m.Host.Card.Kind == cardCode}); net {
+				src, ok = TaintSource{Kind: "web", Tool: tool, Host: host}, true
+			}
+			break
+		}
+	}
+	if ok {
+		r.noteTaint([]TaintSource{src})
+	}
 }
 
 // started is whether a host.ran status says the call started. "interrupted"

@@ -308,7 +308,16 @@ func newGrant(kind, match, label string) *HostGrant {
 // grantSubcommand are the programs whose grant also names the first
 // subcommand ("git status", not every git).
 var grantSubcommand = map[string]bool{"git": true, "gh": true, "npm": true, "pnpm": true, "yarn": true, "npx": true, "uv": true,
-	"pip": true, "pip3": true, "cargo": true, "go": true, "make": true, "docker": true, "kubectl": true}
+	"pip": true, "pip3": true, "cargo": true, "go": true, "make": true, "docker": true, "kubectl": true,
+	// Tools whose one program deletes as easily as it lists (review round 3):
+	// a grant from `terraform plan` must not cover `terraform destroy`.
+	"terraform": true, "tofu": true, "pulumi": true, "helm": true, "podman": true, "oc": true, "bun": true, "rclone": true, "gsutil": true,
+	"heroku": true, "fly": true, "flyctl": true, "vercel": true, "netlify": true, "wrangler": true, "firebase": true, "systemctl": true, "brew": true, "apt": true,
+	"aws": true, "gcloud": true, "az": true, "doctl": true}
+
+// grantDepth is how many words after the program a grant names, for the tools
+// with a service and an operation (aws s3 ls, gcloud compute instances list).
+var grantDepth = map[string]int{"aws": 2, "gcloud": 3, "az": 3, "doctl": 2}
 
 // shellOperators make a command line ungrantable: "ls" must not carry "; rm".
 var shellOperators = []string{"|", ";", "&", ">", "<", "$(", "`", "\n", "\r"}
@@ -350,11 +359,14 @@ func commandGrant(command string) *HostGrant {
 				return nil
 			}
 		}
+		depth := max(grantDepth[prog], 1)
 		for _, w := range rest {
 			w = strings.Trim(w, `"'`)
 			if w != "" && !strings.HasPrefix(w, "-") {
 				key += " " + w
-				break
+				if depth--; depth == 0 {
+					break
+				}
 			}
 		}
 	}

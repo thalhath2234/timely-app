@@ -81,3 +81,45 @@ func TestIntegrationAgentEngineHostStopWhileAContinuationCallRuns(t *testing.T) 
 		return c.Status == "stopped" && len(cl) == 1 && cl[0].Outcome == hostRan
 	})
 }
+
+// A command that fetched a page leaves outside content, whatever tool ran it:
+// the chat's taint names the web (and the host), so a grant never covers a
+// later call as if only local files were read.
+func TestIntegrationAgentEngineHostNetworkCommandTaintsTheChatAsWeb(t *testing.T) {
+	h := hostHarness(t)
+	c := h.chat("Read https://example.org/issue/1", "supervised", "r3net", lines(
+		host("c1", "terminal", obj{"command": "curl -s https://example.org/issue/1"}), reply("Done.", 0)))
+	c = h.hostWaiting(c.ID, hostLive)
+	if code, body := h.answerCard(c.ID, "req-c1", hostOnce, ""); code != 200 {
+		t.Fatalf("Run once: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "done", statusIs("idle"))
+	var web *TaintSource
+	for i := range c.TaintedSources {
+		if c.TaintedSources[i].Kind == "web" && c.TaintedSources[i].Host == "example.org" {
+			web = &c.TaintedSources[i]
+		}
+	}
+	if web == nil || web.Tool != "terminal" {
+		t.Fatalf("tainted sources %+v", c.TaintedSources)
+	}
+	if !outsideTaint(c.TaintedSources) {
+		t.Fatal("a web source counts as local")
+	}
+}
+
+// A local command leaves no web taint.
+func TestIntegrationAgentEngineHostLocalCommandLeavesNoWebTaint(t *testing.T) {
+	h := hostHarness(t)
+	c := h.chat("List my files", "supervised", "r3local", lines(ls("call_ls"), reply("Done.", 0)))
+	c = h.hostWaiting(c.ID, hostLive)
+	if code, body := h.answerCard(c.ID, "req-call_ls", hostOnce, ""); code != 200 {
+		t.Fatalf("Run once: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "done", statusIs("idle"))
+	for _, s := range c.TaintedSources {
+		if s.Kind == "web" {
+			t.Fatalf("a local command tainted the chat as web: %+v", c.TaintedSources)
+		}
+	}
+}

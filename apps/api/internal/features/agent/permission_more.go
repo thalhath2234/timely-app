@@ -546,3 +546,72 @@ func worstDest(dests []string, scope HostScope, reason string) (int, string) {
 	}
 	return best, why
 }
+
+// ReachesNetwork reports whether a terminal or code call fetches from the
+// network: a URL in the command or the program, curl, wget, ssh, git clone or
+// pull, a package manager's install or download, or program text that opens a
+// connection. host is the first address named, when there is one. What such a
+// call prints is outside content, whatever tool printed it.
+func ReachesNetwork(h HostAction) (host string, ok bool) {
+	if h.Kind != HostTerminal {
+		return "", false
+	}
+	if u := urlPattern.FindString(h.Command); u != "" {
+		return hostOf(u), true
+	}
+	if codeNetwork.MatchString(h.Command) {
+		return "", true
+	}
+	if h.Code {
+		return "", false
+	}
+	return "", networkCommand(h.Command, 0)
+}
+
+// codeNetwork is program text that opens a connection.
+var codeNetwork = regexp.MustCompile(`(?i)\b(?:urllib|requests\.(?:get|post|put|request|session)|httpx|aiohttp|http\.client|urlopen|urlretrieve|socket\.(?:socket|create_connection)|XMLHttpRequest|axios|node-fetch|Net::HTTP|open-uri|curl_exec|file_get_contents\(\s*["']https?)\b|\bfetch\(\s*["'\x60]|\bhttp\.get\(|net/http|\bimport\s+(?:requests|urllib|httpx|aiohttp)\b`)
+
+func networkCommand(line string, depth int) bool {
+	if depth > floorDepth {
+		return false
+	}
+	for _, part := range commandSplit.Split(line, -1) {
+		words, _ := unwrapCommand(fields(part))
+		if len(words) == 0 {
+			continue
+		}
+		prog := strings.ToLower(path.Base(strings.TrimLeft(words[0], `\`)))
+		args := words[1:]
+		first := sub(args, 0)
+		switch {
+		case prog == "eval":
+			if networkCommand(strings.Join(args, " "), depth+1) {
+				return true
+			}
+		case shellPrograms[prog]:
+			if payload, ok := shellPayload(args); ok && networkCommand(payload, depth+1) {
+				return true
+			}
+		case oneOf(prog, "curl", "wget", "wget2", "http", "https", "xh", "httpie", "aria2c", "ssh", "scp", "sftp", "ftp", "lftp", "nc", "ncat", "netcat", "socat", "telnet", "mosh",
+			"yt-dlp", "youtube-dl", "gallery-dl", "ping", "dig", "nslookup", "host", "traceroute", "mtr", "gh", "glab", "aws", "gcloud", "az", "gsutil", "rclone", "azcopy", "heroku", "doctl", "vercel", "netlify", "fly", "flyctl",
+			"npx", "bunx", "uvx", "pnpx", "pipx", "hermes"):
+			return true
+		case prog == "rsync":
+			for _, op := range operands(args) {
+				if remoteSpec(op) {
+					return true
+				}
+			}
+		case prog == "git":
+			rest, _ := gitSubcommandArgs(args)
+			if oneOf(sub(rest, 0), "clone", "pull", "fetch", "ls-remote", "remote", "submodule", "push", "archive") {
+				return true
+			}
+		case oneOf(prog, "pip", "pip3", "npm", "pnpm", "yarn", "bun", "cargo", "go", "uv", "poetry", "pdm", "conda", "mamba", "micromamba", "gem", "composer", "brew", "apt", "apt-get", "dnf", "yum", "pacman", "docker", "podman", "snap", "flatpak"):
+			if oneOf(first, "install", "i", "add", "get", "update", "upgrade", "download", "fetch", "pull", "ci", "dlx", "sync", "search", "view", "info", "outdated", "audit", "publish", "mod", "-s", "-sy", "-syu", "build", "run") {
+				return true
+			}
+		}
+	}
+	return false
+}

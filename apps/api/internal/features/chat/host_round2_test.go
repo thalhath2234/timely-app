@@ -311,3 +311,29 @@ func TestPatchCardNamesAFileOnce(t *testing.T) {
 		t.Errorf("card %+v", d.card)
 	}
 }
+
+// Review round 3: a grant from a harmless use of a multi-purpose program must
+// not cover its destructive form, and the destructive forms are never
+// grantable (item 1).
+func TestGrantKeysNameTheOperationOfMultiPurposePrograms(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"terraform plan", "terraform destroy -auto-approve"}, {"aws s3 ls", "aws s3 rm s3://bucket --recursive"}, {"aws ec2 describe-instances", "aws ec2 terminate-instances"},
+		{"gcloud compute instances list", "gcloud compute instances delete vm"}, {"helm list", "helm uninstall x"}, {"heroku apps", "heroku apps:destroy x"},
+		{"rclone ls remote:", "rclone purge remote:b"}, {"docker ps", "docker rm -f db"}, {"kubectl get pods", "kubectl delete ns prod"},
+	} {
+		a, b := commandGrant(pair[0]), commandGrant(pair[1])
+		if a == nil || b == nil || a.Match == b.Match {
+			t.Errorf("%q and %q share a grant: %+v %+v", pair[0], pair[1], a, b)
+		}
+	}
+	for _, mode := range []agent.Mode{agent.Supervised, agent.Auto} {
+		st := baseState(mode)
+		st.grants = HostGrants{*commandGrant("terraform plan"), *commandGrant("aws s3 ls"), *commandGrant("git stash list"), *commandGrant("docker ps")}
+		for _, c := range []string{"terraform destroy -auto-approve", "aws s3 rm s3://bucket --recursive", "git stash clear", "docker volume prune -f", "docker rm -f db", "kubectl delete ns prod"} {
+			d := decideCall(t, st, "terminal", map[string]any{"command": c})
+			if d.verdict != "approve" || d.by == "grant" || d.card.CriticalItem != agent.CriticalDeleting || d.card.Grantable {
+				t.Errorf("%s: %q -> %s by %q item %d grantable %v", mode, c, d.verdict, d.by, d.card.CriticalItem, d.card.Grantable)
+			}
+		}
+	}
+}
