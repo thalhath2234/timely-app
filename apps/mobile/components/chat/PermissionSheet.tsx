@@ -284,7 +284,7 @@ export default function PermissionSheet({
           /\s*Turn it on for this chat\?$/,
           "",
         )}
-        confirmLabel="Turn on Full Access"
+        confirmLabel="Turn on"
         tone="primary"
         icon={<Zap size={16} color={colors.primaryForeground} />}
         onConfirm={() => {

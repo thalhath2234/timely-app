@@ -227,7 +227,7 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
         onClose={() => setConfirm(null)}
         title={confirm === "botPermission" ? "Run bots on Full Access?" : "Start new chats on Full Access?"}
         message={FULL_ACCESS_CONFIRM.replace(/\s*Turn it on for this chat\?$/, "")}
-        confirmLabel="Turn on Full Access"
+        confirmLabel="Turn on"
         tone="primary"
         icon={<Zap size={16} color={colors.primaryForeground} />}
         onConfirm={() => {
