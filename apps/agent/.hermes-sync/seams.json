@@ -1675,6 +1675,14 @@
       "signature": "def _make_redirect_header_stripper(httpx_mod, original_url, *, strict: bool=False, configured_header_names: set[str] | frozenset[str]=frozenset())",
       "sha256": "9435a1cf98c1853d8b9d672593e502ec701d2c16454fd96691844d8be5af8143"
     },
+    "MCP SDK httpx module (address guard R8, OAuth pre-flight)": {
+      "file": "tools/mcp_tool.py",
+      "qualname": "sdk_httpx",
+      "line": 194,
+      "end_line": 214,
+      "signature": "def sdk_httpx()",
+      "sha256": "5a86688e0ad46b5f818c62df9b650d3517372a04c8096f0f906b273638bc0e0c"
+    },
     "MCP discovery per run": {
       "file": "tools/mcp_tool_discovery.py",
       "qualname": "discover_mcp_tools",

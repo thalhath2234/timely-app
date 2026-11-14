@@ -97,3 +97,68 @@ def test_a_failing_check_fails_closed_and_guarding_twice_is_one_guard():
                 await client.get("https://public.test/x")
 
     run(go())
+
+
+# ---- the SDK's httpx module (OAuth pre-flight discovery and the device flow) ---------------------
+
+def test_the_sdk_httpx_stand_in_guards_the_clients_hermes_oauth_builds(monkeypatch):
+    """Review round 2: ``_prefetch_oauth_metadata`` opens ``httpx.AsyncClient(timeout=10.0)`` itself and
+    GETs the PRM and authorization-server URLs the server names, so those clients must refuse a private
+    address too (a listener on 127.0.0.1 sees no request)."""
+    import socket
+    import threading
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(5)
+    port = listener.getsockname()[1]
+    hits: list[bytes] = []
+
+    def serve():
+        listener.settimeout(2)
+        try:
+            conn, _ = listener.accept()
+            hits.append(conn.recv(100))
+            conn.close()
+        except OSError:
+            pass
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    stand_in = mcp_net_guard.guarded_httpx(httpx, safe)
+
+    async def go():
+        async with stand_in.AsyncClient(timeout=3.0) as client:
+            with pytest.raises(httpx.ConnectError, match="private, local or internal address"):
+                await client.get(f"http://127.0.0.1:{port}/.well-known/oauth-authorization-server")
+            with pytest.raises(httpx.ConnectError):
+                await client.get("http://169.254.169.254/latest/meta-data")
+
+    run(go())
+    t.join(3)
+    listener.close()
+    assert hits == [], "the private listener saw a request"
+    assert isinstance(stand_in.AsyncClient(), httpx.AsyncClient)  # still an httpx client
+    assert stand_in.URL is httpx.URL and stand_in.ConnectError is httpx.ConnectError  # everything else passes through
+
+
+def test_the_stand_in_guards_client_mounts_and_a_transport_passed_in():
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text="ok")
+
+    stand_in = mcp_net_guard.guarded_httpx(httpx, safe)
+
+    async def go():
+        async with stand_in.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            assert (await client.get("https://public.test/x")).text == "ok"
+            with pytest.raises(httpx.ConnectError):
+                await client.get("http://10.0.0.5/x")
+        async with stand_in.AsyncClient(mounts={"all://": httpx.MockTransport(handler)}) as client:
+            with pytest.raises(httpx.ConnectError):
+                await client.get("http://[::1]/x")
+
+    run(go())
+    assert seen == ["https://public.test/x"]

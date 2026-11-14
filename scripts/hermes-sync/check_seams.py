@@ -267,6 +267,7 @@ TIMELY_SEAMS = [
     ("browser cleanup (worker exit)", "tools/browser_session_lifecycle.py", "cleanup_all_browsers"),
     ("MCP wire cap transport (address guard R8)", "tools/mcp_tool_errors.py", "_make_mcp_body_cap_transport"),
     ("MCP redirect-aware client factory (address guard R8)", "tools/mcp_tool_errors.py", "_make_redirect_header_stripper"),
+    ("MCP SDK httpx module (address guard R8, OAuth pre-flight)", "tools/mcp_tool.py", "sdk_httpx"),
     ("MCP discovery per run", "tools/mcp_tool_discovery.py", "discover_mcp_tools"),
     ("MCP token folder", "tools/mcp_oauth.py", "_get_token_dir"),
     ("MCP token file names", "tools/mcp_oauth.py", "_safe_filename"),

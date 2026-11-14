@@ -9,6 +9,11 @@ Location: http://127.0.0.1:...`` or names ``http://169.254.169.254/`` as its aut
 make the worker call loopback, the LAN or cloud metadata. Hermes' MCP transport never calls
 ``url_safety`` (its SSRF floor is for its own web tools).
 
+Hermes' OAuth pre-flight discovery (``MCPOAuthManager._prefetch_oauth_metadata``, run when tokens exist
+but no metadata file does) and the device-code flow build clients of their own through
+``tools.mcp_tool.sdk_httpx()``, which the first two wrappers never see; ``install`` wraps ``sdk_httpx`` too, so
+the SDK's httpx module they get hands out guarded clients (phase 5 review round 2).
+
 ``install`` wraps the two factories every MCP HTTP client is built through
 (``tools.mcp_tool_transport._make_mcp_body_cap_transport`` for the streamable and SSE clients and the
 proxy mounts, ``_make_redirect_header_stripper`` for the probe) so the client's transport refuses a
@@ -94,9 +99,57 @@ def guarded(httpx_mod: Any, transport: Any, is_safe: Callable[[str], bool] | Non
     return guard_class(httpx_mod)(transport, is_safe)
 
 
+_clients: dict[int, Any] = {}
+
+
+def guarded_httpx(httpx_mod: Any, is_safe: Callable[[str], bool] | None = None) -> Any:
+    """A stand-in for ``httpx_mod`` whose ``AsyncClient`` puts every transport it ends up with (its
+    own default, the proxy mounts, one passed in) behind the address check. Hermes' OAuth code
+    builds clients of its own through ``tools.mcp_tool.sdk_httpx()`` (the pre-flight discovery in
+    ``MCPOAuthManager._prefetch_oauth_metadata``, the device-code flow in ``mcp_oauth_device``), and
+    they GET and POST the URLs the *server* names."""
+    cached = _clients.get(id(httpx_mod))
+    if cached is not None and is_safe is None:
+        return cached
+    base = httpx_mod.AsyncClient
+
+    class GuardedAsyncClient(base):  # type: ignore[valid-type, misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            if not hasattr(self, "_transport"):  # a client we cannot guard is never handed out
+                raise RuntimeError("the MCP address guard cannot wrap this httpx client")
+            self._transport = guarded(httpx_mod, self._transport, is_safe)
+            mounts = getattr(self, "_mounts", None)
+            if isinstance(mounts, dict):
+                for key, mount in list(mounts.items()):
+                    if mount is not None:
+                        mounts[key] = guarded(httpx_mod, mount, is_safe)
+
+    class GuardedHttpx:
+        AsyncClient = GuardedAsyncClient
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(httpx_mod, name)
+
+    proxy = GuardedHttpx()
+    if is_safe is None:
+        _clients[id(httpx_mod)] = proxy
+    return proxy
+
+
 def install() -> None:
-    """Wrap the MCP transport's client factories (idempotent)."""
+    """Wrap the MCP transport's client factories and the SDK's httpx module (idempotent)."""
+    import tools.mcp_tool as core
     import tools.mcp_tool_transport as transport
+    if not getattr(core.sdk_httpx, _MARK, False):
+        sdk_httpx = core.sdk_httpx
+
+        def guarded_sdk_httpx():
+            mod = sdk_httpx()
+            return guarded_httpx(mod) if mod is not None else None
+
+        setattr(guarded_sdk_httpx, _MARK, True)
+        core.sdk_httpx = guarded_sdk_httpx
     if getattr(transport._make_mcp_body_cap_transport, _MARK, False):
         return
     cap = transport._make_mcp_body_cap_transport
@@ -123,8 +176,10 @@ def install() -> None:
 
 def active() -> bool:
     try:
+        import tools.mcp_tool as core
         import tools.mcp_tool_transport as transport
         return bool(getattr(transport._make_mcp_body_cap_transport, _MARK, False)
-                    and getattr(transport._make_redirect_header_stripper, _MARK, False))
+                    and getattr(transport._make_redirect_header_stripper, _MARK, False)
+                    and getattr(core.sdk_httpx, _MARK, False))
     except Exception:
         return False
