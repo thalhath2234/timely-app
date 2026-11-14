@@ -155,7 +155,7 @@ export const AUTO_ASKS_BEFORE: readonly CriticalRow[] = [
   { item: 3, title: "Buying, paying or signing in" },
   { item: 4, title: "Installing software" },
   { item: 5, title: "Changing settings or permissions" },
-  { item: 6, title: "Changes after reading outside pages", detail: "A page could have told it what to do" },
+  { item: 6, title: "Changes after reading outside content", detail: "A page, file or command output could have told it what to do" },
 ];
 
 export const ENGINE_COPY: Record<AccountEngine, { name: string; description: string }> = {

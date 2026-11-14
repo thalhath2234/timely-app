@@ -143,7 +143,7 @@ describe("permission copy", () => {
         [3, "Buying, paying or signing in", ""],
         [4, "Installing software", ""],
         [5, "Changing settings or permissions", ""],
-        [6, "Changes after reading outside pages", "A page could have told it what to do"],
+        [6, "Changes after reading outside content", "A page, file or command output could have told it what to do"],
       ],
     );
     assert.match(ALWAYS_BLOCKED_NOTE, /every mode/);

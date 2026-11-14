@@ -1190,6 +1190,27 @@ for (const [app, h] of [
       /^Auto always asks before this: changing settings or permissions$/,
     );
     assert.equal(h.hostCardView(hostReq(), NOW).critical, "");
+    // Review round 5: item 6 (a change after reading outside content) can be
+    // allowed for the chat after local output, so its card never says "always".
+    const after = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "file",
+          title: "Change this file?",
+          path: "/home/me/work/greeting.txt",
+          reason: "comes after reading outside content (pages, files or command output)",
+          criticalItem: 6,
+          grantable: true,
+        },
+      }),
+      NOW,
+    );
+    assert.equal(
+      after.critical,
+      "Auto asks before this unless you allow it for this chat: changes after reading outside content",
+    );
+    assert.doesNotMatch(after.critical, /always/);
+    assert.equal(h.criticalLine(1, false), "Auto always asks before this: deleting or overwriting");
     // A request with no card yet still draws something sensible.
     assert.equal(
       h.hostCardView({ requestId: "x", phase: "live" }, NOW).title,

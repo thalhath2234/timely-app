@@ -77,7 +77,7 @@ const (
 	CriticalPaying     = 3 // Buying, paying or signing in
 	CriticalInstalling = 4 // Installing software
 	CriticalSettings   = 5 // Changing settings or permissions
-	CriticalTainted    = 6 // Changes after reading outside pages
+	CriticalTainted    = 6 // Changes after reading outside content (a page, a file, command output)
 )
 
 // bulkItems is the most items one change may touch before it counts as a

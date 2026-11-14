@@ -115,10 +115,18 @@ export function whereLine(card: HostCard | null | undefined): string {
 
 /** "Auto always asks before this: deleting or overwriting" for a critical-list
  * item, else "". Auto is what the list belongs to: Full Access lifts it, and
- * no grant covers it. */
-export function criticalLine(item: number | undefined): string {
+ * no grant covers it, except item 6 (a change after reading outside content)
+ * when everything read was local: that card is grantable, so it says Auto
+ * asks "unless you allow it for this chat", never "always". */
+export function criticalLine(
+  item: number | undefined,
+  grantable?: boolean,
+): string {
   const row = AUTO_ASKS_BEFORE.find((r) => r.item === item);
-  return row ? `Auto always asks before this: ${row.title.toLowerCase()}` : "";
+  if (!row) return "";
+  return grantable
+    ? `Auto asks before this unless you allow it for this chat: ${row.title.toLowerCase()}`
+    : `Auto always asks before this: ${row.title.toLowerCase()}`;
 }
 
 /** Go's reason in the person's words. The critical list's reasons are verb
@@ -199,7 +207,7 @@ export function hostCardView(
     page: pageLine(card),
     envNames: card?.envNames ?? [],
     reason: reasonLine(card?.reason),
-    critical: criticalLine(card?.criticalItem),
+    critical: criticalLine(card?.criticalItem, card?.grantable),
     timeLeft: hostTimeLeft(request, now),
     timeUp: left !== null && left <= 0,
     soon: left !== null && left <= 60,
