@@ -1,6 +1,19 @@
 import { Text, View } from "react-native";
-import { Check, MessageCircleQuestionMark, Sparkles, Undo2, X } from "lucide-react-native";
-import { PERMISSION_COPY, questionWaiting, type ActivityLine } from "@timely/contract/agentChat";
+import {
+  Check,
+  MessageCircleQuestionMark,
+  ShieldQuestionMark,
+  Sparkles,
+  Undo2,
+  X,
+} from "lucide-react-native";
+import {
+  HOST_STATUS_WORDS,
+  PERMISSION_COPY,
+  hostWaiting,
+  questionWaiting,
+  type ActivityLine,
+} from "@timely/contract/agentChat";
 import type { Chat, ChatMessage } from "../../lib/chat/types";
 import { appliedSteps, autoAppliedState, chatPermission } from "../../lib/chat/agentRun";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
@@ -60,6 +73,9 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
   const lines = chat.activity?.lines ?? [];
   // The run waits on a question card: it says so instead of spinning.
   const asking = questionWaiting(chat);
+  // Paused on a host card: it needs the person's OK, so nothing spins.
+  const hosting = hostWaiting(chat);
+  const paused = asking || hosting;
   return (
     <View style={styles.row} testID="live-run">
       <View style={styles.avatar}>
@@ -70,18 +86,28 @@ export function LiveRun({ chat, draft, onLink }: { chat: Chat; draft: string; on
           <Text style={styles.speaker}>Timely</Text>
           {asking ? (
             <MessageCircleQuestionMark size={12} color={colors.warningText} />
+          ) : hosting ? (
+            <ShieldQuestionMark size={12} color={colors.warningText} />
           ) : (
             <LogoSpinner size={12} color={colors.mutedForeground} />
           )}
-          <Text style={styles.time}>{asking ? QUESTION_WAITING_LINE : draft ? "Writing" : phaseLabel(chat.phase)}</Text>
+          <Text style={styles.time}>
+            {asking
+              ? QUESTION_WAITING_LINE
+              : hosting
+                ? HOST_STATUS_WORDS.live
+                : draft
+                  ? "Writing"
+                  : phaseLabel(chat.phase)}
+          </Text>
         </View>
-        <ActivityLines lines={lines} waiting={asking} />
+        <ActivityLines lines={lines} waiting={paused} />
         {draft ? (
           <View testID="live-reply">
             <ChatText text={draft.trimStart()} onLink={onLink} />
           </View>
         ) : null}
-        {asking ? null : (
+        {paused ? null : (
           <Text style={styles.hint}>
             This keeps running on the server. Send a message to steer it, or Stop.
           </Text>

@@ -1,5 +1,15 @@
 import type { BotAnswer } from "@timely/contract/bots";
-import type { AnsweredQuestion, ChatActivity, ChatEngine, ChatQuestion, PermissionMode } from "@timely/contract/agentChat";
+import type {
+  AnsweredQuestion,
+  ChatActivity,
+  ChatEngine,
+  ChatQuestion,
+  ClosedHost,
+  FullAccessRecord,
+  HostGrant,
+  HostRequest,
+  PermissionMode,
+} from "@timely/contract/agentChat";
 
 export type ChatContext = { kind: string; label: string; value: string };
 /** pending → done, or failed (retry resets it), or discarded in an archived plan. */
@@ -17,8 +27,16 @@ export type ChatStep = {
 };
 /** "" is a turn, "notice" a run event, "archive" a superseded or discarded plan,
  * "steer" what the person typed into a live agent run, "question" a question
- * card the agent asked, with what came back. */
-export type ChatMessageKind = "" | "notice" | "archive" | "similar" | "steer" | "question";
+ * card the agent asked, with what came back, "host" a host card that closed
+ * (or a host call that left a checkpoint "Undo this change" can restore). */
+export type ChatMessageKind =
+  | ""
+  | "notice"
+  | "archive"
+  | "similar"
+  | "steer"
+  | "question"
+  | "host";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -53,6 +71,8 @@ export type ChatMessage = {
   undoMessageId?: string;
   /** A "question" message's card: what was asked and answered, and how its wait ended. */
   question?: AnsweredQuestion;
+  /** A "host" message's card: how it closed, who answered and its checkpoint. */
+  host?: ClosedHost;
 };
 /** A bot picked in the composer's @-picker, sent as `botTags` with one message. */
 export type BotTag = { id: string; name: string };
@@ -97,6 +117,12 @@ export type Chat = {
   noLearning?: boolean;
   /** The question card the live run waits on (the chat stays running); `{}` when none waits. */
   question?: ChatQuestion;
+  /** The host card the chat waits on (status host_approval); `{}` when none waits. */
+  hostRequest?: HostRequest;
+  /** What "Allow for this chat" allowed here. */
+  hostGrants?: HostGrant[];
+  /** The step-up that turned Full Access on for this chat (`{}` when none). */
+  fullAccess?: FullAccessRecord;
   updatedAt: string;
   createdAt: string;
 };

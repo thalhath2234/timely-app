@@ -64,7 +64,7 @@ function HistoryRow({
   const [title, setTitle] = useState(chat.title);
   const input = useRef<HTMLInputElement>(null);
   const openMenu = useContextMenu();
-  const meta = statusMeta(chat.status, chat.question);
+  const meta = statusMeta(chat.status, chat.question, chat.hostRequest);
   const Icon = meta.icon;
   useEffect(() => {
     if (editing) {
@@ -166,9 +166,14 @@ function HistoryRow({
               {chat.title}
             </span>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-              {["approval", "choose", "failed", "running", "queued"].includes(
-                chat.status,
-              )
+              {[
+                "approval",
+                "host_approval",
+                "choose",
+                "failed",
+                "running",
+                "queued",
+              ].includes(chat.status)
                 ? meta.label
                 : relativeTime(chat.updatedAt)}
             </span>

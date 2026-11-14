@@ -31,6 +31,7 @@ import {
   onDelta,
   permissionChip,
   permissionHint,
+  needsHostAnswer,
   permissionOptions,
   planSummaryHidden,
   visibleDraft,
@@ -38,6 +39,13 @@ import {
 } from "../apps/mobile/lib/chat/agentRun.ts";
 import * as phoneQuestion from "../apps/mobile/lib/chat/question.ts";
 import * as webQuestion from "../apps/web/app/_components/chat/questionDraft.ts";
+import * as phoneHost from "../apps/mobile/lib/chat/host.ts";
+import * as webHost from "../apps/web/app/_components/chat/hostView.ts";
+import { unlockDevice, withUnlock } from "../apps/mobile/lib/deviceUnlock.ts";
+import {
+  hostStatusWord,
+  hostWaiting,
+} from "../packages/contract/src/agentChat.ts";
 
 test("agent notification targets its chat and retains existing reminder routing", () => {
   assert.equal(
@@ -467,8 +475,11 @@ test("the header chip maps each mode to its drawn glyph and tone, Supervised for
   assert.match(permissionHint("auto"), /Undo/);
 });
 
-test("the phone can't turn on Full Access in phase 2, but a chat already on it keeps it chosen", () => {
+test("the phone turns on Full Access only where the account allowed any device, and a chat already on it keeps it chosen", () => {
+  // The step-up (phase 5): the desktop app by default; the phone after unlock when "Allowed on" is any device.
   assert.equal(fullAccessDisabledOnPhone(), true);
+  assert.equal(fullAccessDisabledOnPhone("desktop"), true);
+  assert.equal(fullAccessDisabledOnPhone("devices"), false);
   const options = permissionOptions("auto");
   assert.deepEqual(options.map((o) => [o.mode, o.selected, o.disabled]), [
     ["supervised", false, false],
@@ -480,6 +491,22 @@ test("the phone can't turn on Full Access in phase 2, but a chat already on it k
   assert.equal(canPickPermission("auto", "full"), false);
   assert.equal(canPickPermission("auto", "supervised"), true);
   assert.equal(canPickPermission("auto", "auto"), false);
+  const anyDevice = permissionOptions("auto", "devices");
+  assert.deepEqual(
+    anyDevice.map((o) => [o.mode, o.selected, o.disabled]),
+    [
+      ["supervised", false, false],
+      ["auto", true, false],
+      ["full", false, false],
+    ],
+  );
+  assert.match(
+    anyDevice[2].line,
+    /fingerprint, face or screen lock/,
+    "the row says it unlocks the phone first",
+  );
+  assert.doesNotMatch(anyDevice[2].line, /desktop app/);
+  assert.equal(canPickPermission("auto", "full", "devices"), true);
   const onFull = permissionOptions("full");
   assert.deepEqual(onFull.map((o) => [o.mode, o.selected, o.disabled]), [
     ["supervised", false, false],
@@ -981,4 +1008,680 @@ test("a question alert offers no blind Reply, and the Reply of any alert names n
   assert.equal(categoryFor({ category: "agent", data: { status: "idle" } }), "timely_agent_done");
   // The Reply says it read no card: a waiting card gets 409 "Read it first", not this text as its answer.
   assert.deepEqual(replyBody("  Monday  ", "ntf-1"), { content: "Monday", requestId: "ntf-1", questionRequestId: "" });
+});
+
+// Host cards (phase 5, Q-5.1 and Q-5.7): the phone's lib/chat/host.ts and the
+// web's hostView.ts hold the same rules; every test runs on both.
+const hostReq = (over = {}) => ({
+  requestId: "host-1",
+  run: "run-1",
+  phase: "live",
+  tool: "terminal",
+  toolCallId: "call-1",
+  argsHash: "abc",
+  askedAt: "2026-11-14T10:00:00Z",
+  liveUntil: "2026-11-14T10:10:00Z",
+  expiresAt: "2026-11-14T11:00:00Z",
+  card: {
+    kind: "terminal",
+    title: "Run this command?",
+    command: "git status && echo <a href='https://evil.example'>done</a>",
+    cwd: "/home/me/project",
+    reason: "Supervised asks before every command.",
+    grantable: true,
+  },
+  grant: {
+    kind: "terminal",
+    key: "g1",
+    match: "terminal:git status",
+    label: "git status",
+  },
+  ...over,
+});
+const at = (iso) => Date.parse(iso);
+const NOW = at("2026-11-14T10:01:00Z");
+
+for (const [app, h] of [
+  ["phone", phoneHost],
+  ["web", webHost],
+]) {
+  test(`${app}: a live host card shows the call whole as plain text, with its folder, reason and time left`, () => {
+    const view = h.hostCardView(hostReq(), NOW);
+    assert.equal(view.state, "live");
+    assert.equal(view.stateWord, "Needs your OK");
+    assert.equal(view.title, "Run this command?");
+    assert.equal(view.subjectLabel, "Command");
+    // The model's own text, verbatim: no link, no markup stripped or added.
+    assert.equal(
+      view.subject,
+      "git status && echo <a href='https://evil.example'>done</a>",
+    );
+    assert.equal(view.cwd, "/home/me/project");
+    assert.equal(view.reason, "Supervised asks before every command.");
+    assert.equal(
+      view.timeLeft,
+      "9 min left",
+      "the live wait counts down to liveUntil",
+    );
+    assert.equal(view.soon, false);
+    assert.deepEqual(view.choices, ["once", "chat", "deny"]);
+    assert.match(
+      view.grant,
+      /git status/,
+      "Allow for this chat names what it would cover",
+    );
+  });
+
+  test(`${app}: a parked card says paused, counts down to its expiry and a card that is not grantable offers no Allow for this chat`, () => {
+    const parked = hostReq({
+      phase: "parked",
+      card: { ...hostReq().card, grantable: false },
+    });
+    const view = h.hostCardView(parked, NOW);
+    assert.equal(view.state, "parked");
+    assert.equal(view.stateWord, "Paused: waiting for your OK");
+    assert.equal(
+      view.timeLeft,
+      "59 min left",
+      "the parked wait counts down to expiresAt",
+    );
+    assert.deepEqual(view.choices, ["once", "deny"]);
+    assert.equal(view.grant, "");
+    const soon = h.hostCardView(
+      hostReq({ liveUntil: "2026-11-14T10:01:30Z" }),
+      NOW,
+    );
+    assert.equal(soon.timeLeft, "30 s left");
+    assert.equal(soon.soon, true);
+    const up = h.hostCardView(
+      hostReq({ liveUntil: "2026-11-14T10:00:30Z" }),
+      NOW,
+    );
+    assert.equal(up.timeUp, true);
+    assert.equal(up.timeLeft, "");
+  });
+
+  test(`${app}: each kind of card names its subject, and a critical item says it always asks`, () => {
+    const file = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "file",
+          title: "Change this file?",
+          path: "/home/me/notes.md",
+          reason: "",
+          grantable: true,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual(
+      [file.subjectLabel, file.subject],
+      ["File", "/home/me/notes.md"],
+    );
+    const web = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "browser",
+          title: "Use your browser?",
+          url: "https://example.com/pay",
+          reason: "",
+          grantable: false,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual(
+      [web.subjectLabel, web.subject],
+      ["Address", "https://example.com/pay"],
+    );
+    const mcp = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "mcp",
+          title: "Use github?",
+          server: "github",
+          reason: "",
+          grantable: false,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual([mcp.subjectLabel, mcp.subject], ["Tool", "github"]);
+    const add = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "mcp_server",
+          title: "Add this MCP server?",
+          server: "files",
+          command: "npx files-mcp --root /home/me",
+          envNames: ["TOKEN"],
+          reason: "",
+          criticalItem: 5,
+          grantable: false,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual(
+      [add.subjectLabel, add.subject, add.envNames],
+      ["Command to start it", "npx files-mcp --root /home/me", ["TOKEN"]],
+    );
+    assert.match(
+      add.critical,
+      /^Always asks, in every mode: changing settings or permissions$/,
+    );
+    assert.equal(h.hostCardView(hostReq(), NOW).critical, "");
+    // A request with no card yet still draws something sensible.
+    assert.equal(
+      h.hostCardView({ requestId: "x", phase: "live" }, NOW).title,
+      "Run this command?",
+    );
+  });
+
+  test(`${app}: Deny works under every rule; Run once and Allow for this chat need the desktop window under the desktop rule, and the phone unlocks first`, () => {
+    const choices = ["once", "chat", "deny"];
+    const rows = (surface, rule) =>
+      h
+        .choiceAccess(choices, surface, rule)
+        .map((a) => [a.choice, a.enabled, a.needsUnlock]);
+    assert.deepEqual(rows("web", "devices"), [
+      ["once", true, false],
+      ["chat", true, false],
+      ["deny", true, false],
+    ]);
+    assert.deepEqual(
+      rows("phone", "devices"),
+      [
+        ["once", true, true],
+        ["chat", true, true],
+        ["deny", true, false],
+      ],
+      "Deny never unlocks",
+    );
+    assert.deepEqual(
+      rows("phone", undefined),
+      rows("phone", "devices"),
+      "older servers default to any device",
+    );
+    assert.deepEqual(rows("desktop", "desktop"), [
+      ["once", true, false],
+      ["chat", true, false],
+      ["deny", true, false],
+    ]);
+    assert.deepEqual(rows("phone", "desktop"), [
+      ["once", false, true],
+      ["chat", false, true],
+      ["deny", true, false],
+    ]);
+    assert.equal(
+      h.choiceAccess(choices, "web", "desktop")[0].why,
+      "Approve this card in the desktop app",
+    );
+  });
+
+  test(`${app}: the answer carries the card's id, the chat's revision and the device, and a refusal reads in plain words`, () => {
+    const request = hostReq();
+    assert.deepEqual(
+      h.hostAnswerBody(
+        request,
+        7,
+        "chat",
+        h.answerDevice("phone", "Pixel", true),
+      ),
+      {
+        revision: 7,
+        requestId: "host-1",
+        choice: "chat",
+        device: { kind: "phone", name: "Pixel", unlocked: true },
+      },
+    );
+    assert.deepEqual(h.answerDevice("web", "Web browser", false), {
+      kind: "web",
+      name: "Web browser",
+    });
+    assert.equal(
+      h.hostAnswerError(403, "Unlock your phone to approve this"),
+      "Unlock your phone to approve this",
+    );
+    assert.equal(
+      h.hostAnswerError(403, "Approve this card in the desktop app"),
+      "Approve this card in the desktop app",
+    );
+    assert.equal(
+      h.hostAnswerError(409, "This card was already answered"),
+      "This card was already answered",
+    );
+    assert.equal(
+      h.hostAnswerError(500, ""),
+      "Couldn't send your answer. Try again.",
+    );
+    assert.equal(h.hostAnswerStale(409), true);
+    assert.equal(h.hostAnswerStale(403), false);
+  });
+
+  test(`${app}: every closed state has its words, Undo this change shows while a checkpoint exists and a denied card says nothing ran`, () => {
+    const closed = (outcome, over = {}) => ({
+      requestId: "host-1",
+      toolCallId: "call-1",
+      tool: "terminal",
+      card: hostReq().card,
+      outcome,
+      device: { kind: "phone", name: "Pixel", unlocked: true },
+      ...over,
+    });
+    assert.deepEqual(
+      ["ran", "allowed", "denied", "expired", "stopped"].map(
+        (o) => h.closedHostView(closed(o)).stateWord,
+      ),
+      [
+        "Ran",
+        "Allowed for this chat",
+        "Denied",
+        "Expired, not run",
+        "Stopped before you answered",
+      ],
+    );
+    assert.equal(h.closedHostView(closed("ran")).deviceNote, "On your phone");
+    assert.equal(
+      h.closedHostView(closed("ran", { device: { kind: "desktop" } }))
+        .deviceNote,
+      "In the desktop app",
+    );
+    assert.equal(h.closedHostView(closed("denied")).ran, false);
+    assert.match(h.closedHostView(closed("denied")).note, /Nothing ran/);
+    assert.match(
+      h.closedHostView(closed("expired")).note,
+      /Nobody answered in time/,
+    );
+    assert.match(h.closedHostView(closed("stopped")).note, /stopped the reply/);
+    assert.equal(h.closedHostView(closed("ran")).note, "");
+    // Undo this change: only while the checkpoint exists and was not used.
+    assert.equal(h.closedHostView(closed("ran")).canUndo, false);
+    assert.equal(
+      h.closedHostView(closed("ran", { checkpoint: "cp1" })).canUndo,
+      true,
+    );
+    const undone = h.closedHostView(
+      closed("ran", { checkpoint: "cp1", undoneAt: "2026-11-14T10:05:00Z" }),
+    );
+    assert.deepEqual([undone.canUndo, undone.undone], [false, true]);
+    assert.equal(
+      h.hostClosedAnnouncement(closed("denied")),
+      "Host card closed: Denied",
+    );
+    assert.equal(h.hostClosedAnnouncement(undefined), "");
+  });
+
+  test(`${app}: host activity lines say what was done, with the command, file, site or server named`, () => {
+    const line = (card, outcome = "ran") =>
+      h.hostLine({
+        tool: card.kind,
+        card: { title: "", reason: "", grantable: false, ...card },
+        outcome,
+      });
+    assert.equal(line({ kind: "terminal", command: "ls -la" }), "Ran `ls -la`");
+    assert.equal(
+      line({ kind: "terminal", command: "ls\nrm x" }),
+      "Ran `ls`",
+      "only the first line of a long command",
+    );
+    assert.equal(
+      line({ kind: "file", path: "/home/me/docs/notes.md" }),
+      "Changed notes.md",
+    );
+    assert.equal(
+      line({ kind: "browser", url: "https://www.example.com/a?b=1" }),
+      "Opened example.com in your browser",
+    );
+    assert.equal(line({ kind: "mcp", server: "github" }), "Used github");
+    assert.equal(
+      line({ kind: "mcp_server", server: "files", command: "npx files" }),
+      "Added files",
+    );
+    assert.equal(line({ kind: "code" }), "Ran code");
+    assert.equal(
+      line({ kind: "terminal", command: "rm -rf x" }, "denied"),
+      "Denied rm -rf x",
+    );
+    assert.equal(
+      line({ kind: "terminal", command: "ls" }, "expired"),
+      "Expired, not run: ls",
+    );
+    assert.equal(
+      line({ kind: "terminal", command: "ls" }, "stopped"),
+      "Stopped before you answered: ls",
+    );
+    // A long command is cut so a line stays a line.
+    assert.ok(
+      line({ kind: "terminal", command: "x".repeat(200) }).length < 100,
+    );
+  });
+
+  test(`${app}: a live card locks the composer (a message can't answer it), a parked one lets a message skip it`, () => {
+    assert.deepEqual(h.hostComposer(hostReq(), true).locked, true);
+    assert.match(
+      h.hostComposer(hostReq(), true).hint,
+      /can't answer this card/,
+    );
+    const parked = h.hostComposer(hostReq({ phase: "parked" }), true);
+    assert.deepEqual([parked.locked, parked.skips], [false, true]);
+    assert.match(parked.hint, /skips this card/);
+    assert.deepEqual(h.hostComposer(undefined, false), {
+      locked: false,
+      skips: false,
+      placeholder: "",
+      hint: "",
+    });
+  });
+
+  test(`${app}: Full Access is the desktop window's, or a phone that unlocked where the account allowed any device; a browser never`, () => {
+    assert.deepEqual(h.fullAccessAccess("desktop", "desktop"), {
+      allowed: true,
+      needsUnlock: false,
+      note: "",
+    });
+    assert.equal(h.fullAccessAccess("web", "desktop").allowed, false);
+    assert.equal(
+      h.fullAccessAccess("web", "devices").allowed,
+      false,
+      "a plain browser has no step-up",
+    );
+    assert.equal(
+      h.fullAccessAccess("web", "devices").note,
+      "Turn on from the desktop app",
+    );
+    assert.equal(h.fullAccessAccess("phone", "desktop").allowed, false);
+    const phone = h.fullAccessAccess("phone", "devices");
+    assert.deepEqual([phone.allowed, phone.needsUnlock], [true, true]);
+  });
+
+  test(`${app}: loosening where Full Access or host cards are approved needs the desktop window; stricter changes work anywhere`, () => {
+    for (const surface of ["web", "phone"]) {
+      assert.equal(
+        h.settingAccess(surface, "hostApprovalRule", "devices", "desktop")
+          .allowed,
+        false,
+      );
+      assert.equal(
+        h.settingAccess(surface, "hostApprovalRule", "desktop", "desktop")
+          .allowed,
+        true,
+      );
+      assert.equal(
+        h.settingAccess(surface, "fullAccessAllowedOn", "devices", "desktop")
+          .allowed,
+        false,
+      );
+      assert.equal(
+        h.settingAccess(surface, "fullAccessAllowedOn", "desktop", "devices")
+          .allowed,
+        true,
+      );
+      assert.equal(
+        h.settingAccess(surface, "chatPermission", "auto", "desktop").allowed,
+        true,
+      );
+    }
+    assert.equal(
+      h.settingAccess("phone", "chatPermission", "full", "desktop").allowed,
+      false,
+    );
+    assert.deepEqual(
+      [
+        h.settingAccess("phone", "botPermission", "full", "devices").allowed,
+        h.settingAccess("phone", "botPermission", "full", "devices")
+          .needsUnlock,
+      ],
+      [true, true],
+    );
+    assert.equal(
+      h.settingAccess("desktop", "hostApprovalRule", "devices", "desktop")
+        .allowed,
+      true,
+    );
+  });
+
+  test(`${app}: Settings offers the card wait in steps between 10 and 60 minutes, and the push says what it wants, never the command`, () => {
+    assert.deepEqual(h.HOST_TIMEOUT_CHOICES, [10, 15, 20, 30, 45, 60]);
+    assert.equal(h.timeoutLabel(60), "1 hour");
+    assert.equal(h.timeoutLabel(15), "15 minutes");
+    assert.equal(h.timeoutLabel(undefined), "1 hour");
+    assert.equal(h.ruleLabel(undefined), "Any of my devices");
+    assert.equal(h.ruleLabel("desktop"), "Only the desktop window");
+    assert.equal(
+      h.hostPushBody(hostReq()),
+      "Your assistant wants to run a command.",
+    );
+    assert.equal(
+      h.hostPushBody({ card: { kind: "file" } }),
+      "Your assistant wants to change a file.",
+    );
+    assert.equal(
+      h.hostPushBody({ card: { kind: "browser" } }),
+      "Your assistant wants to use your browser.",
+    );
+    assert.equal(
+      h.hostPushBody({ card: { kind: "mcp", server: "github" } }),
+      "Your assistant wants to use github.",
+    );
+    assert.doesNotMatch(h.hostPushBody(hostReq()), /git status/);
+  });
+}
+
+test("the web and phone host card rules give the same answers for the same cards", () => {
+  const closed = {
+    tool: "terminal",
+    card: hostReq().card,
+    outcome: "ran",
+    checkpoint: "cp",
+    device: { kind: "web" },
+  };
+  const cases = [
+    (h) => h.hostCardView(hostReq(), NOW),
+    (h) => h.hostCardView(hostReq({ phase: "parked" }), NOW),
+    (h) => h.closedHostView(closed),
+    (h) => h.closedHostView({ ...closed, auto: true, outcome: "denied" }),
+    (h) => h.choiceAccess(["once", "chat", "deny"], "phone", "desktop"),
+    (h) => h.hostComposer(hostReq(), true),
+    (h) => h.fullAccessAccess("phone", "devices"),
+    (h) => h.settingAccess("phone", "hostApprovalRule", "devices", "desktop"),
+    (h) => h.hostLine(closed),
+    (h) => h.hostAnswerError(403, "Unlock your phone"),
+    (h) => [
+      h.HOST_RULE_OPTIONS,
+      h.HOST_ALLOWED_ON_OPTIONS,
+      h.HOST_TIMEOUT_CHOICES,
+    ],
+    (h) => [
+      h.GRANTS_TITLE,
+      h.GRANTS_EMPTY,
+      h.GRANTS_HINT,
+      h.AUTO_ASKS_HOST_NOTE,
+    ],
+  ];
+  for (const run of cases) assert.deepEqual(run(phoneHost), run(webHost));
+});
+
+test("a chat on a host card reads Needs your OK, or Waiting for your OK once parked, and is not busy", () => {
+  assert.equal(
+    hostStatusWord({ status: "host_approval", hostRequest: hostReq() }),
+    "Needs your OK",
+  );
+  assert.equal(
+    hostStatusWord({
+      status: "host_approval",
+      hostRequest: hostReq({ phase: "parked" }),
+    }),
+    "Waiting for your OK",
+  );
+  assert.equal(
+    hostStatusWord({ status: "running", hostRequest: hostReq() }),
+    null,
+    "a card on a running row is not a host wait",
+  );
+  assert.equal(
+    hostWaiting({ status: "host_approval", hostRequest: {} }),
+    false,
+  );
+  // No run holds a lane, so a host card is not "busy"; the screens keep checking it by itself.
+  assert.equal(needsHostAnswer("host_approval"), true);
+  assert.equal(needsHostAnswer("running"), false);
+  assert.equal(
+    agentRunLive({
+      status: "host_approval",
+      phase: "plan",
+      runEngine: "agent",
+      activity: { run: "r" },
+    }),
+    false,
+  );
+});
+
+test("a live host card leaves only Stop on the phone's composer; a parked one lets a message through", () => {
+  assert.equal(
+    composerMode({ status: "host_approval", hostRequest: hostReq() }),
+    "none",
+  );
+  assert.equal(
+    composerMode({
+      status: "host_approval",
+      hostRequest: hostReq({ phase: "parked" }),
+    }),
+    "send",
+  );
+  assert.equal(
+    composerMode(liveRun()),
+    "steer",
+    "an ordinary live run still steers",
+  );
+  function liveRun() {
+    return {
+      status: "running",
+      phase: "plan",
+      runEngine: "agent",
+      activity: { run: "r1" },
+    };
+  }
+});
+
+// Device unlock (Q-5.7): the phone unlocks before Run once and Allow for this
+// chat, a failed or cancelled unlock sends nothing, Deny never asks.
+const unlockWith = (result) => {
+  const calls = [];
+  const auth = {
+    available: async () => result !== "none",
+    authenticate: async (prompt) => {
+      calls.push(prompt);
+      if (result === "ok") return { ok: true };
+      return { ok: false, cancelled: result === "cancel" };
+    },
+  };
+  return { auth, calls };
+};
+
+test("unlockDevice maps the platform's answer: passed, cancelled, failed, no screen lock, a broken module", async () => {
+  assert.deepEqual(await unlockDevice("Approve", unlockWith("ok").auth), {
+    ok: true,
+  });
+  const cancelled = await unlockDevice("Approve", unlockWith("cancel").auth);
+  assert.deepEqual([cancelled.ok, cancelled.reason], [false, "cancelled"]);
+  const failed = await unlockDevice("Approve", unlockWith("fail").auth);
+  assert.deepEqual([failed.ok, failed.reason], [false, "failed"]);
+  const none = await unlockDevice("Approve", unlockWith("none").auth);
+  assert.deepEqual([none.ok, none.reason], [false, "unavailable"]);
+  assert.match(none.message, /screen lock/);
+  const broken = await unlockDevice("Approve", {
+    available: async () => {
+      throw new Error("native module missing");
+    },
+    authenticate: async () => ({ ok: true }),
+  });
+  assert.equal(
+    broken.reason,
+    "unavailable",
+    "a module that throws never lets an answer through",
+  );
+  const prompts = unlockWith("ok");
+  await unlockDevice("Approve this for your assistant", prompts.auth);
+  assert.deepEqual(prompts.calls, ["Approve this for your assistant"]);
+});
+
+test("Run once sends after the unlock with unlocked true; a cancelled or failed unlock sends nothing; Deny sends without asking", async () => {
+  const sends = [];
+  const send = async (unlocked) => {
+    sends.push(unlocked);
+    return "answered";
+  };
+  const unlock = (result) => {
+    const asked = [];
+    return {
+      asked,
+      fn: (prompt) => (
+        asked.push(prompt),
+        unlockDevice(prompt, unlockWith(result).auth)
+      ),
+    };
+  };
+  // Run once or Allow for this chat: unlock first.
+  const ok = unlock("ok");
+  assert.deepEqual(await withUnlock(true, send, ok.fn), {
+    sent: true,
+    value: "answered",
+  });
+  assert.deepEqual(sends, [true]);
+  assert.equal(ok.asked.length, 1);
+  // Cancelled: nothing is sent, and the person is told so.
+  const cancel = unlock("cancel");
+  const refused = await withUnlock(true, send, cancel.fn);
+  assert.deepEqual(
+    [refused.sent, refused.message],
+    [false, "Unlock cancelled, so nothing was sent."],
+  );
+  // Failed, and no screen lock at all: nothing is sent either.
+  assert.equal((await withUnlock(true, send, unlock("fail").fn)).sent, false);
+  assert.equal((await withUnlock(true, send, unlock("none").fn)).sent, false);
+  assert.deepEqual(sends, [true], "no refused unlock reached the server");
+  // Deny never asks and says unlocked false.
+  const deny = unlock("ok");
+  assert.deepEqual(await withUnlock(false, send, deny.fn), {
+    sent: true,
+    value: "answered",
+  });
+  assert.deepEqual([sends, deny.asked.length], [[true, false], 0]);
+  // Which choice needs it is the contract's rule, the same on both apps.
+  assert.deepEqual(
+    ["once", "chat", "deny"].map(
+      (c) => phoneHost.choiceAccess([c], "phone", "devices")[0].needsUnlock,
+    ),
+    [true, true, false],
+  );
+});
+
+test("a host card's push opens its chat, from the push and from the list", () => {
+  // The push carries the chat as entityType/entityId and the card's request id as hostRequest.
+  assert.equal(
+    routeForNotification({
+      category: "agent",
+      entityType: "chat",
+      entityId: "chat_h",
+      kind: "",
+      hostRequest: "host-1",
+    }),
+    "/(app)/assistant?chatId=chat_h",
+  );
+  assert.equal(
+    routeForNotification({
+      status: "host_approval",
+      category: "agent",
+      entityType: "chat",
+      entityId: "chat_h",
+      hostRequest: "host-1",
+    }),
+    "/(app)/assistant?chatId=chat_h",
+  );
+  // The in-app alert for a chat reached through chatId alone opens it too.
+  assert.equal(
+    routeForNotification({ chatId: "chat_h", hostRequest: "host-1" }),
+    "/(app)/assistant?chatId=chat_h",
+  );
 });

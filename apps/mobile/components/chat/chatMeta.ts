@@ -18,6 +18,7 @@ import {
   MapPin,
   MessageCircleQuestionMark,
   Search,
+  ShieldQuestionMark,
   Sun,
   Table2,
   TextSelect,
@@ -26,7 +27,14 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react-native";
-import { QUESTION_STATUS_WORD, questionWaiting, type ChatQuestion } from "@timely/contract/agentChat";
+import {
+  HOST_STATUS_WORDS,
+  QUESTION_STATUS_WORD,
+  hostWaiting,
+  questionWaiting,
+  type ChatQuestion,
+  type HostRequest,
+} from "@timely/contract/agentChat";
 import type { Chat } from "../../lib/chat/types";
 import type { ThemeColors } from "../../lib/theme";
 import { isRemoval, stepIconKind, type StepIconKind } from "./stepTarget";
@@ -75,10 +83,11 @@ export function toneColor(tone: Tone, colors: ThemeColors) {
       return colors.mutedForeground;
   }
 }
-/** A chat's status word, tone and icon; a run waiting on a question card reads "Needs your answer". */
+/** A chat's status word, tone and icon; a run waiting on a question card reads "Needs your answer", a chat on a host card "Needs your OK" ("Waiting for your OK" once parked). */
 export function statusMeta(
   status: string,
   question?: ChatQuestion | null,
+  hostRequest?: HostRequest | null,
 ): {
   label: string;
   tone: Tone;
@@ -86,7 +95,18 @@ export function statusMeta(
   spin?: boolean;
 } {
   if (questionWaiting({ status, question }))
-    return { label: QUESTION_STATUS_WORD, tone: "warning", icon: MessageCircleQuestionMark };
+    return {
+      label: QUESTION_STATUS_WORD,
+      tone: "warning",
+      icon: MessageCircleQuestionMark,
+    };
+  if (status === "host_approval")
+    return {
+      label:
+        HOST_STATUS_WORDS[hostRequest?.phase === "parked" ? "parked" : "live"],
+      tone: "warning",
+      icon: ShieldQuestionMark,
+    };
   switch (status) {
     case "queued":
       return { label: "Queued", tone: "primary", icon: Clock };
@@ -251,7 +271,12 @@ export function groupChats(chats: Chat[], now = new Date()): ChatGroup[] {
     { label: "Earlier", items: [] },
   ];
   for (const chat of chats) {
-    if (["approval", "choose", "failed"].includes(chat.status) || questionWaiting(chat)) {
+    if (
+      ["approval", "choose", "failed"].includes(chat.status) ||
+      questionWaiting(chat) ||
+      hostWaiting(chat) ||
+      chat.status === "host_approval"
+    ) {
       groups[0].items.push(chat);
       continue;
     }

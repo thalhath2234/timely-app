@@ -19,13 +19,21 @@ stub(
   "lib/auth/AuthProvider",
   'export const useAuth=()=>({user:{id:"audit-user"}});',
 );
+// Device unlock (Q-5.7): the native module is replaced by a switch the checks flip
+// (window.auditUnlock: "ok", "cancel", "fail", "none"); every ask is counted.
+stub(
+  "lib/deviceUnlock",
+  `const messages={cancel:"Unlock cancelled, so nothing was sent.",fail:"Couldn't unlock this phone, so nothing was sent.",none:"Set a screen lock on this phone to approve here."};
+export const unlockDevice=async()=>{window.auditUnlocks=(window.auditUnlocks||0)+1;const r=window.auditUnlock||"ok";if(r==="ok")return {ok:true};return {ok:false,reason:r==="cancel"?"cancelled":r==="fail"?"failed":"unavailable",message:messages[r]};};
+export const withUnlock=async(needsUnlock,send,unlock=unlockDevice)=>{if(!needsUnlock)return {sent:true,value:await send(false)};const r=await unlock();if(!r.ok)return {sent:false,message:r.message};return {sent:true,value:await send(true)};};`,
+);
 stub(
   "lib/networkState",
   "export const isOffline=()=>false; export const subscribeOffline=()=>()=>{};",
 );
 stub(
   "lib/hooks",
-  `export const useSheetsQuery=()=>({data:[]}); export const useDocsQuery=()=>({data:[]}); export const useProjectsQuery=()=>({data:[]}); export const useTasksQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}}); export const useDocQuery=()=>({data:undefined}); export const useTaskQuery=()=>({data:undefined}); export const useSaveTask=()=>({mutate(){},mutateAsync:async()=>{},isPending:false}); export const useSetChecklistItem=()=>({mutate(){},isPending:false}); export const useBotIcons=()=>({data:{}}); const bot=(id,name,watch,over={})=>({id,name,description:"",status:"active",pauseReason:null,origin:"app",originClient:"",judgeMode:"rules",intervalMinutes:60,urgent:false,desktop:true,phone:true,snoozedUntil:null,nextCheckAt:new Date(Date.now()+1800000).toISOString(),lastCheckAt:new Date(Date.now()-720000).toISOString(),lastOkAt:null,strikes:0,health:{code:"working",line:""},alertsToday:0,watches:[{id:id+"_w",url:"",read:"",selector:"",source:"",symbol:"",currency:"",rules:[],health:{code:"working",line:""},lastReadingAt:null,summary:"",site:"",title:"",value:null,excerpt:"",latestItem:null,lastChangedAt:null,spark:null,dayChangePct:null,...watch}],createdAt:"2026-11-01T00:00:00Z",updatedAt:"2026-11-02T00:00:00Z",checking:false,runNowAt:null,floorLine:"",strip:"nnnn",latestAlert:null,itemsToday:0,...over}); const bots=[bot("bot_gonews","Go news feed",{kind:"feed",site:"go.dev"}),bot("bot_gorelease","Go release news",{kind:"feed",site:"go.dev"},{status:"paused"}),bot("bot_btc","Bitcoin under $70,000",{kind:"price",source:"coinbase",symbol:"BTC",currency:"USD"})]; export const useBotsQuery=()=>({data:{bots,summary:{checksToday:3,alertsToday:0,nextCheckAt:null}}}); export const useBotDefaultsQuery=()=>({data:{desktop:true,phone:true,urgent:false}}); export const useRateAlert=()=>({mutate(){},isPending:false}); export const learnedLine=(lesson)=>"Learned: "+lesson; export const useAgentChatSettingsQuery=()=>({data:undefined}); export const usePatchAgentChatSettings=()=>({mutate(){},mutateAsync:async()=>{},isPending:false});
+  `export const useSheetsQuery=()=>({data:[]}); export const useDocsQuery=()=>({data:[]}); export const useProjectsQuery=()=>({data:[]}); export const useTasksQuery=()=>({data:[]}); export const useSheetQuery=()=>({data:undefined}); export const useWorkspacesQuery=()=>({data:[]}); export const useAgentProvidersQuery=()=>({data:undefined}); export const useProviderModelsQuery=()=>({data:[]}); export const useChatPromptsQuery=()=>({data:undefined}); export const useDecisionFeedback=()=>({mutate(){}}); export const useDocQuery=()=>({data:undefined}); export const useTaskQuery=()=>({data:undefined}); export const useSaveTask=()=>({mutate(){},mutateAsync:async()=>{},isPending:false}); export const useSetChecklistItem=()=>({mutate(){},isPending:false}); export const useBotIcons=()=>({data:{}}); const bot=(id,name,watch,over={})=>({id,name,description:"",status:"active",pauseReason:null,origin:"app",originClient:"",judgeMode:"rules",intervalMinutes:60,urgent:false,desktop:true,phone:true,snoozedUntil:null,nextCheckAt:new Date(Date.now()+1800000).toISOString(),lastCheckAt:new Date(Date.now()-720000).toISOString(),lastOkAt:null,strikes:0,health:{code:"working",line:""},alertsToday:0,watches:[{id:id+"_w",url:"",read:"",selector:"",source:"",symbol:"",currency:"",rules:[],health:{code:"working",line:""},lastReadingAt:null,summary:"",site:"",title:"",value:null,excerpt:"",latestItem:null,lastChangedAt:null,spark:null,dayChangePct:null,...watch}],createdAt:"2026-11-01T00:00:00Z",updatedAt:"2026-11-02T00:00:00Z",checking:false,runNowAt:null,floorLine:"",strip:"nnnn",latestAlert:null,itemsToday:0,...over}); const bots=[bot("bot_gonews","Go news feed",{kind:"feed",site:"go.dev"}),bot("bot_gorelease","Go release news",{kind:"feed",site:"go.dev"},{status:"paused"}),bot("bot_btc","Bitcoin under $70,000",{kind:"price",source:"coinbase",symbol:"BTC",currency:"USD"})]; export const useBotsQuery=()=>({data:{bots,summary:{checksToday:3,alertsToday:0,nextCheckAt:null}}}); export const useBotDefaultsQuery=()=>({data:{desktop:true,phone:true,urgent:false}}); export const useRateAlert=()=>({mutate(){},isPending:false}); export const learnedLine=(lesson)=>"Learned: "+lesson; const fromUrl=new URLSearchParams(location.search).get("settings");if(fromUrl&&!window.auditSettings)window.auditSettings=JSON.parse(fromUrl);export const useAgentChatSettingsQuery=()=>({data:window.auditSettings}); export const usePatchAgentChatSettings=()=>({mutate(patch){window.auditActions.push({path:"/agent/chat-settings",method:"PATCH",body:patch});window.auditSettings={...window.auditSettings,...patch};},mutateAsync:async()=>{},isPending:false});
 import {useSyncExternalStore} from "react";
 const learnListeners=new Set(); let learnVersion=0;
 const learnBump=()=>{learnVersion++;learnListeners.forEach((f)=>f());};
@@ -144,13 +152,46 @@ const chats={
   closedQuestion("k5","stopped",{}),
  ]},
 };
+// Host cards (phase 5): a live card of each kind, a parked one, closed states with Undo, and the answers.
+const hostCardOf={
+ terminal:{kind:"terminal",title:"Run this command?",command:"git status && echo <a href='https://evil.example'>done</a>",cwd:"/home/me/project",reason:"Supervised asks before every command.",grantable:true},
+ file:{kind:"file",title:"Change this file?",path:"/home/me/project/notes.md",cwd:"/home/me/project",reason:"Supervised asks before every file change.",grantable:true},
+ browser:{kind:"browser",title:"Use your browser?",url:"https://shop.example.com/checkout?cart=7",reason:"Opens your signed-in browser: it could buy or sign in.",criticalItem:3,grantable:false},
+ mcp:{kind:"mcp",title:"Use github?",server:"github",reason:"You set github to Ask me first.",grantable:false},
+ server:{kind:"mcp_server",title:"Add this MCP server?",server:"files",command:"npx files-mcp --root /home/me/project",envNames:["FILES_TOKEN"],reason:"Runs this command on this computer whenever the assistant connects to files",criticalItem:5,grantable:false},
+};
+const hostReq=(id,tool,card,phase="live",over={})=>({requestId:"host-"+id,run:"run_"+id,phase,tool,toolCallId:"call-"+id,argsHash:"h"+id,card,askedAt:iso(1),liveUntil:new Date(now+9*60000).toISOString(),expiresAt:new Date(now+(phase==="parked"?47:59)*60000).toISOString(),grant:card.grantable?{kind:tool,key:"g-"+id,match:tool+":"+(card.command||card.path||"").split(" ")[0],label:(card.command||card.path||"").split(" ").slice(0,2).join(" ")}:undefined,...over});
+const hosting=(id,title,tool,card,phase="live",over={})=>({id,title,status:"host_approval",phase:"plan",webSearch:false,engine:"",runEngine:"agent",permission:"supervised",context:[],revision:4,unread:true,error:"",createdAt:iso(6),updatedAt:iso(0),plan:[],hostGrants:[],
+ activity:phase==="live"?{run:"run_"+id,draft:"",lines:[{id:"l1",kind:"tool",label:"Read your calendar",state:"done",at:iso(5)},{id:"l2",kind:"tool",label:"Looked in your project folder",state:"done",at:iso(4)}]}:undefined,
+ hostRequest:hostReq(id,tool,card,phase,over),messages:[{id:id+"1",role:"user",content:"Check on my project.",createdAt:iso(6)}]});
+const closedHost=(id,outcome,card,over={})=>({id,role:"assistant",kind:"host",engine:"agent",agentRun:"run_"+id,content:"Host card",createdAt:iso(20),host:{requestId:"host-"+id,toolCallId:"call-"+id,tool:card.kind==="file"?"write_file":card.kind==="browser"?"browser_exec":"terminal",card,outcome,device:{kind:"phone",name:"Android phone",unlocked:true},...over}});
+chats.hostlive=hosting("hostlive","Check my project","terminal",hostCardOf.terminal);
+chats.hostchat=hosting("hostchat","Tidy my notes","terminal",hostCardOf.terminal);
+chats.hostdeny=hosting("hostdeny","Delete old drafts","terminal",hostCardOf.terminal);
+chats.hoststale=hosting("hoststale","Look at the logs","terminal",hostCardOf.terminal);
+chats.hostparked=hosting("hostparked","Fix the typo in notes","write_file",hostCardOf.file,"parked");
+chats.hostfile=hosting("hostfile","Edit my notes","write_file",hostCardOf.file);
+chats.hostbrowser=hosting("hostbrowser","Order the filter","browser_exec",hostCardOf.browser);
+chats.hostmcp=hosting("hostmcp","Check my pull requests","mcp_github",hostCardOf.mcp);
+chats.hostserver=hosting("hostserver","Add an MCP server","mcp_server",hostCardOf.server,"parked",{tool:"mcp_server",run:""});
+chats.hostclosed={id:"hostclosed",title:"Earlier host cards",status:"idle",phase:"plan",webSearch:false,engine:"",runEngine:"agent",permission:"supervised",context:[],revision:9,unread:false,error:"",createdAt:iso(40),updatedAt:iso(19),plan:[],hostGrants:[{kind:"terminal",key:"g-old",match:"terminal:git status",label:"git status"}],messages:[
+ {id:"h0",role:"user",content:"Look after my project.",createdAt:iso(40)},
+ closedHost("h1","ran",hostCardOf.terminal),
+ closedHost("h2","allowed",hostCardOf.terminal),
+ closedHost("h3","denied",hostCardOf.browser,{device:{kind:"desktop"}}),
+ closedHost("h4","expired",hostCardOf.file),
+ closedHost("h5","stopped",hostCardOf.terminal),
+ closedHost("h6","ran",hostCardOf.file,{auto:true,checkpoint:"cp-1",checkpointDir:"/home/me/project"}),
+ closedHost("h7","ran",{...hostCardOf.file,path:"/home/me/project/old.md"},{auto:true,checkpoint:"cp-2",undoneAt:iso(5)}),
+]};
+chats.hostgone={...structuredClone(chats.hostclosed),id:"hostgone",title:"Undo that is gone",messages:[{id:"g0",role:"user",content:"Edit.",createdAt:iso(30)},closedHost("g1","ran",hostCardOf.file,{auto:true,checkpoint:"cp-gone"})]};
 window.auditChats=chats;
 const learnEvent=(over)=>({id:"",kind:"skill",action:"created",subject:"",before:"",after:"",origin:"chat",conversationId:"learned",runId:"run_l1",botId:"",taintedSources:[],status:"applied",ledgerEntryId:"",pendingId:"",summary:"",createdAt:iso(11),updatedAt:iso(11),...over});
 window.auditLearning={learned:[
  learnEvent({id:"lev1",subject:"bank-csv-import",after:"Read the CSV's Date, Description and Amount columns",ledgerEntryId:"led1",summary:"How to import your bank's CSV"}),
  learnEvent({id:"lev2",action:"patched",subject:"flipkart-price-read",status:"staged",pendingId:"lp1",taintedSources:[{kind:"web",tool:"web_extract",host:"flipkart.com"}],summary:"Read the deal price, not the struck-out M.R.P."}),
 ]};
-const summary=(c)=>({id:c.id,title:c.title,status:c.status,phase:c.phase,webSearch:c.webSearch,revision:c.revision,unread:c.unread,error:c.error,question:c.question||{},createdAt:c.createdAt,updatedAt:c.updatedAt});
+const summary=(c)=>({id:c.id,title:c.title,status:c.status,phase:c.phase,webSearch:c.webSearch,revision:c.revision,unread:c.unread,error:c.error,question:c.question||{},hostRequest:c.hostRequest||{},createdAt:c.createdAt,updatedAt:c.updatedAt});
 // POST /answer, and a steer while a card waits: the card closes into the thread (Go's closeQuestion).
 function closeCard(chat,answers,outcome){
  const q=chat.question;
@@ -164,6 +205,9 @@ export const configureChatAgent=(id,patch)=>chatRequest("/"+id,"PATCH",patch);
 export const steerChat=(id,text,questionRequestId="")=>chatRequest("/"+id+"/steer","POST",{text,questionRequestId});
 export const setChatNoLearning=(id,noLearning)=>chatRequest("/"+id,"PATCH",{noLearning});
 export const answerQuestion=(id,input)=>chatRequest("/"+id+"/answer","POST",input);
+export const answerHostCard=(id,input)=>chatRequest("/"+id+"/host-approval","POST",input);
+export const undoHostChange=(id,checkpointId)=>chatRequest("/"+id+"/host-undo","POST",{checkpointId});
+export const removeHostGrant=(id,key)=>chatRequest("/"+id+"/host-grants/"+encodeURIComponent(key),"DELETE");
 export const undoChatChange=(id,revision,messageId)=>chatRequest("/"+id+"/undo","POST",{revision,messageId});
 export async function chatRequest(path,method="GET",body){
  window.auditActions.push({path,method,body,overlaps:method!=="GET"&&window.auditWrites>0});
@@ -178,10 +222,11 @@ async function answer(path,method,body){
  if(method==="POST"&&path===""){const id="new"+Date.now();chats[id]={id,title:body.content.slice(0,70),status:"queued",phase:"plan",webSearch:body.webSearch,context:body.context||[],revision:1,unread:false,error:"",createdAt:iso(0),updatedAt:iso(0),plan:[],messages:[{id:"u",role:"user",content:body.content,createdAt:iso(0)}]};return structuredClone(chats[id]);}
  if(!path)return Object.values(chats).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).map(summary);
  if(!chat||window.auditGone?.includes(chat.id))throw new ApiError("Conversation not found",404);
- if(method==="DELETE"){delete chats[chat.id];return;}
+ if(method==="DELETE"&&!action){delete chats[chat.id];return;}
  if(method!=="GET")await new Promise(r=>setTimeout(r,window.auditLatency||0));
  if(method==="PATCH"&&window.auditFailPatch)throw new Error("Wait or stop before changing context");
- if(method==="PATCH"){const {provider,model,...rest}=body;Object.assign(chat,rest);if(provider!==undefined){chat.chosenProvider=provider;chat.chosenModel=model||"";}return structuredClone(chat);}
+ if(method==="PATCH"&&body.permission==="full"&&!body.device?.unlocked)throw new ApiError("Turn on Full Access from the desktop app",403);
+ if(method==="PATCH"){const {provider,model,device,...rest}=body;Object.assign(chat,rest);if(provider!==undefined){chat.chosenProvider=provider;chat.chosenModel=model||"";}return structuredClone(chat);}
  if(action==="/read"){chat.unread=false;return;}
  if(action==="/reject"){chat.messages.push({id:"a"+Date.now(),role:"assistant",kind:"archive",content:"Discarded changes",createdAt:iso(0),steps:chat.plan.map(s=>({...s,status:"discarded"}))},{id:"n"+Date.now(),role:"assistant",kind:"notice",content:"Proposal discarded. Nothing was changed.",createdAt:iso(0)});chat.plan=[];chat.status="idle";chat.revision++;return structuredClone(chat);}
  if(action==="/approve"){chat.status="running";chat.revision++;return structuredClone(chat);}
@@ -191,6 +236,22 @@ async function answer(path,method,body){
   if(window.auditStaleAnswer||!chat.question?.requestId||chat.question.requestId!==body.requestId){if(chat.question?.requestId)closeCard(chat,{},"timed_out");throw new Error("This question was already closed");}
   closeCard(chat,body.skip?{}:body.answers,body.skip?"cancelled":"submitted");return structuredClone(chat);
  }
+ if(action==="/host-approval"){
+  const h=chat.hostRequest;
+  if(window.auditStaleHost||!h?.requestId||h.requestId!==body.requestId){throw new ApiError("This card was already answered",409);}
+  if(body.choice!=="deny"&&body.device?.kind==="phone"&&!body.device.unlocked)throw new ApiError("Unlock your phone to approve this",403);
+  if(body.choice!=="deny"&&window.auditSettings?.hostApprovalRule==="desktop")throw new ApiError("Approve this card in the desktop app",403);
+  const outcome={once:"ran",chat:"allowed",deny:"denied"}[body.choice];
+  chat.messages.push({id:"ha"+Date.now(),role:"assistant",kind:"host",engine:"agent",agentRun:h.run,content:"Host card",createdAt:iso(0),host:{requestId:h.requestId,toolCallId:h.toolCallId,tool:h.tool,card:h.card,outcome,device:body.device}});
+  if(body.choice==="chat"&&h.grant)chat.hostGrants=[...(chat.hostGrants||[]),{...h.grant,at:iso(0)}];
+  chat.hostRequest={};chat.status=body.choice==="deny"?"idle":h.phase==="parked"?"queued":"running";chat.revision++;return structuredClone(chat);
+ }
+ if(action==="/host-undo"){
+  const m=chat.messages.find(x=>x.host?.checkpoint===body.checkpointId);
+  if(!m||m.host.undoneAt||body.checkpointId==="cp-gone")throw new ApiError("This change can't be undone any more",409);
+  m.host.undoneAt=iso(0);chat.revision++;return {restored:["/home/me/project/notes.md"]};
+ }
+ if(method==="DELETE"&&action.startsWith("/host-grants/")){chat.hostGrants=(chat.hostGrants||[]).filter(g=>g.key!==decodeURIComponent(action.slice(13)));chat.revision++;return structuredClone(chat);}
  if(action==="/steer"&&chat.question?.requestId){closeCard(chat,Object.fromEntries(chat.question.questions.map(q=>[q.qid,body.text])),"submitted");return structuredClone(chat);}
  if(action==="/messages"){chat.messages.push({id:"u"+Date.now(),role:"user",content:body.content,createdAt:iso(0)});chat.status="queued";chat.revision++;return structuredClone(chat);}
  return structuredClone(chat);
@@ -821,7 +882,9 @@ else {
       await page.evaluate(() => (window.auditLatency = 5000));
       await page.getByTestId("question-send").click();
       await page.getByText("Sending your answer…").waitFor();
-      await page.getByTestId("question-card").screenshot({ path: `/tmp/timely-mobile-question-sending-${scheme}.png` });
+      await page.getByTestId("question-card").screenshot({
+        path: `/tmp/timely-mobile-question-sending-${scheme}.png`,
+      });
       await page.evaluate(() => (window.auditLatency = 0));
       await page.getByTestId("question-closed-answered").last().waitFor();
       await page.goto(`${origin}/?chat=asklong`);
@@ -837,6 +900,355 @@ else {
       questionShots.push(
         ...["waiting", "sending", "long", "closed", "history"].map((n) => `/tmp/timely-mobile-question-${n}-${scheme}.png`),
       );
+    }
+    // Host cards (phase 5, Q-5.1 and Q-5.7): "Needs your OK" in the history and header,
+    // the call as plain text, the unlock before Run once and Allow for this chat (a
+    // cancelled unlock sends nothing, Deny never asks), the desktop rule, parked cards,
+    // closed states with Undo this change, grants with Remove, and Full Access.
+    const hostShots = [];
+    const shots = process.env.AUDIT_SHOTS || "/tmp";
+    const posts = async (path) =>
+      (await actions()).filter((a) => a.path === path && a.method === "POST");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.goto(`${origin}/`);
+    await page.getByLabel(/Chat history/).click();
+    await page
+      .getByLabel("Open Check my project")
+      .getByText("Needs your OK")
+      .waitFor();
+    await page
+      .getByLabel("Open Fix the typo in notes")
+      .getByText("Waiting for your OK")
+      .waitFor();
+    await page.getByLabel("Open Check my project").click();
+    const host = page.getByTestId("host-card");
+    await host.waitFor();
+    assert.equal(
+      await host.getByTestId("host-state").innerText(),
+      "Needs your OK",
+    );
+    assert.equal(
+      await host.getByTestId("host-subject").innerText(),
+      "git status && echo <a href='https://evil.example'>done</a>",
+    );
+    assert.equal(await host.locator("a").count(), 0, "a host card drew a link");
+    await host.getByTestId("host-cwd").getByText("/home/me/project").waitFor();
+    await host.getByTestId("host-reason").waitFor();
+    await host
+      .getByTestId("host-time-left")
+      .getByText(/min left/)
+      .waitFor();
+    for (const label of ["Run once", "Allow for this chat", "Deny"])
+      await host.getByRole("button", { name: label }).waitFor();
+    // 44 point touch targets.
+    for (const label of ["Run once", "Allow for this chat", "Deny"]) {
+      const box = await host.getByRole("button", { name: label }).boundingBox();
+      assert.ok(box.height >= 44, `${label} is ${box.height} tall`);
+    }
+    // A live card: only Stop on the composer; a typed message can't answer it.
+    await page.getByLabel("Stop run").waitFor();
+    await expect(
+      page.getByPlaceholder("Answer the card above to go on"),
+    ).not.toBeEditable();
+    await page
+      .getByText(
+        "A message can't answer this card. Choose on the card, or stop this reply.",
+      )
+      .waitFor();
+    assert.equal(
+      (await page.getByText("Needs your OK").count()) >= 2,
+      true,
+      "the header says Needs your OK",
+    );
+    // A cancelled unlock sends nothing.
+    await page.evaluate(() => {
+      window.auditUnlock = "cancel";
+      window.auditUnlocks = 0;
+    });
+    await host.getByRole("button", { name: "Run once" }).click();
+    await page.getByText("Unlock cancelled, so nothing was sent.").waitFor();
+    assert.equal(
+      (await posts("/hostlive/host-approval")).length,
+      0,
+      "a cancelled unlock still sent the answer",
+    );
+    await page.evaluate(() => (window.auditUnlock = "fail"));
+    await host.getByRole("button", { name: "Allow for this chat" }).click();
+    await page
+      .getByText("Couldn't unlock this phone, so nothing was sent.")
+      .waitFor();
+    assert.equal((await posts("/hostlive/host-approval")).length, 0);
+    await page.evaluate(() => (window.auditUnlock = "none"));
+    await host.getByRole("button", { name: "Run once" }).click();
+    await page
+      .getByText("Set a screen lock on this phone to approve here.")
+      .waitFor();
+    assert.equal((await posts("/hostlive/host-approval")).length, 0);
+    await page.screenshot({
+      path: `${shots}/timely-mobile-host-live-dark.png`,
+      fullPage: true,
+    });
+    // Unlocked: Run once sends with the phone's unlock claim and the card closes into the thread.
+    await page.evaluate(() => (window.auditUnlock = "ok"));
+    await host.getByRole("button", { name: "Run once" }).click();
+    await page.getByTestId("host-closed-ran").waitFor();
+    await expect(page.getByTestId("host-card")).toHaveCount(0);
+    const once = (await posts("/hostlive/host-approval"))[0].body;
+    assert.deepEqual(
+      [once.choice, once.requestId, once.device.kind, once.device.unlocked],
+      ["once", "host-hostlive", "phone", true],
+    );
+    assert.equal(once.revision, 4);
+    await page
+      .getByTestId("host-closed-ran")
+      .getByText("On your phone")
+      .waitFor();
+    // Allow for this chat unlocks too, and the grant shows on the sheet with Remove.
+    await page.goto(`${origin}/?chat=hostchat`);
+    await page
+      .getByTestId("host-card")
+      .getByText("Covers later calls like git status in this chat only.")
+      .waitFor();
+    await page
+      .getByTestId("host-card")
+      .getByRole("button", { name: "Allow for this chat" })
+      .click();
+    await page.getByTestId("host-closed-allowed").waitFor();
+    assert.equal(
+      (await posts("/hostchat/host-approval"))[0].body.choice,
+      "chat",
+    );
+    await page.getByLabel(/^Permission: Supervised/).click();
+    await page.getByTestId("host-grants").getByText("git status").waitFor();
+    await page.getByLabel("Remove git status").click();
+    await page
+      .getByTestId("host-grants")
+      .getByText("Nothing yet. Choose Allow for this chat on a card to add it.")
+      .waitFor();
+    assert.ok(
+      (await actions()).some(
+        (a) =>
+          a.method === "DELETE" &&
+          a.path === "/hostchat/host-grants/g-hostchat",
+      ),
+      "the grant was not removed",
+    );
+    await page.getByLabel("Close sheet").click();
+    // Deny never unlocks, even when the phone would refuse.
+    await page.goto(`${origin}/?chat=hostdeny`);
+    await page.evaluate(() => {
+      window.auditUnlock = "cancel";
+      window.auditUnlocks = 0;
+    });
+    await page
+      .getByTestId("host-card")
+      .getByRole("button", { name: "Deny" })
+      .click();
+    await page.getByTestId("host-closed-denied").waitFor();
+    assert.equal(
+      await page.evaluate(() => window.auditUnlocks),
+      0,
+      "Deny asked for the unlock",
+    );
+    const deny = (await posts("/hostdeny/host-approval"))[0].body;
+    assert.deepEqual([deny.choice, deny.device.unlocked], ["deny", false]);
+    await page
+      .getByTestId("host-closed-denied")
+      .getByText("Nothing ran. The assistant was told you said no.")
+      .waitFor();
+    await page.evaluate(() => (window.auditUnlock = "ok"));
+    // A card answered elsewhere meanwhile: the server says so (409) and the chat refetches.
+    await page.goto(`${origin}/?chat=hoststale`);
+    await page.evaluate(() => (window.auditStaleHost = true));
+    await page
+      .getByTestId("host-card")
+      .getByRole("button", { name: "Run once" })
+      .click();
+    await page.getByText("This card was already answered").waitFor();
+    await page.evaluate(() => (window.auditStaleHost = false));
+    const withSettings = (chat, settings) =>
+      `${origin}/?chat=${chat}&settings=${encodeURIComponent(JSON.stringify({ engine: "agent", chatPermission: "supervised", botPermission: "auto", engineAvailable: true, engineReason: "", ...settings }))}`;
+    // The desktop rule: Run once and Allow for this chat wait for the desktop window, Deny still works.
+    await page.goto(
+      withSettings("hostfile", {
+        hostApprovalRule: "desktop",
+        fullAccessAllowedOn: "desktop",
+      }),
+    );
+    const ruled = page.getByTestId("host-card");
+    await ruled.getByText("Approve this card in the desktop app").waitFor();
+    await expect(
+      ruled.getByRole("button", { name: "Run once" }),
+    ).toBeDisabled();
+    await expect(
+      ruled.getByRole("button", { name: "Allow for this chat" }),
+    ).toBeDisabled();
+    await expect(ruled.getByRole("button", { name: "Deny" })).toBeEnabled();
+    assert.equal(
+      await ruled.getByTestId("host-subject").innerText(),
+      "/home/me/project/notes.md",
+    );
+    await page.screenshot({
+      path: `${shots}/timely-mobile-host-file-dark.png`,
+      fullPage: true,
+    });
+    // Every kind of card names its subject; a critical item says it always asks.
+    await page.goto(`${origin}/?chat=hostbrowser`);
+    const web = page.getByTestId("host-card");
+    await web.getByText("Use your browser?").waitFor();
+    assert.equal(
+      await web.getByTestId("host-subject").innerText(),
+      "https://shop.example.com/checkout?cart=7",
+    );
+    await web
+      .getByTestId("host-critical")
+      .getByText("Always asks, in every mode: buying, paying or signing in")
+      .waitFor();
+    assert.equal(
+      await web.getByRole("button", { name: "Allow for this chat" }).count(),
+      0,
+      "a browser card offered Allow for this chat",
+    );
+    assert.equal(await web.locator("a").count(), 0);
+    await page.goto(`${origin}/?chat=hostmcp`);
+    await page.getByTestId("host-card").getByText("Use github?").waitFor();
+    // A parked card: "Waiting for your OK", the run is gone, a message skips it.
+    await page.goto(`${origin}/?chat=hostparked`);
+    const parked = page.getByTestId("host-card");
+    await parked.getByText("Paused: waiting for your OK").waitFor();
+    await parked
+      .getByTestId("host-time-left")
+      .getByText(/min left/)
+      .waitFor();
+    await expect(
+      page.getByPlaceholder("Or tell it something else instead…"),
+    ).toBeEditable();
+    await page
+      .getByText(
+        "Sending a message skips this card: nothing runs, and the assistant reads your message.",
+      )
+      .waitFor();
+    assert.equal(
+      await page.getByLabel("Stop run").count(),
+      0,
+      "a parked card has no run to stop",
+    );
+    await page.screenshot({
+      path: `${shots}/timely-mobile-host-parked-dark.png`,
+      fullPage: true,
+    });
+    await page.goto(`${origin}/?chat=hostserver`);
+    const server = page.getByTestId("host-card");
+    await server.getByText("Add this MCP server?").waitFor();
+    await server.getByText("FILES_TOKEN").waitFor();
+    // Closed states and Undo this change.
+    await page.goto(`${origin}/?chat=hostclosed`);
+    for (const state of ["ran", "allowed", "denied", "expired", "stopped"])
+      await page.getByTestId(`host-closed-${state}`).first().waitFor();
+    await page.getByText("Changed notes.md").waitFor();
+    await page.getByText("Undone").waitFor();
+    assert.equal(
+      await page.getByTestId("host-undo").count(),
+      1,
+      "only the change that is still in place offers Undo this change",
+    );
+    await page.screenshot({
+      path: `${shots}/timely-mobile-host-closed-dark.png`,
+      fullPage: true,
+    });
+    await page.getByTestId("host-undo").click();
+    await expect(page.getByTestId("host-undo")).toHaveCount(0);
+    assert.deepEqual((await posts("/hostclosed/host-undo"))[0].body, {
+      checkpointId: "cp-1",
+    });
+    await page.goto(`${origin}/?chat=hostgone`);
+    await page.getByTestId("host-undo").click();
+    await page.getByText("This change can't be undone any more").waitFor();
+    // Full Access: not offered on the phone by default; with "any device" it confirms, unlocks, then sends.
+    await page.goto(`${origin}/?chat=hostclosed`);
+    await page.getByLabel(/^Permission: Supervised/).click();
+    await page
+      .getByTestId("permission-full")
+      .getByText(/Turn on from the desktop app/)
+      .waitFor();
+    await expect(page.getByTestId("permission-full")).toBeDisabled();
+    await page.getByLabel("Close sheet").click();
+    await page.goto(
+      withSettings("hostclosed", {
+        hostApprovalRule: "devices",
+        fullAccessAllowedOn: "devices",
+      }),
+    );
+    await page.getByLabel(/^Permission: Supervised/).click();
+    await page
+      .getByTestId("permission-full")
+      .getByText(/fingerprint, face or screen lock/)
+      .waitFor();
+    await page.getByTestId("permission-full").click();
+    await page.getByText("Turn on Full Access for this chat?").waitFor();
+    await page.getByText(/Full Access lifts every card/).waitFor();
+    await page.screenshot({
+      path: `${shots}/timely-mobile-host-fullaccess-dark.png`,
+    });
+    await page.evaluate(() => {
+      window.auditUnlock = "cancel";
+    });
+    await page.getByRole("button", { name: "Turn on Full Access" }).click();
+    await page.getByText("Unlock cancelled, so nothing was sent.").waitFor();
+    assert.equal(
+      (await actions()).filter(
+        (a) =>
+          a.method === "PATCH" &&
+          a.path === "/hostclosed" &&
+          a.body.permission === "full",
+      ).length,
+      0,
+      "a cancelled unlock still sent Full Access",
+    );
+    await page.evaluate(() => {
+      window.auditUnlock = "ok";
+    });
+    await page.getByLabel(/^Permission: Supervised/).click();
+    await page.getByTestId("permission-full").click();
+    await page.getByRole("button", { name: "Turn on Full Access" }).click();
+    await page.getByLabel(/^Permission: Full Access/).waitFor();
+    const full = (await actions()).find(
+      (a) =>
+        a.method === "PATCH" &&
+        a.path === "/hostclosed" &&
+        a.body.permission === "full",
+    );
+    assert.equal(full.body.device.unlocked, true);
+    // Every state, light and dark, at 390 wide.
+    for (const scheme of ["dark", "light"]) {
+      await page.emulateMedia({ colorScheme: scheme });
+      for (const [chat, name] of [
+        ["hostlive", "live"],
+        ["hostparked", "parked"],
+        ["hostbrowser", "browser"],
+        ["hostserver", "server"],
+        ["hostmcp", "mcp"],
+        ["hostclosed", "closed"],
+      ]) {
+        await page.goto(`${origin}/?chat=${chat}`);
+        await page
+          .getByTestId(name === "closed" ? "host-closed-ran" : "host-card")
+          .first()
+          .waitFor();
+        await page.screenshot({
+          path: `${shots}/timely-mobile-host-${name}-${scheme}.png`,
+          fullPage: true,
+        });
+        hostShots.push(`${shots}/timely-mobile-host-${name}-${scheme}.png`);
+      }
+      await page.goto(`${origin}/`);
+      await page.getByLabel(/Chat history/).click();
+      await page.getByText("Needs you", { exact: true }).waitFor();
+      await page.screenshot({
+        path: `${shots}/timely-mobile-host-history-${scheme}.png`,
+      });
+      hostShots.push(`${shots}/timely-mobile-host-history-${scheme}.png`);
     }
     await page.emulateMedia({ colorScheme: "dark" });
     if (errors.length) throw new Error(errors.join("\n"));
@@ -859,6 +1271,7 @@ else {
           "/tmp/timely-mobile-learned.png",
           "/tmp/timely-mobile-dont-learn.png",
           ...questionShots,
+          ...hostShots,
         ],
       }),
     );

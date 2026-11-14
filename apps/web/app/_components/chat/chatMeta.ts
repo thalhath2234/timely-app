@@ -18,6 +18,7 @@ import {
   MessageCircleQuestionMark,
   MousePointerSquareDashed,
   Search,
+  ShieldQuestionMark,
   Sun,
   Table2,
   TextSelect,
@@ -27,9 +28,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  HOST_STATUS_WORDS,
   QUESTION_STATUS_WORD,
+  hostWaiting,
   questionWaiting,
   type ChatQuestion,
+  type HostRequest,
 } from "@timely/contract/agentChat";
 import type { Chat, ChatStep, ChatSummary } from "@/app/utils/api/chat";
 import { fileHref } from "@/app/utils/fileRoutes";
@@ -55,14 +59,23 @@ export const busyStatuses = ["queued", "running"];
 export function isBusy(status?: string) {
   return !!status && busyStatuses.includes(status);
 }
+/** A host card waits on the person. The row is not busy (no run holds a lane
+ * or a lease), but it still changes by itself: the live wait ends and the
+ * card parks, so the screen keeps checking. */
+export function needsHostAnswer(status?: string) {
+  return status === "host_approval";
+}
 
 /**
  * A chat's status word, tone and icon. A running chat whose run waits on a
- * question card reads "Needs your answer" (pass its `question`).
+ * question card reads "Needs your answer" (pass its `question`); a chat on
+ * a host card reads "Needs your OK", or "Waiting for your OK" once parked
+ * (pass its `hostRequest`; without it the live word shows).
  */
 export function statusMeta(
   status: string,
   question?: ChatQuestion | null,
+  hostRequest?: HostRequest | null,
 ): {
   label: string;
   tone: "primary" | "warning" | "destructive" | "muted";
@@ -74,6 +87,13 @@ export function statusMeta(
       label: QUESTION_STATUS_WORD,
       tone: "warning",
       icon: MessageCircleQuestionMark,
+    };
+  if (status === "host_approval")
+    return {
+      label:
+        HOST_STATUS_WORDS[hostRequest?.phase === "parked" ? "parked" : "live"],
+      tone: "warning",
+      icon: ShieldQuestionMark,
     };
   switch (status) {
     case "queued":
@@ -357,7 +377,9 @@ export function groupChats(chats: ChatSummary[], now = new Date()): Group[] {
   for (const chat of chats) {
     if (
       ["approval", "choose", "failed"].includes(chat.status) ||
-      questionWaiting(chat)
+      questionWaiting(chat) ||
+      hostWaiting(chat) ||
+      chat.status === "host_approval"
     ) {
       groups[0].items.push(chat);
       continue;

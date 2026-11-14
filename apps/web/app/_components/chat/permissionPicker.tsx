@@ -5,10 +5,39 @@ import {
   FULL_ACCESS_CONFIRM,
   PERMISSION_COPY,
   PERMISSION_MODES,
+  type HostGrant,
   type PermissionMode,
 } from "@timely/contract/agentChat";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { cn } from "@/app/utils/cn";
+import { useChatSettings } from "@/app/utils/hooks/chat";
+import { useDesktopShell } from "@/app/utils/hooks/desktop";
+import {
+  GRANTS_EMPTY,
+  GRANTS_HINT,
+  GRANTS_TITLE,
+  fullAccessAccess,
+  type FullAccessAccess,
+  type Surface,
+} from "./hostView";
+
+/**
+ * Where Full Access can be turned on from this screen (decision 7): the
+ * desktop window, never a plain browser. `unsent` is a chat that does not
+ * exist yet: its first run starts before any step-up could be recorded.
+ */
+export function useFullAccess(unsent = false): FullAccessAccess {
+  const surface: Surface = useDesktopShell() ? "desktop" : "web";
+  const allowedOn = useChatSettings().data?.fullAccessAllowedOn;
+  const access = fullAccessAccess(surface, allowedOn);
+  return unsent && access.allowed
+    ? {
+        allowed: false,
+        needsUnlock: false,
+        note: "Start the chat first, then turn it on",
+      }
+    : access;
+}
 
 /**
  * How much the agent may change without asking (plan 5.5b), as drawn in
@@ -102,10 +131,13 @@ export function PermissionOptions({
   value,
   onPick,
   disabled,
+  fullAccess,
 }: {
   value: PermissionMode;
   onPick: (mode: PermissionMode) => void;
   disabled?: boolean;
+  /** Where Full Access may be turned on from here; its row says why not. */
+  fullAccess?: FullAccessAccess;
 }) {
   return (
     <div
@@ -117,15 +149,20 @@ export function PermissionOptions({
         const copy = PERMISSION_COPY[mode];
         const Icon = ICONS[copy.icon];
         const on = mode === value;
+        // The chosen row is never disabled: it is what the chat runs on.
+        const locked = mode === "full" && !on && fullAccess?.allowed === false;
         return (
           <button
             key={mode}
             type="button"
             role="radio"
             aria-checked={on}
+            aria-disabled={locked || undefined}
+            data-locked={locked || undefined}
             disabled={disabled}
-            onClick={() => onPick(mode)}
+            onClick={() => !locked && onPick(mode)}
             className={cn(
+              locked && "cursor-not-allowed opacity-60",
               "flex w-full cursor-pointer items-start gap-2.5 rounded-[10px] p-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50",
               on ? "bg-primary/10" : "hover:bg-muted/60",
             )}
@@ -145,6 +182,11 @@ export function PermissionOptions({
               <span className="block text-xs leading-4 text-muted-foreground">
                 {copy.description}
               </span>
+              {mode === "full" && fullAccess?.note && (
+                <span className="mt-0.5 block text-xs font-medium leading-4 text-warning-text">
+                  {fullAccess.note}
+                </span>
+              )}
             </span>
             <span
               aria-hidden
@@ -176,6 +218,8 @@ export function PermissionPopover({
   placement = "above",
   disabled,
   className,
+  fullAccess,
+  extra,
 }: {
   value: PermissionMode;
   onChange: (mode: PermissionMode) => void;
@@ -188,7 +232,13 @@ export function PermissionPopover({
   placement?: "above" | "below";
   disabled?: boolean;
   className?: string;
+  /** Where Full Access may be turned on from here (default: from this screen's own state). */
+  fullAccess?: FullAccessAccess;
+  /** Between the options and the footer: the chat's grants. */
+  extra?: ReactNode;
 }) {
+  const own = useFullAccess();
+  const access = fullAccess ?? own;
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -245,7 +295,8 @@ export function PermissionPopover({
           <p className="px-2.5 pb-1.5 pt-2 text-[11px] font-medium uppercase leading-4 tracking-[0.08em] text-muted-foreground">
             {title}
           </p>
-          <PermissionOptions value={value} onPick={pick} />
+          <PermissionOptions value={value} onPick={pick} fullAccess={access} />
+          {extra}
           {footer && (
             <div className="mt-1 flex items-center gap-2 border-t border-border px-2.5 pb-1.5 pt-2">
               {footer(() => setOpen(false))}
@@ -264,6 +315,9 @@ export function ChatPermissionMenu({
   onChange,
   onChangeDefault,
   disabled,
+  unsent,
+  grants,
+  onRemoveGrant,
 }: {
   value: PermissionMode;
   /** The account's default for new chats, named in the footer. */
@@ -271,7 +325,13 @@ export function ChatPermissionMenu({
   onChange: (mode: PermissionMode) => void;
   onChangeDefault: () => void;
   disabled?: boolean;
+  /** The chat has not started yet. */
+  unsent?: boolean;
+  /** What "Allow for this chat" allowed here, each with Remove. */
+  grants?: HostGrant[];
+  onRemoveGrant?: (key: string) => void;
 }) {
+  const fullAccess = useFullAccess(unsent);
   return (
     <PermissionPopover
       value={value}
@@ -279,6 +339,12 @@ export function ChatPermissionMenu({
       title="Permission for this chat"
       scope="chat"
       disabled={disabled}
+      fullAccess={fullAccess}
+      extra={
+        grants ? (
+          <GrantsList grants={grants} onRemove={onRemoveGrant} />
+        ) : undefined
+      }
       // Opens over the composer box, not the chip, so it fits a phone-width window.
       className="static"
       trigger={({ open, toggle }) => (
@@ -323,5 +389,56 @@ export function ChatPermissionMenu({
         </>
       )}
     />
+  );
+}
+
+/** The chat's "Allow for this chat" grants, each with Remove. */
+export function GrantsList({
+  grants,
+  onRemove,
+}: {
+  grants: HostGrant[];
+  onRemove?: (key: string) => void;
+}) {
+  return (
+    <div
+      data-testid="host-grants"
+      className="mt-1 border-t border-border px-2.5 pb-1 pt-2"
+    >
+      <p className="text-[11px] font-medium uppercase leading-4 tracking-[0.08em] text-muted-foreground">
+        {GRANTS_TITLE}
+      </p>
+      {grants.length === 0 ? (
+        <p className="py-1 text-xs leading-4 text-muted-foreground">
+          {GRANTS_EMPTY}
+        </p>
+      ) : (
+        <ul className="py-1">
+          {grants.map((grant) => (
+            <li
+              key={grant.key}
+              className="flex min-h-8 items-center gap-2 text-xs"
+            >
+              <span className="min-w-0 flex-1 break-all font-mono text-foreground">
+                {grant.label}
+              </span>
+              {onRemove && (
+                <button
+                  type="button"
+                  aria-label={`Remove ${grant.label}`}
+                  onClick={() => onRemove(grant.key)}
+                  className="shrink-0 cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-primary outline-none transition-colors hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-ring/30"
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="pb-1 text-[11px] leading-4 text-muted-foreground">
+        {GRANTS_HINT}
+      </p>
+    </div>
   );
 }

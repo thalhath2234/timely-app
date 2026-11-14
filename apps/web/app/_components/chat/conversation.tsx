@@ -3,10 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ENGINE_COPY,
+  HOST_ERRORS,
+  HOST_STATUS_WORDS,
   QUESTION_CARD_TITLES,
+  hostWaiting,
   questionCardState,
   questionWaiting,
   type ChatQuestion,
+  type HostChoice,
+  type HostRequest,
   type PermissionMode,
   type QuestionAnswer,
 } from "@timely/contract/agentChat";
@@ -26,6 +31,7 @@ import TimelyLogo, {
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
 import {
+  answerHostCard,
   answerQuestion,
   chatRequest,
   isChatGone,
@@ -33,6 +39,9 @@ import {
   type Chat,
   type ChatContext,
   type ReceiptDraft,
+  removeHostGrant,
+  setChatPermission,
+  undoHostChange,
 } from "@/app/utils/api/chat";
 import {
   chatKey,
@@ -70,6 +79,17 @@ import ChatMenu from "./chatMenu";
 import { NO_LEARNING_NOTE } from "@timely/contract/agentLearning";
 import { learningFollowed, learnsInChat } from "./learningView";
 import QuestionCard from "./questionCard";
+import HostCard from "./hostCard";
+import {
+  answerDevice,
+  hostAnswerBody,
+  hostAnswerError,
+  hostAnswerStale,
+  hostClosedAnnouncement,
+  hostComposer,
+  type Surface,
+} from "./hostView";
+import { useDesktopShell } from "@/app/utils/hooks/desktop";
 import {
   QUESTION_HINT,
   QUESTION_PLACEHOLDER,
@@ -90,13 +110,16 @@ export function StatusPill({
   status,
   phase,
   question,
+  hostRequest,
 }: {
   status: string;
   phase?: string;
   /** A run waiting on a question card reads "Needs your answer". */
   question?: ChatQuestion | null;
+  /** A chat on a host card reads "Needs your OK", or "Waiting for your OK" once parked. */
+  hostRequest?: HostRequest | null;
 }) {
-  const meta = statusMeta(status, question);
+  const meta = statusMeta(status, question, hostRequest);
   const Icon = meta.icon;
   return (
     <span
@@ -175,6 +198,8 @@ export default function Conversation({
     Boolean(providers.data) && readyProviders(providers.data).length === 0;
   const cache = useQueryClient();
   const router = useRouter();
+  // The desktop window holds the shell bridge: its answers are the step-up.
+  const surface: Surface = useDesktopShell() ? "desktop" : "web";
   // Deleted on another device: the cached copy is stale; the screen says it cannot load.
   const chat = isChatGone(query.error) ? undefined : query.data;
   const settings = useChatSettings().data;
@@ -238,6 +263,13 @@ export default function Conversation({
   const busy = isBusy(chat?.status);
   // The live run waits on a question card: what is sent now answers it.
   const asking = questionWaiting(chat);
+  // The row waits on a host card (status host_approval, not busy): live while
+  // the run waits, parked once it paused. A message never answers it.
+  const hosting = hostWaiting(chat);
+  const hostCard = hosting ? chat?.hostRequest : undefined;
+  const hostId = hostCard?.requestId;
+  const hostUi = hostComposer(hostCard, hosting);
+  const hostRow = useRef<HTMLDivElement>(null);
   // What is sent while an agent run works steers it (POST /chats/:id/steer).
   const steering =
     chat?.status === "running" &&
@@ -274,6 +306,13 @@ export default function Conversation({
           ...(permissionChoice ? { permission: permissionChoice } : {}),
         });
       }
+      // Full Access needs the step-up, which only the desktop window's
+      // bridge carries; everything else is a plain PATCH.
+      if (
+        action === "" &&
+        (body as { permission?: string } | undefined)?.permission === "full"
+      )
+        return setChatPermission(id, "full");
       return chatRequest<Chat>(
         `/${encodeURIComponent(id)}${action}`,
         action === "" ? "PATCH" : "POST",
@@ -339,6 +378,23 @@ export default function Conversation({
     lastQuestion && !asking
       ? `Question closed: ${QUESTION_CARD_TITLES[questionCardState(lastQuestion.question?.outcome)]}`
       : "";
+  // The card arrives with no new message: bring it into view, its top first
+  // when it is taller than the thread.
+  useEffect(() => {
+    const row = hostRow.current;
+    if (!hostId || !row) return;
+    const tall = row.getBoundingClientRect().height > window.innerHeight * 0.6;
+    row.scrollIntoView({
+      behavior: "instant",
+      block: tall ? "start" : "nearest",
+    });
+  }, [hostId]);
+  // Tells screen readers how a host card closed (the thread then holds it).
+  const lastHost = [...(chat?.messages ?? [])]
+    .reverse()
+    .find((m) => m.kind === "host" && m.host && !m.host.auto);
+  const hostClosedNote =
+    lastHost && !hosting ? hostClosedAnnouncement(lastHost.host) : "";
   useEffect(() => {
     const row = questionRow.current;
     if (!questionId || !row) return;
@@ -377,6 +433,8 @@ export default function Conversation({
   }, [chat, cache]);
   function send() {
     answer.reset();
+    // A live host card is answered on the card; a typed message can't.
+    if (hostUi.locked) return;
     if (steering) {
       if (!draft.trim() || uploads.images.length || mutation.isPending) return;
       mutation.mutate({
@@ -481,7 +539,47 @@ export default function Conversation({
   useEffect(() => {
     resetAnswer();
   }, [id, questionId, resetAnswer]);
+  // The host card's Run once, Allow for this chat and Deny. The desktop
+  // window sends through its shell bridge; a card that was answered or
+  // changed meanwhile (409) refetches, so the thread shows how it closed.
+  const hostAnswer = useMutation({
+    mutationFn: (input: { request: HostRequest; choice: HostChoice }) =>
+      answerHostCard(
+        id ?? "",
+        hostAnswerBody(
+          input.request,
+          chat?.revision ?? 0,
+          input.choice,
+          answerDevice(surface, surface === "web" ? "Web browser" : "", false),
+        ),
+      ),
+    onSuccess: (next) => {
+      cache.setQueryData(chatKey(next.id), next);
+      void cache.invalidateQueries({ queryKey: chatsKey });
+      input.current?.focus();
+    },
+    onError: (error) => {
+      if (id && hostAnswerStale((error as { status?: number }).status))
+        void cache.invalidateQueries({ queryKey: chatKey(id) });
+    },
+  });
+  const resetHostAnswer = hostAnswer.reset;
+  useEffect(() => {
+    resetHostAnswer();
+  }, [id, hostId, resetHostAnswer]);
+  // "Undo this change": restores the checkpoint a host call left.
+  const hostUndo = useMutation({
+    mutationFn: (checkpoint: string) => undoHostChange(id ?? "", checkpoint),
+    onSettled: () => {
+      if (id) void cache.invalidateQueries({ queryKey: chatKey(id) });
+    },
+  });
+  const dropGrant = useMutation({
+    mutationFn: (key: string) => removeHostGrant(id ?? "", key),
+    onSuccess: (next) => cache.setQueryData(chatKey(next.id), next),
+  });
   // Applies from the next tool call; a looser mode approves nothing waiting.
+  // Full Access needs the step-up: the desktop window's bridge sends it.
   function choosePermission(next: PermissionMode) {
     if (id) mutation.mutate({ action: "", body: { permission: next } });
     else setPermissionChoice(next);
@@ -536,22 +634,26 @@ export default function Conversation({
     : "";
   const subtitle = asking
     ? QUESTION_WAITING_LINE
-    : busy
-      ? phaseLabel(chat?.phase)
-      : chat?.status === "approval"
-        ? "Waiting for your decision"
-        : providerLabel || (compact ? "Chat in context" : "Timely assistant");
+    : hosting
+      ? HOST_STATUS_WORDS[hostCard?.phase === "parked" ? "parked" : "live"]
+      : busy
+        ? phaseLabel(chat?.phase)
+        : chat?.status === "approval"
+          ? "Waiting for your decision"
+          : providerLabel || (compact ? "Chat in context" : "Timely assistant");
   const hint = uploads.images.length
     ? "One receipt per message · up to 5 photos · images removed after confirmation or 24 hours"
     : chat?.sensitive
       ? "Image-based changes always need your review."
       : asking
         ? QUESTION_HINT
-        : steering
-          ? "It reads what you send now before its next step."
-          : permission === "supervised"
-            ? "Every change waits for your review."
-            : "Everyday changes apply on their own, with Undo. Deleting and other big changes wait for you.";
+        : hosting
+          ? hostUi.hint
+          : steering
+            ? "It reads what you send now before its next step."
+            : permission === "supervised"
+              ? "Every change waits for your review."
+              : "Everyday changes apply on their own, with Undo. Deleting and other big changes wait for you.";
   return (
     <div
       className={cn(
@@ -620,6 +722,7 @@ export default function Conversation({
                   status={chat.status}
                   phase={chat.phase}
                   question={chat.question}
+                  hostRequest={chat.hostRequest}
                 />
               )}
             </div>
@@ -746,6 +849,19 @@ export default function Conversation({
                 onSimilar={chooseSimilar}
                 onAsk={busy || mutation.isPending ? undefined : ask}
                 onUndo={undo}
+                onHostUndo={(checkpoint) => hostUndo.mutate(checkpoint)}
+                hostUndoPending={hostUndo.isPending}
+                hostUndoError={
+                  hostUndo.error
+                    ? {
+                        checkpoint: hostUndo.variables ?? "",
+                        message:
+                          (hostUndo.error as { status?: number }).status === 409
+                            ? HOST_ERRORS.undoGone
+                            : hostUndo.error.message,
+                      }
+                    : undefined
+                }
                 learning={learning.data}
                 onLeave={onClose}
               />
@@ -806,9 +922,9 @@ export default function Conversation({
                 reply={{ send: ask, compose }}
               />
             )}
-            {busy && chat?.phase !== "apply" && chat?.runEngine === "agent" && (
-              <RunActivity chat={chat} />
-            )}
+            {(busy || (hosting && hostCard?.phase !== "parked")) &&
+              chat?.phase !== "apply" &&
+              chat?.runEngine === "agent" && <RunActivity chat={chat} />}
             {liveReply && <LiveReply draft={liveReply} />}
             <p
               role="status"
@@ -817,6 +933,7 @@ export default function Conversation({
               data-testid="question-closed-note"
             >
               {questionClosedNote}
+              {hostClosedNote}
             </p>
             {asking && chat?.question?.requestId && (
               <div
@@ -860,6 +977,43 @@ export default function Conversation({
                         requestId: chat.question!.requestId!,
                         skip: true,
                       })
+                    }
+                  />
+                </div>
+              </div>
+            )}
+            {hosting && hostCard?.requestId && (
+              <div
+                ref={hostRow}
+                className="mt-5 flex gap-3"
+                data-testid="host-row"
+              >
+                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-foreground">
+                  <TimelyLogo size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <HostCard
+                    key={hostCard.requestId}
+                    request={hostCard}
+                    surface={surface}
+                    rule={settings?.hostApprovalRule}
+                    sending={
+                      hostAnswer.isPending
+                        ? (hostAnswer.variables?.choice ?? null)
+                        : null
+                    }
+                    error={
+                      hostAnswer.error &&
+                      hostAnswer.variables?.request.requestId ===
+                        hostCard.requestId
+                        ? hostAnswerError(
+                            (hostAnswer.error as { status?: number }).status,
+                            hostAnswer.error.message,
+                          )
+                        : undefined
+                    }
+                    onAnswer={(choice) =>
+                      hostAnswer.mutate({ request: hostCard, choice })
                     }
                   />
                 </div>
@@ -927,13 +1081,15 @@ export default function Conversation({
         placeholder={
           asking
             ? QUESTION_PLACEHOLDER
-            : steering
-              ? "Tell it something while it works…"
-              : chat?.status === "approval"
-                ? isBotPlan(chat.plan)
-                  ? "Reply, or ask for changes to the bot"
-                  : "Tell me what to change…"
-                : "Ask Timely to create, plan, or update…"
+            : hosting
+              ? hostUi.placeholder
+              : steering
+                ? "Tell it something while it works…"
+                : chat?.status === "approval"
+                  ? isBotPlan(chat.plan)
+                    ? "Reply, or ask for changes to the bot"
+                    : "Tell me what to change…"
+                  : "Ask Timely to create, plan, or update…"
         }
         chips={chips}
         onRemoveChip={(i) =>
@@ -956,8 +1112,11 @@ export default function Conversation({
           defaultMode,
           onChange: choosePermission,
           onChangeDefault: changeDefaultPermission,
+          unsent: !id,
+          grants: id ? (chat?.hostGrants ?? []) : undefined,
+          onRemoveGrant: (key) => dropGrant.mutate(key),
         }}
-        busy={busy}
+        busy={busy || hostUi.locked}
         steering={steering}
         answering={asking}
         pending={mutation.isPending}

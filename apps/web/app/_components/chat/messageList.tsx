@@ -25,6 +25,7 @@ import { AutoAppliedCard, autoCardArchives } from "./agentRun";
 import type { LearningEvent } from "@timely/contract/agentLearning";
 import TurnLearning from "./turnLearning";
 import { ClosedQuestionCard } from "./questionCard";
+import { ClosedHostCard } from "./hostCard";
 import { learningAnchors, looseLearning, turnLearning } from "./learningView";
 
 function NoticeIcon({ content }: { content: string }) {
@@ -178,6 +179,9 @@ export default function MessageList({
   onSimilar,
   onAsk,
   onUndo,
+  onHostUndo,
+  hostUndoPending = false,
+  hostUndoError,
   learning,
   onLeave,
 }: {
@@ -192,6 +196,11 @@ export default function MessageList({
   onAsk?: (text: string) => void;
   /** Undoes an auto-applied proposal by its summary message. */
   onUndo?: (messageId: string) => void;
+  /** "Undo this change" on a host call's checkpoint. */
+  onHostUndo?: (checkpoint: string) => void;
+  hostUndoPending?: boolean;
+  /** The refusal of the last Undo this change, for the card it was for. */
+  hostUndoError?: { checkpoint: string; message: string };
 }) {
   let lastDay = "";
   // Plans an auto-applied card already shows, archived when it was undone.
@@ -256,6 +265,34 @@ export default function MessageList({
                   </div>
                   <div className="min-w-0 flex-1">
                     <ClosedQuestionCard card={m.question} at={m.createdAt} />
+                  </div>
+                </div>
+              ) : (
+                <Notice message={m} />
+              )
+            ) : m.kind === "host" ? (
+              m.host ? (
+                <div className="flex gap-3">
+                  <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-foreground">
+                    <TimelyLogo size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <ClosedHostCard
+                      host={m.host}
+                      at={m.createdAt}
+                      pending={hostUndoPending}
+                      undoError={
+                        hostUndoError &&
+                        hostUndoError.checkpoint === m.host.checkpoint
+                          ? hostUndoError.message
+                          : undefined
+                      }
+                      onUndo={
+                        chat.status === "idle" || chat.status === "stopped"
+                          ? onHostUndo
+                          : undefined
+                      }
+                    />
                   </div>
                 </div>
               ) : (
