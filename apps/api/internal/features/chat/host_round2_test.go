@@ -30,12 +30,25 @@ func TestHardlineFloorHoldsInEveryMode(t *testing.T) {
 				t.Errorf("%s: %q -> %s (%s)", mode, c, d.verdict, d.reason)
 			}
 		}
-		d := decideCall(t, baseState(mode), "execute_code", map[string]any{"code": "import os; os.system('rm -rf /')"})
-		if d.verdict != "block" {
-			t.Errorf("%s: execute_code rm -rf / -> %s", mode, d.verdict)
+		// Review round 3: the home and the root written as ~/.., ${HOME:?}, a
+		// variable, $(echo /), a move or an rsync --delete over them.
+		for _, c := range []string{"rm -rf ~/../..", "rm -rf $HOME/..", "rm -rf \"${HOME:?}\"", "rm -rf $(echo /)", "H=~; rm -rf $H", "rm -rf ~me", "rm -rf /h?me",
+			"rm -rf /home/me/{*,.*}", "find ~ -type f -exec rm -f {} +", "rsync -a --delete /tmp/empty/ ~/", "mv /home/me /tmp/gone", "rm -rf ../..",
+			"python3 -c \"import shutil,os;shutil.rmtree(os.environ['HOME'])\"", "perl -MFile::Path -e 'rmtree($ENV{HOME})'"} {
+			d := decideCall(t, baseState(mode), "terminal", map[string]any{"command": c})
+			if d.verdict != "block" || !strings.Contains(d.message, "never runs") {
+				t.Errorf("%s: %q -> %s (%s)", mode, c, d.verdict, d.reason)
+			}
+		}
+		for _, code := range []string{"import os; os.system('rm -rf /')", "import subprocess; subprocess.run(['rm','-rf','/'])", "import shutil,os; shutil.rmtree(os.environ['HOME'])",
+			"from pathlib import Path\nimport shutil\nshutil.rmtree(str(Path.home()))", "import shutil\nshutil.rmtree('/home/me')"} {
+			d := decideCall(t, baseState(mode), "execute_code", map[string]any{"code": code})
+			if d.verdict != "block" {
+				t.Errorf("%s: execute_code %q -> %s", mode, code, d.verdict)
+			}
 		}
 		// the call's own folder is the root
-		d = decideCall(t, baseState(mode), "terminal", map[string]any{"command": "rm -rf *", "workdir": "/"})
+		d := decideCall(t, baseState(mode), "terminal", map[string]any{"command": "rm -rf *", "workdir": "/"})
 		if d.verdict != "block" {
 			t.Errorf("%s: rm -rf * in / -> %s", mode, d.verdict)
 		}

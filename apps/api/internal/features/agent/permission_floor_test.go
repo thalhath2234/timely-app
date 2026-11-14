@@ -79,3 +79,77 @@ func TestHardlineHostScansCode(t *testing.T) {
 		}
 	}
 }
+
+// Phase 5, review round 3: the floor reads the home, "up from here" and the
+// text of programs as they are spelled, not only the literal `/`, `~` and
+// `$HOME`. Each line was allowed in Full Access before.
+func TestHardlineFloorReadsHomeSpellingsAndClimbs(t *testing.T) {
+	for _, c := range []string{
+		"rm -rf ~/../..", "rm -rf ~/..", "rm -rf $HOME/..", "rm -rf \"${HOME:?}\"", "rm -rf ${HOME}/../..", "rm -rf \"$HOME/..\"",
+		"rm -rf $(echo /)", "rm -rf \"$(echo ~)\"", "H=~; rm -rf $H", "x=~; rm -rf $x", "export D=/; rm -rf $D",
+		"rm -rf ~me", "rm -rf ~root", "rm -rf /h?me", "rm -rf /home/me/{*,.*}", "rm -rf /ho*", "rm -rf /{usr,var}",
+		"rm -rf ../..", "rm -rf ../../..", "rm -rf ..", "cd /home/me/work && rm -rf ../..",
+		"find ~ -type f -exec rm -f {} +", "find /home/me -delete", "find / -exec rm {} \\;",
+		"rsync -a --delete /tmp/empty/ ~/", "rsync -a --delete /home/me/work/empty/ /home/me/", "rsync -a --delete-after empty/ $HOME",
+		"mv /home/me /tmp/gone", "mv ~ /tmp/gone", "mv /usr /tmp/gone", "mv ~/.. /tmp/gone",
+		"chmod -R 000 ~/..", "chown -R me $HOME/..",
+		"python3 -c \"import shutil,os;shutil.rmtree(os.environ['HOME'])\"",
+		"perl -MFile::Path -e 'rmtree($ENV{HOME})'",
+		"node -e 'require(\"fs\").rmSync(require(\"os\").homedir(),{recursive:true})'",
+		"ruby -e 'require \"fileutils\"; FileUtils.rm_rf(Dir.home)'",
+		"python3 -c \"import shutil; shutil.rmtree('/home/me')\"",
+		"python3 -c \"import subprocess; subprocess.run(['rm','-rf','/home/me'])\"",
+		"python3 -c \"import os; os.system('rm -rf /home/me')\"",
+		"bash -c 'rm -rf ~/..'", "sudo rm -rf $HOME/..", "echo ~/.. | xargs rm -rf",
+	} {
+		if why, ok := floor(c, ""); !ok || why == "" {
+			t.Errorf("%q is not on the floor", c)
+		}
+	}
+	for cwd, cs := range map[string][]string{
+		"/home/me": {"rm -rf `pwd`", "rm -rf $(pwd)", "rm -rf ./", "rm -rf .*"},
+		"/":        {"rm -rf $(pwd)", "rm -rf `pwd`/*"},
+	} {
+		for _, c := range cs {
+			if _, ok := floor(c, cwd); !ok {
+				t.Errorf("%q in %s is not on the floor", c, cwd)
+			}
+		}
+	}
+	for _, c := range []string{
+		"rm -rf ~/.cache/x", "rm -rf ../build", "rm -rf ./build", "rm -rf ~/work/..bak", "rm -rf ~/Documents/old", "rm -rf /h?me/work",
+		"mv a.txt b.txt", "mv build ../build2", "mv ~/a.txt ~/b.txt", "rsync -a --delete src/ dest/", "rsync -a ~/work/ /tmp/backup/",
+		"find . -type f -exec rm -f {} +", "find /tmp -exec rm {} +", "find ~/work -name '*.o' -exec rm {} +",
+		"H=build; rm -rf $H", "rm -rf $UNKNOWN", "rm -rf $(date +%s)", "rm -rf $(echo build)",
+		"python3 -c \"import shutil; shutil.rmtree('/home/me/work/build')\"", "python3 -c \"import shutil,os; shutil.rmtree(os.path.join(os.environ['HOME'], '.cache/x'))\"",
+		"python3 -c \"import subprocess; subprocess.run(['rm','-rf','build'])\"", "python3 -c \"import os; os.system('rm -rf /tmp/x')\"",
+		"node -e 'require(\"fs\").rmSync(\"build\",{recursive:true})'", "chmod -R 755 ~/work",
+	} {
+		if why, ok := floor(c, ""); ok {
+			t.Errorf("%q is on the floor (%s)", c, why)
+		}
+	}
+}
+
+func TestHardlineFloorScansProgramTextForPathsAndArgvLists(t *testing.T) {
+	for _, code := range []string{
+		"import subprocess; subprocess.run(['rm','-rf','/'])", "import subprocess\nsubprocess.run(['/bin/rm', '-rf', '/home/me'])",
+		"import shutil, os\nshutil.rmtree(os.environ['HOME'])", "import shutil\nfrom pathlib import Path\nshutil.rmtree(str(Path.home()))",
+		"import shutil\nshutil.rmtree('/home/me')", "import shutil\nshutil.rmtree(Path('/home'))", "os.system('rm -rf /home/me/*')",
+		"const fs = require('fs'); fs.rmSync(require('os').homedir(), {recursive: true})", "require 'fileutils'\nFileUtils.rm_rf(Dir.home)",
+		"import subprocess\nsubprocess.run('rm -rf ~/..', shell=True)",
+	} {
+		if _, ok := HardlineHost(HostAction{Kind: HostTerminal, Command: code, Code: true}, floorScope); !ok {
+			t.Errorf("code %q is not on the floor", code)
+		}
+	}
+	for _, code := range []string{
+		"import shutil\nshutil.rmtree('/home/me/work/build')", "import shutil\nshutil.rmtree(Path.home() / '.cache' / 'x')",
+		"import shutil, os\nshutil.rmtree(os.path.join(os.environ['HOME'], 'x'))", "subprocess.run(['rm', '-rf', 'build'])",
+		"subprocess.run(['ls', '/'])", "import shutil\nshutil.rmtree('build', ignore_errors=True)", "x = ['a', 'b', 'c']",
+	} {
+		if why, ok := HardlineHost(HostAction{Kind: HostTerminal, Command: code, Code: true}, floorScope); ok {
+			t.Errorf("code %q is on the floor (%s)", code, why)
+		}
+	}
+}

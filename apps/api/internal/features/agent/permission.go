@@ -392,6 +392,9 @@ type HostScope struct {
 	CwdUnknown bool
 	// Home is the OS user's home, which `cd`, `~` and $HOME mean.
 	Home string
+	// vars are the variables a command line set earlier on the same line
+	// (H=~; rm -rf $H), for the hardline floor.
+	vars map[string]string
 }
 
 // CriticalHost is Critical for a host action.
