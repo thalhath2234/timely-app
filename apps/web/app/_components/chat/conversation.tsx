@@ -935,8 +935,7 @@ export default function Conversation({
               className="sr-only"
               data-testid="question-closed-note"
             >
-              {questionClosedNote}
-              {hostClosedNote}
+              {[questionClosedNote, hostClosedNote].filter(Boolean).join(". ")}
             </p>
             {asking && chat?.question?.requestId && (
               <div

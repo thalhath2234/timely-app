@@ -507,6 +507,17 @@ test("the phone turns on Full Access only where the account allowed any device, 
   );
   assert.doesNotMatch(anyDevice[2].line, /desktop app/);
   assert.equal(canPickPermission("auto", "full", "devices"), true);
+  // A chat that has not started says so, even where Full Access is allowed on any device
+  // (it said "Turn on from the desktop app" there before).
+  const unsent = permissionOptions("auto", "devices", true);
+  assert.deepEqual(unsent.map((o) => [o.mode, o.disabled]), [
+    ["supervised", false],
+    ["auto", false],
+    ["full", true],
+  ]);
+  assert.match(unsent[2].line, /Start the chat first, then turn it on/);
+  assert.doesNotMatch(unsent[2].line, /desktop app/);
+  assert.match(permissionOptions("auto", "desktop", true)[2].line, /desktop app/);
   const onFull = permissionOptions("full");
   assert.deepEqual(onFull.map((o) => [o.mode, o.selected, o.disabled]), [
     ["supervised", false, false],
@@ -1062,16 +1073,21 @@ for (const [app, h] of [
     assert.equal(view.cwd, "/home/me/project");
     assert.equal(view.reason, "Supervised asks before every command.");
     assert.equal(
+      [view.detailLabel, view.detail].join(""),
+      "",
+      "a terminal card has one block",
+    );
+    assert.equal(
       view.timeLeft,
       "9 min left",
       "the live wait counts down to liveUntil",
     );
     assert.equal(view.soon, false);
     assert.deepEqual(view.choices, ["once", "chat", "deny"]);
-    assert.match(
+    assert.equal(
       view.grant,
-      /git status/,
-      "Allow for this chat names what it would cover",
+      "Allow for this chat covers: git status.",
+      "Allow for this chat names what it would cover, in a sentence",
     );
   });
 
@@ -1171,7 +1187,7 @@ for (const [app, h] of [
     );
     assert.match(
       add.critical,
-      /^Always asks, in every mode: changing settings or permissions$/,
+      /^Auto always asks before this: changing settings or permissions$/,
     );
     assert.equal(h.hostCardView(hostReq(), NOW).critical, "");
     // A request with no card yet still draws something sensible.
@@ -1179,6 +1195,80 @@ for (const [app, h] of [
       h.hostCardView({ requestId: "x", phase: "live" }, NOW).title,
       "Run this command?",
     );
+  });
+
+  test(`${app}: the unlock line names only the choices that are offered and need it`, () => {
+    const line = (choices, surface = "phone", rule = "devices") =>
+      h.unlockLine(h.choiceAccess(choices, surface, rule));
+    assert.equal(
+      line(["once", "chat", "deny"]),
+      "Run once and Allow for this chat ask for your fingerprint, face or screen lock.",
+    );
+    assert.equal(
+      line(["once", "deny"]),
+      "Run once asks for your fingerprint, face or screen lock.",
+      "a card that cannot be granted has no Allow for this chat to unlock",
+    );
+    assert.equal(line(["deny"]), "");
+    assert.equal(line(["once", "chat", "deny"], "web"), "");
+  });
+
+  test(`${app}: a search shows what it looks for and where, a browser call its address and script, and Go's reasons read as sentences`, () => {
+    const search = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "file",
+          title: "Search these files?",
+          path: "/home/me/.cache/p5-sandbox/home",
+          command: "password",
+          cwd: "/home/me/.cache/p5-sandbox/work",
+          reason: "Supervised asks before every action",
+          grantable: false,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual(
+      [search.subjectLabel, search.subject, search.cwd],
+      ["Search for", "password", "/home/me/.cache/p5-sandbox/home"],
+      "the folder searched is shown, not the folder the run starts in",
+    );
+    const browser = h.hostCardView(
+      hostReq({
+        card: {
+          kind: "browser",
+          title: "Use your browser?",
+          url: "https://example.org/a",
+          command: '{"script":"page.goto(1)","url":"https://example.org/a"}',
+          reason: "uses your signed-in browser",
+          grantable: false,
+        },
+      }),
+      NOW,
+    );
+    assert.deepEqual(
+      [browser.subjectLabel, browser.subject, browser.detailLabel, browser.detail],
+      [
+        "Address",
+        "https://example.org/a",
+        "Script",
+        '{"script":"page.goto(1)","url":"https://example.org/a"}',
+      ],
+    );
+    assert.equal(browser.reason, "Asks because it uses your signed-in browser.");
+    const reasonOf = (reason) =>
+      h.hostCardView(hostReq({ card: { ...hostReq().card, reason } }), NOW)
+        .reason;
+    assert.equal(
+      reasonOf("opens a site the person has not mentioned"),
+      "Asks because it opens a site you have not mentioned.",
+    );
+    assert.equal(
+      reasonOf("comes after reading outside content (pages, files or command output)"),
+      "Asks because it comes after reading outside content (pages, files or command output).",
+    );
+    assert.equal(reasonOf("You set mail to Ask me first"), "You set mail to Ask me first");
+    assert.equal(reasonOf(""), "");
   });
 
   test(`${app}: Deny works under every rule; Run once and Allow for this chat need the desktop window under the desktop rule, and the phone unlocks first`, () => {
@@ -1273,22 +1363,56 @@ for (const [app, h] of [
       ...over,
     });
     assert.deepEqual(
-      ["ran", "allowed", "denied", "expired", "stopped"].map(
-        (o) => h.closedHostView(closed(o)).stateWord,
-      ),
+      [
+        "ran",
+        "allowed",
+        "denied",
+        "expired",
+        "stopped",
+        "approved",
+        "notrun",
+      ].map((o) => h.closedHostView(closed(o)).stateWord),
       [
         "Ran",
         "Allowed for this chat",
         "Denied",
         "Expired, not run",
         "Stopped before you answered",
+        "Approved, waiting to run",
+        "Approved, did not run",
       ],
     );
-    assert.equal(h.closedHostView(closed("ran")).deviceNote, "On your phone");
+    // An approved card has not run, and a card that did not run never says Ran.
+    for (const o of ["approved", "notrun", "denied", "expired", "stopped"])
+      assert.equal(h.closedHostView(closed(o)).ran, false, o);
+    assert.match(h.closedHostView(closed("approved")).note, /Approved\./);
+    assert.match(h.closedHostView(closed("notrun")).note, /did not\./);
+    assert.equal(
+      h.closedHostView(closed("ran")).deviceNote,
+      "Approved on your phone",
+    );
+    assert.equal(
+      h.closedHostView(closed("denied")).deviceNote,
+      "Denied on your phone",
+    );
+    assert.equal(
+      h.closedHostView(closed("stopped")).deviceNote,
+      "",
+      "nobody answered a stopped card",
+    );
     assert.equal(
       h.closedHostView(closed("ran", { device: { kind: "desktop" } }))
         .deviceNote,
-      "In the desktop app",
+      "Approved in the desktop app",
+    );
+    assert.equal(
+      h.closedHostView(
+        closed("ran", {
+          card: { kind: "mcp_server", title: "Add this MCP server?", server: "files", command: "x", reason: "", grantable: false },
+        }),
+      ).stateWord,
+      "Added",
+      "an MCP server that was added did not run",
     );
     assert.equal(h.closedHostView(closed("denied")).ran, false);
     assert.match(h.closedHostView(closed("denied")).note, /Nothing ran/);
@@ -1353,6 +1477,15 @@ for (const [app, h] of [
     assert.equal(
       line({ kind: "terminal", command: "ls" }, "stopped"),
       "Stopped before you answered: ls",
+    );
+    assert.equal(
+      line({ kind: "terminal", command: "ls" }, "approved"),
+      "Approved, waiting to run: ls",
+      "an answered card that has not run never reads Ran",
+    );
+    assert.equal(
+      line({ kind: "terminal", command: "ls" }, "notrun"),
+      "Approved, did not run: ls",
     );
     // A long command is cut so a line stays a line.
     assert.ok(
@@ -1456,9 +1589,15 @@ for (const [app, h] of [
       "Your assistant wants to run a command.",
     );
     assert.equal(
-      h.hostPushBody({ card: { kind: "file" } }),
+      h.hostPushBody({ card: { kind: "file", title: "Change this file?" } }),
       "Your assistant wants to change a file.",
     );
+    for (const title of ["Read this file?", "Search these files?", "Read this image?"])
+      assert.equal(
+        h.hostPushBody({ card: { kind: "file", title } }),
+        "Your assistant wants to read a file.",
+        title,
+      );
     assert.equal(
       h.hostPushBody({ card: { kind: "browser" } }),
       "Your assistant wants to use your browser.",

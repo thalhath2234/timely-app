@@ -66,13 +66,27 @@ export function fullAccessDisabledOnPhone(
 }
 
 /** The three rows of the phone's permission picker. */
+/** What the permission list says about Full Access before the chat has started (the web's wording). */
+export const FULL_ACCESS_UNSENT_NOTE = "Start the chat first, then turn it on";
+
 export function permissionOptions(
   current: string | undefined | null,
   allowedOn?: FullAccessAllowedOn,
+  /** A chat that has not started: its first run begins before any step-up could be recorded. */
+  unsent = false,
 ): PermissionOption[] {
   const selected = chatPermission(current);
   return PERMISSION_MODES.map((mode) => {
     const copy = PERMISSION_COPY[mode];
+    if (mode === "full" && unsent && allowedOn === "devices") {
+      return {
+        mode,
+        name: copy.name,
+        line: `${copy.short}. ${FULL_ACCESS_UNSENT_NOTE}`,
+        selected: mode === selected,
+        disabled: mode !== selected,
+      };
+    }
     const lockedFull = mode === "full" && fullAccessDisabledOnPhone(allowedOn);
     const unlockNote =
       mode === "full" && !lockedFull

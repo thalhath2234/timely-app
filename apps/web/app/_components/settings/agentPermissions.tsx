@@ -229,10 +229,10 @@ export default function PermissionsGroups({
         <GroupLabel>Full Access</GroupLabel>
         <ListGroup>
           <ListRow label="Turning it on asks for">
-            <span className="text-[13px] font-medium text-muted-foreground">
+            <span className="min-w-0 text-right text-[13px] font-medium leading-4 text-muted-foreground">
               {allowedOn === "devices"
-                ? "A confirmation, then your phone's lock"
-                : "A confirmation in the desktop app"}
+                ? "Confirm, then your phone's lock"
+                : "Confirm in the desktop app"}
             </span>
           </ListRow>
           <ListRow

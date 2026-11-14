@@ -1732,7 +1732,8 @@ export default function Assistant() {
         value={permission}
         defaultMode={agentSettings.data?.chatPermission}
         saving={agentMutation.isPending}
-        allowedOn={id ? agentSettings.data?.fullAccessAllowedOn : undefined}
+        allowedOn={agentSettings.data?.fullAccessAllowedOn}
+        unsent={!id}
         grants={id ? (chat?.hostGrants ?? []) : undefined}
         onRemoveGrant={offline ? undefined : (key) => grantMutation.mutate(key)}
         onPick={pickPermission}

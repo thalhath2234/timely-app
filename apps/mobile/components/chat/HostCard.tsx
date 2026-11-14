@@ -33,6 +33,7 @@ import {
   choiceAccess,
   closedHostView,
   hostCardView,
+  unlockLine,
 } from "../../lib/chat/host";
 import { Button } from "../ui/primitives";
 import { timeOfDay } from "./chatMeta";
@@ -72,10 +73,15 @@ function Subject({
   label,
   text,
   cwd,
+  detailLabel,
+  detail,
 }: {
   label: string;
   text: string;
   cwd?: string;
+  /** A second block (the browser's script) under the first. */
+  detailLabel?: string;
+  detail?: string;
 }) {
   return (
     <View style={{ gap: 4 }}>
@@ -85,6 +91,16 @@ function Subject({
           {text}
         </Text>
       </View>
+      {detail ? (
+        <>
+          <Text style={[styles.eyebrow, { marginTop: 4 }]}>{detailLabel}</Text>
+          <View style={styles.codeBox}>
+            <Text testID="host-detail" selectable style={styles.code}>
+              {detail}
+            </Text>
+          </View>
+        </>
+      ) : null}
       {cwd ? (
         <Text style={styles.meta}>
           In{" "}
@@ -121,7 +137,8 @@ export default function HostCard({
   const busy = sending !== null;
   const access = choiceAccess(view.choices, "phone", rule);
   const blocked = access.find((a) => !a.enabled)?.why ?? "";
-  const unlocks = access.some((a) => a.enabled && a.needsUnlock);
+  const unlockNote = unlockLine(access);
+  const unlocks = unlockNote !== "";
   const live = view.state === "live";
   const buttons: Record<
     HostChoice,
@@ -131,7 +148,10 @@ export default function HostCard({
       variant: "primary",
       icon: <FingerprintPattern size={16} color={colors.primaryForeground} />,
     },
-    chat: { variant: "outline" },
+    chat: {
+      variant: "outline",
+      icon: <FingerprintPattern size={16} color={colors.foreground} />,
+    },
     deny: { variant: "ghost" },
   };
   return (
@@ -192,7 +212,13 @@ export default function HostCard({
         ) : null}
       </View>
       <View style={styles.block}>
-        <Subject label={view.subjectLabel} text={view.subject} cwd={view.cwd} />
+        <Subject
+          label={view.subjectLabel}
+          text={view.subject}
+          cwd={view.cwd}
+          detailLabel={view.detailLabel}
+          detail={view.detail}
+        />
         {view.envNames.length ? (
           <Text style={styles.meta}>
             Starts with these variables:{" "}
@@ -225,7 +251,7 @@ export default function HostCard({
               testID={`host-${choice}`}
               label={a.label}
               variant={b.variant}
-              icon={a.needsUnlock && choice === "once" ? b.icon : undefined}
+              icon={a.needsUnlock ? b.icon : undefined}
               stretch
               disabled={busy || !a.enabled || !onAnswer}
               loading={sending === choice}
@@ -249,14 +275,7 @@ export default function HostCard({
             : "Waiting for your phone to unlock…"
           : note ||
             blocked ||
-            [
-              view.grant,
-              unlocks
-                ? "Run once and Allow for this chat ask for your fingerprint, face or screen lock."
-                : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
+            [view.grant, unlockNote].filter(Boolean).join(" ")}
       </Text>
       {error ? (
         <Text accessibilityRole="alert" style={styles.error}>
@@ -275,6 +294,8 @@ const closedIcons: Record<HostCardState, LucideIcon> = {
   denied: X,
   expired: TimerOff,
   stopped: Ban,
+  approved: Hourglass,
+  notrun: Ban,
 };
 
 /** A host card whose wait ended, or a host call that ran on its own and left something to undo. */
@@ -329,6 +350,23 @@ export function ClosedHostCard({
                 {view.subject}
               </Text>
             </View>
+            {view.detail ? (
+              <>
+                <Text style={styles.meta}>{view.detailLabel}</Text>
+                <View style={styles.codeBox}>
+                  <Text
+                    testID="host-detail"
+                    selectable
+                    style={[
+                      styles.code,
+                      !view.ran && { color: colors.mutedForeground },
+                    ]}
+                  >
+                    {view.detail}
+                  </Text>
+                </View>
+              </>
+            ) : null}
           </>
         ) : null}
         {view.deviceNote ? (

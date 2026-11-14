@@ -38,13 +38,17 @@ import {
  * holds the shell bridge), "web" any other browser, "phone" the app. */
 export type Surface = "desktop" | "web" | "phone";
 
-/** The label above the monospace block, by what the card is about. */
-export function subjectLabel(kind: HostCardKind): string {
+/** The label above the monospace block, by what the card is about. A file
+ * card that carries a pattern is a search: its block is what is searched for. */
+export function subjectLabel(
+  kind: HostCardKind,
+  card?: HostCard | null,
+): string {
   switch (kind) {
     case "terminal":
       return "Command";
     case "file":
-      return "File";
+      return card?.command?.trim() ? "Search for" : "File";
     case "code":
       return "Code";
     case "browser":
@@ -56,32 +60,76 @@ export function subjectLabel(kind: HostCardKind): string {
   }
 }
 
-/** The card's one block of text: its command, path, URL or server, whole. */
+/** The card's one block of text, by what the card is about: a command for a
+ * terminal, code or MCP call, the file (or, for a search, the pattern) for a
+ * file card, the address for the browser. Whole, never cut. */
 export function subjectText(card: HostCard | null | undefined): string {
   if (!card) return "";
-  const text = (
-    card.command ||
-    card.path ||
-    card.url ||
-    card.server ||
-    ""
-  ).trim();
-  return text;
+  const pick = (...fields: (string | undefined)[]): string =>
+    (fields.find((f) => f && f.trim()) ?? "").trim();
+  switch (card.kind) {
+    case "file":
+      return pick(card.command, card.path);
+    case "browser":
+      return pick(card.url, card.command);
+    case "terminal":
+    case "code":
+    case "mcp":
+    case "mcp_server":
+      return pick(card.command, card.server);
+    default:
+      return pick(card.command, card.path, card.url, card.server);
+  }
 }
 
-/** "Always asks: Deleting or overwriting" for a critical-list item, else "". */
+/** A second block under the first, when the card carries more than one thing:
+ * the script a browser call runs on the address it names. */
+export function detailBlock(card: HostCard | null | undefined): {
+  label: string;
+  text: string;
+} {
+  if (card?.kind === "browser" && card.url?.trim() && card.command?.trim())
+    return { label: "Script", text: card.command.trim() };
+  return { label: "", text: "" };
+}
+
+/** The "In" line: the folder a search looks in, else the folder the command
+ * starts in. */
+export function whereLine(card: HostCard | null | undefined): string {
+  if (!card) return "";
+  if (card.kind === "file" && card.command?.trim() && card.path?.trim())
+    return card.path.trim();
+  return card.cwd?.trim() ?? "";
+}
+
+/** "Auto always asks before this: deleting or overwriting" for a critical-list
+ * item, else "". Auto is what the list belongs to: Full Access lifts it, and
+ * no grant covers it. */
 export function criticalLine(item: number | undefined): string {
   const row = AUTO_ASKS_BEFORE.find((r) => r.item === item);
-  return row ? `Always asks, in every mode: ${row.title.toLowerCase()}` : "";
+  return row
+    ? `Auto always asks before this: ${row.title.toLowerCase()}`
+    : "";
+}
+
+/** Go's reason in the person's words. The critical list's reasons are verb
+ * phrases ("deletes folders"); the rest are whole sentences already. */
+export function reasonLine(reason: string | undefined): string {
+  const text = (reason ?? "").trim();
+  if (!text) return "";
+  if (!/^[a-z]/.test(text)) return text;
+  const person = text
+    .replace(/\bthe person has not\b/g, "you have not")
+    .replace(/\bthe person\b/g, "you");
+  return `Asks because it ${person}.`;
 }
 
 /** What "Allow for this chat" would cover, named, or "". */
 export function grantLine(request: HostRequest | null | undefined): string {
   if (!request?.card?.grantable) return "";
   const label = request.grant?.label?.trim();
-  return label
-    ? `Covers later calls like ${label} in this chat only.`
-    : "Covers later calls of the same kind in this chat only.";
+  if (!label) return "Allow for this chat covers later calls of the same kind here.";
+  return `Allow for this chat covers: ${label.charAt(0).toLowerCase()}${label.slice(1)}.`;
 }
 
 export type HostCardView = {
@@ -94,6 +142,10 @@ export type HostCardView = {
   kind: HostCardKind;
   subjectLabel: string;
   subject: string;
+  /** A second block (the browser's script), "" when none. */
+  detailLabel: string;
+  detail: string;
+  /** The "In" line: the folder searched, else the folder the command starts in. */
   cwd: string;
   /** Environment variable names a command MCP server is started with. */
   envNames: string[];
@@ -127,11 +179,13 @@ export function hostCardView(
           ? "The assistant stopped to wait. Run once starts it again to run exactly this."
           : "The assistant is waiting for you. Nothing runs until you choose.",
     kind,
-    subjectLabel: subjectLabel(kind),
+    subjectLabel: subjectLabel(kind, card),
     subject: subjectText(card),
-    cwd: card?.cwd?.trim() ?? "",
+    detailLabel: detailBlock(card).label,
+    detail: detailBlock(card).text,
+    cwd: whereLine(card),
     envNames: card?.envNames ?? [],
-    reason: card?.reason?.trim() ?? "",
+    reason: reasonLine(card?.reason),
     critical: criticalLine(card?.criticalItem),
     timeLeft: hostTimeLeft(request, now),
     timeUp: left !== null && left <= 0,
@@ -174,6 +228,21 @@ export function choiceAccess(
       ),
     };
   });
+}
+
+/** What the phone says under the buttons about unlocking: only the choices
+ * that are offered and need it ("Run once asks for your fingerprint, face or
+ * screen lock."), or "" when none do. */
+export function unlockLine(access: ChoiceAccess[]): string {
+  const names = access
+    .filter((a) => a.enabled && a.needsUnlock)
+    .map((a) => a.label);
+  if (names.length === 0) return "";
+  const who =
+    names.length === 1
+      ? `${names[0]} asks`
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} ask`;
+  return `${who} for your fingerprint, face or screen lock.`;
 }
 
 /** The device sent with an answer. The server marks the desktop window itself. */
@@ -228,8 +297,10 @@ export type ClosedHostView = {
   kind: HostCardKind;
   subjectLabel: string;
   subject: string;
+  detailLabel: string;
+  detail: string;
   cwd: string;
-  /** "On your phone", "In the desktop app", "In a browser", or "". */
+  /** "Approved on your phone", "Denied in the desktop app", ..., or "". */
   deviceNote: string;
   /** The activity line: "Ran `ls`", "Changed notes.md". */
   line: string;
@@ -243,14 +314,26 @@ export type ClosedHostView = {
   ran: boolean;
 };
 
-function deviceNote(device: HostDevice | undefined): string {
+/** Where the person answered, said as what they did: "Approved on your phone",
+ * "Denied in the desktop app". Nothing for a card nobody answered. */
+function deviceNote(
+  device: HostDevice | undefined,
+  outcome: ClosedHost["outcome"],
+): string {
+  const verb =
+    outcome === "denied"
+      ? "Denied"
+      : outcome === "expired" || outcome === "stopped"
+        ? ""
+        : "Approved";
+  if (!verb) return "";
   switch (device?.kind) {
     case "phone":
-      return "On your phone";
+      return `${verb} on your phone`;
     case "desktop":
-      return "In the desktop app";
+      return `${verb} in the desktop app`;
     case "web":
-      return "In a browser";
+      return `${verb} in a browser`;
     default:
       return "";
   }
@@ -287,6 +370,9 @@ export function hostLine(
         .replace(/\s+/g, " ")
         .trim();
     if (host.outcome === "expired") return `Expired, not run: ${what}`;
+    if (host.outcome === "approved")
+      return `Approved, waiting to run: ${what}`;
+    if (host.outcome === "notrun") return `Approved, did not run: ${what}`;
     return `Stopped before you answered: ${what}`;
   }
   switch (kind) {
@@ -316,15 +402,21 @@ export function closedHostView(host: ClosedHost): ClosedHostView {
   const undone = !!host.undoneAt;
   return {
     state,
-    stateWord: HOST_CARD_STATE_WORDS[state],
+    // An MCP server that was added did not "run": it is in Settings now.
+    stateWord:
+      kind === "mcp_server" && ran
+        ? "Added"
+        : HOST_CARD_STATE_WORDS[state],
     title: (
       card?.title?.trim() || hostCardTitle({ kind, server: card?.server })
     ).replace(/\?$/, ""),
     kind,
-    subjectLabel: subjectLabel(kind),
+    subjectLabel: subjectLabel(kind, card),
     subject: subjectText(card),
-    cwd: card?.cwd?.trim() ?? "",
-    deviceNote: host.auto ? "" : deviceNote(host.device),
+    detailLabel: detailBlock(card).label,
+    detail: detailBlock(card).text,
+    cwd: whereLine(card),
+    deviceNote: host.auto ? "" : deviceNote(host.device, host.outcome),
     line: hostLine(host),
     auto: !!host.auto,
     canUndo: hostCanUndo(host),
@@ -337,7 +429,11 @@ export function closedHostView(host: ClosedHost): ClosedHostView {
           ? "Nobody answered in time, so nothing ran."
           : host.outcome === "stopped"
             ? "You stopped the reply first, so nothing ran."
-            : "",
+            : host.outcome === "approved"
+              ? "Approved. It runs as soon as the assistant gets to it."
+              : host.outcome === "notrun"
+                ? "The reply was stopped or ended before this ran, so it did not."
+                : "",
   };
 }
 
@@ -468,7 +564,7 @@ export const HOST_ALLOWED_ON_OPTIONS: {
   value: FullAccessAllowedOn;
   label: string;
 }[] = [
-  { value: "desktop", label: "This desktop" },
+  { value: "desktop", label: "The desktop app" },
   { value: "devices", label: "Any of my devices" },
 ];
 
@@ -510,7 +606,9 @@ export function hostPushBody(
   const card = request?.card;
   switch (card?.kind) {
     case "file":
-      return "Your assistant wants to change a file.";
+      return /^(read|search)/i.test(card.title ?? "")
+        ? "Your assistant wants to read a file."
+        : "Your assistant wants to change a file.";
     case "browser":
       return "Your assistant wants to use your browser.";
     case "mcp":

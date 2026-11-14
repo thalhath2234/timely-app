@@ -157,7 +157,7 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
           testID="permissions-allowed-on"
           title="Allowed on"
           meta={allowedLocked ? LOOSEN_ON_DESKTOP : undefined}
-          trailing={HOST_ALLOWED_ON_OPTIONS.find((o) => o.value === allowedOn)?.label ?? "This desktop"}
+          trailing={HOST_ALLOWED_ON_OPTIONS.find((o) => o.value === allowedOn)?.label ?? "The desktop app"}
           accessibilityLabel={`Full Access allowed on ${allowedOn === "devices" ? "any of your devices" : "this desktop"}`}
           onPress={() => setChoosing("allowedOn")}
         />

@@ -418,6 +418,14 @@ export function HostToolsSection() {
               </li>
             ))}
           </ul>
+          {!data.shell && data.otherHostAccounts > 0 && (
+            <p className="text-xs text-muted-foreground" data-testid="host-other-accounts">
+              {data.otherHostAccounts === 1
+                ? "1 other account can use this computer."
+                : `${data.otherHostAccounts} other accounts can use this computer.`}{" "}
+              Their names and folders show in the desktop app.
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             Each account is turned on separately: sign in as it in the desktop app to turn it on or off. Every
             other account can still chat with the assistant, but gets no commands, files or browser.

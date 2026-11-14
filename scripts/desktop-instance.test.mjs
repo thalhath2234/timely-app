@@ -146,6 +146,7 @@ const hostSettings = {
     { uid: "usr_a", email: "alice@example.test", workingDir: "/home/alice/project", source: "desktop" },
     { uid: "usr_c", email: "", workingDir: "", source: "desktop" },
   ],
+  otherHostAccounts: 2,
   thisAccountHostAllowed: true,
   thisAccountWorkingDir: "/home/alice/project",
   maxWorkers: 3,

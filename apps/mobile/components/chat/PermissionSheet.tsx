@@ -175,6 +175,7 @@ export default function PermissionSheet({
   onPickDefault,
   saving,
   allowedOn,
+  unsent,
   grants,
   onRemoveGrant,
 }: {
@@ -189,6 +190,8 @@ export default function PermissionSheet({
   saving?: boolean;
   /** Where the account allows Full Access; the phone offers it only for "devices". */
   allowedOn?: FullAccessAllowedOn;
+  /** The chat has not started: Full Access is turned on after its first message. */
+  unsent?: boolean;
   /** What "Allow for this chat" allowed here (absent for a chat that has not started). */
   grants?: HostGrant[];
   onRemoveGrant?: (key: string) => void;
@@ -213,7 +216,7 @@ export default function PermissionSheet({
           accessibilityRole="radiogroup"
           accessibilityLabel="Permission"
         >
-          {permissionOptions(value, allowedOn).map((option, index) => (
+          {permissionOptions(value, allowedOn, unsent).map((option, index) => (
             <View key={option.mode}>
               {index > 0 ? <View style={styles.divider} /> : null}
               <PermissionModeRow

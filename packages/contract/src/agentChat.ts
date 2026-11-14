@@ -119,8 +119,8 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
   full: {
     name: "Full Access",
     description:
-      "Runs commands, files, code, your browser and MCP tools on this computer without a card. Changes to your Timely data still ask like Auto, and commands that wipe a disk or the system are always refused. Everything is logged.",
-    short: "Runs host actions without a card. Timely data still asks like Auto",
+      "Runs commands, files, code and MCP tools on this computer without a card. Your signed-in browser still asks for each step, and changes to your Timely data still ask like Auto. Commands that wipe a disk or the system are always refused. Everything is logged.",
+    short: "Runs commands without a card. Browser steps and Timely data still ask",
     icon: "bolt",
     tone: "amber",
   },
@@ -136,7 +136,7 @@ export const FULL_ACCESS_PHONE_NOTE = "Turn on from the desktop app";
 /** The one-time confirmation before turning Full Access on: what it lifts and
  * what stays. */
 export const FULL_ACCESS_CONFIRM =
-  "Full Access lifts every card for commands, files, code, your browser and MCP tools: the assistant runs them as you on this computer. Still in place: commands that wipe a disk or the system are refused, your keys stay out of its reach, other accounts stay apart, and what it learns from outside pages waits for you. Turn it on for this chat?";
+  "Full Access lifts every card for commands, files, code and MCP tools: the assistant runs them as you on this computer. Your signed-in browser still asks for each step. Still in place: commands that wipe a disk or the system are refused, your keys stay out of its reach, other accounts stay apart, and what it learns from outside pages waits for you. Turn it on for this chat?";
 
 /** Settings → Permissions footer: floors no mode lifts. */
 export const ALWAYS_BLOCKED_NOTE = "Still blocked in every mode: commands that wipe a disk or the system, and handing out your keys.";
@@ -444,8 +444,19 @@ export type HostChoice = "once" | "chat" | "deny";
 /** POST /chats/:id/host-approval. */
 export type HostAnswerInput = { revision?: number; requestId: string; choice: HostChoice; device?: HostDevice };
 
-/** How a host card closed (a "host" message's `host.outcome`). */
-export type HostOutcome = "ran" | "allowed" | "denied" | "expired" | "stopped";
+/** How a host card closed (a "host" message's `host.outcome`). `approved` is
+ * the interim state of an answered card whose call has not run yet: only the
+ * worker's report that the call ran makes it `ran` (or `allowed` after Allow
+ * for this chat), and a Stop or a turn that ends without the call makes it
+ * `notrun`. */
+export type HostOutcome =
+  | "ran"
+  | "allowed"
+  | "denied"
+  | "expired"
+  | "stopped"
+  | "approved"
+  | "notrun";
 
 /** A "host" message: a closed host card, or (auto) a call that ran without
  * one and left a checkpoint. */
@@ -456,6 +467,9 @@ export type ClosedHost = {
   card?: HostCard;
   outcome: HostOutcome;
   device?: HostDevice;
+  /** What the person answered (`once`, `chat`) on a card that asked. */
+  choice?: "once" | "chat";
+  argsHash?: string;
   auto?: boolean;
   checkpoint?: string;
   checkpointDir?: string;
@@ -476,6 +490,8 @@ export const HOST_CARD_STATE_WORDS: Record<HostCardState, string> = {
   denied: "Denied",
   expired: "Expired, not run",
   stopped: "Stopped before you answered",
+  approved: "Approved, waiting to run",
+  notrun: "Approved, did not run",
 };
 
 /** The chat's status word while a host card waits (header, list, sidebar, Activity). */
@@ -543,7 +559,7 @@ export function cardStatusWord(
 /** The state an open card or a closed one shows. */
 export function hostCardState(card: HostRequest | ClosedHost | null | undefined): HostCardState {
   if (card && "outcome" in card && card.outcome) {
-    return (["ran", "allowed", "denied", "expired", "stopped"] as const).includes(card.outcome) ? card.outcome : "stopped";
+    return (["ran", "allowed", "denied", "expired", "stopped", "approved", "notrun"] as const).includes(card.outcome) ? card.outcome : "stopped";
   }
   return (card as HostRequest | null | undefined)?.phase === "parked" ? "parked" : "live";
 }

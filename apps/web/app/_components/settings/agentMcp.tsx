@@ -385,11 +385,11 @@ function CatalogEntry({
         {row.added ? (
           <Tag>Added</Tag>
         ) : needsValues ? (
-          <Button size="sm" variant="outline" aria-expanded={open} onClick={onOpen}>
+          <Button size="sm" variant="outline" aria-label={`Set up ${row.name}`} aria-expanded={open} onClick={onOpen}>
             Set up
           </Button>
         ) : (
-          <Button size="sm" variant="outline" loading={add.isPending} onClick={() => void submit()}>
+          <Button size="sm" variant="outline" aria-label={`Add ${row.name}`} loading={add.isPending} onClick={() => void submit()}>
             Add
           </Button>
         )}

@@ -76,11 +76,16 @@ function Subject({
   label,
   text,
   cwd,
+  detailLabel,
+  detail,
 }: {
   id: string;
   label: string;
   text: string;
   cwd?: string;
+  /** A second block (the browser's script) under the first. */
+  detailLabel?: string;
+  detail?: string;
 }) {
   return (
     <div className="min-w-0">
@@ -96,6 +101,21 @@ function Subject({
       >
         {text}
       </pre>
+      {detail && (
+        <>
+          <span id={`${id}-detail-label`} className={cn(eyebrow, "mt-2")}>
+            {detailLabel}
+          </span>
+          <pre
+            data-testid="host-detail"
+            aria-labelledby={`${id}-detail-label`}
+            tabIndex={0}
+            className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-3 py-2 font-mono text-xs leading-[18px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            {detail}
+          </pre>
+        </>
+      )}
       {cwd && (
         <p className="mt-1.5 flex min-w-0 gap-1.5 text-xs leading-4 text-muted-foreground">
           <span className="shrink-0">In</span>
@@ -159,7 +179,7 @@ export default function HostCard({
         view.state === "live" ? "border-warning/50" : "border-border",
       )}
     >
-      <div className="flex items-start gap-2.5 px-3.5 py-3">
+      <div className="flex flex-wrap items-start gap-x-2.5 gap-y-2 px-3.5 py-3">
         <span
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-[10px]",
@@ -170,7 +190,7 @@ export default function HostCard({
         >
           <Icon aria-hidden className="size-4" />
         </span>
-        <span className="min-w-0 flex-1">
+        <span className="min-w-0 flex-1 basis-44">
           <span
             id={titleId}
             className="block text-[13px] font-semibold leading-[18px]"
@@ -181,7 +201,9 @@ export default function HostCard({
             {view.lead}
           </span>
         </span>
-        <span className="flex shrink-0 flex-col items-end gap-1">
+        {/* Below sm the pills drop to their own row under the title, so the title and
+            lead keep the card's width instead of being squeezed beside them. */}
+        <span className="flex shrink-0 flex-row flex-wrap items-center gap-1 max-sm:basis-full max-sm:pl-[42px] sm:flex-col sm:items-end">
           <span
             data-testid="host-state"
             className={cn(
@@ -222,6 +244,8 @@ export default function HostCard({
           label={view.subjectLabel}
           text={view.subject}
           cwd={view.cwd}
+          detailLabel={view.detailLabel}
+          detail={view.detail}
         />
         {view.envNames.length > 0 && (
           <p className="text-xs leading-4 text-muted-foreground">
@@ -307,6 +331,8 @@ const closedIcon: Record<HostCardState, LucideIcon> = {
   denied: X,
   expired: TimerOff,
   stopped: Ban,
+  approved: Hourglass,
+  notrun: Ban,
 };
 
 /**
@@ -382,6 +408,22 @@ export function ClosedHostCard({
             >
               {view.subject}
             </pre>
+            {view.detail && (
+              <>
+                <span className="mt-1.5 block text-xs leading-4 text-muted-foreground">
+                  {view.detailLabel}
+                </span>
+                <pre
+                  data-testid="host-detail"
+                  className={cn(
+                    "mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 font-mono text-xs leading-[18px]",
+                    good ? "text-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {view.detail}
+                </pre>
+              </>
+            )}
           </>
         )}
         {view.deviceNote && (
