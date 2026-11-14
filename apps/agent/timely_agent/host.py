@@ -421,6 +421,20 @@ def _newest_checkpoint(mgr: Any, folder: str) -> tuple[str, float]:
     return "", 0.0
 
 
+_WRITE_TOOLS = ("write_file", "patch")
+
+
+def _folder_matches(mgr: Any, folder: str, checkpoint: str) -> bool:
+    """True when the folder's files are exactly the checkpoint's tree (Hermes' own diff is empty)."""
+    try:
+        diff = mgr.diff(folder, checkpoint)
+        return bool(diff.get("success")) and not str(diff.get("diff") or "").strip() \
+            and not str(diff.get("stat") or "").strip()
+    except Exception as exc:
+        logger.debug("comparing %s with checkpoint %s: %s", folder, checkpoint, exc)
+        return False
+
+
 def snapshot_before(run: bridge.RunContext, tool: str, args: dict, call_id: str) -> None:
     """The gate let a host call through (allowed, carded, or pre-approved): remember the newest
     checkpoint of the folder it works in, and let Hermes take a fresh one for this call.
@@ -439,7 +453,13 @@ def snapshot_before(run: bridge.RunContext, tool: str, args: dict, call_id: str)
         if not folder:
             return
         mgr.new_turn()  # a destructive terminal call after a write takes its own snapshot too
-        run.checkpoints_before[call_id] = _newest_checkpoint(mgr, folder)[0]
+        newest = _newest_checkpoint(mgr, folder)[0]
+        run.checkpoints_before[call_id] = newest
+        if newest and tool in _WRITE_TOOLS and _folder_matches(mgr, folder, newest):
+            # Hermes takes no snapshot when the folder equals its newest checkpoint (an earlier command
+            # or write already took one of these very contents): that checkpoint is this write's restore
+            # point, so Undo must not vanish because the snapshot was already there.
+            run.checkpoints_reusable[call_id] = newest
     except Exception as exc:
         logger.debug("remembering the checkpoint before %s: %s", tool, exc)
 
@@ -452,6 +472,7 @@ def checkpoint_for(run: bridge.RunContext, tool: str, args: dict, call_id: str =
     if mgr is None or not getattr(mgr, "enabled", False) or tool not in policy.CHECKPOINT_TOOLS:
         return "", ""
     before = run.checkpoints_before.pop(call_id, None) if call_id else None
+    reusable = run.checkpoints_reusable.pop(call_id, "") if call_id else ""
     if before is None:
         return "", ""  # no baseline: nothing says this call took the snapshot
     folder = _checkpoint_dir(agent, tool, args)
@@ -461,6 +482,8 @@ def checkpoint_for(run: bridge.RunContext, tool: str, args: dict, call_id: str =
         newest, stamp = _newest_checkpoint(mgr, folder)
         if newest and newest != before and stamp >= run.started_at - 2:
             return newest, folder
+        if newest and newest == before and newest == reusable:
+            return newest, folder  # no new snapshot: the folder already equalled this one
     except Exception as exc:
         logger.debug("listing checkpoints for %s: %s", folder, exc)
     return "", ""

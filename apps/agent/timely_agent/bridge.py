@@ -280,6 +280,10 @@ class RunContext:
     # The newest checkpoint of a call's folder when the gate let the call through, by call id: only
     # a newer one belongs to the call (``host.snapshot_before``).
     checkpoints_before: dict[str, str] = field(default_factory=dict, repr=False)
+    # call id -> the folder's newest checkpoint when its files equal that checkpoint's tree just before
+    # an approved write: Hermes then takes no new snapshot (nothing changed), and that checkpoint is
+    # this call's restore point
+    checkpoints_reusable: dict[str, str] = field(default_factory=dict, repr=False)
     started_at: float = field(default_factory=time.time, repr=False)
     _call_tools: dict[str, str] = field(default_factory=dict, repr=False)
     _inner_seq: int = field(default=0, repr=False)

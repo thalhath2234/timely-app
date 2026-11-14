@@ -685,3 +685,54 @@ def test_mcp_secrets_leave_config_yaml_when_the_worker_exits(tmp_path):
     assert after["mcp_servers"]["mail"] == {"command": "x", "args": ["--serve"]}
     assert after["mcp_servers"]["cal"] == {"url": "https://cal.example/mcp"} and after["other"] == 1
     config_render.scrub_mcp_secrets(tmp_path / "nowhere")  # no file: nothing to do
+
+
+class _TreeManager(_SnapshotManager):
+    """Hermes' CheckpointManager with its tree dedupe: no new snapshot when the folder's files equal
+    the newest checkpoint's (``_take``'s ``diff-index --quiet``), and ``diff`` empty then."""
+
+    def __init__(self):
+        super().__init__()
+        self.state = "s0"
+
+    def ensure_checkpoint(self, folder, reason="auto"):
+        if self.entries and self.entries[0]["state"] == self.state:
+            return False
+        if super().ensure_checkpoint(folder, reason):
+            self.entries[0]["state"] = self.state
+            return True
+        return False
+
+    def diff(self, folder, commit):
+        entry = next(e for e in self.entries if e["hash"] == commit)
+        return {"success": True, "stat": "" if entry["state"] == self.state else " a | 1 +", "diff": "" if entry["state"] == self.state else "x"}
+
+
+def test_a_write_whose_folder_already_has_a_checkpoint_still_gets_undo(monkeypatch):
+    """Review round 5: Hermes takes no snapshot when the folder equals its newest checkpoint, so a
+    write after a command in an unchanged folder carried no checkpoint and no Undo, although a
+    restore point for exactly that state existed. It is attached; a command that took none still is
+    not given one, and a folder that changed since the checkpoint gets a fresh snapshot as before."""
+    from timely_agent import host
+    mgr = _TreeManager()
+    run, events = _bridge_run()
+    run.agent._checkpoint_mgr = mgr
+    monkeypatch.setattr(host, "_checkpoint_dir", lambda *a: "/w")
+
+    def call(tool, args, call_id, after=None):
+        host.snapshot_before(run, tool, args, call_id)
+        mgr.new_turn()  # what Hermes' per-turn memory does before the call
+        mgr.ensure_checkpoint("/w", f"before {tool}")
+        if after:
+            mgr.state = after  # the call changed the folder
+        host.report_ran(run, tool, args, call_id, "ok")
+
+    call("terminal", {"command": "echo hi > a"}, "c1", after="s1")   # takes h1 of s0, then changes the folder
+    mgr.entries[0]["state"] = "s0"
+    call("write_file", {"path": "a.txt"}, "c2", after="s2")          # folder s1 differs from h1: fresh snapshot h2
+    mgr.state = "s2"
+    mgr.entries[0]["state"] = "s2"
+    call("terminal", {"command": "ls -la"}, "c3")                    # no snapshot, none reported
+    call("write_file", {"path": "b.txt"}, "c4", after="s3")          # folder equals h2: reuse h2 as the restore point
+    got = {p["tool_call_id"]: p.get("checkpoint") for k, p in events if k == "host.ran"}
+    assert got["c2"] == "h2" and got["c3"] is None and got["c4"] == "h2", got
