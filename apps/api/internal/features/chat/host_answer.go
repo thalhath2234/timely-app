@@ -38,6 +38,9 @@ var (
 	errHostOff      = echo.NewHTTPError(403, "This account can't use this computer any more")
 	errMCPOff       = echo.NewHTTPError(403, "This MCP server is turned off")
 	errHostExpired  = echo.NewHTTPError(409, "This card expired")
+	// errHostElsewhere is an answer that reached an API process that does not
+	// follow the live card's run while another one does.
+	errHostElsewhere = echo.NewHTTPError(409, "The assistant is waiting on this card in another window. Try again in a moment.")
 )
 
 // hostEngine is an engine that runs host cards (WorkerEngine).
@@ -47,6 +50,9 @@ type hostEngine interface {
 	HostUndo(ctx context.Context, uid, cid, checkpoint, dir string) ([]string, error)
 	// HostAllowed says whether the account may use this computer now.
 	HostAllowed(ctx context.Context, uid string) bool
+	// LiveOrphaned says whether nothing follows a live card's run (no
+	// heartbeat for a while); false while some process still does.
+	LiveOrphaned(h HostRequest, now time.Time) bool
 }
 
 // needsHostAccess is whether a card's call runs on this computer (a command
@@ -193,6 +199,12 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 		}
 		asked = h
 		live = h.Phase == hostLive && row.AgentRunID != "" && row.AgentRunID == h.Run && he != nil && he.Follows(uid, cid, h.Run)
+		if h.Phase == hostLive && !live && he != nil && !he.LiveOrphaned(h, time.Now().UTC()) {
+			// Another API process on these tables follows the run and still
+			// waits for this card: its worker takes the answer, not a
+			// continuation here (which that worker would refuse as busy).
+			return errHostElsewhere
+		}
 		// Run once and Allow for this chat close the card as approved, not as
 		// ran: the call has not run yet, and may never (Stop, a refused
 		// continuation). The worker's host.ran settles it.
@@ -262,10 +274,20 @@ func (s *Service) answerHost(ctx context.Context, uid, cid, requestID, choice st
 	if live {
 		// The answer is committed, so it is sent whatever happens to the
 		// person's request.
-		if err := he.HostAnswer(context.WithoutCancel(ctx), uid, cid, asked.Run, requestID, choice, lease); err != nil {
+		err := he.HostAnswer(context.WithoutCancel(ctx), uid, cid, asked.Run, requestID, choice, lease)
+		switch {
+		case err == nil:
+		case errors.Is(err, errNotFollowing) && he.Follows(uid, cid, asked.Run):
+			// The worker refused because its live wait just ended: it is
+			// parking the card, and its run.done (approval_parked) reaches
+			// the follower here, which turns this answer into the
+			// continuation with the clean-up only it can do (the earlier
+			// card's lost approval, the batch's queued cards, the reply).
+			// Applying the answer here would leave all of that undone.
+		default:
 			if !errors.Is(err, errHostAnswerUnknown) {
-				// The worker no longer waits (its live wait ended, or it is
-				// gone): the answer is applied as a parked one.
+				// The worker no longer waits (it is gone, or no process here
+				// follows the run): the answer is applied as a parked one.
 				s.hostAnswerNotTaken(uid, cid, asked, choice, lease)
 			}
 			// With no ack in time the worker may still take the answer and

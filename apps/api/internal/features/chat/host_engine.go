@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"log"
 	"maps"
 	"os"
 	"slices"
@@ -861,11 +862,31 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 			if err := e.s.expireHost(ctx, row.UserID, row.ID, h.RequestID); err != nil && !errors.Is(err, errUnchanged) {
 				e.opts.Logf("agent engine: expiring a host card: %v", err)
 			}
-		case h.Phase == hostLive && !e.Follows(row.UserID, row.ID, row.AgentRunID) && h.AskedAt != nil && now.Sub(*h.AskedAt) > e.opts.OrphanAfter:
+		case h.Phase == hostLive && !e.Follows(row.UserID, row.ID, row.AgentRunID) && e.LiveOrphaned(h, now):
 			if err := e.s.parkOrphan(ctx, row.UserID, row.ID, row.AgentRunID, e.parkFor(ctx, row.UserID), "no process follows the run", e.opts.Logf, settleApprovedNotRun); err != nil && !errors.Is(err, errUnchanged) {
 				e.opts.Logf("agent engine: parking an orphaned host card: %v", err)
 			}
 		}
+	}
+}
+
+// LiveOrphaned says whether nothing follows a live card's run any more: its
+// follower's heartbeat (HostRequest.FollowedAt, written every RenewEvery while
+// the card waits) is older than OrphanAfter plus two beats. A follower in
+// another API process that shares these tables keeps it fresh, so this
+// process leaves that card alone and does not take its answer as a parked one.
+func (e *WorkerEngine) LiveOrphaned(h HostRequest, now time.Time) bool {
+	last := h.lastFollowed()
+	return !last.IsZero() && now.Sub(last) > e.opts.OrphanAfter+2*e.opts.RenewEvery
+}
+
+// hostHeartbeat is the follower's sign of life while its card waits.
+func (s *Service) hostHeartbeat(uid, cid, run, requestID string) {
+	err := s.db.Exec(`UPDATE agent_conversations SET host_request = jsonb_set(host_request, '{followedAt}', to_jsonb(?::text))
+		WHERE id = ? AND user_id = ? AND status = ? AND agent_run_id = ? AND host_request->>'requestId' = ? AND host_request->>'phase' = ?`,
+		time.Now().UTC().Format(time.RFC3339Nano), cid, uid, statusHostApproval, run, requestID, hostLive).Error
+	if err != nil {
+		log.Printf("chat host card: heartbeat: %v", err)
 	}
 }
 

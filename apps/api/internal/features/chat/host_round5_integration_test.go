@@ -1,9 +1,13 @@
 package chat
 
 import (
+	"context"
+	"errors"
 	"github.com/labstack/echo/v5"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Phase 5, review round 5: the account's Full Access default (set from the
@@ -29,5 +33,112 @@ func TestIntegrationNewChatFullAccessDefaultNeedsTheStepUp(t *testing.T) {
 	}
 	if code, _ := serve(t, s, "POST", "/chats", `{"content":"x","client":"web","permission":"full"}`); code != 403 {
 		t.Fatalf("naming Full Access from a browser: %d", code)
+	}
+}
+
+// refusingHostEngine is the engine as the real worker makes it behave when a
+// live Run once lands after its wait ended: the answer is recorded here, and
+// the worker refuses it at once (park() has already settled the request),
+// while its run.done (approval_parked) is still on its way.
+type refusingHostEngine struct {
+	*WorkerEngine
+	refuse atomic.Bool
+}
+
+func (w *refusingHostEngine) HostAnswer(ctx context.Context, uid, cid, runID, requestID, choice, lease string) error {
+	if !w.refuse.Load() {
+		return w.WorkerEngine.HostAnswer(ctx, uid, cid, runID, requestID, choice, lease)
+	}
+	e := w.WorkerEngine
+	e.mu.Lock()
+	r := e.runs[runID]
+	e.mu.Unlock()
+	r.mu.Lock()
+	if r.answered == nil {
+		r.answered = map[string]string{}
+	}
+	r.answered[requestID] = choice
+	if r.hostWait == requestID {
+		r.hostWait = ""
+	}
+	if lease != "" {
+		r.lease = lease
+	}
+	r.mu.Unlock()
+	return errNotFollowing
+}
+
+// Card A was approved parked, and its continuation reached card B first. B's
+// Run once is refused by the worker (its wait just ended): the follower's
+// run.done handling, not the answer, turns it into the continuation, and with
+// it card A, whose call never ran and which no run carries now, reads Not run.
+func TestIntegrationAgentEngineHostRefusedLiveAnswerKeepsTheCleanUp(t *testing.T) {
+	h := hostHarness(t, func(o *WorkerEngineOptions) { o.LiveWait = time.Second })
+	w := &refusingHostEngine{WorkerEngine: h.e}
+	h.s.SetAgentEngine(w)
+	c := h.chat("List my files", "supervised", "r5-first", lines(ls("call_ls"), reply("x", 0)))
+	c = h.hostWaiting(c.ID, hostParked)
+	h.kit.Fixture("r5-second", lines(host("call_pwd", "terminal", obj{"command": "pwd"}, obj{"live_ms": 1500}), ls("call_ls"), reply("x", 0))).ForConversation(c.ID, "r5-second")
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer A: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "card B live", func(c Conversation) bool {
+		return c.Status == statusHostApproval && c.HostRequest.Phase == hostLive && c.HostRequest.ToolCallID == "call_pwd"
+	})
+	h.kit.Fixture("r5-third", lines(host("call_pwd", "terminal", obj{"command": "pwd"}), reply("done", 0))).ForConversation(c.ID, "r5-third")
+	w.refuse.Store(true)
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer B: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "idle after B's continuation", func(c Conversation) bool { return c.Status == "idle" && lastMessage(c).Content == "done" })
+	byCall := map[string]string{}
+	for _, cl := range closedHost(c) {
+		byCall[cl.ToolCallID] = cl.Outcome
+	}
+	if byCall["call_ls"] != hostNotRun || byCall["call_pwd"] != hostRan {
+		t.Fatalf("closed cards %v: card A's call never ran and nothing carries it, B ran", byCall)
+	}
+}
+
+// Two API processes share the tables (the main checkout and a worktree
+// without DB_SCHEMA). The one that follows a live card's run keeps saying so
+// on the card; the other neither parks it by its sweep nor takes an answer to
+// it as a parked one (which the first one's worker would refuse as busy).
+func TestIntegrationAgentEngineHostLiveCardFollowedByAnotherProcessIsLeftAlone(t *testing.T) {
+	h := hostHarness(t, func(o *WorkerEngineOptions) { o.RenewEvery = 50 * time.Millisecond })
+	c := h.chat("List my files", "supervised", "r5-two", lines(ls("call_ls"), reply("ran", 0)))
+	c = h.hostWaiting(c.ID, hostLive)
+	s2 := New(h.db, engineCatalog, nil)
+	e2 := NewWorkerEngine(s2, WorkerEngineOptions{OrphanAfter: 100 * time.Millisecond, RenewEvery: 50 * time.Millisecond, Logf: t.Logf,
+		HostAllowed: func(context.Context, string) bool { return true }})
+	s2.SetAgentEngine(e2)
+	// Longer than the second process's threshold (OrphanAfter plus two beats).
+	time.Sleep(600 * time.Millisecond)
+	e2.sweepHost(context.Background())
+	var row Conversation
+	if err := h.db.First(&row, "id = ?", c.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.HostRequest.Phase != hostLive || row.AgentRunID != c.AgentRunID || row.HostRequest.FollowedAt == nil {
+		t.Fatalf("the other process parked a card whose run is followed: phase %q run %q followedAt %v", row.HostRequest.Phase, row.AgentRunID, row.HostRequest.FollowedAt)
+	}
+	// An answer that reaches the other process is retried, not queued as a
+	// continuation.
+	if _, err := s2.answerHost(context.Background(), "user-a", c.ID, c.HostRequest.RequestID, hostOnce, nil, ""); !errors.Is(err, errHostElsewhere) {
+		t.Fatalf("an answer at the process that does not follow the run: %v", err)
+	}
+	if err := h.db.First(&row, "id = ?", c.ID).Error; err != nil || row.Status != statusHostApproval || row.Continuation.Tool != "" {
+		t.Fatalf("the refused answer changed the row: %+v %v", row.Status, err)
+	}
+	// The first process answers it live: its worker runs the call.
+	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
+		t.Fatalf("answer: %d %s", code, body)
+	}
+	c = h.wait(c.ID, "ran", func(c Conversation) bool { return c.Status == "idle" && lastMessage(c).Content == "ran" })
+	if cl := closedHost(c); len(cl) != 1 || cl[0].Outcome != hostRan {
+		t.Fatalf("closed cards %+v", cl)
+	}
+	if n := len(h.hostStarts()); n != 1 {
+		t.Fatalf("%d run.starts: a continuation was queued", n)
 	}
 }

@@ -982,7 +982,11 @@ AnswerHostParkedDeny ==
 \* HostAnswer's approval.answer once reaches the worker. A request still
 \* waiting, of a run not stopped, is approved; otherwise the worker refuses
 \* it and hostAnswerNotTaken, fenced on the answer's lease, queues the
-\* continuation (and the run is stopped). The third outcome is no ack within
+\* continuation (and the run is stopped); when a follower of that run still
+\* exists here the refusal means the worker is parking the card, so Go leaves
+\* the row and the run alone and the follower's ParkHost turns the answer
+\* into the continuation with its clean-up (review round 5). The third
+\* outcome is no ack within
 \* Go's answer timeout (errHostAnswerUnknown): the worker may still take the
 \* answer late (its message loop was busy), so Go queues no continuation, it
 \* only stops the run; the card then reads approved and not run until a late
@@ -1000,6 +1004,9 @@ DeliverHost ==
                ELSE UNCHANGED row
           /\ wstopped' = wstopped \cup {wrun}
           /\ UNCHANGED wreq
+       \/ /\ ~(wreq = "waiting" /\ wrun \notin wstopped)
+          /\ \E f \in fol : f.run = wrun
+          /\ UNCHANGED <<row, wstopped, wreq>>
        \/ /\ UNCHANGED row
           /\ wreq' \in (IF wreq = "waiting" /\ wrun \notin wstopped THEN {wreq, "approved"} ELSE {wreq})
           /\ wstopped' = wstopped \cup {wrun}

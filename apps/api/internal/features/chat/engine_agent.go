@@ -1367,7 +1367,9 @@ func (e *WorkerEngine) renew(r *agentRun) {
 	r.mu.Unlock()
 	if waiting != "" {
 		// A host card waits: the row holds no lease (decision 1), and the
-		// answer gives the run a fresh one.
+		// answer gives the run a fresh one. The follower says it is alive on
+		// the card, so another process sharing the tables does not park it.
+		e.s.hostHeartbeat(r.uid, r.cid, r.id, waiting)
 		return
 	}
 	if e.s.renewLease(context.Background(), r.uid, r.cid, lease) {

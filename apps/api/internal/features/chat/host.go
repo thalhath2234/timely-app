@@ -136,11 +136,28 @@ type HostRequest struct {
 	AskedAt    *time.Time `json:"askedAt,omitempty"`
 	LiveUntil  *time.Time `json:"liveUntil,omitempty"`
 	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+	// FollowedAt is when the process that follows the run last said so while
+	// the live card waits (the follower holds no lease then, so this is its
+	// heartbeat): another API process on the same tables parks the card only
+	// when this has gone stale.
+	FollowedAt *time.Time `json:"followedAt,omitempty"`
 	// Grant is what "Allow for this chat" adds (nil: not grantable).
 	Grant *HostGrant `json:"grant,omitempty"`
 }
 
 func (h HostRequest) pending() bool { return h.RequestID != "" }
+
+// lastFollowed is the newest sign that a process follows the live card's run:
+// its heartbeat, else when the card was asked.
+func (h HostRequest) lastFollowed() time.Time {
+	var last time.Time
+	for _, t := range []*time.Time{h.AskedAt, h.FollowedAt} {
+		if t != nil && t.After(last) {
+			last = *t
+		}
+	}
+	return last
+}
 
 // HostGrant is one "Allow for this chat" (decision 8): Go answers allow to a
 // later call of the same kind in this chat. Key names it in DELETE
