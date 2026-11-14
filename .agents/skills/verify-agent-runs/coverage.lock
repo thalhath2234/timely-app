@@ -1,6 +1,6 @@
 # Fingerprints of the code AgentRunApply describes (comments and formatting ignored).
 # Regenerate only with `run.sh --resync`, after confirming the model matches the code.
-sync f46aacd08101ba054c69719a514be53cb9cdf6b0
+sync cea9d98d195465378a9135b95166a59a9de0acd9
 apps/api/internal/features/chat/runner.go (*Service).work 942d9c8cd46a5f77
 apps/api/internal/features/chat/runner.go (*Service).runClassic 92f268cf78651921
 apps/api/internal/features/chat/runner.go (*Service).keepLease 8e59b63d663a411a
@@ -37,7 +37,7 @@ apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Lost 2b982691c52
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).Stop 2f6031fcff2ad157
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).loop b3de5d69d07aa7fe
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).save ed81c41d0a99787c
-apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).renew 58d4220ff56131ce
+apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).renew 60b1796a67fd957b
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).done 788ed2c58b0af0ca
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).stopped b870317fbc0f9854
 apps/api/internal/features/chat/engine_agent.go (*WorkerEngine).fail a17c026654fa2b5d
@@ -53,11 +53,11 @@ apps/api/internal/features/chat/question.go (*Service).restoreQuestion 5f1ea23f6
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).hostSave 4c3ffb6392da089b
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).writeHostCard 9836148d18f82b93
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).HostAnswer 54914c992a95a23f
-apps/api/internal/features/chat/host_engine.go (*WorkerEngine).parkRun 98587c8923ea4d57
+apps/api/internal/features/chat/host_engine.go (*WorkerEngine).parkRun 426925003e5b2cee
 apps/api/internal/features/chat/host_engine.go (*WorkerEngine).parkLost afa0a0e9fcccbc27
 apps/api/internal/features/chat/host_engine.go (*Service).parkOrphan c19b5c30998b18f6
 apps/api/internal/features/chat/host_engine.go (*Service).expireHost 40f983966d2fd367
-apps/api/internal/features/chat/host_engine.go (*WorkerEngine).sweepHost 16ea7b702dd48c4b
+apps/api/internal/features/chat/host_engine.go (*WorkerEngine).sweepHost 862e6d665a0d977d
 apps/api/internal/features/chat/host_engine.go parkCard 56a13da82d19df61
-apps/api/internal/features/chat/host_answer.go (*Service).answerHost 84e312e6c7480511
-apps/api/internal/features/chat/host_answer.go (*Service).hostAnswerNotTaken 10eff408abb86989
+apps/api/internal/features/chat/host_answer.go (*Service).answerHost 378cf1776bf6dbac
+apps/api/internal/features/chat/host_answer.go (*Service).hostAnswerNotTaken dd359a1b5163ddc3
