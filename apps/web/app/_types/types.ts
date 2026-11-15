@@ -1,4 +1,5 @@
 import type { TaskKind } from "@timely/contract";
+import type { AgentBotFields, BotView } from "@timely/contract/bots";
 
 export type { TaskKind };
 export type {
@@ -111,7 +112,7 @@ export type SidebarProps = {
 
 export const SIDEBAR_ITEMS = [
   { name: "Dashboard", icon: "LayoutDashboard", href: "/dashboard" },
-  { name: "Chat", icon: "MessageCircle", href: "/chat" },
+  { name: "Assistant", icon: "MessageCircle", href: "/assistant" },
   {
     name: "Today",
     icon: "Sun",
@@ -143,11 +144,6 @@ export const SIDEBAR_ITEMS = [
     href: "/files",
   },
   {
-    name: "Bots",
-    icon: "Bot",
-    href: "/bots",
-  },
-  {
     name: "Notifications",
     icon: "Bell",
     href: "/notifications",
@@ -159,7 +155,13 @@ export const SIDEBAR_ITEMS = [
   },
 ];
 
-export type AddNewModeOptions = "workspace" | "task" | "project" | "event" | "doc" | "sheet";
+export type AddNewModeOptions =
+  | "workspace"
+  | "task"
+  | "project"
+  | "event"
+  | "doc"
+  | "sheet";
 
 export type CalendarView = "month" | "week" | "day" | "agenda";
 
@@ -192,3 +194,84 @@ export type TaskListGroupBy =
   | "project"
   | "priority"
   | `cf:${string}`;
+
+export type {
+  AgentBotFields,
+  AgentBotTools,
+  AgentStarter,
+  BotEngine,
+  BotGate,
+  BotPermission,
+  BotSchedule,
+  BotThreadItem,
+  McpMode,
+  StarterNeed,
+} from "@timely/contract/bots";
+
+/**
+ * A Bot as the API sends it: the board's fields plus the agent fields
+ * (engine "rules" with an empty prompt for a rules Bot).
+ */
+export type AgentBotView = BotView & AgentBotFields;
+
+/** One tool call of an agent tick. */
+export type AgentToolTrace = {
+  tool: string;
+  summary: string;
+  outcome: string;
+  host?: string;
+  ms: number;
+};
+
+/** What a dry tick (`POST /bots/try`, `POST /bots/:id/try`) would have done. */
+export type AgentTryResult = {
+  /** What it would send, or "[SILENT]". */
+  text: string;
+  silent: boolean;
+  reports: { title: string; body: string; url?: string }[];
+  trace: AgentToolTrace[];
+  usage: { inputTokens: number; outputTokens: number; calls: number };
+  /** "" or how the run ended. */
+  error: string;
+  problems: string[];
+};
+
+/** `GET /bots/:id/convert`: what switching a rules Bot to an agent would make. */
+export type BotConversion = {
+  botId: string;
+  engine: string;
+  prompt: string;
+  schedule: Record<string, unknown>;
+  intervalMinutes: number;
+  skills: string[];
+  gate: string;
+  timezone: string;
+};
+
+/** An agent tick's own record on its Check (CheckView.run). */
+export type AgentRunRecord = {
+  response: string;
+  silent: boolean;
+  reports: number;
+  trace: AgentToolTrace[];
+  usage: { inputTokens: number; outputTokens: number; calls: number };
+  errorClass?: string;
+};
+
+/** The agent fields of a Bot edit (`PATCH /bots/:id`); a field left out stays. */
+export type AgentPatch = Partial<
+  Pick<
+    AgentBotFields,
+    | "prompt"
+    | "schedule"
+    | "timezone"
+    | "skills"
+    | "permission"
+    | "gate"
+    | "marketHours"
+    | "modelProvider"
+    | "model"
+  >
+> & {
+  tools?: Partial<AgentBotFields["tools"]>;
+};

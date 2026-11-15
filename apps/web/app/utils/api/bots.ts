@@ -14,6 +14,11 @@ import type {
   SourceKeyView,
 } from "@timely/contract/bots";
 import { EMPTY_BOTS_SUMMARY } from "@timely/contract/bots";
+import type {
+  AgentPatch,
+  AgentTryResult,
+  BotConversion,
+} from "@/app/_types/types";
 import { apiFetch } from "./client";
 import { codedError } from "./codedError";
 
@@ -68,7 +73,7 @@ export const getBot = (id: string) =>
 export const createBot = (input: BotInput) =>
   request<BotView>("/bots", "Could not create the bot", "POST", input);
 
-export const updateBot = (id: string, patch: BotPatch) =>
+export const updateBot = (id: string, patch: BotPatch & AgentPatch) =>
   request<BotView>(bot(id), "Could not save the bot", "PATCH", patch);
 
 export const deleteBot = (id: string) =>
@@ -206,4 +211,21 @@ export const setBotDefaults = (settings: BotSettings) =>
     "Could not save alert defaults",
     "PUT",
     settings,
+  );
+
+/** `GET /bots/:id/convert`: what switching this rules Bot to an agent would make; nothing is stored. */
+export const convertPreview = (id: string) =>
+  request<BotConversion>(`${bot(id)}/convert`, "Could not work out the switch");
+
+/** `POST /bots/:id/convert`: approves the switch for this one Bot (there is no bulk route). */
+export const convertBot = (id: string) =>
+  request<BotView>(`${bot(id)}/convert`, "Could not switch the bot", "POST");
+
+/** Try it now: a dry tick of a saved agent Bot. Nothing is saved or sent. */
+export const tryBot = (id: string) =>
+  request<AgentTryResult>(
+    `${bot(id)}/try`,
+    "Could not try the bot",
+    "POST",
+    {},
   );
