@@ -136,7 +136,7 @@ func TestContractWords(t *testing.T) {
 		{"AwayReason", union("AwayReason"), []string{AwayClosed, AwayAsleep, AwayAllPaused}},
 		{"RuleKind", union("RuleKind"), []string{RuleAnyChange, RuleAbove, RuleBelow, RuleMovePct, RuleWordsAppear, RuleWordsDisappear, RuleNewItem, RuleInStock}},
 		{"Availability", union("Availability"), []string{extract.AvailInStock, extract.AvailOutOfStock, extract.AvailPreorder, extract.AvailBackorder, extract.AvailLimited, extract.AvailDiscontinued, extract.AvailUnknown}},
-		{"CheckOutcome", union("CheckOutcome"), []string{outBaseline, outUnchanged, outNotModified, outChanged, outFired, outOffline, outRateLimited, outSiteBusy, outRobots, outStrike, outSuperseded, outJudgedQuiet, outPassed, outHeldStock}},
+		{"CheckOutcome", union("CheckOutcome"), []string{outBaseline, outUnchanged, outNotModified, outChanged, outFired, outOffline, outRateLimited, outSiteBusy, outRobots, outStrike, outSuperseded, outJudgedQuiet, outPassed, outHeldStock, outSilent, outAlerted, outSkipped, outFailed, outBrowserBusy, outNoAI, outDuplicate}},
 	}
 	for _, c := range cases {
 		if strings.Join(c.got, ",") != strings.Join(c.want, ",") {
