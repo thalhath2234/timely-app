@@ -54,11 +54,11 @@ test("agent notification targets its chat and retains existing reminder routing"
       entityType: "chat",
       entityId: "chat-a",
     }),
-    "/(app)/assistant?chatId=chat-a",
+    "/(app)/(tabs)/assistant?chat=chat-a",
   );
   assert.equal(
     routeForNotification({ chatId: "chat/b" }),
-    "/(app)/assistant?chatId=chat%2Fb",
+    "/(app)/(tabs)/assistant?chat=chat%2Fb",
   );
   assert.equal(
     routeForNotification({ taskId: "task-a" }),
@@ -93,7 +93,7 @@ test("a smart alert about several tasks opens the first, a project or Inbox aler
     "/(app)/inbox",
   );
 });
-test("a Bot alert opens its bot on the Bots tab", () => {
+test("a Bot alert opens that Bot's thread in the Assistant tab", () => {
   // The shape the server push and the phone's own poll both send.
   assert.equal(
     routeForNotification({
@@ -104,7 +104,7 @@ test("a Bot alert opens its bot on the Bots tab", () => {
       taskId: "",
       url: "https://example.com/item",
     }),
-    "/(app)/(tabs)/bots?bot=bot_a",
+    "/(app)/(tabs)/assistant?bot=bot_a&thread=1",
   );
   // The entity names the bot when botId is missing; ids are escaped.
   assert.equal(
@@ -113,17 +113,17 @@ test("a Bot alert opens its bot on the Bots tab", () => {
       entityType: "bot",
       entityId: "bot/b",
     }),
-    "/(app)/(tabs)/bots?bot=bot%2Fb",
+    "/(app)/(tabs)/assistant?bot=bot%2Fb&thread=1",
   );
 });
-test("a Bot alert that names no bot opens the Bots board", () => {
+test("a Bot alert that names no bot opens the Assistant tab", () => {
   assert.equal(
     routeForNotification({ category: "bot", botId: "", taskId: "" }),
-    "/(app)/(tabs)/bots",
+    "/(app)/(tabs)/assistant",
   );
   assert.equal(
     routeForNotification({ category: "bot", kind: "digest" }),
-    "/(app)/(tabs)/bots",
+    "/(app)/(tabs)/assistant",
   );
 });
 
@@ -995,11 +995,11 @@ test("the 'Timely has a question' notification opens its chat, from the push and
   // The push carries the chat as entityType/entityId; the in-app list also has data.status "running".
   assert.equal(
     routeForNotification({ category: "agent", entityType: "chat", entityId: "chat_q", kind: "" }),
-    "/(app)/assistant?chatId=chat_q",
+    "/(app)/(tabs)/assistant?chat=chat_q",
   );
   assert.equal(
     routeForNotification({ status: "running", category: "agent", entityType: "chat", entityId: "chat_q" }),
-    "/(app)/assistant?chatId=chat_q",
+    "/(app)/(tabs)/assistant?chat=chat_q",
   );
 });
 
@@ -1975,7 +1975,7 @@ test("a host card's push opens its chat, from the push and from the list", () =>
       kind: "",
       hostRequest: "host-1",
     }),
-    "/(app)/assistant?chatId=chat_h",
+    "/(app)/(tabs)/assistant?chat=chat_h",
   );
   assert.equal(
     routeForNotification({
@@ -1985,11 +1985,274 @@ test("a host card's push opens its chat, from the push and from the list", () =>
       entityId: "chat_h",
       hostRequest: "host-1",
     }),
-    "/(app)/assistant?chatId=chat_h",
+    "/(app)/(tabs)/assistant?chat=chat_h",
   );
   // The in-app alert for a chat reached through chatId alone opens it too.
   assert.equal(
     routeForNotification({ chatId: "chat_h", hostRequest: "host-1" }),
-    "/(app)/assistant?chatId=chat_h",
+    "/(app)/(tabs)/assistant?chat=chat_h",
   );
+});
+
+// ── Phase 6: the Assistant tab (one inbox), the agent Bot page and the Bot thread ──
+
+import { readFileSync } from "node:fs";
+import {
+  BOT_NEEDS_WORDS,
+  alertIsHeld,
+  botNeeds,
+  botRowLine,
+  buildInbox,
+  filterInbox,
+  heldWords,
+  needsYouTotal,
+  threadNeedsLine,
+  threadNeedsYou,
+} from "../apps/mobile/components/assistant/inbox.ts";
+import { draftSetup, threadRows } from "../apps/mobile/components/assistant/threadRows.ts";
+import {
+  checkLine,
+  cleanSite,
+  gateWords,
+  nextToConvert,
+  permissionWords,
+  promptPreview,
+  scheduleWords,
+  skillsSummary,
+  starterRequest,
+  starterRows,
+  toolsSummary,
+} from "../apps/mobile/components/bots/agentBot.ts";
+import { ASSISTANT_ROUTE, assistantTabRoute, legacyAssistantRoute } from "../apps/mobile/lib/notificationRoute.ts";
+import { AGENT_STARTERS } from "../packages/contract/src/bots.ts";
+
+const p6Read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+const P6_NOW = new Date("2026-11-16T12:00:00Z");
+const p6Iso = (minutesAgo) => new Date(P6_NOW.getTime() - minutesAgo * 60_000).toISOString();
+
+const p6Bot = (id, extra = {}) => ({
+  id,
+  name: `Bot ${id}`,
+  description: "",
+  status: "active",
+  pauseReason: null,
+  health: { code: "working", line: "Working" },
+  strikes: 0,
+  latestAlert: null,
+  suggestion: null,
+  updatedAt: p6Iso(500),
+  watches: [],
+  kind: "watch",
+  ...extra,
+});
+const p6Alert = (held = "", minutesAgo = 10) => ({ id: "alr_1", held, feedback: null, createdAt: p6Iso(minutesAgo) });
+const p6Chat = (id, extra = {}) => ({ id, title: `Chat ${id}`, status: "idle", unread: false, updatedAt: p6Iso(200), ...extra });
+const p6Thread = (botId, extra = {}) => ({
+  id: `thr_${botId}`,
+  botId,
+  title: botId,
+  unread: false,
+  updatedAt: p6Iso(30),
+  parkedSteps: 0,
+  pendingChanges: 0,
+  reviewCards: 0,
+  ...extra,
+});
+
+test("the inbox puts chats and Bots in one Needs you list and one recent list", () => {
+  const inbox = buildInbox(
+    [p6Chat("a"), p6Chat("b", { status: "approval", updatedAt: p6Iso(5) })],
+    [p6Bot("quiet"), p6Bot("alerting", { latestAlert: p6Alert() })],
+    [],
+    P6_NOW,
+  );
+  assert.deepEqual(inbox.needs.map((i) => `${i.type}:${i.id}`), ["chat:b", "bot:alerting"]);
+  assert.deepEqual(inbox.recent.map((i) => `${i.type}:${i.id}`).sort(), ["bot:quiet", "chat:a"]);
+  assert.equal(inbox.needs[1].needs, "new_alert");
+  assert.equal(BOT_NEEDS_WORDS.new_alert, "New alert");
+});
+
+test("a Bot thread gets no row of its own; its Bot waits in Needs you for a parked step, a change or a Review card", () => {
+  const chats = [p6Chat("t1", { kind: "bot_thread", botId: "bot_x" }), p6Chat("c")];
+  for (const key of ["parkedSteps", "pendingChanges", "reviewCards"]) {
+    const inbox = buildInbox(chats, [p6Bot("bot_x")], [p6Thread("bot_x", { [key]: 1 })], P6_NOW);
+    assert.deepEqual(inbox.needs.map((i) => i.id), ["bot_x"], key);
+    assert.equal(inbox.needs[0].needs, "thread");
+    assert.ok(!inbox.recent.some((i) => i.id === "t1"), "no row for the thread");
+  }
+  const calm = buildInbox(chats, [p6Bot("bot_x")], [p6Thread("bot_x")], P6_NOW);
+  assert.equal(calm.needs.length, 0);
+  assert.ok(!calm.recent.some((i) => i.id === "t1"));
+  assert.equal(threadNeedsYou(p6Thread("bot_x", { reviewCards: 2 })), true);
+  assert.equal(threadNeedsLine(p6Thread("b", { parkedSteps: 1, pendingChanges: 2, reviewCards: 1 })), "1 step waiting, 2 changes to confirm, 1 to review");
+});
+
+test("an alert held as 'Already told you' is muted and never counts toward a badge", () => {
+  const dup = p6Bot("dup", { latestAlert: p6Alert("duplicate") });
+  assert.equal(botNeeds(dup, P6_NOW), null);
+  assert.equal(needsYouTotal([], [dup], [], P6_NOW), 0);
+  assert.equal(needsYouTotal([], [p6Bot("fresh", { latestAlert: p6Alert("") })], [], P6_NOW), 1);
+  assert.equal(heldWords("duplicate"), "Already told you");
+  assert.equal(alertIsHeld("duplicate"), true);
+  assert.equal(alertIsHeld(""), false);
+  assert.equal(heldWords(""), null);
+  // A duplicate beside a suggestion still shows the suggestion.
+  assert.equal(botNeeds(p6Bot("s", { latestAlert: p6Alert("duplicate"), suggestion: { id: "s" } }), P6_NOW), "suggestion");
+});
+
+test("a new Bot's draft shows as its own row, and search filters chats and Bots", () => {
+  const draft = { id: "thr_d", draft: true, title: "New Bot", unread: false, updatedAt: p6Iso(1), parkedSteps: 0, pendingChanges: 0, reviewCards: 0 };
+  const inbox = buildInbox([p6Chat("a", { title: "Plan trip" })], [p6Bot("m", { name: "Mail watcher", description: "inbox" })], [draft], P6_NOW);
+  assert.ok(inbox.recent.some((i) => i.type === "draft" && i.id === "thr_d"));
+  assert.deepEqual(filterInbox(inbox, "mail").recent.map((i) => i.id), ["m"]);
+  assert.deepEqual(filterInbox(inbox, "trip").recent.map((i) => i.id), ["a"]);
+  assert.equal(botRowLine({ type: "bot", needs: null, bot: p6Bot("x", { status: "paused" }) }), "Paused");
+});
+
+test("a Bot thread's lines run in time order with the person's messages between the cards", () => {
+  const messages = [
+    { id: "m1", role: "user", content: "Check hourly", createdAt: p6Iso(20) },
+    { id: "m2", role: "assistant", content: "Changed: every 6 hours -> every hour", createdAt: p6Iso(19) },
+    { id: "m3", role: "user", kind: "notice", content: "ignored", createdAt: p6Iso(18) },
+  ];
+  const items = [
+    { kind: "change", id: "c1", at: p6Iso(19), before: "every 6 hours", after: "every hour", undoToken: "tok" },
+    { kind: "alert", id: "a1", at: p6Iso(30), alertId: "alr_1", title: "Price dropped", body: "" },
+  ];
+  const rows = threadRows(messages, items);
+  assert.deepEqual(rows.map((r) => r.key), ["l-a1", "u-m1", "l-c1"]);
+  // A message still being sent shows last, and stops showing once the server has it.
+  assert.equal(threadRows(messages, items, "Pause it").at(-1).sending, true);
+  assert.equal(threadRows(messages, items, "Check hourly").some((r) => r.sending), false);
+});
+
+test("a new Bot's thread offers Create for its newest setup only", () => {
+  const fields = { prompt: "p" };
+  const items = [
+    { kind: "draft_setup", id: "d1", at: p6Iso(5), name: "One", fields },
+    { kind: "draft_setup", id: "d2", at: p6Iso(2), name: "Two", fields },
+  ];
+  assert.equal(draftSetup(items).name, "Two");
+  assert.equal(draftSetup([]), null);
+});
+
+test("the agent Bot rows say its schedule, reach and checks in words", () => {
+  assert.equal(scheduleWords({ everyMinutes: 30 }), "Every 30 minutes");
+  assert.equal(scheduleWords({ everyMinutes: 360 }), "Every 6 hours");
+  assert.equal(scheduleWords({ dailyAt: "09:00", weekdays: [1, 2, 3, 4, 5] }), "Weekdays at 9:00 AM");
+  assert.equal(scheduleWords({ dailyAt: "20:30", weekdays: [0, 1, 2, 3, 4, 5, 6] }), "Every day at 8:30 PM");
+  assert.equal(scheduleWords({ dailyAt: "18:00", weekdays: [0] }), "Sundays at 6:00 PM");
+  assert.match(scheduleWords({ cron: "0 */6 * * *" }), /schedule/);
+  assert.equal(permissionWords("full"), "Full Access");
+  assert.equal(gateWords("changed"), "Only when something changed");
+  assert.equal(gateWords("always"), "Every time");
+  assert.equal(promptPreview(""), "Not written yet");
+  assert.ok(promptPreview("x".repeat(200)).endsWith("…"));
+  assert.equal(
+    toolsSummary({ browserSites: ["a.com", "b.com"], egress: ["api.c.com"], useMemory: false, mcp: { gh: "ask", x: "off" } }),
+    "2 signed-in sites, 1 extra host, 1 app",
+  );
+  assert.equal(toolsSummary({ browserSites: [], egress: [], useMemory: false, mcp: {} }), "Only the sites it reads");
+  assert.equal(skillsSummary([]), "None");
+  assert.equal(cleanSite("https://www.Example.com/path?q=1"), "example.com");
+  assert.equal(cleanSite("not a site"), null);
+});
+
+test("a check outcome reads in words: Browser busy, Already told you, No AI provider", () => {
+  assert.equal(checkLine({ outcome: "browser_busy" }), "Browser busy");
+  assert.equal(checkLine({ outcome: "duplicate" }), "Already told you");
+  assert.equal(checkLine({ outcome: "no_ai" }), "No AI provider, reading only");
+  assert.equal(checkLine({ outcome: "failed", error: "site down" }), "Failed: site down");
+});
+
+test("every Hermes blueprint is a Starter; one that needs a connector says so and stays off", () => {
+  const rows = starterRows([]);
+  assert.equal(rows.length, AGENT_STARTERS.length);
+  const mail = rows.find((r) => r.starter.key === "important-mail");
+  assert.equal(mail.available, false);
+  assert.match(mail.copy, /email connector/);
+  assert.equal(starterRows(["email"]).find((r) => r.starter.key === "important-mail").available, true);
+  assert.match(starterRequest(AGENT_STARTERS[0]), /Morning briefing/);
+});
+
+test("conversion is offered one Bot at a time, never for an agent, never twice after Not now", () => {
+  const bots = [{ id: "a", engine: "agent" }, { id: "b", engine: "rules" }, { id: "c" }];
+  assert.equal(nextToConvert(bots, new Set()).id, "b");
+  assert.equal(nextToConvert(bots, new Set(["b"])).id, "c");
+  assert.equal(nextToConvert(bots, new Set(["b", "c"])), null);
+  const source = p6Read("../apps/mobile/components/assistant/ConvertCard.tsx");
+  assert.match(source, /convertBot\(bot\.id\)/);
+  assert.doesNotMatch(source, /Promise\.all|forEach|bulk/i);
+});
+
+test("old /chat, /bots and assistant links land in the Assistant tab with the chat or Bot kept", () => {
+  assert.equal(ASSISTANT_ROUTE, "/(app)/(tabs)/assistant");
+  assert.equal(legacyAssistantRoute("/chat", "id=chat_1"), "/(app)/(tabs)/assistant?chat=chat_1");
+  assert.equal(legacyAssistantRoute("/bots", "bot=bot_1"), "/(app)/(tabs)/assistant?bot=bot_1");
+  assert.equal(legacyAssistantRoute("/bots", "bot=bot_1&thread=1"), "/(app)/(tabs)/assistant?bot=bot_1&thread=1");
+  assert.equal(legacyAssistantRoute("/bots", "new=1&starter=price-watch"), "/(app)/(tabs)/assistant?new=1&starter=price-watch");
+  assert.equal(legacyAssistantRoute("/bots", ""), ASSISTANT_ROUTE);
+  assert.equal(legacyAssistantRoute("/tasks", ""), null);
+  assert.equal(assistantTabRoute("/assistant?bot=b", { thread: true }), "/(app)/(tabs)/assistant?bot=b&thread=1");
+  assert.equal(assistantTabRoute("/assistant?chat=c", { thread: true }), "/(app)/(tabs)/assistant?chat=c");
+});
+
+test("the Assistant tab replaces the Bots tab, and the old routes redirect into it", () => {
+  const layout = p6Read("../apps/mobile/app/(app)/(tabs)/_layout.tsx");
+  assert.match(layout, /name="assistant"/);
+  assert.match(layout, /title: "Assistant"/);
+  assert.match(layout, /name="bots" options=\{\{ href: null/);
+  const bots = p6Read("../apps/mobile/app/(app)/(tabs)/bots.tsx");
+  assert.match(bots, /<Redirect/);
+  assert.match(bots, /legacyAssistantRoute\("\/bots"/);
+  const link = p6Read("../apps/mobile/app/(app)/assistant.tsx");
+  assert.match(link, /<Redirect/);
+  assert.match(link, /ask=1/);
+  const tab = p6Read("../apps/mobile/app/(app)/(tabs)/assistant.tsx");
+  assert.match(tab, /params\.chat/);
+  assert.match(tab, /params\.thread/);
+  assert.match(tab, /AgentBotPage/);
+});
+
+test("the agent Bot page edits through Prompt, Schedule, Tools, Skills and Permission rows, not the rules page", () => {
+  const page = p6Read("../apps/mobile/components/bots/AgentBotPage.tsx");
+  for (const word of ["PromptPage", "SchedulePage", "ToolsPage", "SkillsPage", "PermissionPage"]) assert.match(page, new RegExp(word), word);
+  assert.doesNotMatch(page, /RulePage/);
+  assert.match(page, /Memory and About you/);
+  const perm = p6Read("../apps/mobile/components/bots/PermissionPage.tsx");
+  assert.match(perm, /PHONE_PERMISSIONS/);
+  const schedule = p6Read("../apps/mobile/components/bots/SchedulePage.tsx");
+  assert.match(schedule, /TimeField/);
+  assert.doesNotMatch(schedule, /DateTimePicker|type="time"/);
+});
+
+test("the Bot thread answers a change with Undo, holds a widening change for a tap, and every alert offers Do this in chat", () => {
+  const cards = p6Read("../apps/mobile/components/assistant/ThreadCards.tsx");
+  assert.match(cards, /changedLine\(item\.before, item\.after\)/);
+  assert.match(cards, /label="Undo"/);
+  assert.match(cards, /Do this in chat/);
+  assert.match(cards, /label="Allow"/);
+  assert.match(cards, /label="Approve"/);
+  const threadSrc = p6Read("../apps/mobile/components/assistant/BotThread.tsx");
+  assert.match(threadSrc, /undoBotChange\(threadId/);
+  assert.match(threadSrc, /resolveBotChange\(threadId/);
+  assert.match(threadSrc, /reviewBotAlert\(line\.alertId/);
+  assert.match(threadSrc, /doAlertInChat\(alertId/);
+  assert.match(threadSrc, /createBotFromDraft/);
+  // The composer is the sheet's footer, which docks above the keyboard.
+  assert.match(threadSrc, /footer=\{/);
+});
+
+test("the phone's Bot thread calls the API's routes", () => {
+  const chat = p6Read("../apps/mobile/lib/api/chat.ts");
+  assert.match(chat, /\/chat\/bot-threads/);
+  assert.match(chat, /\/undo/);
+  assert.match(chat, /\/pending\//);
+  assert.match(chat, /\/create/);
+  assert.match(chat, /\/chat\/bot-alerts\/.*\/do-in-chat/);
+  assert.match(chat, /\/chat\/bot-alerts\/.*\/review/);
+  const bots = p6Read("../apps/mobile/lib/api/bots.ts");
+  assert.match(bots, /\/convert/);
+  assert.match(bots, /\/notes/);
+  assert.match(bots, /\/bots\/findings/);
 });

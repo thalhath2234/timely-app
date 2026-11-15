@@ -96,6 +96,11 @@ export type Chat = {
   plan: ChatStep[];
   revision: number;
   unread: boolean;
+  /** 'bot_thread' for a Bot's own thread (it gets no row of its own in the inbox). */
+  kind?: string;
+  botId?: string;
+  /** The Bot a chat was started from by "Do this in chat". */
+  fromBotId?: string;
   error: string;
   /**
    * What the person can do about `error`: "settings" for a key, credit or
