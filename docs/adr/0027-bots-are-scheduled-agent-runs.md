@@ -147,3 +147,30 @@ learned skill.
   alive only for outages and send alerts no agent checked.
 - **Posting results into a chat or a messaging app**: rejected for messaging
   (ADR 0026); posting into a chat thread is an open question (Q-B6).
+
+## Amendment 2026-11-15 (owner answers Q-B2 to Q-B10, phase 6 grilling)
+
+- **Browser in bots (Q-B2), replacing `bot_browse` and the rejection of the
+  script-running browser tool above:** Bots use Hermes' browser tools, brought in as Timely tools,
+  on the owner's real signed-in profile. Opening and reading a page on a site
+  the Bot is granted runs on its own; running a script, typing, a submit or a
+  site that is not granted parks in Needs you while the Bot's next Check goes
+  ahead. While a chat holds the browser, a Bot Check that needs it is skipped
+  and recorded as "browser busy".
+- **Bot thread (Q-B6):** each Bot has one Bot thread. Alerts are posted into it
+  as well as notified. A message there changes the Bot at once and the reply
+  says what changed, with Undo; a new browser site, memory on (Q-B10) or a
+  looser permission mode waits for one tap, because alerts from outside pages
+  share the thread. The thread can only change the Bot and answer questions
+  from the Bot's own history. Acting on a finding stays in a separate chat
+  ("Do this in chat"); the alert's Review card (Q-B5) proposes a Timely write.
+  A new Bot starts as its thread, with its whole setup shown for one Create.
+- **No run caps (Q-B7):** the per-Bot and per-account daily caps are removed.
+  Each source's minimum interval, auto-pause after repeated failures and Pause
+  all stay.
+- **Other answers:** outages record readings and alert nothing (Q-B3); each
+  converted Bot is approved one at a time and price rules gain an in-stock
+  clause (Q-B4); memory and About you per Bot, off by default (Q-B10); all
+  Hermes blueprints become Starters now, ones needing a missing connector say
+  so and stay off (Q-B9); Bot learning is staged only (Q-B8, phase 7).
+

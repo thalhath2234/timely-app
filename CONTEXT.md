@@ -237,6 +237,10 @@ _Avoid_: notification (alone; that is the in-app row), FCM, remote notification
 A named helper the person makes that checks one or more Watches on its own schedule, with nobody watching, and sends a Bot alert when something worth knowing changed. It runs in the API on the job queue and stops while the API is off (ADR 0021). It never buys, posts or deletes anything. It signs in only with a Sign-in the person attached to it, and on its own only where that Sign-in's "Sign in on its own" is on (ADR 0022).
 _Avoid_: agent (that is the chat agent), automation, monitor, Jev (in copy)
 
+**Bot thread**:
+The one conversation each Bot has. The Bot's alerts are posted into it, and the person writes to it to change the Bot or ask about its Checks. A message changes the Bot at once and the reply says what changed, with Undo; a change that widens what the Bot can do alone (a new site for the signed-in browser, memory, a looser permission mode) waits for one tap. A Bot thread never acts on Timely or the computer; acting on a finding happens in a separate chat ("Do this in chat").
+_Avoid_: bot chat (a chat is an Agent conversation), bot editor (the grouped-row screen), inbox
+
 **Watch**:
 One thing a Bot reads: a page (its text, one part, or its published price), a feed, a price from a free source, or a Tool watch.
 _Avoid_: source, trigger, scraper
