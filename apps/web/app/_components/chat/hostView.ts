@@ -96,7 +96,10 @@ export function detailBlock(card: HostCard | null | undefined): {
     return { label: "Script", text: card.command.trim() };
   // The program that gets the typed text: Hermes names it by session id only.
   if (card?.stdin && card.session?.trim())
-    return { label: "Typed into the running command", text: card.session.trim() };
+    return {
+      label: "Typed into the running command",
+      text: card.session.trim(),
+    };
   return { label: "", text: "" };
 }
 
@@ -429,7 +432,8 @@ export function hostLine(
   if (!ran) {
     const what = short || host.tool;
     if (host.outcome === "denied") {
-      if (card?.stdin) return `Denied typing \`${short}\` into a running command`;
+      if (card?.stdin)
+        return `Denied typing \`${short}\` into a running command`;
       if (kind === "browser" && !card?.url?.trim())
         return "Denied using your browser";
       return `Denied ${kind === "browser" ? "opening" : ""} ${what}`
