@@ -100,6 +100,10 @@ var exportTables = []tableSpec{
 	// knowledge text kept for a re-judge) never leaves the server, nor does a
 	// Bot's gap it has not caught up on (away_*).
 	{"bots", `SELECT to_jsonb(x) - 'away_since' - 'away_until' - 'away_reason' FROM bots x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
+	// An agent Bot's notepad (what it keeps for itself between runs) has no id
+	// of its own: it is named by Bot and key, and restore ignores that key.
+	// Browser sites and extra hosts come back switched off (VetRestore).
+	{"bot_notes", `SELECT to_jsonb(x) || jsonb_build_object('id', x.bot_id || ':' || x.key) FROM bot_notes x WHERE x.user_id = ? ORDER BY x.bot_id, x.key`},
 	{"bot_watches", `SELECT to_jsonb(x) || jsonb_build_object('baseline_pending', true) FROM bot_watches x WHERE x.user_id = ? ORDER BY x.bot_id, x.position, x.id`},
 	{"bot_alerts", `SELECT to_jsonb(x) - 'ai_input' FROM bot_alerts x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_lessons", `SELECT to_jsonb(x) FROM bot_lessons x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
@@ -462,9 +466,11 @@ var restoreDefaults = map[string]map[string]any{
 	"custom_fields": {"position": 0},
 	"configs": {"mobile_task_views": []any{}, "mobile_active_task_view_id": "",
 		"bot_alert_defaults": map[string]any{"desktop": true, "phone": true, "urgent": false}},
-	"bots": {"origin_client": "", "knowledge_kind": "", "knowledge_id": "", "kind": "watch", "brief_only": false, "brief_ai": false, "brief_time": ""},
+	"bots": {"origin_client": "", "knowledge_kind": "", "knowledge_id": "", "kind": "watch", "brief_only": false, "brief_ai": false, "brief_time": "",
+		"engine": "rules", "prompt": "", "schedule": map[string]any{}, "timezone": "", "skills": []any{}, "tools": map[string]any{},
+		"model_provider": "", "model": "", "gate": "changed", "egress": []any{}, "market_hours": false, "permission": "auto", "use_memory": false},
 	"bot_alerts": {"feedback_reason": "", "feedback_note": "", "ai_state": "", "ai_why": "", "urgency": "normal",
-		"things": []any{}, "also_seen_by": []any{}, "via": []any{}},
+		"things": []any{}, "also_seen_by": []any{}, "via": []any{}, "proposal_state": "", "fingerprint": ""},
 	"bot_findings": {"thing_key": "", "chain_id": "", "depth": 0},
 	"agent_learning_settings": {"learning": true, "search_history": true,
 		"skills_disabled": []any{}, "skills_restored": []any{}, "skills_enabled": []any{}},
@@ -497,6 +503,7 @@ var restoreParents = map[string][]parentRef{
 	"habit_checks":          {{"habit_id", "habits", true}},
 	// bot_checks is never restored, so check_id always comes back NULL.
 	"bot_watches": {{"bot_id", "bots", true}},
+	"bot_notes":   {{"bot_id", "bots", true}},
 	// notification_id has no FK, and bumping a "more" alert rewrites that
 	// notification, so it must be one restored to this account.
 	"bot_alerts":     {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"notification_id", "notifications", false}},

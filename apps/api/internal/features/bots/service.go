@@ -57,6 +57,16 @@ type Service struct {
 	// judge decides what an AI-judged Bot's rules spot (SetJudge); nil
 	// leaves AI off.
 	judge Judge
+	// agent runs the ticks of agent Bots (SetAgent); nil leaves them at
+	// "needs AI": readings are recorded and no alert is sent (Q-B3).
+	agent Agent
+	// threads posts an agent Bot's alerts into its Bot thread (SetThreadPoster);
+	// nil posts nothing.
+	threads ThreadPoster
+	// CheckSlots is how many checks run at once in the bot_check lane; the
+	// wiring sets it to AgentCheckSlots once agent Bots run, so long runs never
+	// starve passes. Zero reads as CheckSlots.
+	CheckSlots int
 
 	mu            sync.Mutex
 	rnd           *rand.Rand // under mu
@@ -96,6 +106,7 @@ func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
 		store: NewStore(db), db: db, queue: q,
 		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
 		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep, judge: s.judge,
+		agent: s.agent, threads: s.threads, CheckSlots: s.CheckSlots,
 		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
@@ -109,6 +120,26 @@ func (s *Service) SetKeys(k *KeyStore) {
 		return
 	}
 	s.keys, s.keyStore = k, k
+}
+
+// SetAgent gives agent Bots the worker that runs their ticks. nil leaves them
+// at "needs AI".
+func (s *Service) SetAgent(a Agent) { s.agent = a }
+
+// SetThreadPoster gives agent Bots the place their alerts are posted into, a
+// Bot thread each (Q-B6). nil posts nothing.
+func (s *Service) SetThreadPoster(t ThreadPoster) { s.threads = t }
+
+// AgentCheckSlots is how many checks run at once once agent Bots run: long
+// runs take two lane slots instead of three (ADR 0027).
+const AgentCheckSlots = 2
+
+// Slots is how many checks the bot_check lane runs at once.
+func (s *Service) Slots() int {
+	if s.CheckSlots > 0 {
+		return s.CheckSlots
+	}
+	return CheckSlots
 }
 
 // SetFetcher swaps the fetcher every check, preview and key test reads
@@ -178,7 +209,25 @@ func (s *Service) Names(ctx context.Context, userID string) ([]BotName, error) {
 }
 
 func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, error) {
-	return s.store.Get(ctx, userID, idOrName, s.now())
+	d, err := s.store.Get(ctx, userID, idOrName, s.now())
+	if err != nil || d.Engine != EngineAgent {
+		return d, err
+	}
+	// An agent Bot's checks carry their run, gate and skip reason.
+	ids := make([]string, len(d.Checks))
+	for i, c := range d.Checks {
+		ids[i] = c.ID
+	}
+	rows, err := s.agentChecks(ctx, userID, ids)
+	if err != nil {
+		return Detail{}, err
+	}
+	for i, c := range d.Checks {
+		if r, ok := rows[c.ID]; ok {
+			d.Checks[i].Run, d.Checks[i].GateSkipped, d.Checks[i].SkipReason = r.Run, r.GateSkipped, r.SkipReason
+		}
+	}
+	return d, nil
 }
 
 // RateAlert records a rating and the lesson it teaches (Store.RateAlert).
@@ -251,7 +300,7 @@ func (s *Service) RunNow(ctx context.Context, userID, idOrName string, _ Origin)
 	if err != nil {
 		return RunResult{}, err
 	}
-	floor := Floor(ws)
+	floor := botFloor(b, ws)
 	job, err := s.queueCheck(b, floor, TriggerRunNow, now)
 	if err != nil {
 		return RunResult{}, err

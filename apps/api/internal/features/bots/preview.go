@@ -437,6 +437,151 @@ func (l *previewLimiter) take(userID string, n int, now time.Time) bool {
 	return true
 }
 
+// TryRunsPerMinute caps one person's dry ticks: each one is a model run.
+const TryRunsPerMinute = 6
+
+var tries = newPreviewLimiter(TryRunsPerMinute, time.Minute)
+
+// TryInput is a dry tick's request: a saved Bot by id (with agent fields to
+// try instead of its own, or a rules Bot's conversion), or a draft Bot's
+// Reads and agent fields.
+type TryInput struct {
+	BotID   string       `json:"botId,omitempty"`
+	Name    string       `json:"name,omitempty"`
+	Watches []WatchInput `json:"watches,omitempty"`
+	AgentInput
+}
+
+// TryResult is what a dry tick would have done.
+type TryResult struct {
+	// Text is what it would send, or "[SILENT]" when it would stay quiet.
+	Text    string      `json:"text"`
+	Silent  bool        `json:"silent"`
+	Reports []Report    `json:"reports"`
+	Trace   []ToolTrace `json:"trace"`
+	Usage   Usage       `json:"usage"`
+	// Error is "" or how the run ended: a Class* value, or no_ai.
+	Error string `json:"error"`
+	// Problems say which Reads could not be read just now.
+	Problems []string    `json:"problems"`
+	Model    ModelChoice `json:"model"`
+}
+
+const noAIText = "Needs AI. Choose an AI provider in Settings to try it"
+
+// Try runs one dry tick of an agent Bot: it reads the Watches once, wakes the
+// agent with them and returns what it would send, with its tool trace.
+// Nothing is saved: no Check, alert, Finding, reading or price day, and the
+// run's note writes are discarded (RunInput.DryRun). The gate is skipped, as
+// a person asked for the run.
+func (s *Service) Try(ctx context.Context, userID string, in TryInput) (TryResult, error) {
+	db := s.db.WithContext(ctx)
+	var b Bot
+	var ws []Watch
+	if id := strings.TrimSpace(in.BotID); id != "" {
+		cur, err := findBot(db, userID, id, false)
+		if err != nil {
+			return TryResult{}, err
+		}
+		if ws, err = loadWatches(db, cur.ID, false); err != nil {
+			return TryResult{}, err
+		}
+		b = cur
+		var f AgentFields
+		switch {
+		case cur.Engine != EngineAgent && !in.AgentInput.Set():
+			_, f, err = conversionOf(db, cur, ws)
+		case cur.Engine != EngineAgent:
+			f, err = CleanAgent(in.AgentInput, nil, ws, OriginApp)
+		case in.AgentInput.Set():
+			f, err = CleanAgent(in.AgentInput, &cur, ws, OriginApp)
+		}
+		if err != nil {
+			return TryResult{}, err
+		}
+		if cur.Engine != EngineAgent || in.AgentInput.Set() {
+			f.Apply(&b)
+		}
+	} else {
+		if len(in.Watches) > 0 {
+			hasKey, err := keySet(db, userID)
+			if err != nil {
+				return TryResult{}, err
+			}
+			sent := make([]WatchInput, len(in.Watches))
+			for i, wi := range in.Watches {
+				wi.ID = "" // an unsaved draft: nothing to keep
+				sent[i] = wi
+			}
+			if ws, err = cleanWatches(sent, nil, hasKey); err != nil {
+				return TryResult{}, err
+			}
+		}
+		f, err := CleanAgent(in.AgentInput, nil, ws, OriginApp)
+		if err != nil {
+			return TryResult{}, err
+		}
+		b = Bot{UserID: userID, Name: cleanLine(in.Name, MaxNameLen), Kind: KindWatch, Status: StatusActive, Origin: OriginApp}
+		f.Apply(&b)
+	}
+	out := TryResult{Reports: []Report{}, Trace: []ToolTrace{}, Problems: []string{}, Model: ModelChoice{Provider: b.ModelProvider, Model: b.Model}}
+	if s.agent == nil {
+		out.Error, out.Text = classNoAI, noAIText
+		return out, nil
+	}
+	now := s.now().UTC()
+	if !tries.take(userID, 1, now) || (len(ws) > 0 && !previews.limit.take(userID, len(ws), now)) {
+		return TryResult{}, ErrPreviewLimit
+	}
+	rctx, cancel := context.WithTimeout(ctx, previewBudget)
+	rctx = fetch.WithSlots(rctx, previews.slots.of(userID, now))
+	reads := make([]watchRead, 0, len(ws))
+	for _, w := range ws {
+		r := s.readWatch(rctx, b, previewCopy(w), now, s.previewKeys(), PreviewMaxWait)
+		r.w = w // its last reading is what the gate's diff starts from
+		if r.err != nil {
+			line := "Could not read " + siteOf(w) + " just now"
+			if p := describeErr(w, r.err); p != nil && p.line != "" {
+				line = p.line
+			}
+			out.Problems = append(out.Problems, line)
+		}
+		reads = append(reads, r)
+	}
+	cancel()
+	c := checkRun{bot: b, trigger: TriggerRunNow, started: now, reads: reads, checkID: utils.PrefixedUUID("bchk")}
+	input, err := s.runInput(ctx, c, gateDiffs(reads), nil)
+	if err != nil {
+		return TryResult{}, err
+	}
+	input.DryRun = true
+	actx, acancel := context.WithTimeout(ctx, AgentRunDeadline+agentRunGrace)
+	defer acancel()
+	res, rerr := s.agent.Run(actx, userID, input)
+	if ctx.Err() != nil {
+		return TryResult{}, ctx.Err()
+	}
+	out.Usage, out.Trace = res.Usage, append(out.Trace, res.Trace...)
+	switch class := runClass(res, rerr); {
+	case class == classNoAI:
+		out.Error, out.Text = classNoAI, noAIText
+	case class != "":
+		out.Error = class
+	default:
+		out.Reports = append(out.Reports, cleanReports(agentRun{ran: true, res: res})...)
+		if len(out.Reports) == 0 {
+			out.Silent, out.Text = true, "[SILENT]"
+			break
+		}
+		parts := make([]string, len(out.Reports))
+		for i, r := range out.Reports {
+			parts[i] = strings.TrimSpace(r.Title + "\n" + r.Body)
+		}
+		out.Text = strings.Join(parts, "\n\n")
+	}
+	return out, nil
+}
+
 // recent drops userID's reads older than the window; under mu.
 func (l *previewLimiter) recent(userID string, now time.Time) []time.Time {
 	cut := now.Add(-l.window)
