@@ -156,7 +156,7 @@ export type FeedbackReason = "" | "too_small" | "not_wanted" | "already_knew" | 
  * held back by the AI judge, or folded into another bot's alert on the same
  * thing ("Also seen by").
  */
-export type AlertHeld = "" | "snoozed" | "cap" | "judged" | "shared";
+export type AlertHeld = "" | "snoozed" | "cap" | "judged" | "shared" | "duplicate";
 
 /** A bot by id and name. */
 export type BotRef = { botId: string; name: string };
