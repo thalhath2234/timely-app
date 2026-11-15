@@ -132,7 +132,17 @@ describe("permission copy", () => {
     assert.match(PERMISSION_COPY.full.description, /signed-in browser still asks/);
     for (const kept of ["wipe a disk", "keys", "other accounts", "outside pages"]) assert.ok(FULL_ACCESS_CONFIRM.includes(kept), kept);
     assert.match(FULL_ACCESS_CONFIRM, /Turn it on for this chat\?$/);
+    // owner decision 2026-11-15: the floor is said plainly to be a backstop, and Full Access trusts the agent with the account
+    for (const text of [FULL_ACCESS_CONFIRM, PERMISSION_COPY.full.description, ALWAYS_BLOCKED_NOTE]) assert.match(text, /backstop, not a boundary/);
+    assert.match(PERMISSION_COPY.full.description, /everything your account here can do/);
     assert.equal(FULL_ACCESS_PHONE_NOTE, "Turn on from the desktop app");
+  });
+
+  test("Auto says it runs only read-only commands on its own (owner decision 2026-11-15)", () => {
+    for (const text of [PERMISSION_COPY.auto.description, PERMISSION_COPY.auto.short]) {
+      assert.match(text, /read-only commands/);
+      assert.doesNotMatch(text, /everyday/i);
+    }
   });
 
   test("the six rows Auto always asks before, as drawn", () => {
@@ -338,11 +348,12 @@ describe("host cards", () => {
 });
 
 describe("the Auto description names everything Auto asks before (review round 6)", () => {
-  test("code, the browser and changes after outside content are there, and it does not say only", () => {
+  test("code, the browser and changes after outside content are there, and it does not say it asks only before them", () => {
     for (const text of [PERMISSION_COPY.auto.description, PERMISSION_COPY.auto.short]) {
       assert.match(text, /running code/);
       assert.match(text, /browser/);
-      assert.doesNotMatch(text, /\bonly\b/);
+      // "runs only read-only commands" (2026-11-15) is the allowlist; "asks only before" would undersell what asks
+      assert.doesNotMatch(text, /asks? only|only (asks|before)/i);
     }
     assert.match(PERMISSION_COPY.auto.description, /outside content/);
   });

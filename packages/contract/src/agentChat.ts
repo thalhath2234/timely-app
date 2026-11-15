@@ -112,15 +112,15 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
   auto: {
     name: "Auto",
     description:
-      "Does the everyday work on its own. Asks before deleting, sending your data out, paying, installing, changing settings, running code, using your browser, and changes after it reads outside content.",
-    short: "Asks before deleting, sending your data out, paying, installing, changing settings, running code or using your browser",
+      "Edits files in the working folder and runs simple read-only commands there (listing, reading, searching, git status and log) on its own. Asks before any other command, and before deleting, sending your data out, paying, installing, changing settings, running code, using your browser, and changes after it reads outside content.",
+    short: "Runs only read-only commands on its own. Asks before other commands, deleting, sending your data out, paying, installing, changing settings, running code or using your browser",
     icon: "shield",
     tone: "indigo",
   },
   full: {
     name: "Full Access",
     description:
-      "Runs commands, files, code and MCP tools on this computer without a card. Your signed-in browser still asks for each step, and changes to your Timely data still ask like Auto. Commands that wipe a disk or the system are always refused. Everything is logged.",
+      "Runs commands, files, code and MCP tools on this computer without a card: it trusts the assistant with everything your account here can do. Your signed-in browser still asks for each step, and changes to your Timely data still ask like Auto. Timely also refuses commands that would wipe a disk or the system, as a backstop, not a boundary: a command spelled in a way it can't read is not caught. Everything is logged.",
     short: "Runs commands without a card. Timely data still asks like Auto, and so does your browser",
     icon: "bolt",
     tone: "amber",
@@ -154,10 +154,11 @@ export const FULL_ACCESS_PHONE_NOTE = "Turn on from the desktop app";
 /** The one-time confirmation before turning Full Access on: what it lifts and
  * what stays. */
 export const FULL_ACCESS_CONFIRM =
-  "Full Access lifts every card for commands, files, code and MCP tools: the assistant runs them as you on this computer. Your signed-in browser still asks for each step. Still in place: commands that wipe a disk or the system are refused, your keys stay out of its reach, other accounts stay apart, and what it learns from outside pages waits for you. Turn it on for this chat?";
+  "Full Access lifts every card for commands, files, code and MCP tools: the assistant runs them as you on this computer, so it can do anything your account here can do. Your signed-in browser still asks for each step. Still in place: your keys stay out of its reach, other accounts stay apart, and what it learns from outside pages waits for you. Timely also refuses commands it can tell would wipe a disk or the system, but that is a backstop, not a boundary. Turn it on for this chat?";
 
 /** Settings → Permissions footer: floors no mode lifts. */
-export const ALWAYS_BLOCKED_NOTE = "Still blocked in every mode: commands that wipe a disk or the system, and handing out your keys.";
+export const ALWAYS_BLOCKED_NOTE =
+  "Still blocked in every mode: handing out your keys, and commands Timely can tell would wipe a disk or the system (a backstop, not a boundary).";
 
 export type CriticalRow = {
   /** The critical-list item number in Go (agent/permission.go). */

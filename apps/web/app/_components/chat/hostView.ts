@@ -667,7 +667,7 @@ export function ruleLabel(rule: HostApprovalRule | undefined): string {
 
 /** The rows under "Auto always asks before" that the host tools add. */
 export const AUTO_ASKS_HOST_NOTE =
-  "On this computer Auto also asks before all code and every browser step. Other commands and writes inside the working folder run on their own. Supervised asks before all of it.";
+  "On this computer Auto also asks before every command that is not simple and read-only (it runs ls, cat, grep, find, git status and the like in the working folder), all code and every browser step. Writes inside the working folder run on their own. Supervised asks before all of it.";
 
 /** What the permission sheet says under "Allowed for this chat", and its empty state. */
 export const GRANTS_TITLE = "Allowed for this chat";

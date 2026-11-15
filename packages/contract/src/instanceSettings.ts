@@ -49,7 +49,7 @@ export const HOST_TOGGLE_LABEL = "Let the assistant use this computer";
 /** The limit, said once, wherever the switch appears. */
 export const HOST_LIMIT_COPY =
   "With this on, the assistant can run commands, change files, run code and use your browser here. " +
-  "A Supervised chat asks on a card before each one. Auto runs everyday commands on its own and asks before anything on its critical list, all code and every browser step; Full Access runs commands without a card. " +
+  "A Supervised chat asks on a card before each one. Auto runs only simple read-only commands on its own and asks before every other command, all code and every browser step; Full Access runs commands without a card. " +
   "A command you approve, or one Auto or Full Access runs, runs as you on this computer, " +
   "so it can read every account's data here, not only this account's.";
 
@@ -121,7 +121,7 @@ export function phoneHostLine(settings: InstanceSettings | null): { label: strin
     label,
     value: settings.thisAccountHostAllowed ? "Yes" : "No",
     hint: settings.thisAccountHostAllowed
-      ? "The assistant can run commands and change files on the computer. A Supervised chat asks before each one, Auto asks before the risky ones, and Full Access runs them without a card."
+      ? "The assistant can run commands and change files on the computer. A Supervised chat asks before each one, Auto runs only simple read-only commands on its own, and Full Access runs them without a card."
       : "To let the assistant use the computer, turn this on in the Timely desktop app, under Settings, Server, or ask whoever runs this Timely server to add the account (TIMELY_AGENT_HOST_ACCOUNTS).",
   };
 }
