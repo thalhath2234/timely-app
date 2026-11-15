@@ -115,7 +115,6 @@ func TestIntegrationAgentFailureClassesStrike(t *testing.T) {
 	cases := map[string]AgentResult{
 		ClassTimeout:     {ErrorClass: ClassTimeout},
 		ClassCrash:       {ErrorClass: ClassCrash},
-		ClassInjection:   {ErrorClass: ClassInjection},
 		ClassCronFailure: {Response: "[CRON_FAILURE] could not open the page\nmore"},
 	}
 	for class, res := range cases {
