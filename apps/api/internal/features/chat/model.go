@@ -175,9 +175,23 @@ type Conversation struct {
 	// PreApproved is the continuation a claim took off the row for the run
 	// it starts (never stored).
 	PreApproved *HostContinuation `gorm:"-" json:"-"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
+	// Kind is "chat" or "bot_thread": a Bot's own thread, where the person
+	// changes the Bot by talking to it (phase 6). BotID names that Bot and is
+	// set only on a bot_thread (one per Bot). FromBotID names the Bot whose
+	// alert "Do this in chat" started this chat; its TaintedSources then hold
+	// {kind: "bot", botId}.
+	Kind      string            `gorm:"not null;default:chat" json:"kind"`
+	BotID     *string           `json:"botId,omitempty"`
+	FromBotID *string           `json:"fromBotId,omitempty"`
+	CreatedAt time.Time         `json:"createdAt"`
+	UpdatedAt time.Time         `json:"updatedAt"`
 }
+
+// The conversation kinds.
+const (
+	KindChat      = "chat"
+	KindBotThread = "bot_thread"
+)
 
 // The engines a chat run can use.
 const (
@@ -216,6 +230,9 @@ type TaintSource struct {
 	// is the parent's.
 	Via   string `json:"via,omitempty"`
 	Child string `json:"child,omitempty"`
+	// BotID names the Bot of a {kind: "bot"} source: a chat started from that
+	// Bot's alert carries what the Bot read as outside text.
+	BotID string `json:"botId,omitempty"`
 }
 
 // TaintSources is stored as a JSON array, never null.
