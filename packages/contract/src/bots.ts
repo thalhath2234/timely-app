@@ -13,7 +13,10 @@
 // ── Wire types ──
 
 export type BotStatus = "active" | "paused";
-export type PauseReason = "person" | "strikes" | "mcp";
+export type PauseReason = "person" | "strikes" | "mcp" | "injection";
+
+/** What an injection-paused Bot reads: a page tried to give its run instructions, so it stopped. */
+export const INJECTION_LINE = "Stopped: a page tried to instruct it";
 export type BotOrigin = "app" | "chat" | "mcp";
 export type WatchKind = "page" | "feed" | "price";
 export type ReadMode = "text" | "selector" | "product_price" | "selector_price";
@@ -1275,7 +1278,7 @@ const NEW_ALERT_FOR = 48 * HOUR;
 export function needsReason(bot: BotView, now: Date): NeedsReason | null {
   if (bot.status === "paused") {
     if (bot.pauseReason === "mcp") return "waiting_ok";
-    if (bot.pauseReason === "strikes") return "stopped";
+    if (bot.pauseReason === "strikes" || bot.pauseReason === "injection") return "stopped";
     return null;
   }
   if (bot.health.code === "needs_key") return "needs_key";
@@ -1362,10 +1365,12 @@ const FIX_LABELS: Record<FixAction, string> = {
 };
 
 const isStopped = (bot: BotView) => bot.status === "paused" && bot.pauseReason === "strikes";
+const isInjectionStopped = (bot: Pick<BotView, "status" | "pauseReason">) => bot.status === "paused" && bot.pauseReason === "injection";
 
 /** What fixes a bot that needs one. */
 export function fixAction(bot: BotView): FixAction {
   if (bot.status === "paused" && bot.pauseReason === "mcp") return "turn_on";
+  if (isInjectionStopped(bot)) return "resume";
   // A brief reads nothing, so nothing on it breaks: it is resumed or run.
   if (isBrief(bot)) return bot.status === "paused" ? "resume" : "check_now";
   const broken = bot.health.code === "needs_key" || (bot.strikes > 0 && STRIKES.has(bot.health.code));
@@ -1471,6 +1476,13 @@ export const STRIKE_COPY: Record<StrikeCode, { why: string; stopped: string }> =
 export function fixCopy(bot: BotView): { eyebrow: string; title: string; meta: string } {
   if (fixAction(bot) === "apply_suggestion" && bot.suggestion) {
     return { eyebrow: "Suggests a change", title: bot.suggestion.line, meta: "After 3 Not useful alerts in a row" };
+  }
+  if (isInjectionStopped(bot)) {
+    return {
+      eyebrow: "Paused itself",
+      title: INJECTION_LINE,
+      meta: "Nothing it read was acted on. Check what it reads, then resume the bot.",
+    };
   }
   const max = BOT_LIMITS.maxStrikes;
   const stopped = isStopped(bot);
@@ -1674,6 +1686,7 @@ export function firstStrikeAt(bot: Pick<BotView, "lastCheckAt" | "lastOkAt" | "s
 export function captionLine(bot: BotView, now: Date, tz?: string, bots?: BotNames, opts: { allPaused?: boolean } = {}): string | null {
   if (isBrief(bot)) return briefFrom(bot, bots);
   const reason = needsReason(bot, now);
+  if (reason === "stopped" && isInjectionStopped(bot)) return bot.lastCheckAt ? `Since ${dateTime(bot.lastCheckAt, tz)}` : "Not checked yet";
   if (reason === "stopped") {
     const since = firstStrikeAt(bot);
     return since ? `Since ${dateTime(since, tz)}` : "Not checked yet";
@@ -1851,6 +1864,7 @@ export function miniSub(bot: BotView, now: Date, tz?: string): string {
   if (reason === "new_alert" && bot.latestAlert) return `New alert · ${alertFound(bot.latestAlert, bot.name)}`;
   if (reason === "waiting_ok") return `Made by ${bot.originClient || "an outside app"} · ${agoLabel(bot.createdAt, now, tz)}`;
   if (isBrief(bot)) return cardSub(bot);
+  if (reason === "stopped" && isInjectionStopped(bot)) return INJECTION_LINE;
   if (reason === "stopped") {
     const w = primaryWatch(bot);
     const line = bot.health.line;
@@ -1941,6 +1955,7 @@ export function healthLine(
   const ago = bot.lastCheckAt ? agoLabel(bot.lastCheckAt, now, tz) : null;
   if (bot.health.code === "preview") return { tone: "primary", word: bot.health.line || "Read once in chat", time: null };
   if (reason === "waiting_ok") return { tone: "warn", word: "Waiting for your OK", time: null };
+  if (reason === "stopped" && isInjectionStopped(bot)) return { tone: "bad", word: INJECTION_LINE, time: null };
   if (reason === "stopped") return { tone: "bad", word: `Paused after ${bot.strikes || BOT_LIMITS.maxStrikes} strikes`, time: null };
   if (bot.status === "paused") return { tone: "off", word: "Paused by you", time: shortDate(bot.updatedAt, tz) };
   if (opts.allPaused) return { tone: "off", word: ALL_PAUSED, time: null };
@@ -2571,6 +2586,7 @@ export const PRICE_BLOCK = {
  */
 export function priceBlockPickMeta(bot: Pick<BotView, "status" | "pauseReason">): string | undefined {
   if (bot.status !== "paused") return undefined;
+  if (bot.pauseReason === "injection") return INJECTION_LINE;
   return bot.pauseReason === "mcp" ? "Waiting for your OK" : "Paused";
 }
 

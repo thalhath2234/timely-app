@@ -19,6 +19,10 @@ ALTER TABLE bots
     ADD COLUMN use_memory boolean NOT NULL DEFAULT false,   -- memory and About you (Q-B10); off by default
     ADD COLUMN thread_id text;                              -- the Bot thread (agent_conversations.id, kind 'bot_thread'); no foreign key, the thread points back by bot_id
 
+-- A run stopped for obeying text from a page pauses the Bot at once: 'injection'.
+ALTER TABLE bots DROP CONSTRAINT bots_pause_reason_check;
+ALTER TABLE bots ADD CONSTRAINT bots_pause_reason_check CHECK (pause_reason IN ('person', 'strikes', 'mcp', 'injection'));
+
 -- What the Bot remembers between runs: small notes it keeps for itself.
 CREATE TABLE bot_notes (
     bot_id text NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
@@ -90,6 +94,10 @@ ALTER TABLE bot_checks ADD CONSTRAINT bot_checks_outcome_check CHECK (outcome IN
 ALTER TABLE bot_checks DROP COLUMN skip_reason, DROP COLUMN gate_skipped, DROP COLUMN run;
 
 DROP TABLE IF EXISTS bot_notes;
+
+UPDATE bots SET pause_reason = 'strikes' WHERE pause_reason = 'injection';
+ALTER TABLE bots DROP CONSTRAINT bots_pause_reason_check;
+ALTER TABLE bots ADD CONSTRAINT bots_pause_reason_check CHECK (pause_reason IN ('person', 'strikes', 'mcp'));
 
 ALTER TABLE bots
     DROP COLUMN thread_id,
