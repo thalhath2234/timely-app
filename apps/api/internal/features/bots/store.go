@@ -3,6 +3,7 @@ package bots
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -79,8 +80,12 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 	}
 	var ws []Watch
 	var interval int
+	var agent *AgentFields
 	briefTime := ""
 	if kind == KindBrief {
+		if in.AgentInput.Set() {
+			return View{}, errBriefAgent
+		}
 		if briefTime, err = cleanBrief(in, judge); err != nil {
 			return View{}, err
 		}
@@ -93,10 +98,19 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 		if err != nil {
 			return View{}, err
 		}
-		if ws, err = cleanWatches(in.Watches, nil, hasKey); err != nil {
-			return View{}, err
+		// An agent Bot may have no Reads: it runs on its schedule.
+		if len(in.Watches) > 0 || !in.AgentInput.Set() {
+			if ws, err = cleanWatches(in.Watches, nil, hasKey); err != nil {
+				return View{}, err
+			}
 		}
-		if interval, err = cleanInterval(in.IntervalMinutes, ws); err != nil {
+		if in.AgentInput.Set() {
+			f, err := CleanAgent(in.AgentInput, nil, ws, o)
+			if err != nil {
+				return View{}, err
+			}
+			agent, interval = &f, f.IntervalSeconds
+		} else if interval, err = cleanInterval(in.IntervalMinutes, ws); err != nil {
 			return View{}, err
 		}
 	}
@@ -127,6 +141,14 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 		}
 		next := nextBriefAt(loc, briefTime, now).Add(rand.N(briefSpread))
 		b.BriefTime, b.BriefAI, b.BriefCursorAt, b.NextCheckAt = briefTime, deref(in.BriefAI, false), &now, &next
+	}
+	if agent != nil {
+		agent.Apply(&b)
+		if b.Timezone == "" {
+			if b.Timezone, err = notificationZone(s.conn(ctx), userID); err != nil {
+				return View{}, err
+			}
+		}
 	}
 	if o == OriginMCP {
 		reason := PauseMCP
@@ -186,6 +208,39 @@ func (s *Store) Create(ctx context.Context, userID string, in Input, o Origin, n
 		return View{}, err
 	}
 	return viewOf(b, ws, bd, now), nil
+}
+
+// errBriefAgent refuses agent fields on a brief, which has no agent run.
+var errBriefAgent = invalid("A brief bot has no prompt or schedule; it sums up other bots")
+
+// notificationZone is the IANA name of the zone quiet hours read the
+// person's time in, or UTC when the account has none.
+func notificationZone(db *gorm.DB, userID string) (string, error) {
+	loc, err := localZone(db, userID)
+	if err != nil {
+		return "", err
+	}
+	if name := models.ZoneName(loc); name != "" {
+		return name, nil
+	}
+	return "UTC", nil
+}
+
+// agentColumns puts an agent Bot's checked fields into an Update's column
+// map. The engine is not one of them: it flips only on approval.
+func agentColumns(set map[string]any, b Bot) {
+	tools, _ := json.Marshal(b.Tools)
+	set["prompt"], set["schedule"], set["timezone"], set["skills"] = b.Prompt, b.Schedule, b.Timezone, b.Skills
+	set["tools"], set["egress"], set["use_memory"] = string(tools), b.Egress, b.UseMemory
+	set["permission"], set["gate"], set["market_hours"] = b.Permission, b.Gate, b.MarketHours
+	set["model_provider"], set["model"] = b.ModelProvider, b.Model
+}
+
+// agentTimingChanged reports a new schedule, zone or market-hours limit.
+func agentTimingChanged(old, cur Bot) bool {
+	a, _ := json.Marshal(old.Schedule)
+	b, _ := json.Marshal(cur.Schedule)
+	return string(a) != string(b) || old.Timezone != cur.Timezone || old.MarketHours != cur.MarketHours
 }
 
 // newWatch fills in a watch that is about to be inserted.
@@ -292,6 +347,9 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 			}
 		}
 		if b.Kind == KindBrief {
+			if p.AgentInput.Set() {
+				return errBriefAgent
+			}
 			return s.updateBrief(tx, b, p, set, name, now)
 		}
 		if err := watchOnly(p.Sources, p.BriefTime, p.BriefAI); err != nil {
@@ -304,33 +362,73 @@ func (s *Store) Update(ctx context.Context, userID, idOrName string, p Patch, o 
 		ws := cur
 		watchesChanged := false
 		if p.Watches != nil {
-			hasKey, err := keySet(tx, userID)
+			if b.Engine == EngineAgent && len(*p.Watches) == 0 {
+				// An agent Bot may have no Reads: it runs on its schedule.
+				if err := tx.Where("bot_id = ?", b.ID).Delete(&Watch{}).Error; err != nil {
+					return err
+				}
+				ws, watchesChanged = nil, len(cur) > 0
+			} else {
+				hasKey, err := keySet(tx, userID)
+				if err != nil {
+					return err
+				}
+				if ws, watchesChanged, err = saveWatches(tx, b, cur, *p.Watches, hasKey, now); err != nil {
+					return err
+				}
+			}
+		}
+		// An agent Bot's fields are checked against its Reads, so a change to
+		// them re-derives the interval, the schedule's floor and the gate even
+		// when none is sent. A rules Bot refuses them (CleanAgent): the engine
+		// flips only through the conversion approval.
+		agentBot := b.Engine == EngineAgent
+		nb := b
+		floor := Floor(ws)
+		if agentBot {
+			floor = AgentFloor(ws)
+		}
+		interval := b.IntervalSeconds
+		switch {
+		case p.AgentInput.Set() || (agentBot && watchesChanged):
+			f, err := CleanAgent(p.AgentInput, &b, ws, o)
 			if err != nil {
 				return err
 			}
-			if ws, watchesChanged, err = saveWatches(tx, b, cur, *p.Watches, hasKey, now); err != nil {
-				return err
+			f.Apply(&nb)
+			if nb.Timezone == "" {
+				if nb.Timezone, err = notificationZone(tx, userID); err != nil {
+					return err
+				}
 			}
-		}
-		interval := b.IntervalSeconds
-		if p.IntervalMinutes != nil {
+			agentColumns(set, nb)
+			interval = f.IntervalSeconds
+		case p.IntervalMinutes != nil && !agentBot:
+			// An agent Bot's schedule is its only timing.
 			if interval, err = cleanInterval(*p.IntervalMinutes, ws); err != nil {
 				return err
 			}
-		} else if floor := int(Floor(ws) / time.Second); interval < floor {
-			interval = floor
+		}
+		if p.IntervalMinutes == nil || agentBot {
+			if lowest := int(floor / time.Second); interval < lowest {
+				interval = lowest
+			}
 		}
 		if interval != b.IntervalSeconds {
 			set["interval_seconds"] = interval
 		}
 		if b.Status == StatusActive && b.NextCheckAt != nil {
-			next := *b.NextCheckAt
-			if soon := now.Add(time.Duration(interval) * time.Second); interval != b.IntervalSeconds && soon.Before(next) {
-				next = soon
+			at := *b.NextCheckAt
+			if agentBot && agentTimingChanged(b, nb) {
+				if t := NextAgentCheck(nb, now, ws...); !t.IsZero() {
+					at = t
+				}
+			} else if soon := now.Add(time.Duration(interval) * time.Second); interval != b.IntervalSeconds && soon.Before(at) {
+				at = soon
 			}
 			// A watch with a longer floor may have been added.
-			if next = maxTime(next, spacedAt(b.CheckStartedAt, Floor(ws))); !next.Equal(*b.NextCheckAt) {
-				set["next_check_at"] = next
+			if at = maxTime(at, spacedAt(b.CheckStartedAt, floor)); !at.Equal(*b.NextCheckAt) {
+				set["next_check_at"] = at
 			}
 		}
 		// A suggestion is about the rules, interval and judging it saw.
