@@ -1,11 +1,10 @@
 // Where a notification opens. Pure, so scripts/notification-target.test.mjs
-// runs it under Node; keep imports relative (or type-only). The Assistant
-// links are imported by path so Node resolves them without a package export.
+// runs it under Node; keep imports relative, type-only or from the contract.
 import {
   ASSISTANT_PATH,
   assistantHref,
   notificationToAssistant,
-} from "../../../../../packages/contract/src/assistant";
+} from "@timely/contract/assistant";
 import type { AppNotification } from "@timely/contract/notifications";
 import { fileHref } from "../../utils/fileRoutes";
 
