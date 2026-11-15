@@ -1,8 +1,12 @@
 package chat
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
+	"time"
 
+	"timely-api/internal/agenthost"
 	"timely-api/internal/features/agent"
 )
 
@@ -31,6 +35,9 @@ type BotRunCtx struct {
 	// FullAccessOK is set when the Bot's Full Access has its step-up record;
 	// without it Full acts as Auto.
 	FullAccessOK bool
+	// MCP is the Bot's setting per MCP server (use, ask or off: McpMode in
+	// the Bot's tools). A server it does not list is off.
+	MCP map[string]string
 }
 
 // hostBrowserBusy is the block message when a chat holds the browser: the
@@ -163,6 +170,92 @@ func botHostDecision(b BotRunCtx, tool string, args map[string]any) hostDecision
 		d.card.Reason = out.Reason
 	}
 	return d
+}
+
+// botMCPDecision is the verdict for a tool of an MCP server in a bot run: the
+// Bot's own setting for the server and the account's (an account-wide Off
+// stops the bot too), read-only tools allowed, and writes blocked after taint
+// or parked before it (agent.BotGate). Whether a tool is read-only is chat's
+// own classifier (MCPRules.Classify, which reads the call's annotations); with
+// no rules only a readOnlyHint counts.
+func botMCPDecision(ctx context.Context, b BotRunCtx, rules MCPRules, uid string, ask gateAsk) hostDecision {
+	server := ask.mcpServer()
+	tool := ask.Tool
+	var ann MCPAnnotations
+	if ask.MCP != nil {
+		if ask.MCP.Tool != "" {
+			tool = ask.MCP.Tool
+		}
+		ann = ask.MCP.Annotations
+	}
+	args := map[string]any{}
+	_ = json.Unmarshal(ask.Args, &args)
+	urls := botURLs(ask.Tool, args)
+	mode := b.MCP[server]
+	if rules != nil && rules.Mode(ctx, uid, server) == mcpOff {
+		mode = agent.BotMCPOff
+	}
+	action := agent.HostAction{Kind: agent.HostInput}
+	readOnly := ann.ReadOnly != nil && *ann.ReadOnly
+	if rules != nil {
+		action = rules.Classify(ctx, uid, server, tool, ann)
+		readOnly = action.Kind == agent.HostFetch
+	}
+	out := agent.BotGate(agent.BotGateIn{
+		Tool:        ask.Tool,
+		URLs:        urls,
+		Mode:        agent.BotMode(b.Permission, b.FullAccessOK),
+		Tainted:     b.Tainted,
+		Hosts:       agent.BotHosts{Read: b.ReadHosts, Browser: b.BrowserSites, Egress: b.Egress, Search: b.SearchHosts},
+		MCP:         true,
+		MCPServer:   server,
+		MCPMode:     mode,
+		MCPReadOnly: readOnly,
+	})
+	d := hostDecision{verdict: out.Verdict, message: out.Message, reason: out.Reason, action: action}
+	switch out.Verdict {
+	case agent.BotAllow:
+		d.by = "auto"
+		if out.Lifted {
+			d.by = "full"
+		}
+	case agent.BotApprove:
+		d.card = HostCard{Kind: cardMCP, Title: "Use " + server + "?", Server: server, Command: clip(tool+" "+compactArgs(ask.Args), 4000), Reason: out.Reason}
+	}
+	return d
+}
+
+// gateBotMCP answers a gate.ask for an MCP tool of a bot run (r.bot set). The
+// shared host path (decideHost) still blocks every bot MCP call, so this runs
+// first: the same reply, bookkeeping and events as gateHost, with
+// botMCPDecision's verdict.
+func (e *WorkerEngine) gateBotMCP(r *agentRun, m agenthost.Message, ask gateAsk) {
+	ctx, cancel := context.WithTimeout(r.ctx, 15*time.Second)
+	defer cancel()
+	st := e.hostState(ctx, r, ask)
+	d := botMCPDecision(ctx, *st.bot, e.opts.MCP, r.uid, ask)
+	reply := map[string]any{"verdict": d.verdict, "message": d.message}
+	if d.verdict == agent.BotApprove {
+		reply["card"] = d.card.wire()
+	}
+	if d.verdict == agent.BotAllow && d.by != "" {
+		reply["by"] = d.by
+	}
+	if r.cards == nil {
+		r.cards = map[string]hostPending{}
+	}
+	if d.verdict != agent.BotBlock {
+		r.cards[ask.ToolCallID] = hostPending{card: d.card, grant: d.grant, tool: ask.Tool, argsHash: ask.ArgsHash, verdict: d.verdict}
+		r.noteNetwork(ask.ToolCallID, ask.Tool, d.action)
+	}
+	_ = r.worker.Reply(m, agenthost.TypeGateVerdict, reply)
+	detail := map[string]any{"toolset": ask.Toolset, "mode": string(st.bot.Permission)}
+	switch d.verdict {
+	case agent.BotAllow:
+		e.s.logHostEvent(nil, hostEvent(r.uid, r.cid, r.id, ask.ToolCallID, "", ask.Tool, ask.ArgsHash, eventAllowed, "", d.reason, nil, detail), e.opts.Logf)
+	case agent.BotBlock:
+		e.s.logHostEvent(nil, hostEvent(r.uid, r.cid, r.id, ask.ToolCallID, "", ask.Tool, ask.ArgsHash, eventDenied, "", "blocked: "+d.message, nil, detail), e.opts.Logf)
+	}
 }
 
 // botCard is the card parked in Needs you for a call a bot's mode holds. It

@@ -67,10 +67,20 @@ var botNever = map[string]string{
 }
 
 // botOwn are the tools that stay inside the Bot (plan 7.5: timely_bot, skills,
-// memory). Allowed in every mode.
+// memory) and the Timely read tools a bot may call (the Bot's notes, findings
+// and history, docs, sheets, tasks and calendar reads). Allowed in every mode.
+// A Timely write is not here: it is unknown, blocked, and a bot proposes it
+// through bot_report instead (Q-B5).
 var botOwn = map[string]bool{
 	"bot_note_get": true, "bot_note_set": true, "bot_note_delete": true, "bot_report": true,
 	"skill_view": true, "skills_list": true, "memory": true, "skill_manage": true,
+
+	"get_context": true, "search": true, "semantic_search": true,
+	"list_bots": true, "get_bot": true, "list_bot_findings": true,
+	"list_docs": true, "get_doc": true, "list_sheets": true, "get_sheet": true,
+	"list_tasks": true, "get_task": true, "list_inbox": true, "get_today": true, "get_agenda": true,
+	"list_projects": true, "get_project": true, "list_workspaces": true, "get_workspace": true,
+	"list_events": true, "get_event": true, "get_calendar": true,
 }
 
 // BotBlockUnknown is the block message for a tool with no bot rule.
@@ -180,7 +190,22 @@ type BotGateIn struct {
 	Mode    Mode
 	Tainted bool
 	Hosts   BotHosts
+	// MCP is set for a tool of an MCP server; Tool then names that tool.
+	// MCPServer is the server, MCPMode the Bot's setting for it (BotMCPUse,
+	// BotMCPAsk or BotMCPOff) and MCPReadOnly whether chat's classifier reads
+	// the tool as a read (annotations and name).
+	MCP         bool
+	MCPServer   string
+	MCPMode     string
+	MCPReadOnly bool
 }
+
+// The Bot's setting per MCP server (AgentTools.MCP).
+const (
+	BotMCPUse = "use"
+	BotMCPAsk = "ask"
+	BotMCPOff = "off"
+)
 
 // BotGateOut is Go's answer.
 type BotGateOut struct {
@@ -228,6 +253,12 @@ func BotGate(in BotGateIn) BotGateOut {
 		}
 		return BotGateOut{Verdict: BotApprove, Reason: prefix + ": " + why}
 	}
+	if in.MCP {
+		if ClassifyBotTool(in.Tool) == BotToolNever {
+			return block(BotNeverMessage(in.Tool))
+		}
+		return botMCPGate(in, block, park)
+	}
 	switch ClassifyBotTool(in.Tool) {
 	case BotToolNever:
 		return block(BotNeverMessage(in.Tool))
@@ -272,4 +303,48 @@ func BotGate(in BotGateIn) BotGateOut {
 		return park("a script or action in your signed-in browser")
 	}
 	return block(BotBlockUnknown)
+}
+
+// botMCPGate is the rule for a tool of an MCP server in a bot run: the Bot's
+// setting for the server (off blocks), a URL only to a bot host, a read-only
+// tool runs, and a tool that may change something is blocked once the tick has
+// read outside content, and before that waits in Needs you (Supervised and
+// Auto) or runs under Full Access once stepped up. "Ask me first" parks every
+// call, Full Access included, as it does in chat.
+func botMCPGate(in BotGateIn, block, park func(string) BotGateOut) BotGateOut {
+	server := in.MCPServer
+	if server == "" {
+		server = "this app"
+	}
+	full := in.Mode == Full
+	switch in.MCPMode {
+	case BotMCPUse, BotMCPAsk:
+	default:
+		return block("You turned " + server + " off for this bot")
+	}
+	offHost := false
+	for _, u := range in.URLs {
+		if in.Hosts.Fetch(u, in.Tainted) {
+			continue
+		}
+		if !full {
+			return block("This bot may only send " + server + " addresses on the sites it watches, the sites you granted its browser and its egress list")
+		}
+		offHost = true
+	}
+	ask := in.MCPMode == BotMCPAsk
+	askFirst := BotGateOut{Verdict: BotApprove, Reason: "You set " + server + " to Ask me first"}
+	switch {
+	case in.MCPReadOnly && ask:
+		return askFirst
+	case in.MCPReadOnly && offHost:
+		return BotGateOut{Verdict: BotAllow, Reason: "Full Access: " + server + " given any address", Lifted: true}
+	case in.MCPReadOnly:
+		return BotGateOut{Verdict: BotAllow, Reason: "A read-only tool of " + server}
+	case in.Tainted && !full:
+		return block("After reading outside pages a bot can only use read-only tools of " + server + ": a change could carry what it read out. Say what is needed in the report")
+	case ask:
+		return askFirst
+	}
+	return park("a tool of " + server + " that may change something")
 }
