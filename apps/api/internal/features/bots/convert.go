@@ -1,8 +1,11 @@
 package bots
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // SkillProductPriceMonitor is the skill a converted Bot with a shop price
@@ -26,14 +29,69 @@ type Conversion struct {
 }
 
 // ConvertBot writes a rules Bot as an agent Bot: ConvertPrompt, with the
-// gate the Bot's Reads call for.
+// gate the Bot's Reads call for. A brief has no Reads: its gate is always.
 func ConvertBot(b Bot, ws []Watch) Conversion {
 	prompt, sched, skills := ConvertPrompt(b, ws)
 	gate := GateChanged
-	if len(ws) == 0 {
+	if len(ws) == 0 || b.Kind == KindBrief {
 		gate = GateAlways
 	}
 	return Conversion{Prompt: prompt, Schedule: sched, Skills: skills, Gate: gate}
+}
+
+// briefConvertPrompt is the agent prompt a converted brief runs: the Bot's
+// name and description, then the sum-up request. The source Bots' notes since
+// the last brief arrive with each run as data, so the prompt names none.
+const briefConvertPrompt = "Sum up what these bots found since the last brief, from the notes you are given. " +
+	"Group them by bot, most important first, in a few short lines. Look nothing up."
+
+// convertBriefPrompt writes a brief as a prompt, a schedule and no skills
+// (plan 7.8). Its daily time becomes schedule.daily_at; the zone is the Bot's,
+// set by the caller.
+func convertBriefPrompt(b Bot) (string, Schedule, []string) {
+	var parts []string
+	if name := sentenceEnd(b.Name); name != "" {
+		parts = append(parts, name)
+	}
+	if d := strings.TrimSpace(b.Description); d != "" && !strings.EqualFold(d, strings.TrimSpace(b.Name)) {
+		parts = append(parts, sentenceEnd(d))
+	}
+	parts = append(parts, briefConvertPrompt)
+	at := b.BriefTime
+	if !briefTimeRe.MatchString(at) {
+		at = DefaultBriefTime
+	}
+	return strings.Join(parts, " "), Schedule{DailyAt: at}, []string{}
+}
+
+// briefConversionOf works out a brief's conversion and the agent fields it
+// becomes, the same for the preview and the approval (the brief's side of
+// conversionOf). A brief with no time zone of its own gets the account's
+// notification zone, so its daily time runs in the person's zone.
+func briefConversionOf(db *gorm.DB, b Bot) (ConversionView, AgentFields, error) {
+	if b.Engine == EngineAgent {
+		return ConversionView{}, AgentFields{}, errConvertDone
+	}
+	tz := strings.TrimSpace(b.Timezone)
+	if tz == "" {
+		var err error
+		if tz, err = notificationZone(db, b.UserID); err != nil {
+			return ConversionView{}, AgentFields{}, err
+		}
+	}
+	conv := ConvertBot(b, nil)
+	sched, err := json.Marshal(conv.Schedule)
+	if err != nil {
+		return ConversionView{}, AgentFields{}, err
+	}
+	f, err := CleanAgent(AgentInput{Prompt: &conv.Prompt, Schedule: sched, Timezone: &tz, Skills: &conv.Skills, Gate: &conv.Gate}, nil, nil, OriginApp)
+	if err != nil {
+		return ConversionView{}, AgentFields{}, err
+	}
+	return ConversionView{
+		BotID: b.ID, Engine: b.Engine, Prompt: f.Prompt, Schedule: f.Schedule.Map(), IntervalMinutes: f.IntervalSeconds / 60,
+		Skills: f.Skills, Gate: f.Gate, Timezone: f.Timezone,
+	}, f, nil
 }
 
 // ConvertPrompt writes a rules Bot as a prompt, a schedule and skills. The
@@ -44,6 +102,9 @@ func ConvertBot(b Bot, ws []Watch) Conversion {
 // "in stock or not". The schedule is the Bot's interval, raised to the floor
 // of its Reads; skills are product-price-monitor when it reads a shop price.
 func ConvertPrompt(b Bot, ws []Watch) (string, Schedule, []string) {
+	if b.Kind == KindBrief {
+		return convertBriefPrompt(b)
+	}
 	var parts []string
 	if name := sentenceEnd(b.Name); name != "" {
 		parts = append(parts, name)

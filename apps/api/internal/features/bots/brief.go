@@ -225,6 +225,11 @@ type briefWrite struct {
 	body    string
 	aiState string
 	aiWhy   string
+	// run is the agent run behind the words, kept on the Check; nil for a
+	// brief the Agent was not asked to write. skip is SkipNoAI when it could
+	// not be asked.
+	run  *RunRecord
+	skip string
 }
 
 // withoutName drops each leading "<name>:" from an AI-written title, since
@@ -271,13 +276,87 @@ func (s *Service) runBrief(ctx context.Context, c checkRun) error {
 	if d.n > 0 {
 		w.what, w.body = d.template()
 		w.title = w.what
-		if b.BriefAI {
+		switch {
+		case b.Engine == EngineAgent:
+			// A converted brief is an agent run over its sources' notes; the
+			// template stays as the fallback (plan 7.8).
+			if err := s.writeAgentBrief(ctx, c, d, &w); err != nil {
+				return err
+			}
+		case b.BriefAI:
 			if err := s.writeBrief(ctx, b, d, &w); err != nil {
 				return err
 			}
 		}
 	}
 	return s.saveBrief(ctx, c, until, d, w)
+}
+
+// passed is the notes a brief's agent run is handed as data: each source's
+// notes since the last brief, named for their Bot (the run sees no Bot ids).
+func (d briefDigest) passed() []Finding {
+	var out []Finding
+	for _, g := range d.groups {
+		for _, f := range g.notes {
+			f.Title = clipRunes(g.bot.Name+": "+f.Title, maxBriefLine)
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// writeAgentBrief has the Agent sum up a converted brief's source notes,
+// within one tick: the notes go in as RunInput.Passed. It is the one place
+// the plan lets a brief fall back to the rules' template (Q-B3's "no rules
+// fallback" does not apply): with no AI provider, an outage, or a run that
+// says nothing usable, w keeps the template's words, marked unchecked with
+// why, and the brief goes out. Only database errors are returned.
+func (s *Service) writeAgentBrief(ctx context.Context, c checkRun, d briefDigest, w *briefWrite) error {
+	b := c.bot
+	w.aiState = aiUnchecked
+	if s.agent == nil {
+		w.aiWhy, w.skip = noteNoProvider, SkipNoAI
+		return nil
+	}
+	now := s.now().UTC()
+	// A brief starts no chain, and an agent run has no daily caps (Q-B7).
+	callID, err := s.reserveAI(ctx, b, "", purposeRun, now)
+	if err != nil {
+		return err
+	}
+	in, err := s.runInput(ctx, c, nil, nil)
+	if err != nil {
+		s.markAI(callID, false, false)
+		return err
+	}
+	in.Passed = d.passed()
+	if more := d.n - len(in.Passed); more > 0 {
+		in.Prompt += fmt.Sprintf("\n\n%d more notes were left out.", more)
+	}
+	rctx, cancel := context.WithTimeout(ctx, AgentRunDeadline+agentRunGrace)
+	res, rerr := s.agent.Run(rctx, b.UserID, in)
+	cancel()
+	run := agentRun{res: res, err: rerr, class: runClass(res, rerr), model: in.Model}
+	run.ran = run.class != classNoAI
+	s.markAI(callID, run.class == "", run.ran)
+	w.run = runRecordOf(run)
+	switch {
+	case run.class == classNoAI:
+		w.aiWhy, w.skip = s.offNote(ctx, b.UserID), SkipNoAI
+	case run.class != "":
+		w.aiWhy = noteBriefLater
+	default:
+		reports := cleanReports(run)
+		if len(reports) == 0 || reports[0].Body == "" {
+			w.aiWhy = noteBriefLater
+			break
+		}
+		if title := clipRunes(withoutName(reports[0].Title, b.Name), maxFindingTitle); title != "" {
+			w.title = title
+		}
+		w.body, w.aiState, w.aiWhy = cleanBody(reports[0].Body), aiJudged, ""
+	}
+	return nil
 }
 
 // writeBrief asks AI to word a brief, within the caps. Any failure leaves
@@ -357,6 +436,7 @@ func (s *Service) saveBrief(ctx context.Context, c checkRun, until time.Time, d 
 			StartedAt: c.started, FinishedAt: done, Outcome: outUnchanged, Fired: jsonList[FiredRule]{},
 		}
 		check.AwaySecs, check.AwayReason = awayOf(b)
+		check.Run, check.SkipReason = w.run, w.skip
 		alertID := ""
 		if d.n > 0 {
 			alertID = utils.PrefixedUUID("bal")
@@ -382,7 +462,13 @@ func (s *Service) saveBrief(ctx context.Context, c checkRun, until time.Time, d 
 			}
 			// A brief may start up to FenceSlack before its time: the next
 			// run is the next day's, not this one again.
-			next := nextBriefAt(loc, b.BriefTime, done.Add(FenceSlack)).Add(s.jitter(briefSpread))
+			after := done.Add(FenceSlack)
+			next := nextBriefAt(loc, b.BriefTime, after).Add(s.jitter(briefSpread))
+			if b.Engine == EngineAgent {
+				// A converted brief follows its schedule (its daily time, until
+				// the person edits it) in its own zone.
+				next = s.agentNextAt(b, nil, loc, after)
+			}
 			set["next_check_at"] = maxTime(next, c.spaced())
 		}
 		if err := tx.Model(&Bot{}).Where("id = ?", b.ID).Updates(set).Error; err != nil {
