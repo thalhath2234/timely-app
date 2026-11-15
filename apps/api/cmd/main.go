@@ -160,7 +160,9 @@ func main() {
 	// own and never hold up reminders, pushes or each other.
 	jobWorker.Separate(models.JobReindexUser)
 	jobWorker.Separate(models.JobIndexEntity)
-	jobWorker.SeparateN(bots.CheckSlots, models.JobBotCheck)
+	// Agent ticks are long runs, so the lane holds bots.AgentCheckSlots
+	// (wireBotThreads sets the same number on the service).
+	jobWorker.SeparateN(bots.AgentCheckSlots, models.JobBotCheck)
 	// Re-judges and passed items share one slot of their own.
 	jobWorker.Separate(models.JobBotPass, models.JobBotJudge)
 	// A site logo can wait on robots.txt, a home page and the logo itself,
@@ -270,6 +272,9 @@ func main() {
 		return chatCatalog(db, live, providerService.EmbedCredentials, botService)
 	}, providerService, live)
 	agentEngine := agentStack.engine
+	// Bots run on the agent engine and post alerts into their Bot threads;
+	// this is before the job worker starts.
+	wireBotThreads(db, chatService, botService, agentEngine)
 	applyAgentLimits(instanceStore, agentStack.sup)
 	// Backups carry the account's agent state (plan 6.5): memory, learned
 	// skills, staged writes and chat sessions.

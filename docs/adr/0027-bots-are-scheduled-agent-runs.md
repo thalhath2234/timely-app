@@ -1,6 +1,6 @@
 # Bots are scheduled agent runs
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ADR 0021 and ADR 0024 built Bots as plain-code rules that spot a change and an
