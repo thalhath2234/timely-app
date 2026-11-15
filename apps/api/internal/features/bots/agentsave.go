@@ -835,14 +835,13 @@ type ConversionView struct {
 	Timezone        string               `json:"timezone"`
 }
 
-var errConvertBrief = invalid("A brief is not switched to an agent: it already sums up other bots")
 var errConvertDone = invalid("This bot is already an agent")
 
 // conversionOf works out a rules Bot's conversion and the agent fields it
 // becomes, the same for the preview and the approval.
 func conversionOf(db *gorm.DB, b Bot, ws []Watch) (ConversionView, AgentFields, error) {
 	if b.Kind == KindBrief {
-		return ConversionView{}, AgentFields{}, errConvertBrief
+		return briefConversionOf(db, b)
 	}
 	if b.Engine == EngineAgent {
 		return ConversionView{}, AgentFields{}, errConvertDone
