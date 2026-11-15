@@ -2037,15 +2037,15 @@ Marked by the phase that needs the answer.
 **Phase 6-7**
 
 - (Q-B1 moved to phase 0.)
-- Q-B2 Browser in bot runs: Timely's read-only `bot_browse` (open a page on a granted site and read it; no scripts, no clicking, no forms) under a standing, site-scoped grant approved at create/edit (recommended), or live approval each time (stops browser bots between approvals)? Confirm: no terminal or file tools in bot runs, and bots may fetch only their own sites unless you add hosts.
-- Q-B10 May a bot use what Timely knows about you (memory and About you) when you switch that on per bot (recommended: off by default, never past-chat search in bots)?
-- Q-B3 No AI provider or an outage: bots record readings and do nothing (recommended), or keep the old rule as an emergency fallback alert?
-- Q-B4 Conversion: add "and it can be bought (in stock)" to product price rules (fixes the Pixel case); approve each converted bot or bulk?
-- Q-B5 Can a bot run propose Timely writes (create a task from a finding) as a Review card inside the alert, or strictly read-and-alert?
-- Q-B6 Delivery: Timely notifications only (recommended), or also post into a chat thread or the Inbox?
-- Q-B7 Caps: keep today's 20 runs per bot and 200 per account per day (recommended), raise the per-bot cap to 24, add a per-bot setting, or a token budget?
-- Q-B8 Bots learning: never, or staged suggestions only, including feedback reviews (recommended; nothing a bot learns applies until you tap Keep)?
-- Q-B9 Turn Hermes blueprints (morning brief, bill renewal, competitor watch, weekly review) into Timely starters now, even those needing connectors Timely lacks?
+- Q-B2 Browser in bot runs: Timely's read-only `bot_browse` (open a page on a granted site and read it; no scripts, no clicking, no forms) under a standing, site-scoped grant approved at create/edit (recommended), or live approval each time (stops browser bots between approvals)? Confirm: no terminal or file tools in bot runs, and bots may fetch only their own sites unless you add hosts. **Answered 2026-11-15: Hermes' browser tools, brought in as Timely tools for bots, on the real signed-in profile (amends Q-5.3's "bots never" and section 7.5's `bot_browse`). Every script, typed input or submit a bot run makes parks in Needs you for approval; reading a page on a granted site does not. No terminal or file tools in bot runs, and bots fetch only their own sites unless the owner adds hosts.**
+- Q-B10 May a bot use what Timely knows about you (memory and About you) when you switch that on per bot (recommended: off by default, never past-chat search in bots)? **Answered 2026-11-15: a per-bot switch, off by default; never past-chat search in bots.**
+- Q-B3 No AI provider or an outage: bots record readings and do nothing (recommended), or keep the old rule as an emergency fallback alert? **Answered 2026-11-15: record readings and do nothing (no fallback alert).**
+- Q-B4 Conversion: add "and it can be bought (in stock)" to product price rules (fixes the Pixel case); approve each converted bot or bulk? **Answered 2026-11-15: add the in-stock clause; the owner approves each converted bot one at a time.**
+- Q-B5 Can a bot run propose Timely writes (create a task from a finding) as a Review card inside the alert, or strictly read-and-alert? **Answered 2026-11-15: a bot run may propose Timely writes as a Review card inside the alert; nothing runs until approved.**
+- Q-B6 Delivery: Timely notifications only (recommended), or also post into a chat thread or the Inbox? **Answered 2026-11-15: Timely notifications and also a chat thread per bot (each alert is posted into that bot's thread).**
+- Q-B7 Caps: keep today's 20 runs per bot and 200 per account per day (recommended), raise the per-bot cap to 24, add a per-bot setting, or a token budget? **Answered 2026-11-15: no run cap (the 20 per bot and 200 per account per day caps are removed for agent bots).**
+- Q-B8 Bots learning: never, or staged suggestions only, including feedback reviews (recommended; nothing a bot learns applies until you tap Keep)? **Answered 2026-11-15: staged suggestions only, feedback reviews included; nothing applies until Keep.**
+- Q-B9 Turn Hermes blueprints (morning brief, bill renewal, competitor watch, weekly review) into Timely starters now, even those needing connectors Timely lacks? **Answered 2026-11-15: all of them now; a starter that needs a connector Timely lacks says what it needs and stays off until it exists.**
 
 ---
 
