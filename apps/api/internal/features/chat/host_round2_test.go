@@ -189,8 +189,15 @@ func TestAutoAsksForScriptsAndTheOtherGaps(t *testing.T) {
 func TestTerminalGrantFiresAfterLocalOutputTaint(t *testing.T) {
 	ask := askOf("terminal", map[string]any{"command": "git status --short"})
 	for _, mode := range []agent.Mode{agent.Supervised, agent.Auto} {
+		// In Auto a read-only line needs no grant at all after local output
+		// (TestAutoRunsReadOnlyLinesAfterOutsideContent); the grant is for a
+		// command off the allowlist.
+		ask, grantCmd := ask, "git status"
+		if mode == agent.Auto {
+			ask, grantCmd = askOf("terminal", map[string]any{"command": "touch x"}), "touch x"
+		}
 		st := baseState(mode)
-		st.grants = HostGrants{*commandGrant("git status")}
+		st.grants = HostGrants{*commandGrant(grantCmd)}
 		st.tainted, st.taintedLocal = true, true
 		d, _ := decideHost(context.Background(), ask, st)
 		if d.verdict != "allow" || d.by != "grant" {
@@ -203,7 +210,7 @@ func TestTerminalGrantFiresAfterLocalOutputTaint(t *testing.T) {
 			t.Errorf("%s: no grant yet: %s grantable %v", mode, d.verdict, d.card.Grantable)
 		}
 		// outside content in the taint: a card, and no grant
-		st.grants = HostGrants{*commandGrant("git status")}
+		st.grants = HostGrants{*commandGrant(grantCmd)}
 		st.taintedLocal = false
 		d, _ = decideHost(context.Background(), ask, st)
 		if d.verdict != "approve" || d.card.CriticalItem != agent.CriticalTainted || d.card.Grantable {

@@ -226,8 +226,15 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 	// output taints the chat (the worker marks terminal and file results), and
 	// without this a terminal grant could never fire a second time (Q-5.1).
 	// Pages, a browser or an MCP result keep every call a card.
+	//
+	// A terminal line Auto's allowlist runs on its own is a read, like
+	// read_file: it reads inside the working folder, touches no secret and
+	// changes nothing, so a chat that already read something (every terminal
+	// result taints the chat) is not held on it. Without this only the first
+	// command in a chat could ever run without a card.
 	taintHold := false
-	if !critical && st.tainted {
+	readOnly := st.mode == agent.Auto && !critical && st.tainted && ask.Tool == "terminal" && autoAsks(ask.Tool, d.card.Stdin, d.action, st) == ""
+	if !critical && st.tainted && !readOnly {
 		scope.Tainted = true
 		if i, w, c := agent.CriticalHost(d.action, scope); c {
 			item, why, critical, taintHold = i, w, true, true
@@ -299,14 +306,16 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 
 // autoAsks says why Auto asks for a terminal command, or for text typed into
 // a running command (stdin: the card hostCall built says so), that is off the
-// critical list: Auto runs on its own only a line agent.AutoSafeCommand
-// accepts. Typed text is judged with no folder (the running program may be
-// anywhere). "" for every other call.
+// critical list: Auto runs on its own only a terminal line
+// agent.AutoSafeCommand accepts. Typed text always asks: Timely can't see what
+// the running program is, and a program that is not a shell reads a line its
+// own way (psql runs the rest of a line after \! as a shell command, so
+// `echo \! rm -rf ~` would not be an echo). "" for every other call.
 func autoAsks(tool string, stdin bool, action agent.HostAction, st hostState) string {
 	scope := agent.HostScope{Workspace: st.workingDir, Home: st.home, Cwd: action.Cwd}
 	switch {
 	case stdin:
-		scope.Cwd, scope.CwdUnknown = "", true
+		return "text typed into a running program means whatever that program makes of it"
 	case tool != "terminal":
 		return ""
 	}

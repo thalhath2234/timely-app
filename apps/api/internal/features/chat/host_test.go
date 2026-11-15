@@ -99,6 +99,8 @@ func TestDecideHost(t *testing.T) {
 	taintedGrantedRm.grants = HostGrants{*commandGrant("rm x")}
 	taintedGrantedAuto := tainted
 	taintedGrantedAuto.grants = HostGrants{*commandGrant("git status")}
+	taintedGrantedAutoTouch := tainted
+	taintedGrantedAutoTouch.grants = HostGrants{*commandGrant("touch x")}
 	mcpAsk := askOf("mcp_notes_create", map[string]any{"title": "x"})
 	mcpAsk.Toolset = "mcp-notes"
 	mcpSend := askOf("mcp_mail_send_email", map[string]any{"to": "a@b.c"})
@@ -151,7 +153,10 @@ func TestDecideHost(t *testing.T) {
 		// Since the allowlist (2026-11-15): "y" answers a prompt that may be
 		// "delete everything?", so Auto asks; typed text is never grantable.
 		{"auto asks before typing an answer into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "y"}), baseState(agent.Auto), "approve", 0, false, ""},
-		{"auto types a read-only command into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "echo ready"}), baseState(agent.Auto), "allow", 0, false, ""},
+		{"auto asks before typing even a read-only line into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "echo ready"}), baseState(agent.Auto), "approve", 0, false, ""},
+		{"auto asks before a psql backslash line typed into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "echo \\! rm -rf ~/Documents"}), baseState(agent.Auto), "approve", 0, false, ""},
+		{"auto runs a read-only command after outside content", askOf("terminal", map[string]any{"command": "git status"}), tainted, "allow", 0, false, ""},
+		{"auto still asks for a command that is not read-only after outside content", askOf("terminal", map[string]any{"command": "touch x"}), tainted, "approve", agent.CriticalTainted, false, ""},
 		{"auto asks before a runner", askOf("terminal", map[string]any{"command": "make test"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
 		{"auto asks before a command off the list, and a grant can cover it", askOf("terminal", map[string]any{"command": "mkdir out"}), baseState(agent.Auto), "approve", 0, true, ""},
 		{"auto asks before a redirection inside the folder", askOf("terminal", map[string]any{"command": "echo x > notes.md"}), baseState(agent.Auto), "approve", 0, false, ""},
@@ -179,7 +184,8 @@ func TestDecideHost(t *testing.T) {
 		{"supervised after outside content asks and is not grantable", askOf("terminal", map[string]any{"command": "git status"}), taintedSup, "approve", agent.CriticalTainted, false, ""},
 		{"a grant never covers a call after outside content, in supervised either", askOf("terminal", map[string]any{"command": "git status --short"}), taintedGranted, "approve", agent.CriticalTainted, false, ""},
 		{"a grant for a delete is no grant after outside content", askOf("terminal", map[string]any{"command": "rm -rf /tmp/x"}), taintedGrantedRm, "approve", agent.CriticalDeleting, false, ""},
-		{"auto after outside content is never granted", askOf("terminal", map[string]any{"command": "git status"}), taintedGrantedAuto, "approve", agent.CriticalTainted, false, ""},
+		{"auto after outside content: a grant is not needed for a read-only command", askOf("terminal", map[string]any{"command": "git status"}), taintedGrantedAuto, "allow", 0, false, ""},
+		{"auto after outside content is never granted", askOf("terminal", map[string]any{"command": "touch x"}), taintedGrantedAutoTouch, "approve", agent.CriticalTainted, false, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			d, ok := decideHost(ctx, c.ask, c.st)
