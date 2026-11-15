@@ -251,6 +251,10 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 		// names no list item (the browser asks even in Full Access).
 		critical, why, item = true, forced, 0
 	}
+	autoWhy := ""
+	if st.mode == agent.Auto && !critical {
+		autoWhy = autoAsks(ask.Tool, d.card.Stdin, d.action, st)
+	}
 	switch st.mode {
 	case agent.Full:
 		if critical && browser {
@@ -261,9 +265,14 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 			d.verdict, d.reason, d.by = "allow", "Full Access", "full"
 		}
 	case agent.Auto:
-		if critical {
+		switch {
+		case critical:
 			d.verdict, d.reason = "approve", why
-		} else {
+		case autoWhy != "":
+			// Off the critical list but not on Auto's read-only allowlist
+			// (owner decision 2026-11-15): a card a grant can still cover.
+			d.verdict, d.reason = "approve", agent.AutoAsksReason+": "+autoWhy
+		default:
 			d.verdict, d.reason, d.by = "allow", "Auto", "auto"
 		}
 	default:
@@ -286,6 +295,25 @@ func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, b
 		d.grant = nil
 	}
 	return d, true
+}
+
+// autoAsks says why Auto asks for a terminal command, or for text typed into
+// a running command (stdin: the card hostCall built says so), that is off the
+// critical list: Auto runs on its own only a line agent.AutoSafeCommand
+// accepts. Typed text is judged with no folder (the running program may be
+// anywhere). "" for every other call.
+func autoAsks(tool string, stdin bool, action agent.HostAction, st hostState) string {
+	scope := agent.HostScope{Workspace: st.workingDir, Home: st.home, Cwd: action.Cwd}
+	switch {
+	case stdin:
+		scope.Cwd, scope.CwdUnknown = "", true
+	case tool != "terminal":
+		return ""
+	}
+	if ok, why := agent.AutoSafeCommand(action.Command, scope); !ok {
+		return why
+	}
+	return ""
 }
 
 // paymentLike is agent.paymentURL's rule for text that may hold a URL.

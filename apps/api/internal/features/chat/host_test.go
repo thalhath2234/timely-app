@@ -148,7 +148,17 @@ func TestDecideHost(t *testing.T) {
 		{"auto item 4: a wrapped install", askOf("terminal", map[string]any{"command": "bash -c 'pip install evilpkg'"}), baseState(agent.Auto), "approve", agent.CriticalInstalling, false, ""},
 		{"auto item 1: typing a delete into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "rm -rf ~/Documents"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
 		{"auto item 1: typing a delete with the process tool", askOf("process", map[string]any{"action": "write", "session_id": "proc_1", "data": "rm -rf ~/Documents\n"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
-		{"auto typing a harmless answer into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "y"}), baseState(agent.Auto), "allow", 0, false, ""},
+		// Since the allowlist (2026-11-15): "y" answers a prompt that may be
+		// "delete everything?", so Auto asks; typed text is never grantable.
+		{"auto asks before typing an answer into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "y"}), baseState(agent.Auto), "approve", 0, false, ""},
+		{"auto types a read-only command into a running command", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "echo ready"}), baseState(agent.Auto), "allow", 0, false, ""},
+		{"auto asks before a runner", askOf("terminal", map[string]any{"command": "make test"}), baseState(agent.Auto), "approve", agent.CriticalDeleting, false, ""},
+		{"auto asks before a command off the list, and a grant can cover it", askOf("terminal", map[string]any{"command": "mkdir out"}), baseState(agent.Auto), "approve", 0, true, ""},
+		{"auto asks before a redirection inside the folder", askOf("terminal", map[string]any{"command": "echo x > notes.md"}), baseState(agent.Auto), "approve", 0, false, ""},
+		{"a grant covers a command off the list in auto", askOf("terminal", map[string]any{"command": "rm x"}), grantedAuto, "allow", 0, false, ""},
+		{"auto reads outside the working folder only on a card", askOf("terminal", map[string]any{"command": "cat /etc/hosts"}), baseState(agent.Auto), "approve", 0, true, ""},
+		{"auto runs git log", askOf("terminal", map[string]any{"command": "git log --oneline -5"}), baseState(agent.Auto), "allow", 0, false, ""},
+		{"process poll is not a command", askOf("process_manage", map[string]any{"action": "poll", "session_id": "proc_1"}), baseState(agent.Auto), "allow", 0, false, ""},
 		{"supervised typing into a running command is never grantable", askOf("process_manage", map[string]any{"action": "submit", "session_id": "proc_1", "data": "ls"}), baseState(agent.Supervised), "approve", 0, false, ""},
 		{"supervised polling a running command is grantable", askOf("process_manage", map[string]any{"action": "poll", "session_id": "proc_1"}), baseState(agent.Supervised), "approve", 0, true, ""},
 		{"full runs rm -rf", askOf("terminal", map[string]any{"command": "rm -rf /tmp/x"}), baseState(agent.Full), "allow", 0, false, ""},

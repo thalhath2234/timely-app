@@ -135,10 +135,15 @@ func TestRelativePathsFollowTheRealFolder(t *testing.T) {
 			t.Errorf("%s: %s item %d (%s)", name, d.verdict, d.card.CriticalItem, d.reason)
 		}
 	}
-	// the same commands inside the folder are fine
+	// the same commands inside the folder are off the critical list: since the
+	// allowlist (owner decision 2026-11-15) Auto still asks, on a card a grant
+	// can cover (not one with a shell operator), because rm is not a
+	// read-only command
 	for _, c := range []map[string]any{{"command": "rm scratch.txt"}, {"command": "rm scratch.txt", "workdir": "/home/me/work/sub"}, {"command": "cd sub && rm scratch.txt"}} {
-		if d := decideCall(t, baseState(agent.Auto), "terminal", c); d.verdict != "allow" {
-			t.Errorf("%v: %s (%s)", c, d.verdict, d.reason)
+		d := decideCall(t, baseState(agent.Auto), "terminal", c)
+		operator := strings.Contains(c["command"].(string), "&&")
+		if d.verdict != "approve" || d.card.CriticalItem != 0 || d.card.Grantable == operator || !strings.HasPrefix(d.reason, agent.AutoAsksReason) {
+			t.Errorf("%v: %s item %d grantable %v (%s)", c, d.verdict, d.card.CriticalItem, d.card.Grantable, d.reason)
 		}
 	}
 	// a grant for `rm` taken in one folder does not cover another folder (the
