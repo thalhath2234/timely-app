@@ -9,6 +9,7 @@
     "./agentChat": "./src/agentChat.ts",
     "./agentLearning": "./src/agentLearning.ts",
     "./agentMcp": "./src/agentMcp.ts",
+    "./assistant": "./src/assistant.ts",
     "./autosaveQueue": "./src/autosaveQueue.ts",
     "./bots": "./src/bots.ts",
     "./bulkEdit": "./src/bulkEdit.ts",
