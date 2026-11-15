@@ -678,6 +678,30 @@ func (s *Store) Pause(ctx context.Context, userID, idOrName string, reason strin
 	return s.view(ctx, userID, botID, now)
 }
 
+// newJitter is a fresh random source for the jitter of an interval schedule.
+func newJitter() *rand.Rand { return rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) }
+
+// agentResumeAt is when an agent Bot is next due after now by its schedule: an
+// interval gets the usual jitter and holds to the next open with MarketHours;
+// a daily or cron schedule goes by NextAgentCheck, with the floor of ws
+// applied. The zero Time for a Bot with no schedule.
+func agentResumeAt(b Bot, ws []Watch, now time.Time, r *rand.Rand) time.Time {
+	sched, err := ScheduleFromMap(b.Schedule)
+	if err != nil || sched.Kind() == "" {
+		return time.Time{}
+	}
+	var at time.Time
+	if sched.Kind() == ScheduleEvery {
+		at = NextCheck(AgentInterval(sched, ws), now, r)
+		if b.MarketHours && !MarketOpen(at) {
+			at = nextMarketOpen(at)
+		}
+	} else if at = NextAgentCheck(b, now, ws...); at.IsZero() {
+		return at
+	}
+	return maxTime(at, spacedAt(b.CheckStartedAt, AgentFloor(ws)))
+}
+
 // Resume turns a paused Bot on, due as soon as its floor allows, with
 // strikes cleared. Every watch
 // records a quiet baseline first, so nothing that changed while it was
@@ -705,6 +729,17 @@ func (s *Store) Resume(ctx context.Context, userID, id string, o Origin, now tim
 		// Due now, unless its last check was too recent for the floor; a
 		// brief at its next time.
 		next := maxTime(now, spacedAt(b.CheckStartedAt, Floor(ws)))
+		if b.Engine == EngineAgent {
+			// An agent Bot comes back on its own schedule, not at once.
+			if b.Timezone == "" {
+				if b.Timezone, err = notificationZone(tx, userID); err != nil {
+					return err
+				}
+			}
+			if at := agentResumeAt(b, ws, now, newJitter()); !at.IsZero() {
+				next = maxTime(at, next)
+			}
+		}
 		set := map[string]any{
 			"status": StatusActive, "pause_reason": nil, "strikes": 0, "health": HealthNew, "health_detail": "",
 			"offline_since": nil, "checking_job_id": nil, "next_check_at": next, "updated_at": now,
@@ -913,7 +948,7 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 			fired = []FiredRule{}
 		}
 		d.Checks = append(d.Checks, CheckView{ID: c.ID, Trigger: c.Trigger, StartedAt: c.StartedAt, Outcome: c.Outcome, ErrorKind: c.ErrorKind, Error: c.Error, Fired: fired,
-			Away: checkAway(c), Note: checkNote(c)})
+			Away: checkAway(c), Note: checkNote(c), Run: c.Run, GateSkipped: c.GateSkipped, SkipReason: c.SkipReason})
 	}
 	var alerts []Alert
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at DESC, id").Limit(detailRows).Find(&alerts).Error; err != nil {
