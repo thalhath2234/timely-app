@@ -331,6 +331,86 @@ func TestBotToolSchemasChatOnlyFields(t *testing.T) {
 	}
 }
 
+// create_bot and update_bot in chat take an agent bot's prompt, schedule,
+// skills, tools, gate, model and permission, reviewed on the card; over MCP the
+// schemas leave them out, since an outside app never widens a bot.
+func TestBotToolsTakeAgentFieldsInChatOnly(t *testing.T) {
+	agentFields := []string{"prompt", "schedule", "timezone", "skills", "tools", "permission", "gate", "marketHours", "modelProvider", "model"}
+	catalog := NewCatalog(Deps{})
+	for _, name := range []string{"create_bot", "update_bot"} {
+		raw, _ := json.Marshal(catalog[name].Parameters)
+		var schema map[string]any
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		props, _ := schema["properties"].(map[string]any)
+		for _, field := range agentFields {
+			if props[field] == nil {
+				t.Errorf("chat %s does not take %s", name, field)
+			}
+		}
+		tools, _ := props["tools"].(map[string]any)
+		toolProps, _ := tools["properties"].(map[string]any)
+		for _, field := range []string{"browserSites", "egress", "useMemory", "mcp"} {
+			if toolProps[field] == nil {
+				t.Errorf("chat %s tools do not take %s", name, field)
+			}
+		}
+		if !strings.Contains(catalog[name].Description, "agent bot") {
+			t.Errorf("chat %s does not describe agent bots: %q", name, catalog[name].Description)
+		}
+	}
+	ctx := context.Background()
+	server, clientSide := mcp.NewInMemoryTransports()
+	session, err := New(Deps{}).Connect(ctx, server, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	client, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientSide, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	listed, err := client.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		if tool.Name != "create_bot" && tool.Name != "update_bot" {
+			continue
+		}
+		raw, _ := json.Marshal(tool.InputSchema)
+		var schema map[string]any
+		_ = json.Unmarshal(raw, &schema)
+		props, _ := schema["properties"].(map[string]any)
+		for _, field := range agentFields {
+			if props[field] != nil {
+				t.Errorf("MCP %s takes %q", tool.Name, field)
+			}
+		}
+	}
+
+	// What chat proposes becomes the bot's AgentInput.
+	var in createBotChatIn
+	args := `{"name":"Pixel","watches":[],"prompt":"Tell me about the Pixel","schedule":{"dailyAt":"09:00","weekdays":[1,2]},"tools":{"browserSites":["shop.example"],"useMemory":true},"permission":"supervised","gate":"always"}`
+	if err := json.Unmarshal([]byte(args), &in); err != nil {
+		t.Fatal(err)
+	}
+	agentIn, err := in.botAgentIn.agentInput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agentIn.Prompt == nil || *agentIn.Prompt != "Tell me about the Pixel" || !strings.Contains(string(agentIn.Schedule), "dailyAt") ||
+		agentIn.Tools == nil || agentIn.Tools.UseMemory == nil || !*agentIn.Tools.UseMemory || agentIn.Tools.BrowserSites == nil ||
+		agentIn.Permission == nil || *agentIn.Permission != "supervised" || !agentIn.Set() {
+		t.Fatalf("agent input %+v", agentIn)
+	}
+	if empty, err := (botAgentIn{}).agentInput(); err != nil || empty.Set() {
+		t.Fatalf("a rules bot sets no agent field: %+v %v", empty, err)
+	}
+}
+
 // get_bot gives a Bot's judging, knowledge, links (with the target's name)
 // and brief settings, and nothing a check changes, such as today's passes.
 func TestSettingsOfCarriesAIAndLinks(t *testing.T) {
