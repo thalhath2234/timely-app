@@ -106,6 +106,9 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 		}
 		return retryDB(err)
 	}
+	if b.Engine == EngineAgent {
+		return s.handleAgent(ctx, job, b, prevStarted, ws, trigger, started)
+	}
 	readCtx, cancel := context.WithTimeout(ctx, CheckBudget)
 	reads := s.read(readCtx, b, ws, started)
 	cancel()
@@ -191,10 +194,12 @@ func (s *Service) claim(ctx context.Context, job *models.Job, botID, trigger str
 		return Bot{}, nil, nil, false, nil
 	}
 	ws, err := loadWatches(db, botID, false)
-	if err != nil || (len(ws) == 0 && rows[0].Kind != KindBrief) {
+	// A brief reads nothing, and an agent Bot may have no Reads: it runs on its
+	// schedule.
+	if err != nil || (len(ws) == 0 && rows[0].Kind != KindBrief && rows[0].Engine != EngineAgent) {
 		return Bot{}, nil, nil, false, err
 	}
-	floor := Floor(ws)
+	floor := botFloor(rows[0], ws)
 	prevStarted := rows[0].CheckStartedAt
 	provisional := maxTime(Provisional(rows[0].Interval(), now), spacedAt(&now, floor))
 	var claimed []Bot
@@ -224,6 +229,15 @@ WHERE id = @id AND user_id = @uid AND status = 'active' AND next_check_at < chec
 		return Bot{}, nil, nil, false, err
 	}
 	return claimed[0], prevStarted, ws, true, nil
+}
+
+// botFloor is the shortest gap between two checks of b: an agent Bot's floor
+// (a Bot with no Reads waits at least 15 minutes) or a rules Bot's.
+func botFloor(b Bot, ws []Watch) time.Duration {
+	if b.Engine == EngineAgent {
+		return AgentFloor(ws)
+	}
+	return Floor(ws)
 }
 
 // release hands a claimed Bot back on shutdown: due now, with its last start
@@ -1028,4 +1042,247 @@ func maxTime(a, b time.Time) time.Time {
 		return a
 	}
 	return b
+}
+
+// Agent ticks (ADR 0027, plan 7.3): Go keeps the schedule, the claim and the
+// record; the Agent runs the Bot's prompt once. Reading the Watches, the wake
+// gate, the run and its classification are here; saving is in agentsave.go.
+
+const (
+	// AgentRunDeadline is the wall clock one tick's run gets. The Agent holds
+	// itself to 120 s of inactivity and about 12 iterations inside it.
+	AgentRunDeadline = 5 * time.Minute
+	// agentRunGrace is how long past its deadline the Agent may take to hand
+	// back a result before Go stops waiting.
+	agentRunGrace = 30 * time.Second
+	// maxRunResponse bounds the response a check keeps (bot_checks.run).
+	maxRunResponse = 4 << 10
+	// cronFailure is the first line of a run that failed the way a Hermes cron
+	// job fails.
+	cronFailure = "[CRON_FAILURE]"
+	// classNoAI is the error kind of a tick with no AI provider to run on.
+	classNoAI = "no_ai"
+	// healthNeedsAI is the health code of an agent Bot with no AI to run on.
+	healthNeedsAI = "needs_ai"
+)
+
+// ErrNoAI is what Agent.Run returns when no AI provider is set up or chosen.
+// The tick then records the readings and sends no alert (Q-B3): there is no
+// rules fallback.
+var ErrNoAI = errors.New("bots: no AI provider")
+
+// agentLadder is how long an unreachable model waits before the same tick is
+// run again, without a strike: 5, 15, then 30 minutes (and 30 after that).
+var agentLadder = []time.Duration{5 * time.Minute, 15 * time.Minute, 30 * time.Minute}
+
+// agentRun is what one tick's run came to, before it is saved.
+type agentRun struct {
+	// ran is true when the Agent was asked and answered (even with a failure).
+	ran bool
+	res AgentResult
+	// err is Agent.Run's own error.
+	err error
+	// skip is why the Agent was not asked (Skip*), "" when it was.
+	skip string
+	// class is how the run ended: "" for a finished run, else a Class* value
+	// or classNoAI.
+	class string
+	// capped is true when the chain cap refused the call.
+	capped bool
+	diffs  []ReadingDiff
+	model  ModelChoice
+	// passed is the note a pass tick was handed, nil for a tick of its own.
+	passed *Finding
+}
+
+// agentCheckID is the Check an agent tick writes. It follows from the job, so
+// a retry of the same job is the same Check: the run's idempotency key.
+func agentCheckID(job *models.Job) string { return "bchk_" + job.ID }
+
+// handleAgent runs one claimed agent Bot's tick: read the Watches, apply the
+// wake gate, run the Agent, save the Check and what it found, post alerts into
+// the Bot thread.
+func (s *Service) handleAgent(ctx context.Context, job *models.Job, b Bot, prevStarted *time.Time, ws []Watch, trigger string, started time.Time) error {
+	readCtx, cancel := context.WithTimeout(ctx, CheckBudget)
+	reads := s.read(readCtx, b, ws, started)
+	cancel()
+	if ctx.Err() != nil {
+		s.release(b.ID, job.ID, prevStarted)
+		return nil
+	}
+	checkID := agentCheckID(job)
+	c := checkRun{job: job, bot: b, trigger: trigger, started: started, prevStarted: prevStarted, floor: AgentFloor(ws), reads: reads, checkID: checkID, chainID: checkID}
+	p, err := classify(reads)
+	switch {
+	case err != nil:
+		return jobs.RetryAfter(err, time.Minute)
+	case p != nil:
+		return retryDB(s.saveProblem(ctx, c, p))
+	}
+	run, err := s.runAgent(ctx, c, ws, nil)
+	if err != nil {
+		return jobs.RetryAfter(err, time.Minute)
+	}
+	if ctx.Err() != nil {
+		s.release(b.ID, job.ID, prevStarted)
+		return nil
+	}
+	posts, err := s.saveAgent(ctx, c, run)
+	if err != nil {
+		return jobs.RetryAfter(err, time.Minute)
+	}
+	s.postAlerts(ctx, b, posts)
+	s.askIcons(ctx, b.UserID, readWatches(reads))
+	return nil
+}
+
+// gateDiffs is what moved in each clean read since the reading that last woke
+// the Bot (Q-B1). A 304 and a restored Watch recording its baseline move
+// nothing; a Watch never read moves, so the first tick wakes the agent.
+func gateDiffs(reads []watchRead) []ReadingDiff {
+	var out []ReadingDiff
+	for _, r := range reads {
+		if r.err != nil || r.notMod || (r.w.BaselinePending && r.w.LastReading != nil) {
+			continue
+		}
+		out = append(out, GateDiff(r.w.ID, r.w.LastReading, clipReading(r.reading, MaxReadingBytes))...)
+	}
+	return out
+}
+
+// runAgent decides whether the Agent wakes and, when it does, runs it. passed
+// is the note a pass tick was handed (a pass tick has no gate). Only database
+// errors are returned; every other ending is in the agentRun.
+func (s *Service) runAgent(ctx context.Context, c checkRun, ws []Watch, passed *Finding) (agentRun, error) {
+	b := c.bot
+	run := agentRun{model: ModelChoice{Provider: b.ModelProvider, Model: b.Model}, passed: passed}
+	if passed == nil {
+		run.diffs = gateDiffs(c.reads)
+		// Run now and a tag's check ask for a run: they skip the gate.
+		wake := len(ws) == 0 || b.Gate == GateAlways || runsNow(c.trigger) || WakeAgent(run.diffs)
+		if !wake {
+			run.skip = SkipUnchanged
+			return run, nil
+		}
+	}
+	if s.agent == nil {
+		run.skip, run.class = SkipNoAI, classNoAI
+		return run, nil
+	}
+	// A chat holding the browser wins: a Check that needs it waits.
+	if len(b.Tools.BrowserSites) > 0 && s.agent.BrowserBusy(b.UserID) {
+		run.skip, run.class = SkipBrowserBusy, ClassBrowserBusy
+		return run, nil
+	}
+	now := s.now().UTC()
+	callID, err := s.reserveAI(ctx, b, c.chainID, purposeRun, now)
+	switch {
+	case errors.Is(err, errAICap):
+		run.capped = true
+		return run, nil
+	case err != nil:
+		return run, err
+	}
+	in, err := s.runInput(ctx, c, run.diffs, passed)
+	if err != nil {
+		s.markAI(callID, false, false)
+		return run, err
+	}
+	rctx, cancel := context.WithTimeout(ctx, AgentRunDeadline+agentRunGrace)
+	res, rerr := s.agent.Run(rctx, b.UserID, in)
+	cancel()
+	run.res, run.err = res, rerr
+	run.class = runClass(res, rerr)
+	run.ran = run.class != classNoAI
+	if run.class == classNoAI {
+		run.skip = SkipNoAI
+	}
+	if run.class == ClassBrowserBusy {
+		run.skip = SkipBrowserBusy
+	}
+	s.markAI(callID, run.class == "", run.ran)
+	return run, nil
+}
+
+// runClass is how a run ended: "" for one that finished.
+func runClass(res AgentResult, err error) string {
+	switch {
+	case errors.Is(err, ErrNoAI):
+		return classNoAI
+	case errors.Is(err, context.DeadlineExceeded):
+		return ClassTimeout
+	case err != nil:
+		// No worker, a broken pipe: the same as a model nobody can reach.
+		return ClassUnreachable
+	case res.ErrorClass != "":
+		return res.ErrorClass
+	case strings.HasPrefix(strings.TrimSpace(res.Response), cronFailure):
+		return ClassCronFailure
+	}
+	return ""
+}
+
+// runInput assembles what the Agent is handed: the Bot's prompt with the
+// time, its lessons, notes, last alert, the gate's diff and the readings, the
+// note a pass handed it, and the knowledge doc, if any.
+func (s *Service) runInput(ctx context.Context, c checkRun, diffs []ReadingDiff, passed *Finding) (RunInput, error) {
+	b := c.bot
+	db := s.db.WithContext(ctx)
+	now := s.now().UTC()
+	loc, err := localZone(db, b.UserID)
+	if err != nil {
+		return RunInput{}, err
+	}
+	var lessons []string
+	if err := db.Model(&Lesson{}).Where("bot_id = ? AND user_id = ?", b.ID, b.UserID).
+		Order("created_at DESC, id DESC").Limit(judgeLessons).Pluck("text", &lessons).Error; err != nil {
+		return RunInput{}, err
+	}
+	var last []Alert
+	if err := db.Where("bot_id = ? AND user_id = ? AND kind = ? AND held = ''", b.ID, b.UserID, alertKindAlert).
+		Order("created_at DESC, id DESC").Limit(1).Find(&last).Error; err != nil {
+		return RunInput{}, err
+	}
+	notes, err := NewNotesStore(s.db).Map(ctx, b.UserID, b.ID)
+	if err != nil {
+		return RunInput{}, err
+	}
+	readings := make(map[string]Reading, len(c.reads))
+	for _, r := range c.reads {
+		if r.err == nil {
+			readings[r.w.ID] = clipReading(r.reading, MaxReadingBytes)
+		}
+	}
+	tools := b.Tools
+	tools.BrowserSites = nonNil(tools.BrowserSites)
+	tools.Egress = nonNil([]string(b.Egress))
+	tools.UseMemory = b.UseMemory
+	if tools.MCP == nil {
+		tools.MCP = map[string]string{}
+	}
+	in := RunInput{
+		Bot:        b,
+		Prompt:     b.Prompt + "\n\nNow: " + judgeTime(now, loc) + " (" + loc.String() + ").",
+		Lessons:    lessons,
+		Notes:      notes,
+		Diff:       diffs,
+		Readings:   readings,
+		Skills:     []string(b.Skills),
+		Tools:      tools,
+		Permission: b.Permission,
+		UseMemory:  b.UseMemory,
+		Model:      ModelChoice{Provider: b.ModelProvider, Model: b.Model},
+		Deadline:   c.started.Add(AgentRunDeadline),
+		CheckID:    c.checkID,
+	}
+	if len(last) > 0 {
+		in.LastAlert = &last[0]
+	}
+	if passed != nil {
+		in.Passed = []Finding{*passed}
+	}
+	if k := s.readKnowledge(ctx, b); k != nil {
+		in.Knowledge = k.Text
+	}
+	return in, nil
 }

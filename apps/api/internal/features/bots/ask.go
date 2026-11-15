@@ -165,7 +165,7 @@ WHERE id = @id AND user_id = @uid AND (asked_at IS NULL OR asked_at < @since)`,
 	if err != nil {
 		return "", "", nil, err
 	}
-	floor := Floor(ws)
+	floor := botFloor(b, ws)
 	if at := spacedAt(b.CheckStartedAt, floor); at.After(now.Add(askSoon)) {
 		// No check started, so give the 5 minutes back: the next tag may
 		// check once the floor has passed.

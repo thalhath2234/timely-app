@@ -15,6 +15,9 @@ const (
 	purposeJudge   = "judge"
 	purposeRejudge = "rejudge"
 	purposeBrief   = "brief"
+	// purposeRun is an agent Bot's tick. Agent Bots have no daily run caps
+	// (Q-B7); only the chain cap holds.
+	purposeRun = "run"
 )
 
 // AICall is one AI call a Bot made (table bot_ai_calls): the daily caps and
@@ -35,8 +38,9 @@ func (AICall) TableName() string { return "bot_ai_calls" }
 
 // reserveAI takes one AI call for b before it is made, in its own short
 // transaction under the account's AI lock: errAICap when b has made
-// AIPerBot calls today, the account AIPerAccount, or the chain ChainAI
-// (whoever made them). Days are the notification zone's.
+// AIPerBot calls today, the account AIPerAccount (neither counts for an agent
+// run), or the chain ChainAI (whoever made them). Days are the notification
+// zone's.
 func (s *Service) reserveAI(ctx context.Context, b Bot, chainID, purpose string, now time.Time) (string, error) {
 	id := utils.PrefixedUUID("bai")
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -55,7 +59,10 @@ FROM bot_ai_calls WHERE user_id = @uid AND local_day = CAST(@day AS date)`,
 			sql.Named("bot", b.ID), sql.Named("uid", b.UserID), sql.Named("chain", chainID), sql.Named("day", day)).Scan(&n).Error; err != nil {
 			return err
 		}
-		if n.Bot >= AIPerBot || n.Account >= AIPerAccount || n.Chain >= ChainAI {
+		// An agent run is never refused by the per-Bot and per-account
+		// daily caps (Q-B7); the chain cap still bounds a chain of passes.
+		daily := purpose != purposeRun && (n.Bot >= AIPerBot || n.Account >= AIPerAccount)
+		if daily || n.Chain >= ChainAI {
 			return errAICap
 		}
 		return tx.Exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, chain_id, local_day, purpose, created_at) VALUES (?, ?, ?, ?, CAST(? AS date), ?, ?)`,

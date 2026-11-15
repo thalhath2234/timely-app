@@ -76,6 +76,31 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 		sql.Named("uid", userID), sql.Named("mcp", fromMCP)).Error; err != nil {
 		return err
 	}
+	// A restored agent Bot comes back with its reach switched off (Q-B2): a file
+	// grants no signed-in browser site and no extra host, so each is one tap
+	// to grant again. Its Bot thread is not in the file, so a thread it names
+	// that is not here is let go and made again when it is next needed.
+	if err := tx.Exec(`
+UPDATE bots SET tools = COALESCE(tools, '{}'::jsonb) || '{"browserSites": [], "egress": []}'::jsonb, egress = '[]'::jsonb
+WHERE user_id = ? AND engine = 'agent' AND (egress <> '[]'::jsonb OR COALESCE(tools->'browserSites', '[]'::jsonb) <> '[]'::jsonb
+   OR COALESCE(tools->'egress', '[]'::jsonb) <> '[]'::jsonb)`, userID).Error; err != nil {
+		return err
+	}
+	if err := tx.Exec(`
+UPDATE bots b SET thread_id = NULL
+WHERE b.user_id = ? AND b.thread_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM agent_conversations c WHERE c.id = b.thread_id AND c.bot_id = b.id)`, userID).Error; err != nil {
+		return err
+	}
+	// A proposal waiting on an alert is a write nobody approved here: one a
+	// file brings back is asked again, and an outside app brings none.
+	if fromMCP {
+		if err := tx.Exec(`UPDATE bot_alerts SET proposal = NULL, proposal_state = '' WHERE user_id = ? AND proposal_state <> ''`, userID).Error; err != nil {
+			return err
+		}
+	} else if err := tx.Exec(`UPDATE bot_alerts SET proposal_state = 'pending' WHERE user_id = ? AND proposal_state = 'approved'`, userID).Error; err != nil {
+		return err
+	}
 	// A brief reads nothing, so a file's watches under one go.
 	if err := tx.Exec(`DELETE FROM bot_watches w USING bots b WHERE b.id = w.bot_id AND b.user_id = ? AND b.kind = ?`, userID, KindBrief).Error; err != nil {
 		return err
@@ -113,8 +138,14 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 	for i, b := range bots {
 		set := map[string]any{}
 		brief := b.Kind == KindBrief
-		if floor := int(Floor(byBot[b.ID]) / time.Second); b.IntervalSeconds < floor && !brief {
+		if floor := int(botFloor(b, byBot[b.ID]) / time.Second); b.IntervalSeconds < floor && !brief {
 			set["interval_seconds"] = floor
+		}
+		// An outside app cannot give an agent Bot more reach than its own tools
+		// may: the Bot comes back on auto permission, with no memory, skills or
+		// model of its own.
+		if fromMCP && b.Engine == EngineAgent {
+			set["permission"], set["use_memory"], set["skills"], set["model_provider"], set["model"] = PermissionAuto, false, jsonList[string]{}, "", ""
 		}
 		if every := int(briefEvery / time.Second); brief && b.IntervalSeconds != every {
 			set["interval_seconds"] = every
@@ -144,6 +175,8 @@ WHERE b.user_id = @uid AND b.knowledge_kind <> '' AND (@mcp
 		switch {
 		case brief && len(sources[b.ID]) == 0:
 			detail = "This brief came back with no bots to sum up. Edit it to turn it on."
+		case b.Engine == EngineAgent && len(byBot[b.ID]) == 0:
+			// An agent Bot may have no Reads: it runs on its schedule.
 		case !brief:
 			detail = unusable(byBot[b.ID], hasKey)
 		}

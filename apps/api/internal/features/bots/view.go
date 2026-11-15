@@ -67,6 +67,21 @@ type View struct {
 	// the computer slept or Pause all was on while it was due (null when
 	// none).
 	Away *AwayView `json:"away"`
+	// The agent Bot's fields (contract AgentBotFields). A rules Bot shows its
+	// defaults: engine "rules" and an empty prompt.
+	Engine        string               `json:"engine"`
+	Prompt        string               `json:"prompt"`
+	Schedule      jsonMap[string, any] `json:"schedule"`
+	Timezone      string               `json:"timezone"`
+	Skills        []string             `json:"skills"`
+	Tools         AgentTools           `json:"tools"`
+	Permission    string               `json:"permission"`
+	Gate          string               `json:"gate"`
+	MarketHours   bool                 `json:"marketHours"`
+	ModelProvider string               `json:"modelProvider"`
+	Model         string               `json:"model"`
+	// ThreadID is the Bot thread, "" until it is made.
+	ThreadID string `json:"threadId"`
 }
 
 // AwayView is how long a Bot missed checks, and why: closed, asleep or
@@ -185,6 +200,12 @@ type CheckView struct {
 	// Note says why a held_stock check told nobody: "Price is below
 	// ₹90,000, but the page says it is out of stock". "" otherwise.
 	Note string `json:"note,omitempty"`
+	// An agent tick's own record: what the run said and did and what it spent,
+	// whether the changed gate kept it from waking, and why a tick did not run
+	// (browser_busy, no_ai, unchanged or duplicate). Service.Get fills them in.
+	Run         *RunRecord `json:"run,omitempty"`
+	GateSkipped bool       `json:"gateSkipped"`
+	SkipReason  string     `json:"skipReason"`
 }
 
 // checkNote is the first watch note of a check.
@@ -317,6 +338,21 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 	if v.Kind == "" {
 		v.Kind = KindWatch
 	}
+	v.Engine, v.Prompt, v.Timezone, v.Permission, v.Gate = b.Engine, b.Prompt, b.Timezone, b.Permission, b.Gate
+	v.MarketHours, v.ModelProvider, v.Model = b.MarketHours, b.ModelProvider, b.Model
+	v.Schedule, v.Skills, v.Tools = b.Schedule, []string(b.Skills), agentToolsOf(b)
+	if v.Engine == "" {
+		v.Engine = EngineRules
+	}
+	if v.Schedule == nil {
+		v.Schedule = jsonMap[string, any]{}
+	}
+	if v.Skills == nil {
+		v.Skills = []string{}
+	}
+	if b.ThreadID != nil {
+		v.ThreadID = *b.ThreadID
+	}
 	if v.Sources == nil {
 		v.Sources = []string{}
 	}
@@ -330,6 +366,19 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		v.Watches = append(v.Watches, watchView(w, bd.days[w.ID]))
 	}
 	return v
+}
+
+// agentToolsOf is a Bot's reach as the clients see it: the egress and memory
+// columns are the truth, the lists never null.
+func agentToolsOf(b Bot) AgentTools {
+	t := b.Tools
+	t.BrowserSites = nonNil(t.BrowserSites)
+	t.Egress = nonNil([]string(b.Egress))
+	t.UseMemory = b.UseMemory
+	if t.MCP == nil {
+		t.MCP = map[string]string{}
+	}
+	return t
 }
 
 func watchView(w Watch, days []dayClose) WatchView {
@@ -532,15 +581,15 @@ func dayChangePct(days []dayClose, r Reading) *float64 {
 // or waiting (no strike). Superseded checks are not shown (0).
 func stripMark(outcome string) byte {
 	switch outcome {
-	case outBaseline, outUnchanged, outNotModified:
+	case outBaseline, outUnchanged, outNotModified, outSilent:
 		return 'n'
-	case outChanged, outJudgedQuiet, outPassed, outHeldStock:
+	case outChanged, outJudgedQuiet, outPassed, outHeldStock, outDuplicate:
 		return 'c'
-	case outFired:
+	case outFired, outAlerted:
 		return 'f'
-	case outStrike:
+	case outStrike, outFailed:
 		return 'x'
-	case outOffline, outRateLimited, outSiteBusy, outRobots:
+	case outOffline, outRateLimited, outSiteBusy, outRobots, outSkipped, outBrowserBusy, outNoAI:
 		return 'o'
 	}
 	return 0

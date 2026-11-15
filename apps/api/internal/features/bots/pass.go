@@ -76,6 +76,11 @@ func (s *Service) HandlePass(ctx context.Context, job *models.Job) error {
 	if !ok {
 		return retryDB(s.foldPass(ctx, pc.pass))
 	}
+	// An agent Bot runs its prompt with the note as data; it reads nothing
+	// itself and its rules, if any, are not used.
+	if pc.bot.Engine == EngineAgent {
+		return s.passAgent(ctx, pc)
+	}
 	if err := s.readPass(ctx, db, pc); err != nil {
 		return jobs.RetryAfter(err, time.Minute)
 	}
