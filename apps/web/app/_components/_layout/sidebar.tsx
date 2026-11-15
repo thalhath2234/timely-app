@@ -3,11 +3,12 @@
 import { Plus, Search, LogOut } from "lucide-react";
 import SidebarButton from "@/app/_components/_ui/sidebarButton";
 import TimelyLogo from "@/app/_components/_ui/timelyLogo";
+import { SidebarProps, AddNewModeOptions } from "@/app/_types/types";
 import {
-  SidebarProps,
-  SIDEBAR_ITEMS,
-  AddNewModeOptions,
-} from "@/app/_types/types";
+  ASSISTANT_NAV_ITEM,
+  AssistantNavButton,
+  navItems,
+} from "@/app/_components/assistant/assistantNav";
 import { AnimatePresence, motion } from "motion/react";
 import { springSoft } from "@/app/_components/_ui/motion";
 import { useSidebarStore } from "@/app/_store/sidebarStore";
@@ -28,6 +29,9 @@ const addNewOptions: { lable: string; value: AddNewModeOptions }[] = [
   { lable: "Doc", value: "doc" },
   { lable: "Sheet", value: "sheet" },
 ];
+
+/** Assistant stands where Chat and Bots were. */
+const NAV_ITEMS = navItems();
 
 export default function Sidebar() {
   const {
@@ -104,7 +108,7 @@ export default function Sidebar() {
     {
       kind: "submenu",
       label: "Go to",
-      items: SIDEBAR_ITEMS.map((item) => ({
+      items: NAV_ITEMS.map((item) => ({
         kind: "action" as const,
         label: item.name,
         onSelect: () => {
@@ -208,7 +212,7 @@ export default function Sidebar() {
         <p className="border-b border-sidebar-border w-1/2"> </p>
       </div>
       <div className="flex flex-1 flex-col items-center gap-y-1 text-muted-foreground">
-        {SIDEBAR_ITEMS.map((item: SidebarProps) => {
+        {NAV_ITEMS.map((item: SidebarProps) => {
           const isActive = pathname.startsWith(item.href);
 
           return (
@@ -238,7 +242,11 @@ export default function Sidebar() {
                 )}
               </AnimatePresence>
 
-              <SidebarButton item={item} />
+              {item.name === ASSISTANT_NAV_ITEM.name ? (
+                <AssistantNavButton />
+              ) : (
+                <SidebarButton item={item} />
+              )}
             </div>
           );
         })}
