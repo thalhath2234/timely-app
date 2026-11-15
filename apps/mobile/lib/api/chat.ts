@@ -4,6 +4,7 @@ import { api } from "./client";
 import { isOffline } from "../networkState";
 import { deviceTimezone } from "../format";
 import type { Chat, ChatImage, PendingImage } from "../chat/types";
+import type { AgentBotFields } from "@timely/contract/bots";
 import type {
   AgentChatSettings,
   AgentChatSettingsPatch,
@@ -116,3 +117,107 @@ export const removeHostGrant = (id: string, key: string) =>
     `/${encodeURIComponent(id)}/host-grants/${encodeURIComponent(key)}`,
     "DELETE",
   );
+
+// ── Bot threads (phase 6): one per Bot, plus the thread a new Bot starts as ──
+
+/** A Review card on an alert: a Timely write the run proposed, held until Approve. */
+export type BotReviewCard = {
+  state: string;
+  summary: string;
+  steps: string[];
+  conversationId?: string;
+  messageId?: string;
+};
+
+export type BotThreadSummary = {
+  id: string;
+  kind: "bot_thread";
+  /** Empty for a new-Bot draft. */
+  botId?: string;
+  draft?: boolean;
+  title: string;
+  status: string;
+  unread: boolean;
+  updatedAt: string;
+  parkedSteps: number;
+  pendingChanges: number;
+  reviewCards: number;
+  needsYou: boolean;
+};
+
+export type BotThreadLine =
+  | { kind: "alert"; id: string; at: string; alertId: string; title: string; body: string; url?: string; review?: BotReviewCard }
+  | { kind: "change"; id: string; at: string; before: string; after: string; undoToken: string; undone?: boolean }
+  | {
+      kind: "pending_change";
+      id: string;
+      at: string;
+      before: string;
+      after: string;
+      reason: "browser_site" | "memory" | "permission";
+      /** "pending" until the person answers. */
+      state?: string;
+    }
+  | { kind: "answer"; id: string; at: string; text: string }
+  | { kind: "draft_setup"; id: string; at: string; name: string; fields: AgentBotFields };
+
+export type BotThreadView = {
+  thread: Chat;
+  summary: BotThreadSummary;
+  items: BotThreadLine[];
+};
+
+const threadPath = (id: string) => `/chat/bot-threads/${encodeURIComponent(id)}`;
+
+function writeThread<T>(path: string, body?: unknown): Promise<T> {
+  if (isOffline()) return Promise.reject(new Error("Reconnect to change a Bot."));
+  return api<T>(path, { method: "POST", body, queueIfOffline: false });
+}
+
+export async function listBotThreads(): Promise<BotThreadSummary[]> {
+  const body = await api<{ threads?: BotThreadSummary[] } | undefined>("/chat/bot-threads");
+  return body?.threads ?? [];
+}
+
+/** A Bot's thread (made when it has none), or a draft thread by its own id. */
+export const getBotThread = (botOrDraftId: string) => api<BotThreadView>(threadPath(botOrDraftId));
+
+/** Starts the thread a new Bot begins as; a request is its first message. */
+export const startBotDraft = (content?: string) =>
+  writeThread<BotThreadView>("/chat/bot-threads", { content, timezone: deviceTimezone(), client: "phone" });
+
+/** The person's message in a Bot thread: it changes the Bot at once, or answers from its history. */
+export const sendThreadMessage = (threadId: string, content: string, requestId: string) =>
+  writeThread<Chat>(`/chats/${encodeURIComponent(threadId)}/messages`, {
+    content,
+    requestId,
+    timezone: deviceTimezone(),
+    client: "phone",
+  });
+
+/** Undo one "Changed: X -> Y" with the token its line carried. */
+export const undoBotChange = (threadId: string, undoToken: string) =>
+  writeThread<{ line: string }>(`${threadPath(threadId)}/undo`, { undoToken });
+
+/** One tap on a change that widens the Bot (a new site, memory on, a looser mode). */
+export const resolveBotChange = (threadId: string, itemId: string, action: "approve" | "discard") =>
+  writeThread<BotThreadView>(`${threadPath(threadId)}/pending/${encodeURIComponent(itemId)}`, { action });
+
+/** "Create" on a new Bot's whole setup. */
+export const createBotFromDraft = (threadId: string) =>
+  writeThread<{ botId: string; thread: BotThreadView }>(`${threadPath(threadId)}/create`);
+
+/** "Do this in chat": a separate agent chat seeded from the alert; the same requestId gives the same chat. */
+export const doAlertInChat = (alertId: string, requestId: string, request?: string) =>
+  writeThread<{ conversationId: string }>(`/chat/bot-alerts/${encodeURIComponent(alertId)}/do-in-chat`, {
+    request,
+    requestId,
+    timezone: deviceTimezone(),
+    client: "phone",
+  });
+
+export type ReviewResult = { state: string; conversationId?: string; messageId?: string; error?: string };
+
+/** Approve or discard an alert's proposed Timely write; approval applies with a receipt and Undo. */
+export const reviewBotAlert = (alertId: string, action: "approve" | "discard") =>
+  writeThread<ReviewResult>(`/chat/bot-alerts/${encodeURIComponent(alertId)}/review`, { action });

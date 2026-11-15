@@ -8,7 +8,7 @@ import AutoScheduleBanner from "../../../components/ui/AutoScheduleBanner";
 import AnimatedPressable from "../../../components/ui/AnimatedPressable";
 import FloatingTabBar, { floatingTabBarInset } from "../../../components/ui/FloatingTabBar";
 import { subscribeQuickAdd, type QuickAddPreset } from "../../../lib/quickAddIntent";
-import { useBotsNeedYouCount } from "../../../lib/hooks";
+import { useAssistantNeedsCount } from "../../../components/assistant/useAssistantData";
 import { colors, createThemedStyleSheet, radius } from "../../../lib/theme";
 import { tabAnimation } from "../../../lib/motion";
 
@@ -18,10 +18,10 @@ export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
-  const needs = useBotsNeedYouCount();
-  // Dashboard's header has its own Add card +, and Bots its own New bot +; a second + would compete.
+  const needs = useAssistantNeedsCount();
+  // Dashboard's header has its own Add card +, and the Assistant its own New Bot +; a second + would compete.
   const hideFab =
-    pathname.endsWith("/more") || pathname.endsWith("/search") || pathname.endsWith("/dashboard") || pathname.endsWith("/bots");
+    pathname.endsWith("/more") || pathname.endsWith("/search") || pathname.endsWith("/dashboard") || pathname.endsWith("/assistant");
   const tabOffset = floatingTabBarInset(insets.bottom);
 
   useEffect(() => {
@@ -68,12 +68,12 @@ export default function TabLayout() {
           options={{ title: "Tasks", tabBarIcon: ({ color, size }) => <ListTodo size={size} color={color} /> }}
         />
         <Tabs.Screen
-          name="bots"
+          name="assistant"
           options={{
-            title: "Bots",
+            title: "Assistant",
             tabBarIcon: ({ color, size }) => <Bot size={size} color={color} />,
             tabBarBadge: needs || undefined,
-            tabBarAccessibilityLabel: needs ? `Bots, ${needs} need you` : "Bots",
+            tabBarAccessibilityLabel: needs ? `Assistant, ${needs} need you` : "Assistant",
           }}
         />
         <Tabs.Screen
@@ -84,6 +84,7 @@ export default function TabLayout() {
           name="files"
           options={{ title: "Files", tabBarIcon: ({ color, size }) => <FileText size={size} color={color} /> }}
         />
+        <Tabs.Screen name="bots" options={{ href: null, title: "Bots" }} />
         <Tabs.Screen name="more" options={{ href: null, title: "Settings" }} />
       </Tabs>
       {!hideFab ? (

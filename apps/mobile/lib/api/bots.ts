@@ -1,11 +1,16 @@
 import type {
+  AgentBotFields,
+  AgentBotTools,
   BotDetail,
+  BotGate,
   BotInput,
   BotPatch,
+  BotSchedule,
   BotSettings,
   BotsList,
   BotView,
   FeedbackInput,
+  Finding,
   LinkView,
   PreviewInput,
   PreviewResult,
@@ -95,6 +100,56 @@ export const setSourceKey = (source: string, key: string) =>
 
 export const removeSourceKey = (source: string) =>
   api<void>(`/bots/keys/${encodeURIComponent(source)}`, { method: "DELETE" });
+
+// ── Agent bots (engine 'agent', phase 6) ──
+
+/** A Bot as the API returns it: its board fields, plus the agent fields (a rules Bot shows engine "rules" and defaults). */
+export type AgentBotView = BotView & Partial<AgentBotFields>;
+
+export const isAgentBot = (bot: Pick<AgentBotView, "engine">): boolean => bot.engine === "agent";
+
+/** An agent Bot's edit: any of its fields; `tools` takes only the parts that change (`mcp` is the full map). */
+export type AgentBotPatch = Partial<Omit<AgentBotFields, "engine" | "threadId" | "tools">> & {
+  name?: string;
+  description?: string;
+  tools?: Partial<AgentBotTools>;
+};
+
+/** `PATCH /bots/:id` with agent fields; failures throw ApiError with the server's words. */
+export const updateAgentBot = (id: string, patch: AgentBotPatch) => api<BotView>(bot(id), { method: "PATCH", body: patch });
+
+/** What switching a rules Bot to an agent would make; nothing is stored until approved. */
+export type ConversionPreview = {
+  botId: string;
+  engine: string;
+  prompt: string;
+  schedule: BotSchedule;
+  intervalMinutes: number;
+  skills: string[];
+  gate: BotGate;
+  timezone: string;
+};
+
+export const getConversion = (id: string) => api<ConversionPreview>(`${bot(id)}/convert`);
+
+/** The person's approval of this one Bot's switch (there is no bulk route). */
+export const convertBot = (id: string) => api<BotView>(`${bot(id)}/convert`, { method: "POST" });
+
+/** One line of the Bot's notepad. */
+export type BotNote = { botId: string; key: string; value: string; updatedAt: string };
+
+export async function listBotNotes(id: string): Promise<BotNote[]> {
+  const body = await api<{ items?: BotNote[] } | undefined>(`${bot(id)}/notes`);
+  return body?.items ?? [];
+}
+
+export const deleteBotNote = (id: string, key: string) => api<void>(`${bot(id)}/notes/${encodeURIComponent(key)}`, { method: "DELETE" });
+
+export async function listBotFindings(id: string, limit = 20): Promise<Finding[]> {
+  const query = new URLSearchParams({ botId: id, limit: String(limit) });
+  const body = await api<{ items?: Finding[] } | undefined>(`/bots/findings?${query}`);
+  return body?.items ?? [];
+}
 
 export const getBotDefaults = () => api<BotSettings>("/bots/defaults");
 
