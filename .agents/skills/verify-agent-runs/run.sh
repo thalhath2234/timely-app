@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Model-check the Agent run protocol (see SKILL.md): the apply check
 # (AgentRunApply.cfg), the turn check (AgentRunTurn.cfg) and the host check
-# (AgentRunHost.cfg, phase 5 host cards), one model.
+# (AgentRunHost.cfg, phase 5 host cards) on one model, and the bot check
+# (BotRunPark.cfg, phase 6 Bot cards) on its own (BotRunPark.tla).
 #
 #   run.sh             read guards from the code, check drift, run TLC (~3.5 min)
 #   run.sh --mutants   also prove each guard matters: remove it in the model
@@ -44,12 +45,19 @@ echo "$TLA_SHA256  $JAR" | sha256sum -c --quiet - || { echo "tla2tools checksum 
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/verify-agent-runs.XXXXXX")"
 trap 'rm -rf -- "${WORK:?}"' EXIT
-cp "$SKILL/model/AgentRunApply.tla" "$WORK/"
-CONFIGS=(AgentRunApply AgentRunTurn AgentRunHost)
+cp "$SKILL"/model/*.tla "$WORK/"
+CONFIGS=(AgentRunApply AgentRunTurn AgentRunHost BotRunPark)
+
+module_of() { # the TLA module a config checks
+  case "${1%.cfg}" in
+    BotRunPark|m-*-BotRunPark) echo BotRunPark.tla ;;
+    *) echo AgentRunApply.tla ;;
+  esac
+}
 
 tlc() { # tlc CONFIG METADIR -> prints TLC output
   (cd "$WORK" && java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -workers auto \
-     -metadir "$2" -config "$1" AgentRunApply.tla 2>&1)
+     -metadir "$2" -config "$1" "$(module_of "$1")" 2>&1)
 }
 
 # Built, not `go run`: go run turns every non-zero exit into 1, which hid
@@ -100,14 +108,16 @@ fi
 done
 
 if [[ $mode == "mutants" ]]; then
-  echo "mutants: each guard removed in the model must break a property (apply check first, then the turn check, then the host check)"
+  echo "mutants: each guard removed in the model must break a property (apply check first, then the turn check, then the host check; bot guards in the bot check)"
   bad=0
   for g in ClaimLocksRow StepFenced WritesInStepTx ApplySkipsDone CheckpointFenced CheckpointReadsLatest RetryKeepsDone HoldsSupervised AnswerFenced \
-           HostAnswerFenced ClaimSkipsHostWait ApproveRefusesHost ContinuationClearedAtStart StopDeniesHost; do
+           HostAnswerFenced ClaimSkipsHostWait ApproveRefusesHost ContinuationClearedAtStart StopDeniesHost \
+           BotAnswerFenced BotContFenced BotStopReaches; do
     v="" where=""
-    cfgs=("${CONFIGS[@]}")
+    cfgs=(AgentRunApply AgentRunTurn AgentRunHost)
     case $g in
       HostAnswerFenced|ClaimSkipsHostWait|ApproveRefusesHost|ContinuationClearedAtStart|StopDeniesHost) cfgs=(AgentRunHost) ;;
+      BotAnswerFenced|BotContFenced|BotStopReaches) cfgs=(BotRunPark) ;;
     esac
     for c in "${cfgs[@]}"; do
       sed -E "s/^(\s*$g\s*=\s*)TRUE/\1FALSE/" "$WORK/$c.cfg" > "$WORK/m-$g-$c.cfg"

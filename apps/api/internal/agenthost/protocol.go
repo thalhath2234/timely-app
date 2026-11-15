@@ -244,6 +244,16 @@ func parseLine(line []byte, account string) (Message, error) {
 	if m.Account != account && !(m.Type == TypeError && m.Account == "") {
 		return Message{}, fmt.Errorf("%w: %s message for another account", ErrProtocol, m.Type)
 	}
+	if m.Run == "" && (m.Type == TypeBotDone || m.Type == TypeError) {
+		// A Bot tick's bot.done names its run as run_id (PROTOCOL.md 13.2), as
+		// does a refusal of its bot.run: Run carries it, so the live run ends
+		// and the message reaches the run's owner like a chat run's.
+		var probe struct {
+			RunID string `json:"run_id"`
+		}
+		_ = json.Unmarshal(line, &probe)
+		m.Run = probe.RunID
+	}
 	m.Raw = append(json.RawMessage(nil), line...)
 	return m, nil
 }
@@ -284,18 +294,22 @@ func encode(typ, id, account string, fields any) ([]byte, error) {
 	return append(line, '\n'), nil
 }
 
-// runField reads the "run" string from outgoing fields, for live-run
-// tracking.
+// runField reads the run id from outgoing fields, for live-run tracking:
+// "run" (run.start), else "run_id" (bot.run, PROTOCOL.md 13.1).
 func runField(fields any) string {
 	raw, err := json.Marshal(fields)
 	if err != nil {
 		return ""
 	}
 	var probe struct {
-		Run string `json:"run"`
+		Run   string `json:"run"`
+		RunID string `json:"run_id"`
 	}
 	_ = json.Unmarshal(raw, &probe)
-	return probe.Run
+	if probe.Run != "" {
+		return probe.Run
+	}
+	return probe.RunID
 }
 
 // readLine returns the next line without its terminator, refusing lines over

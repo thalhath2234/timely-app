@@ -68,6 +68,14 @@ type WorkerEngine struct {
 	stopSweep context.CancelFunc
 	sweeping  sync.WaitGroup
 
+	// lease is the per-account browser lease (Q-B2): a chat run takes it
+	// when it first uses a browser tool, a bot tick only when it is free.
+	lease *BrowserLease
+	// bots are the live Bot ticks and continuations this process follows,
+	// by run id (engine_bot.go); botAgent runs them (nil until NewBotAgent).
+	bots     map[string]*botTick
+	botAgent *BotAgent
+
 	// activityWrites counts activity checkpoints (tests check the throttle).
 	activityWrites atomic.Int64
 }
@@ -189,8 +197,13 @@ func NewWorkerEngine(s *Service, opts WorkerEngineOptions) *WorkerEngine {
 		opts.ClarifyTimeout = defaultClarifyTimeout
 	}
 	return &WorkerEngine{s: s, opts: opts, runs: map[string]*agentRun{}, chats: map[string]*agentRun{},
-		seeded: map[string]bool{}, unsettled: map[string]bool{}, forgetting: map[string]bool{}, started: map[*agenthost.Worker]int64{}}
+		seeded: map[string]bool{}, unsettled: map[string]bool{}, forgetting: map[string]bool{}, started: map[*agenthost.Worker]int64{},
+		lease: NewBrowserLease(), bots: map[string]*botTick{}}
 }
+
+// BrowserLease is the engine's per-account browser lease, which chat runs and
+// bot ticks share (Q-B2: a chat holding the browser wins).
+func (e *WorkerEngine) BrowserLease() *BrowserLease { return e.lease }
 
 // Attach gives the engine its supervisor (built with Handle and
 // WorkerExited in its Config).
@@ -308,6 +321,9 @@ type agentRun struct {
 	// cont is the parked card's continuation this run carries (nil
 	// otherwise): its host.ran settles the card by tool and arguments.
 	cont *HostContinuation
+	// bot is set when the run is an agent Bot's tick: its gate.asks follow
+	// the bot gate (hostState). Nil for a chat run.
+	bot *BotRunCtx
 }
 
 // runItem is one thing a follower handles: a worker message, or the end of
@@ -657,7 +673,13 @@ func (e *WorkerEngine) follow(r *agentRun) bool {
 func (e *WorkerEngine) Handle(w *agenthost.Worker, m agenthost.Message) {
 	e.mu.Lock()
 	r := e.runs[m.Run]
+	t := e.bots[m.Run]
 	e.mu.Unlock()
+	if t != nil && t.worker == w {
+		// A Bot tick's tool.call, gate.ask, event or bot.done (engine_bot.go).
+		t.queue.push(runItem{msg: m})
+		return
+	}
 	if r != nil && r.worker == w {
 		r.queue.push(runItem{msg: m})
 		return
@@ -681,6 +703,12 @@ func (e *WorkerEngine) WorkerExited(info agenthost.ExitInfo) {
 			lost = append(lost, r)
 		}
 	}
+	var lostTicks []*botTick
+	for _, t := range e.bots {
+		if t.uid == info.Account && t.worker.PID() == info.PID {
+			lostTicks = append(lostTicks, t)
+		}
+	}
 	for w := range e.started {
 		if w.Account() == info.Account && w.PID() == info.PID {
 			delete(e.started, w)
@@ -689,6 +717,9 @@ func (e *WorkerEngine) WorkerExited(info agenthost.ExitInfo) {
 	e.mu.Unlock()
 	for _, r := range lost {
 		r.queue.push(runItem{end: "lost"})
+	}
+	for _, t := range lostTicks {
+		t.queue.push(runItem{end: "lost"})
 	}
 }
 
@@ -724,6 +755,11 @@ func exited(w *agenthost.Worker) bool {
 
 // Stop implements AgentEngine (after Stop or Delete committed).
 func (e *WorkerEngine) Stop(uid, cid, runID string) {
+	if e.stopBotRun(uid, cid, runID) {
+		// A Bot card's continuation on its Bot thread (engine_bot.go): its
+		// bot.run gets run.stop, so the approved call never runs after Stop.
+		return
+	}
 	e.mu.Lock()
 	r := e.runs[runID]
 	e.mu.Unlock()
@@ -1253,6 +1289,11 @@ func (e *WorkerEngine) loop(r *agentRun) {
 // end forgets a finished run and sends what waited for it.
 func (e *WorkerEngine) end(r *agentRun) {
 	r.cancel()
+	// The lease is in memory: a run that ended without letting the browser go
+	// would hold it until the API restarts.
+	if e.lease != nil {
+		e.lease.Release(r.uid, ChatHolder(r.id))
+	}
 	r.mu.Lock()
 	closed := maps.Clone(r.closedAsks)
 	r.mu.Unlock()

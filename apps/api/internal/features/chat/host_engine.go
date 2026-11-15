@@ -77,6 +77,13 @@ func (e *WorkerEngine) gateHost(r *agentRun, m agenthost.Message, ask gateAsk) b
 	if d.verdict == "allow" && d.by != "" {
 		reply["by"] = d.by
 	}
+	if r.bot == nil && d.verdict != "block" && strings.HasPrefix(ask.Tool, "browser_") && e.lease != nil {
+		// A chat about to use the browser takes it, preempting a bot tick
+		// (Q-B2); end releases it.
+		if took := e.lease.AcquireChat(r.uid, r.id); !took.None() {
+			e.opts.Logf("agent engine: chat run %s took the browser from bot check %s", r.id, took.ID)
+		}
+	}
 	if r.cards == nil {
 		r.cards = map[string]hostPending{}
 	}
@@ -124,6 +131,13 @@ func (e *WorkerEngine) hostState(ctx context.Context, r *agentRun, ask gateAsk) 
 		st.home, _ = os.UserHomeDir()
 	}
 	st.mode = effectiveMode(row.Permission, row.FullAccess)
+	if r.bot != nil {
+		// An agent Bot's tick: the bot gate decides (bot_policy.go), with the
+		// taint the run has so far.
+		b := *r.bot
+		b.Tainted = b.Tainted || st.tainted
+		st.bot = &b
+	}
 	return st
 }
 
@@ -867,7 +881,7 @@ var errCheckpointGone = errors.New("the checkpoint is gone")
 // run no process of this API follows. It runs every HostSweepEvery.
 func (e *WorkerEngine) sweepHost(ctx context.Context) {
 	var rows []Conversation
-	if err := e.s.db.WithContext(ctx).Select("id", "user_id", "agent_run_id", "host_request").
+	if err := e.s.db.WithContext(ctx).Select("id", "user_id", "agent_run_id", "host_request", "kind").
 		Where("status = ?", statusHostApproval).Limit(500).Find(&rows).Error; err != nil {
 		if ctx.Err() == nil {
 			e.opts.Logf("agent engine: host card sweep: %v", err)
@@ -878,11 +892,12 @@ func (e *WorkerEngine) sweepHost(ctx context.Context) {
 	for _, row := range rows {
 		h := row.HostRequest
 		switch {
-		case (needsHostAccess(h) && !e.opts.HostAllowed(ctx, row.UserID)) || mcpTurnedOff(ctx, e.opts.MCP, row.UserID, h):
+		case !isBotCard(row, h) && ((needsHostAccess(h) && !e.opts.HostAllowed(ctx, row.UserID)) || mcpTurnedOff(ctx, e.opts.MCP, row.UserID, h)):
 			// Turning an account off denies its waiting cards (Q-5.2), and so
 			// does turning off the MCP server a card waits on (a command
 			// server follows the account); the worker of a live one gets the
-			// deny.
+			// deny. A Bot's parked card (engine_bot.go) is not a host-tool
+			// call, so the account's host access does not decide it.
 			if _, err := e.s.answerHost(ctx, row.UserID, row.ID, h.RequestID, hostDeny, nil, "the account can't use this computer any more"); err != nil && !errors.Is(err, errUnchanged) && !errors.Is(err, errHostAnswered) && !errors.Is(err, errHostStale) {
 				e.opts.Logf("agent engine: denying a host card of an account that was turned off: %v", err)
 			}
