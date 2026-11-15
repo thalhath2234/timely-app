@@ -25,6 +25,11 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``mcp``           no ``command`` MCP server unless the account is host-allowed and approved it
 - ``timely_tools``  every spec from ``hello.timely_tools`` is registered under toolset ``timely``
                     with timely_tools' own handler, and nothing else is in that toolset
+- ``bot_tools``     phase 6 (plan 7.5, 7.10): the bot tools (``bot_note_*``, ``bot_report``,
+                    ``bot_browser_read``) are registered under toolset ``timely_bot`` with
+                    ``timely_bot``'s own handlers, the resolved ``cronjob_manage`` handler's module is
+                    ``timely_agent.plugins.timely_bot.cronjob_shim`` (toolset ``timely_schedule``), and
+                    the shim is still offered next to the managed ``disabled_toolsets`` floor
 - ``host``          phase 5 (decision 9): an account render-account did not make host-allowed has no
                     host toolset in its config, no ``terminal.home_mode: real`` (config or
                     ``TERMINAL_HOME_MODE``), no ``browser.use_real_profile`` and no checkpoints; the
@@ -65,6 +70,7 @@ EXPECTED_PLUGINS = frozenset({
 OFFERABLE_TOOLSETS = [
     "todo", "skills", "memory", "session_search", "web", "vision", "file", "terminal",
     "code_execution", "browser-use", "browser-cdp", "delegation", "clarify", "timely",
+    "timely_bot", "timely_schedule",
 ]
 
 
@@ -259,6 +265,12 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
         checks.append(_check("timely_tools", False, f"{type(exc).__name__}: {exc}"))
 
     try:
+        problems = bot_tool_problems()
+        checks.append(_check("bot_tools", not problems, "; ".join(problems)))
+    except Exception as exc:
+        checks.append(_check("bot_tools", False, f"{type(exc).__name__}: {exc}"))
+
+    try:
         from hermes_cli.config import load_config
         from timely_agent import host, real_profile
         problems = host_problems(_account_state(want_home), load_config(), os.environ)
@@ -361,6 +373,36 @@ def sign_in_problems(home: Path, cfg: Any, oauth_ids: set[str]) -> list[str]:
             problems.append(f"{key} is {value!r}, a sign-in provider")
         elif value not in policy.ALLOWED_PROVIDERS:
             problems.append(f"{key} is {value!r}, a provider Timely does not run")
+    return problems
+
+
+def bot_tool_problems() -> list[str]:
+    """Phase 6: the bot tools carry timely_bot's handlers, and ``cronjob_manage`` resolves to the Timely shim
+    (plan 7.10: upstream registers it at import, so the override must have won and stayed)."""
+    from tools.registry import registry
+    from timely_agent.plugins.timely_bot import cronjob_shim, tools as bot_tools
+    problems: list[str] = []
+    have = sorted(registry.get_tool_names_for_toolset(bot_tools.TOOLSET) or [])
+    if have != sorted(bot_tools.SCHEMAS):
+        problems.append(f"toolset {bot_tools.TOOLSET} holds {have}, not {sorted(bot_tools.SCHEMAS)}")
+    for name in have:
+        handler = getattr(registry.get_entry(name), "handler", None)
+        if handler is not bot_tools.HANDLERS.get(name):
+            problems.append(f"{name} is not timely_bot's handler")
+    entry = registry.get_entry(cronjob_shim.TOOL)
+    module = str(getattr(getattr(entry, "handler", None), "__module__", "") or "")
+    if module != policy.SHIM_MODULE:
+        problems.append(f"the resolved cronjob_manage handler is from {module or 'nothing'}, not {policy.SHIM_MODULE}")
+    elif getattr(entry, "toolset", "") != policy.SCHEDULE_TOOLSET:
+        problems.append(f"cronjob_manage is in toolset {getattr(entry, 'toolset', '')!r}, not {policy.SCHEDULE_TOOLSET}")
+    # the floor subtracts ``cronjob`` by tool name and its static list names cronjob_manage: the shim must
+    # still resolve (cronjob_shim.neutralise_upstream_toolset)
+    import model_tools
+    offered = {(d.get("function") or {}).get("name") for d in model_tools.get_tool_definitions(
+        enabled_toolsets=[policy.SCHEDULE_TOOLSET], disabled_toolsets=list(config_render.DISABLED_TOOLSETS),
+        quiet_mode=True) or []}
+    if cronjob_shim.TOOL not in offered:
+        problems.append("the cronjob_manage shim is subtracted by the disabled cronjob toolset")
     return problems
 
 

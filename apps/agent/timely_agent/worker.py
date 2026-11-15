@@ -25,7 +25,9 @@ from timely_agent import protocol as P
 
 logger = logging.getLogger("timely_agent.worker")
 
-MAX_RUNS = 3  # per-account run cap (section 3.3)
+MAX_RUNS = 3  # per-account chat run cap (section 3.3)
+MAX_BOT_RUNS = 2  # Bot ticks (plan 7.3: the bot_check lane runs agent ticks with CheckSlots 2)
+BOT_DONE_KEEP = 64  # finished ticks remembered by check id (an idempotent retry gets the same answer)
 HEARTBEAT_S = 10.0
 MAINTENANCE_S = 600.0  # curator tick (its own gates decide whether a pass is due)
 EXIT_REFUSED_ENV = 3
@@ -250,6 +252,7 @@ class Worker:
         self.cache = AgentCache(counters=self.counters)
         self.prepared: dict[str, Any] = {}
         self.runs: dict[str, Any] = {}
+        self.bot_done: dict[str, dict[str, Any]] = {}
         self.runs_lock = threading.Lock()
         self.ready = False
         self.refused_reason: Optional[str] = None
@@ -363,6 +366,11 @@ class Worker:
         ours = {n for n, v in bridged.items() if n.startswith("TERMINAL_") and os.environ.get(n) == v}
         from hermes_cli.plugins import discover_plugins
         discover_plugins()
+        from timely_agent.plugins.timely_bot import cronjob_shim
+        try:  # upstream's cronjob_tools import must not have taken the name back (plan 7.10)
+            cronjob_shim.ensure()
+        except Exception:
+            logger.exception("registering the cronjob_manage shim failed")
         from timely_agent import no_persist
         no_persist.prime(self.home)  # Hermes' log handlers exist, with Timely's no-persist filter
         skills_sync: dict[str, Any] = {}
@@ -627,7 +635,7 @@ class Worker:
                 raise P.ProtocolError(P.E_DUPLICATE_RUN, f"run {run_id} is already running", mid)
             if any(r.msg.get("conversation_id") == conversation for r in self.runs.values()):
                 raise P.ProtocolError(P.E_BUSY, "this conversation already has a live run", mid)
-            if len(self.runs) >= MAX_RUNS:
+            if sum(1 for r in self.runs.values() if r.msg.get("type") != "bot.run") >= MAX_RUNS:
                 raise P.ProtocolError(P.E_BUSY, f"the account already has {MAX_RUNS} live runs", mid)
             run = Run(run_id=run_id, request_id=mid, msg=msg)
             self.runs[run_id] = run
@@ -668,6 +676,81 @@ class Worker:
             with self.runs_lock:
                 self.runs.pop(run_id, None)
             raise
+
+    # ------------------------------------------------------------ bot ticks (PROTOCOL.md section 13)
+    def on_bot_run(self, msg: dict[str, Any]) -> None:
+        """``bot.run`` -> ``bot.done``: one Bot tick as an agent turn (``timely_agent.run_bot``). A
+        malformed request is refused with an ``error`` answering its id (and naming ``run_id``)."""
+        from timely_agent import run_bot
+        from timely_agent.run_chat import Run
+        mid = msg.get("id")
+        self._require_ready(mid)
+        if not any(msg.get(name) for name in ("run_id", "bot_id", "check_id", "prompt")):
+            # the empty phase-1 shape (no bot fields at all): not a tick this worker can read
+            raise P.ProtocolError(P.E_UNSUPPORTED, "bot.run names no bot, check or run", mid)
+        bad = run_bot.problem(msg)
+        if bad:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"bot.run {bad}", mid)
+        run_id, check_id = msg["run_id"], msg["check_id"]
+        with self.runs_lock:
+            cached = self.bot_done.get(check_id) if msg.get("dry_run") is not True else None
+            if cached is None:
+                if run_id in self.runs or any(r.msg.get("check_id") == check_id for r in self.runs.values()):
+                    raise P.ProtocolError(P.E_DUPLICATE_RUN,
+                                          f"bot run {run_id} (check {check_id}) is already running", mid)
+                if sum(1 for r in self.runs.values() if r.msg.get("type") == "bot.run") >= MAX_BOT_RUNS:
+                    raise P.ProtocolError(P.E_BUSY, f"the account already has {MAX_BOT_RUNS} live bot runs", mid)
+                run = Run(run_id=run_id, request_id=mid, msg=msg)
+                self.runs[run_id] = run
+        if cached is not None:  # the same check ran to the end already: the same answer, no second run
+            self.send({"type": "bot.done", "id": mid, **cached, "run_id": run_id, "replayed": True})
+            return
+
+        def emit(kind: str, payload: dict) -> None:
+            self.send({"type": "event", "run": run_id, "kind": kind, "payload": payload})
+
+        def body() -> None:
+            done: Optional[dict[str, Any]] = None
+            try:
+                done = run_bot.run_tick(run, emit)
+            except BaseException as exc:  # noqa: BLE001 - Go must hear about every way a tick ends
+                logger.exception("bot run %s failed outside the tick", run_id)
+                done = {"run_id": run_id, "response": "", "silent": False, "reports": [], "usage": {}, "trace": [],
+                        "error_class": run_bot.E_ERROR, "error": f"{type(exc).__name__}: {exc}"[:1000]}
+            finally:
+                with self.runs_lock:
+                    self.runs.pop(run_id, None)
+                    if done is not None and not done.get("error_class") and msg.get("dry_run") is not True:
+                        self.bot_done[check_id] = {k: v for k, v in done.items() if k != "run_id"}
+                        while len(self.bot_done) > BOT_DONE_KEEP:
+                            self.bot_done.pop(next(iter(self.bot_done)))
+                self._send_bot_done(mid, run_id, done)
+
+        try:
+            run.thread = threading.Thread(target=contextvars.copy_context().run, args=(body,),
+                                          name=f"timely-bot-{run_id}"[:40], daemon=True)
+            run.thread.start()
+        except BaseException:
+            with self.runs_lock:
+                self.runs.pop(run_id, None)
+            raise
+
+    def _send_bot_done(self, mid: Optional[str], run_id: str, done: Optional[dict[str, Any]]) -> None:
+        """Send bot.done; Go keeps a tick live until it arrives, so this never gives up silently."""
+        if done is None:
+            done = {"run_id": run_id, "response": "", "silent": False, "reports": [], "usage": {}, "trace": [],
+                    "error_class": "error", "error": "the tick ended without a result"}
+        try:
+            if self.send({"type": "bot.done", "id": mid, **done, "run_id": run_id}):
+                return
+        except Exception:
+            logger.exception("bot.done for %s could not be sent", run_id)
+        try:
+            self.send({"type": "bot.done", "id": mid, "run_id": run_id, "response": "", "silent": False,
+                       "reports": [], "usage": {}, "trace": [], "error_class": "error",
+                       "error": "bot.done could not be encoded"})
+        except Exception:
+            logger.exception("fallback bot.done for %s could not be sent", run_id)
 
     def _send_run_done(self, mid: Optional[str], run_id: str, done: Optional[dict[str, Any]]) -> None:
         """Send run.done; Go keeps a run live until it arrives, so this never gives up silently."""
@@ -903,6 +986,8 @@ class Worker:
                 logger.warning("%s for unknown or expired request %s", t, msg.get("id"))
         elif t == "run.start":
             self.on_run_start(msg)
+        elif t == "bot.run":
+            self.on_bot_run(msg)
         elif t == "run.stop":
             self.on_run_stop(msg)
         elif t == "run.steer":
@@ -923,7 +1008,7 @@ class Worker:
             grace = msg.get("grace")
             self.begin_shutdown(float(grace) if isinstance(grace, (int, float)) and not isinstance(grace, bool)
                                 else 5.0)
-        else:  # bot.run: phase 6
+        else:
             raise P.ProtocolError(P.E_UNSUPPORTED, f"{t} is not supported by this worker yet", msg.get("id"))
         return True
 
@@ -974,6 +1059,9 @@ class Worker:
         out = {}
         if isinstance(req.get("run"), str) and req["run"]:
             out["run"] = req["run"]
+        elif req.get("type") == "bot.run" and isinstance(req.get("run_id"), str) and req["run_id"]:
+            out["run"] = req["run_id"]  # so Go can end the refused tick (a bot.run names its run run_id)
+            out["run_id"] = req["run_id"]
         if self.chan.account is None and isinstance(req.get("account"), str) and req["account"]:
             out["account"] = req["account"]
         return out
