@@ -261,6 +261,106 @@ func TestDecideHostRoutesBotRuns(t *testing.T) {
 	}
 }
 
+func botMCPAsk(server, tool string, args map[string]any, ro *bool) gateAsk {
+	// Hermes names an MCP tool mcp_<server>_<tool>; the bare name is in mcp.tool.
+	a := askOf("mcp_"+server+"_"+tool, args)
+	a.RunKind, a.Toolset = "bot", "mcp-"+server
+	a.MCP = &struct {
+		Server      string         `json:"server"`
+		Tool        string         `json:"tool"`
+		Annotations MCPAnnotations `json:"annotations"`
+	}{Server: server, Tool: tool, Annotations: MCPAnnotations{ReadOnly: ro}}
+	return a
+}
+
+// A bot's MCP tools follow the Bot's own setting per server: off blocks,
+// read-only runs, a write is parked before taint and blocked after it, and
+// Full Access runs a write only after its step-up.
+func TestBotMCPDecisionTable(t *testing.T) {
+	yes := true
+	rules := &fakeMCP{modes: map[string]string{"mail": mcpUse, "notes": mcpUse, "old": mcpOff}}
+	type row struct {
+		name   string
+		server string
+		tool   string
+		args   map[string]any
+		ro     *bool
+		mod    func(*BotRunCtx)
+		noRules bool
+		want    string
+	}
+	use := map[string]string{"mail": "use", "notes": "ask", "old": "use"}
+	tainted := func(b *BotRunCtx) { b.Tainted = true }
+	rows := []row{
+		{name: "a read runs", server: "mail", tool: "list_messages", want: "allow"},
+		{name: "a read by hint runs", server: "mail", tool: "fetch_stuff", ro: &yes, want: "allow"},
+		{name: "a read runs after taint", server: "mail", tool: "list_messages", mod: tainted, want: "allow"},
+		{name: "a write parks", server: "mail", tool: "update_label", want: "approve"},
+		{name: "a send parks", server: "mail", tool: "send_message", want: "approve"},
+		{name: "a write is blocked after taint", server: "mail", tool: "update_label", mod: tainted, want: "block"},
+		{name: "a send is blocked after taint", server: "mail", tool: "send_message", mod: tainted, want: "block"},
+		{name: "ask me first parks a read", server: "notes", tool: "list_notes", want: "approve"},
+		{name: "ask me first parks a write", server: "notes", tool: "add_note", want: "approve"},
+		{name: "ask me first blocks a write after taint", server: "notes", tool: "add_note", mod: tainted, want: "block"},
+		{name: "a server the bot does not list is off", server: "other", tool: "list_things", want: "block"},
+		{name: "the account turning a server off stops the bot", server: "old", tool: "list_things", want: "block"},
+		{name: "a read naming another host is blocked", server: "mail", tool: "list_messages", args: map[string]any{"url": "https://attacker.example/"}, want: "block"},
+		{name: "a read naming a bot host runs", server: "mail", tool: "list_messages", args: map[string]any{"url": "https://api.example.net/x"}, want: "allow"},
+		{name: "no rules: a plain tool is a write and parks", server: "mail", tool: "list_messages", noRules: true, want: "approve"},
+		{name: "no rules: the read-only hint still runs", server: "mail", tool: "list_messages", ro: &yes, noRules: true, want: "allow"},
+	}
+	for _, mode := range botModes {
+		for _, tc := range rows {
+			t.Run(mode+"/"+tc.name, func(t *testing.T) {
+				b := botCtx(mode)
+				b.MCP = use
+				if tc.mod != nil {
+					tc.mod(&b)
+				}
+				var r MCPRules = rules
+				if tc.noRules {
+					r = nil
+				}
+				d := botMCPDecision(context.Background(), b, r, "user-a", botMCPAsk(tc.server, tc.tool, tc.args, tc.ro))
+				// Full Access without its step-up record acts as Auto
+				// (botCtx sets none), so the table holds for every mode.
+				if d.verdict != tc.want {
+					t.Fatalf("%s: %+v, want %s", mode, d, tc.want)
+				}
+				if d.verdict == "block" && d.message == "" || d.verdict == "approve" && (d.card.Kind != cardMCP || d.card.Server != tc.server || d.card.Reason == "") {
+					t.Fatalf("a block has its message and a card its server and reason: %+v", d)
+				}
+			})
+		}
+	}
+}
+
+// With the Full Access step-up a write runs under Full (and is not blocked
+// after taint); "ask me first" still parks.
+func TestBotMCPDecisionFullAccess(t *testing.T) {
+	rules := &fakeMCP{modes: map[string]string{"mail": mcpUse, "notes": mcpUse}}
+	b := botCtx("full")
+	b.MCP = map[string]string{"mail": "use", "notes": "ask"}
+	b.FullAccessOK = true
+	ctx := context.Background()
+	d := botMCPDecision(ctx, b, rules, "user-a", botMCPAsk("mail", "update_label", nil, nil))
+	if d.verdict != "allow" || d.by != "full" {
+		t.Fatalf("a write under Full Access: %+v", d)
+	}
+	b.Tainted = true
+	if d := botMCPDecision(ctx, b, rules, "user-a", botMCPAsk("mail", "update_label", nil, nil)); d.verdict != "allow" || d.by != "full" {
+		t.Fatalf("a write after taint under Full Access: %+v", d)
+	}
+	if d := botMCPDecision(ctx, b, rules, "user-a", botMCPAsk("notes", "add_note", nil, nil)); d.verdict != "approve" {
+		t.Fatalf("ask me first still parks: %+v", d)
+	}
+	b.FullAccessOK = false
+	b.Tainted = false
+	if d := botMCPDecision(ctx, b, rules, "user-a", botMCPAsk("mail", "update_label", nil, nil)); d.verdict != "approve" {
+		t.Fatalf("Full Access with no step-up parks like Auto: %+v", d)
+	}
+}
+
 func TestGateBotBrowserUsesTheLease(t *testing.T) {
 	l := NewBrowserLease()
 	b := botCtx("auto")

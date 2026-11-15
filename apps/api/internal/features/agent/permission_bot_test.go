@@ -113,6 +113,98 @@ func TestBotMode(t *testing.T) {
 	}
 }
 
+// The Timely read tools a bot worker uses are its own tools; a Timely write
+// is unknown and blocked (it becomes an alert proposal, Q-B5).
+func TestBotTimelyReadsAllowedWritesBlocked(t *testing.T) {
+	reads := []string{"bot_note_get", "get_bot", "list_bots", "list_bot_findings", "get_doc", "list_docs", "get_sheet", "list_sheets", "get_context", "search", "get_task", "list_tasks", "get_calendar"}
+	writes := []string{"create_task", "update_task", "delete_task", "create_doc", "update_doc", "update_sheet", "update_bot", "propose_changes", "preview_bot", "ask_bot", "send_notification"}
+	for _, mode := range []Mode{Supervised, Auto, Full} {
+		for _, tool := range reads {
+			if got := ClassifyBotTool(tool); got != BotToolOwn {
+				t.Errorf("%s: class %d, want own", tool, got)
+			}
+			if out := BotGate(BotGateIn{Tool: tool, Mode: mode, Tainted: true}); out.Verdict != BotAllow || out.Lifted {
+				t.Errorf("%s in %s: %+v, want a plain allow", tool, mode, out)
+			}
+		}
+		for _, tool := range writes {
+			if got := ClassifyBotTool(tool); got != BotToolUnknown {
+				t.Errorf("%s: class %d, want unknown", tool, got)
+			}
+			if out := BotGate(BotGateIn{Tool: tool, Mode: mode}); out.Verdict != BotBlock || out.Message != BotBlockUnknown {
+				t.Errorf("%s in %s: %+v, want the unknown block", tool, mode, out)
+			}
+		}
+	}
+}
+
+// The tools a bot never gets are blocked in every mode, taint or not, and an
+// MCP tool that borrows one's name is no way round it.
+func TestBotNeverTools(t *testing.T) {
+	never := []string{"terminal", "process", "process_manage", "execute_code", "read_file", "search_files", "write_file", "patch",
+		"cronjob_manage", "cronjob", "create_bot", "clarify", "delegate_task", "send_message", "messaging_slack", "session_search", "browser_vault"}
+	for _, mode := range []Mode{Supervised, Auto, Full} {
+		for _, tool := range never {
+			for _, mcp := range []bool{false, true} {
+				in := BotGateIn{Tool: tool, Mode: mode, MCP: mcp, MCPMode: BotMCPUse, MCPReadOnly: true}
+				if out := BotGate(in); out.Verdict != BotBlock || out.Message == "" || out.Lifted {
+					t.Errorf("%s (mcp=%v) in %s: %+v, want a block", tool, mcp, mode, out)
+				}
+			}
+		}
+	}
+}
+
+func TestBotMCPGate(t *testing.T) {
+	hosts := BotHosts{Read: []string{"https://prices.example/item"}, Browser: []string{"shop.example.com"}, Egress: []string{"api.example.net"}}
+	type c struct {
+		name      string
+		in        BotGateIn
+		supAuto   string
+		fullOK    string
+		fullLifts bool
+	}
+	mcp := func(mode string, readOnly, tainted bool, urls ...string) BotGateIn {
+		return BotGateIn{Tool: "mcp_mail_x", MCP: true, MCPServer: "mail", MCPMode: mode, MCPReadOnly: readOnly, Tainted: tainted, URLs: urls}
+	}
+	cases := []c{
+		{"off blocks a read", mcp(BotMCPOff, true, false), BotBlock, BotBlock, false},
+		{"off blocks a write", mcp(BotMCPOff, false, false), BotBlock, BotBlock, false},
+		{"no setting is off", mcp("", true, false), BotBlock, BotBlock, false},
+		{"an unknown setting is off", mcp("on", true, false), BotBlock, BotBlock, false},
+		{"use: read-only runs", mcp(BotMCPUse, true, false), BotAllow, BotAllow, false},
+		{"use: read-only runs after taint", mcp(BotMCPUse, true, true), BotAllow, BotAllow, false},
+		{"use: a write parks before taint", mcp(BotMCPUse, false, false), BotApprove, BotAllow, true},
+		{"use: a write is blocked after taint", mcp(BotMCPUse, false, true), BotBlock, BotAllow, true},
+		{"ask: a read parks", mcp(BotMCPAsk, true, false), BotApprove, BotApprove, false},
+		{"ask: a read parks after taint", mcp(BotMCPAsk, true, true), BotApprove, BotApprove, false},
+		{"ask: a write parks", mcp(BotMCPAsk, false, false), BotApprove, BotApprove, false},
+		{"ask: a write is blocked after taint", mcp(BotMCPAsk, false, true), BotBlock, BotApprove, false},
+		{"a read naming a bot host", mcp(BotMCPUse, true, false, "https://prices.example/item"), BotAllow, BotAllow, false},
+		{"a read naming another host is blocked", mcp(BotMCPUse, true, false, "https://elsewhere.example/"), BotBlock, BotAllow, true},
+		{"a write naming another host is blocked", mcp(BotMCPUse, false, false, "https://elsewhere.example/"), BotBlock, BotAllow, true},
+	}
+	for _, tc := range cases {
+		for _, mode := range []Mode{Supervised, Auto} {
+			in := tc.in
+			in.Mode, in.Hosts = mode, hosts
+			out := BotGate(in)
+			if out.Verdict != tc.supAuto || out.Lifted {
+				t.Errorf("%s in %s: %+v, want %s", tc.name, mode, out, tc.supAuto)
+			}
+			if out.Verdict == BotBlock && out.Message == "" || out.Verdict != BotBlock && out.Reason == "" {
+				t.Errorf("%s in %s: no message or reason: %+v", tc.name, mode, out)
+			}
+		}
+		in := tc.in
+		in.Mode, in.Hosts = Full, hosts
+		out := BotGate(in)
+		if out.Verdict != tc.fullOK || out.Lifted != tc.fullLifts {
+			t.Errorf("%s in Full: %+v, want %s lifted=%v", tc.name, out, tc.fullOK, tc.fullLifts)
+		}
+	}
+}
+
 func TestBotHostsExactMatch(t *testing.T) {
 	h := BotHosts{Browser: []string{"https://shop.example.com/x"}}
 	for raw, want := range map[string]bool{

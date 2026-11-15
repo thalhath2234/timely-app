@@ -173,14 +173,24 @@ func (s *Service) withRunCompleter(ctx context.Context, c *Conversation) context
 	return WithCompleter(ctx, completer)
 }
 
-// gate answers a gate.ask: web_search and web_extract run when the run has
-// the web (flags.web); host and MCP calls get Go's host verdict (phase 5,
-// host_policy.go); every other tool keeps phase 2's block.
+// gate answers a gate.ask: in a chat, web_search and web_extract run when the
+// run has the web (flags.web), host and MCP calls get Go's host verdict
+// (phase 5, host_policy.go) and every other tool keeps phase 2's block. In an
+// agent Bot's tick (r.bot) every tool, web tools included, goes to the bot
+// gate first (bot_policy.go): the Bot's own sites, egress and taint decide,
+// not a chat's web toggle.
 func (e *WorkerEngine) gate(r *agentRun, m agenthost.Message) {
 	var ask gateAsk
 	_ = m.Decode(&ask)
 	r.noteTaint(ask.Tainted)
-	if !webTools[ask.Tool] && e.gateHost(r, m, ask) {
+	if r.bot != nil {
+		ask.RunKind = "bot"
+		if ask.mcpServer() != "" {
+			e.gateBotMCP(r, m, ask)
+			return
+		}
+	}
+	if (r.bot != nil || !webTools[ask.Tool]) && e.gateHost(r, m, ask) {
 		return
 	}
 	verdict, message := gateVerdict(r.tools, ask.Tool)
