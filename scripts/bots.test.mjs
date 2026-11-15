@@ -2206,3 +2206,63 @@ describe("price history", () => {
     assert.ok(high.thresholdY >= 8);
   });
 });
+
+describe("agent bots and the Assistant tab", async () => {
+  const { readFileSync } = await import("node:fs");
+  const bots = await import("../packages/contract/src/bots.ts");
+  const asst = await import("../packages/contract/src/assistant.ts");
+  const base = { permission: "auto", tools: { browserSites: ["a.com"], useMemory: false } };
+
+  test("every Hermes blueprint has a Starter", () => {
+    const py = readFileSync(new URL("../apps/agent/hermes/cron/blueprint_catalog.py", import.meta.url), "utf8");
+    const keys = [...py.matchAll(/^\s+key="([^"]+)",/gm)].map((m) => m[1]);
+    assert.ok(keys.length > 0);
+    assert.deepEqual(bots.AGENT_STARTERS.map((s) => s.key).sort(), [...keys].sort());
+    assert.equal(bots.AGENT_STARTERS.length, keys.length);
+  });
+
+  test("a Starter missing its connector is unavailable and says which", () => {
+    const mail = bots.AGENT_STARTERS.find((s) => s.needs === "email");
+    assert.ok(mail);
+    const off = bots.starterAvailable(mail, []);
+    assert.equal(off.available, false);
+    assert.match(off.copy, /email connector/);
+    assert.equal(bots.starterAvailable(mail, ["email"]).available, true);
+    assert.equal(bots.starterAvailable(bots.AGENT_STARTERS[0], []).available, true);
+  });
+
+  test("check outcomes have words", () => {
+    for (const o of ["silent", "alerted", "skipped", "failed", "browser_busy", "no_ai", "duplicate"])
+      assert.notEqual(bots.checkOutcomeWords(o), o);
+  });
+
+  test("widensBot", () => {
+    const t = (over) => ({ ...base, ...over, tools: { ...base.tools, ...(over.tools ?? {}) } });
+    assert.equal(bots.widensBot(base, t({ tools: { browserSites: ["a.com", "b.com"] } })), true);
+    assert.equal(bots.widensBot(base, t({ tools: { useMemory: true } })), true);
+    assert.equal(bots.widensBot(base, t({ permission: "full" })), true);
+    assert.equal(bots.widensBot(t({ permission: "supervised" }), base), true);
+    assert.equal(bots.widensBot(base, t({ permission: "supervised" })), false);
+    assert.equal(bots.widensBot(base, t({ tools: { browserSites: [] } })), false);
+    assert.equal(bots.widensBot({ ...base, prompt: "drop below 50" }, { ...base, prompt: "drop below 40" }), false);
+  });
+
+  test("legacyToAssistant keeps deep links", () => {
+    const f = asst.legacyToAssistant;
+    assert.equal(f("/chat", ""), "/assistant");
+    assert.equal(f("/chat", "?id=c1"), "/assistant?chat=c1");
+    assert.equal(f("/bots", ""), "/assistant");
+    assert.equal(f("/bots/", "?bot=bot_9"), "/assistant?bot=bot_9");
+    assert.equal(f("/bots", "?new=1&starter=price_drop"), "/assistant?new=1&starter=price_drop");
+    assert.equal(f("/tasks", ""), null);
+  });
+
+  test("assistantHref and notifications", () => {
+    assert.equal(asst.assistantHref({ chat: "a b" }), "/assistant?chat=a+b");
+    assert.equal(asst.assistantHref({ bot: "x", thread: "t" }), "/assistant?bot=x&thread=t");
+    assert.equal(asst.notificationToAssistant({ category: "bot", data: { botId: "bot_1" } }), "/assistant?bot=bot_1");
+    assert.equal(asst.notificationToAssistant({ category: "bot" }), "/assistant");
+    assert.equal(asst.notificationToAssistant({ entityType: "chat", entityId: "c2" }), "/assistant?chat=c2");
+    assert.equal(asst.notificationToAssistant({ category: "digest" }), null);
+  });
+});

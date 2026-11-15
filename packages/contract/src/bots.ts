@@ -380,7 +380,15 @@ export type CheckOutcome =
   | "superseded"
   | "judged_quiet"
   | "passed"
-  | "held_stock";
+  | "held_stock"
+  // Agent bots (engine 'agent'): what one tick came to.
+  | "silent"
+  | "alerted"
+  | "skipped"
+  | "failed"
+  | "browser_busy"
+  | "no_ai"
+  | "duplicate";
 
 export type FiredRule = { watchId: string; ruleId: string; kind: RuleKind };
 
@@ -2262,7 +2270,19 @@ const OUTCOME_LABELS: Record<CheckOutcome, string> = {
   judged_quiet: "AI held it back",
   passed: "Passed on",
   held_stock: "Out of stock, held back",
+  silent: "Nothing to tell",
+  alerted: "Told you",
+  skipped: "Skipped",
+  failed: "Failed",
+  browser_busy: "Browser busy",
+  no_ai: "No AI provider, reading only",
+  duplicate: "Already told you",
 };
+
+/** An agent tick's outcome in words ("Browser busy"); the same words as checkOutcomeLabel. */
+export function checkOutcomeWords(outcome: CheckOutcome | (string & {})): string {
+  return OUTCOME_LABELS[outcome as CheckOutcome] ?? outcome;
+}
 
 /** A check's outcome in words: "Told you", "AI held it back", "Passed on". */
 export function checkOutcomeLabel(outcome: CheckOutcome | (string & {})): string {
@@ -3349,4 +3369,119 @@ export function answerMarkWatch(w: Pick<AnswerWatch, "kind" | "site" | "title">)
 /** A watch row's second line in an answer: the excerpt, else the newest item's title. */
 export function answerWatchMeta(w: Pick<AnswerWatch, "excerpt" | "items">): string {
   return w.excerpt || w.items?.[0]?.title || "";
+}
+
+// ── Agent bots (engine 'agent', phase 6) ──
+
+export type BotEngine = "rules" | "agent";
+export type BotPermission = "supervised" | "auto" | "full";
+export type BotGate = "changed" | "always";
+export type McpMode = "use" | "ask" | "off";
+
+/** Weekdays are 0 = Sunday ... 6 = Saturday. */
+export type BotSchedule =
+  | { everyMinutes: number }
+  | { dailyAt: string; weekdays: number[] }
+  | { cron: string };
+
+export type AgentBotTools = {
+  /** Sites the bot may read on the signed-in browser profile. */
+  browserSites: string[];
+  /** Extra hosts outbound URL tools may reach. */
+  egress: string[];
+  /** Memory and About you; off by default. */
+  useMemory: boolean;
+  mcp: Record<string, McpMode>;
+};
+
+export type AgentBotFields = {
+  engine: BotEngine;
+  prompt: string;
+  schedule: BotSchedule;
+  timezone: string;
+  skills: string[];
+  tools: AgentBotTools;
+  permission: BotPermission;
+  gate: BotGate;
+  marketHours: boolean;
+  modelProvider: string;
+  model: string;
+  /** The Bot thread (a chat Conversation, kind 'bot_thread'). */
+  threadId: string;
+};
+
+const PERMISSION_RANK: Record<BotPermission, number> = { supervised: 0, auto: 1, full: 2 };
+
+type Reach = Pick<AgentBotFields, "permission"> & { tools: Pick<AgentBotTools, "browserSites" | "useMemory"> };
+
+/**
+ * True when a change gives the Bot more reach and so waits for one tap:
+ * a new signed-in-browser site, memory turned on, or a looser permission mode.
+ */
+export function widensBot(before: Reach, after: Reach): boolean {
+  const had = new Set(before.tools.browserSites.map((s) => s.trim().toLowerCase()));
+  if (after.tools.browserSites.some((s) => !had.has(s.trim().toLowerCase()))) return true;
+  if (!before.tools.useMemory && after.tools.useMemory) return true;
+  return PERMISSION_RANK[after.permission] > PERMISSION_RANK[before.permission];
+}
+
+/** One line in a Bot thread. */
+export type BotThreadItem =
+  | { kind: "alert"; id: string; at: string; alertId: string; title: string; body: string }
+  | { kind: "change"; id: string; at: string; before: string; after: string; undoToken: string }
+  | { kind: "pending_change"; id: string; at: string; before: string; after: string; reason: "browser_site" | "memory" | "permission" }
+  | { kind: "answer"; id: string; at: string; text: string }
+  | { kind: "draft_setup"; id: string; at: string; name: string; fields: AgentBotFields };
+
+/** The reply to a change: "Changed: X -> Y". */
+export function changedLine(before: string, after: string): string {
+  return `Changed: ${before} -> ${after}`;
+}
+
+/** A connector a Starter needs. */
+export type StarterNeed = "email" | "calendar";
+const NEED_WORDS: Record<StarterNeed, string> = { email: "an email connector", calendar: "a calendar connector" };
+
+export type AgentStarter = {
+  /** The Hermes blueprint key. */
+  key: string;
+  title: string;
+  prompt: string;
+  schedule: BotSchedule;
+  needs?: StarterNeed;
+};
+
+const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
+const WORKDAYS = [1, 2, 3, 4, 5];
+
+/**
+ * One Starter per Hermes blueprint (apps/agent/hermes/cron/blueprint_catalog.py).
+ * Named AGENT_STARTERS because STARTERS above is the rules-engine catalog.
+ */
+export const AGENT_STARTERS: AgentStarter[] = [
+  { key: "morning-brief", title: "Morning briefing", prompt: "Produce a concise morning briefing: today's calendar events, the local weather and any urgent items. Keep it short and scannable.", schedule: { dailyAt: "08:00", weekdays: EVERY_DAY } },
+  { key: "important-mail", title: "Important-mail monitor", prompt: "Check my inbox for new messages since the last run. Tell me only about mail that needs a reply today, is from my manager or family, or mentions a deadline. Otherwise stay silent.", schedule: { everyMinutes: 30 }, needs: "email" },
+  { key: "weekly-review", title: "Weekly review", prompt: "Review the completed week and the coming 1-2 weeks across my tasks, calendar and notes: commitments, stalled projects, waiting items, and a capacity-aware plan for next week. Drafts only.", schedule: { dailyAt: "18:00", weekdays: [0] } },
+  { key: "workday-start", title: "Workday start reminder", prompt: "Give me a brief start-of-day nudge: today's calendar and the 1-3 highest-priority things to focus on.", schedule: { dailyAt: "09:00", weekdays: WORKDAYS } },
+  { key: "custom-reminder", title: "Custom reminder", prompt: "Remind me to take a break and stretch.", schedule: { dailyAt: "14:00", weekdays: EVERY_DAY } },
+  { key: "evening-winddown", title: "Evening wind-down", prompt: "Give me a short evening wind-down: tomorrow's calendar, early commitments to prep for, and one gentle nudge to wrap up loose ends.", schedule: { dailyAt: "21:00", weekdays: EVERY_DAY } },
+  { key: "news-digest", title: "Topic news digest", prompt: "Search the web for new and noteworthy items about AI and technology. Skip anything already sent in earlier runs. At most 5 one-line bullets with links; stay silent if nothing is new.", schedule: { dailyAt: "18:00", weekdays: WORKDAYS } },
+  { key: "bill-renewal-watch", title: "Bills & renewals reminder", prompt: "Remind me about an upcoming payment or renewal: my streaming subscription renews soon. Make it an actionable heads-up, in one short message.", schedule: { dailyAt: "10:00", weekdays: EVERY_DAY } },
+  { key: "price-watch", title: "Price & availability watch", prompt: "Watch this item and tell me when the all-in price drops below my target (and it can be bought, in stock). Stay silent otherwise. Item: (paste a product URL).", schedule: { cron: "0 */6 * * *" } },
+  { key: "competitor-watch", title: "Competitor news watch", prompt: "Track two or three competitors for material news (launches, pricing, funding, partnerships, executive moves, incidents). Deliver a cited digest of material events only; stay silent otherwise.", schedule: { dailyAt: "09:00", weekdays: [1] } },
+  { key: "habit-checkin", title: "Habit check-in", prompt: "Nudge me about my habit: 20 minutes of reading. Ask whether I did it today, warm and non-judgmental, in one short message.", schedule: { dailyAt: "20:00", weekdays: EVERY_DAY } },
+  { key: "hydration-move", title: "Hydration & movement nudge", prompt: "Send a brief, friendly nudge to drink some water, stand up and stretch. Vary the wording. One short line.", schedule: { cron: "0 9-17/1 * * 1-5" } },
+  { key: "meal-plan", title: "Weekly meal plan", prompt: "Build a meal plan for the coming week: dinner only, no dietary restrictions, quick to cook. Include a grocery list grouped by aisle.", schedule: { dailyAt: "17:00", weekdays: [0] } },
+  { key: "learn-daily", title: "Daily learning drip", prompt: "Teach me one bite-sized lesson about Spanish vocabulary. Build on earlier lessons, with one concrete example and a question to check understanding.", schedule: { dailyAt: "08:30", weekdays: WORKDAYS } },
+  { key: "gratitude-journal", title: "Gratitude & reflection prompt", prompt: "Send me a short, warm reflection prompt for the end of the day: one thing that went well, one thing I'm grateful for, one small win.", schedule: { dailyAt: "21:30", weekdays: EVERY_DAY } },
+  { key: "on-this-day", title: "On-this-day discovery", prompt: "Give me one interesting 'on this day in history' item for today: short, surprising, one or two sentences.", schedule: { dailyAt: "07:30", weekdays: EVERY_DAY } },
+];
+
+/** Whether a Starter can run with these connectors; when not, the copy names the one it lacks. */
+export function starterAvailable(
+  starter: Pick<AgentStarter, "needs">,
+  connectors: readonly string[],
+): { available: boolean; copy: string | null } {
+  if (!starter.needs || connectors.includes(starter.needs)) return { available: true, copy: null };
+  return { available: false, copy: `Needs ${NEED_WORDS[starter.needs]}. It stays off until one is connected.` };
 }
