@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 	"timely-api/internal/features/agent"
+	"timely-api/internal/features/bots"
 	"timely-api/internal/features/sheet"
 	"timely-api/internal/jobs"
 	"timely-api/internal/models"
@@ -43,8 +44,15 @@ type Service struct {
 	// choice, as no-persist runs on the agent engine (phase 4 decision 10).
 	// Test-only: cmd sets it only when DB_SCHEMA is set (Q-4.2).
 	sensitiveNoPersist bool
-	wg                 sync.WaitGroup
+	// threadBots is the Bots service a Bot thread changes its Bot through
+	// (SetBotThreads); threadRuns holds the threads whose turn is running.
+	threadBots ThreadBots
+	threadRuns sync.Map
+	wg         sync.WaitGroup
 }
+
+// The Bot thread's alert post is the bots service's ThreadPoster.
+var _ bots.ThreadPoster = (*Service)(nil)
 
 // SetSensitiveNoPersist lets Sensitive chats run on the agent engine as
 // no-persist runs (flags.no_persist, phase 4 decision 10). Off, the default,
@@ -83,7 +91,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/chats/watch", s.watch)
 	g.POST("/chats", s.create)
 	g.GET("/chats/:id", s.get)
-	g.POST("/chats/:id/messages", s.send)
+	g.POST("/chats/:id/messages", s.sendRoute)
 	g.POST("/chats/:id/approve", s.approve)
 	g.POST("/chats/:id/reject", s.reject)
 	g.POST("/chats/:id/steps/discard", s.discardSteps)
@@ -104,6 +112,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/agent/chat-settings", s.getChatSettings)
 	g.PATCH("/agent/chat-settings", s.patchChatSettings)
 	g.GET("/agent/tool-specs", s.toolSpecs)
+	s.registerBotThreadRoutes(g)
 }
 func user(c *echo.Context) string { v, _ := c.Get("userID").(string); return v }
 func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
@@ -118,7 +127,10 @@ func (s *Service) find(db *gorm.DB, uid, cid string, c *Conversation) error {
 }
 func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "question", "host_request", "host_grants", "full_access", "created_at", "updated_at").Where("user_id = ?", user(c)).Order("updated_at DESC").Limit(200).Find(&rows).Error
+	// A Bot thread and a new Bot's draft are not chats: they are served by the
+	// Bot thread endpoints and the Assistant's inbox.
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "question", "host_request", "host_grants", "full_access", "created_at", "updated_at").
+		Where("user_id = ? AND kind = ? AND NOT (context @> ?::jsonb)", user(c), KindChat, `[{"kind":"bot_draft"}]`).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
 	}
