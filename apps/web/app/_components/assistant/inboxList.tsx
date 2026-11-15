@@ -8,7 +8,8 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bot, MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import LoadError from "@/app/_components/_ui/loadError";
@@ -18,8 +19,9 @@ import { BotMark, botSites } from "@/app/_components/bots/botMark";
 import { relativeTime, statusMeta } from "@/app/_components/chat/chatMeta";
 import { openContextMenu } from "@/app/_store/contextMenuStore";
 import { useBotIcons } from "@/app/utils/hooks/bots";
+import { useBotThreads } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
-import { BOT_NEEDS_WORDS, type Inbox, type InboxItem } from "./inbox";
+import { applyBotThreads, botNeedsLine, filterInbox, type Inbox, type InboxItem } from "./inbox";
 
 const TONE = {
   primary: "text-primary",
@@ -113,10 +115,18 @@ function Row({ item, selected, icons, onOpen, onRename, onDelete }: Rowish & { i
   } else if (item.type === "bot") {
     lead = <BotMark watches={item.bot.watches} kind={item.bot.kind} size={32} icons={icons} badge={false} />;
     if (item.needs) {
-      sub = BOT_NEEDS_WORDS[item.needs];
+      sub = botNeedsLine(item);
       subTone = "text-warning";
     } else sub = item.bot.status === "paused" ? "Bot · paused" : "Bot";
     if (!item.at) at = "";
+  } else if (item.type === "draft") {
+    lead = (
+      <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-muted text-primary">
+        <Bot className="size-4" />
+      </span>
+    );
+    sub = botNeedsLine(item);
+    subTone = "text-warning";
   } else {
     lead = null;
     sub = "";
@@ -231,13 +241,22 @@ export function InboxList({
   onDelete: (id: string, title: string) => void;
   className?: string;
 }) {
+  // Bot threads wait on parked steps, one-tap changes and Review cards: they
+  // put their Bot in Needs you, and a new Bot's draft gets a row of its own.
+  const router = useRouter();
+  const threads = useBotThreads().data;
+  const listed = useMemo(() => filterInbox(applyBotThreads(inbox, threads), filter), [inbox, threads, filter]);
   const sites = useMemo(
-    () => botSites([...inbox.needs, ...inbox.recent].flatMap((i) => (i.type === "bot" ? i.bot.watches : []))),
-    [inbox],
+    () => botSites([...listed.needs, ...listed.recent].flatMap((i) => (i.type === "bot" ? i.bot.watches : []))),
+    [listed],
   );
   const icons = useBotIcons(sites).data;
-  const empty = !loading && !inbox.needs.length && !inbox.recent.length;
-  const row = { onOpen, onRename, onDelete, selected, icons };
+  const open = (item: InboxItem) => {
+    if (item.type !== "chat" && item.href) router.push(item.href, { scroll: false });
+    else onOpen(item);
+  };
+  const empty = !loading && !listed.needs.length && !listed.recent.length;
+  const row = { onOpen: open, onRename, onDelete, selected, icons };
   return (
     <aside aria-label="Assistant inbox" className={cn("flex min-h-0 flex-col", className)}>
       <div className="flex h-14 shrink-0 items-center justify-between gap-2 px-4">
@@ -274,8 +293,8 @@ export function InboxList({
             {filter ? "No matching chats or Bots." : "Your chats and Bots will live here."}
           </div>
         ) : null}
-        <Group label="Needs you" count={inbox.needs.length} items={inbox.needs} {...row} />
-        <Group label="Recent" items={inbox.recent} {...row} />
+        <Group label="Needs you" count={listed.needs.length} items={listed.needs} {...row} />
+        <Group label="Recent" items={listed.recent} {...row} />
       </div>
     </aside>
   );
