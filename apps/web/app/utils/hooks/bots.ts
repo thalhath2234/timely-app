@@ -15,8 +15,11 @@ import {
 } from "@timely/contract/bots";
 import {
   botIcons,
+  convertBot,
+  convertPreview,
   createBot,
   deleteBot,
+  tryBot,
   applySuggestion,
   dismissSuggestion,
   forgetLesson,
@@ -41,6 +44,7 @@ import {
 import { apiFetch } from "../api/client";
 import { startLiveStream } from "../api/chatStream";
 import { useToastStore } from "@/app/_store/toastStore";
+import type { AgentPatch } from "@/app/_types/types";
 
 export const botsKey = ["bots"] as const;
 export const botKey = (id: string) => ["bot", id] as const;
@@ -91,14 +95,18 @@ export function useBots({ enabled = true }: { enabled?: boolean } = {}) {
 }
 
 /** One bot in full. A deleted bot (404) is not asked for again; `enabled` false keeps what is cached without asking. */
-export function useBot(id?: string | null, { enabled = true }: { enabled?: boolean } = {}) {
+export function useBot(
+  id?: string | null,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: botKey(id || ""),
     queryFn: () => getBot(id || ""),
     enabled: !!id && enabled,
     // A deleted bot stays missing: polling it only adds requests.
     refetchInterval: (query) =>
-      botStreaming || (query.state.error as { status?: number } | null)?.status === 404
+      botStreaming ||
+      (query.state.error as { status?: number } | null)?.status === 404
         ? false
         : IDLE_POLL,
     refetchOnWindowFocus: true,
@@ -175,7 +183,7 @@ export function useCreateBot() {
 export function useUpdateBot() {
   const cache = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: BotPatch }) =>
+    mutationFn: ({ id, patch }: { id: string; patch: BotPatch & AgentPatch }) =>
       updateBot(id, patch),
     onSuccess: (_, { id }) => invalidateBot(cache, id),
   });
@@ -217,6 +225,35 @@ export function useSnoozeBot() {
       snoozeBot(id, body),
     onSuccess: (_, { id }) => invalidateBot(cache, id),
   });
+}
+
+/** What switching a rules Bot to an agent would make; read only while its card is shown. */
+export function useConvertPreview(id?: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["bot-convert", id || ""] as const,
+    queryFn: () => convertPreview(id || ""),
+    enabled: !!id && enabled,
+    staleTime: 30_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** Approves the switch for one Bot; the board and its page refetch. */
+export function useConvertBot() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => convertBot(id),
+    onSuccess: (_, id) => {
+      invalidateBot(cache, id);
+      void cache.invalidateQueries({ queryKey: ["bot-thread"] });
+    },
+  });
+}
+
+/** Try it now: a dry tick of an agent Bot; nothing is saved or sent. */
+export function useTryBot() {
+  return useMutation({ mutationFn: (id: string) => tryBot(id) });
 }
 
 export function useRunBot() {

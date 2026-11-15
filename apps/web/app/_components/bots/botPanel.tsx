@@ -1,50 +1,31 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent,
-  type ReactNode,
-  type Ref,
-} from "react";
-import Link from "next/link";
-import {
-  Bot,
   ChevronDown,
   ChevronUp,
   MessageCircle,
   Pause,
   Play,
   Plug,
-  Sunrise,
-  X,
 } from "lucide-react";
 import {
-  DEFAULT_BOT_SETTINGS,
-  DEFAULT_BRIEF_TIME,
   agoLabel,
   briefClock,
   clockLabel,
   draftErrors,
   draftOf,
-  emptyDraft,
   floorMinutes,
   healthLine,
   needsReason,
   originLine,
-  starterById,
-  starterDraft,
   toInput,
   cleanWatchInput,
   type BotDetail,
   type BotInput,
   type BotPatch,
   type BotView,
-  type HealthTone,
-  type StarterId,
   type WatchInput,
 } from "@timely/contract/bots";
 import { refusalMessage } from "@timely/contract/autosaveQueue";
@@ -53,23 +34,35 @@ import SaveStatusBadge from "@/app/_components/_ui/saveStatus";
 import { SkeletonCards } from "@/app/_components/_ui/skeleton";
 import { requestConfirm } from "@/app/_store/confirmStore";
 import { useToastStore } from "@/app/_store/toastStore";
-import { cn } from "@/app/utils/cn";
 import {
   useBot,
-  useBotDefaults,
   useBotIcons,
   useBots,
-  useCreateBot,
   usePauseBot,
   useResumeBot,
   useSourceKeys,
   useUpdateBot,
 } from "@/app/utils/hooks/bots";
 import { useAutosave } from "@/app/utils/hooks/useAutosave";
-import { BOT_KEYS_HREF } from "./botActions";
+import { assistantHref } from "@timely/contract/assistant";
+import { AgentBotPanel } from "./agentBotPanel";
+import { isAgentBot } from "./agentBot";
+import { NewBotThread } from "./agentStarters";
+import { SwitchToAgentCard } from "./switchToAgentCard";
 import { BotEditor, type EditHow, type EditorErrors } from "./botEditor";
 import { BotMark, botSites } from "./botMark";
-import { BotRail, NewBotRail } from "./botRail";
+import {
+  Chip,
+  CloseButton,
+  NameField,
+  PanelBody,
+  PanelFrame,
+  PanelNotice,
+  TONE_CHIP,
+  descClass,
+  escapeCloses,
+} from "./panelParts";
+import { BotRail } from "./botRail";
 import { RunNowButton } from "./runNowButton";
 import { SnoozeMenu } from "./snoozeMenu";
 
@@ -204,95 +197,12 @@ function useHasKey() {
     !keys || keys.some((k) => k.source === source && k.keySet);
 }
 
-const TONE_CHIP: Record<HealthTone, string> = {
-  ok: "bg-success/12 text-success-text",
-  warn: "bg-warning/12 text-warning-text",
-  bad: "bg-destructive/10 text-destructive",
-  off: "bg-fill text-muted-foreground",
-  primary: "bg-primary/12 text-primary",
-};
-
-function Chip({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-fill px-2.5 text-xs font-medium tabular-nums text-muted-foreground [&_svg]:size-3",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
 /** "shop pages wait 6 h": why Check now waits, from the bot's floor. */
 function waitWords(bot: BotView): string {
   const floor = floorMinutes(bot.watches);
   if (floor >= 360) return "shop pages wait 6 h";
   if (floor >= 15) return "pages wait 15 min";
   return "prices wait 5 min";
-}
-
-/** The panel's frame: the rounded sheet beside the board, no scrim. */
-function PanelFrame({
-  label,
-  children,
-  onKeyDown,
-  frameRef,
-}: {
-  label: string;
-  children: ReactNode;
-  onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
-  frameRef?: Ref<HTMLElement>;
-}) {
-  return (
-    <section
-      ref={frameRef}
-      aria-label={label}
-      tabIndex={-1}
-      onKeyDown={onKeyDown}
-      className="bots-panel flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[20px] border border-border-strong bg-background outline-none"
-    >
-      {children}
-    </section>
-  );
-}
-
-/** The panel's body: editor on the left, rail on the right, one column when the panel is narrow. */
-function PanelBody({ editor, rail }: { editor: ReactNode; rail: ReactNode }) {
-  return (
-    <div className="@container min-h-0 flex-1 overflow-y-auto">
-      <div
-        className="grid items-start gap-4 px-6 pb-6 pt-5 @[960px]:grid-cols-[minmax(0,1fr)_var(--rail)]"
-        style={{ "--rail": "clamp(320px, 28%, 420px)" } as CSSProperties}
-      >
-        <div className="min-w-0">{editor}</div>
-        <aside className="grid min-w-0 items-start gap-4 @[700px]:grid-cols-2 @[700px]:[&>*:last-child:nth-child(odd)]:col-span-2 @[960px]:grid-cols-1 @[960px]:[&>*:last-child:nth-child(odd)]:col-span-1">
-          {rail}
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-/** Escape closes the panel, unless a dialog, menu or list inside it has it. */
-function escapeCloses(close: () => void) {
-  return (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Escape" || event.defaultPrevented) return;
-    if (
-      (event.target as HTMLElement).closest(
-        '[role="dialog"],[role="menu"],[role="listbox"],[aria-expanded="true"]',
-      )
-    )
-      return;
-    close();
-  };
 }
 
 /** Asks before a touched new bot is dropped. */
@@ -340,58 +250,6 @@ function useReportUnfinished(
   }, [unfinished]);
   useEffect(() => () => reportRef.current?.(null), []);
 }
-
-function CloseButton({ onClose }: { onClose: () => void }) {
-  return (
-    <Button variant="ghost" size="sm" icon aria-label="Close" onClick={onClose}>
-      <X />
-    </Button>
-  );
-}
-
-/** The panel when the bot is still loading, or gone. */
-function PanelNotice({
-  onClose,
-  children,
-}: {
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <PanelFrame label="Bot">
-      <div className="flex items-center justify-end border-b border-border bg-card px-5 py-3">
-        <CloseButton onClose={onClose} />
-      </div>
-      <div className="p-6">{children}</div>
-    </PanelFrame>
-  );
-}
-
-/** The bot's name, typed in place as the panel's title; a long name wraps instead of being cut. */
-function NameField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (name: string) => void;
-}) {
-  return (
-    <textarea
-      aria-label="Bot name"
-      value={value}
-      rows={1}
-      placeholder="Name your bot"
-      maxLength={120}
-      // A name is one line: a pasted line break becomes a space.
-      onChange={(event) =>
-        onChange(event.target.value.replace(/[\r\n]+/g, " "))
-      }
-      className="-mx-1.5 min-w-0 flex-1 resize-none rounded-md bg-transparent px-1.5 py-1 text-[22px] font-semibold leading-7 tracking-[-0.02em] text-foreground outline-none transition-colors [field-sizing:content] placeholder:text-muted-foreground hover:bg-muted/60 focus:bg-muted/60"
-    />
-  );
-}
-const descClass =
-  "-mx-1.5 block w-[calc(100%+12px)] max-w-[692px] resize-none rounded-md bg-transparent px-1.5 py-0.5 text-sm leading-[22px] text-foreground outline-none transition-colors [field-sizing:content] placeholder:text-muted-foreground hover:bg-muted/60 focus:bg-muted/60";
 
 // ── An open bot ──
 
@@ -699,19 +557,22 @@ function EditPanel({
       </header>
       <PanelBody
         editor={
-          <BotEditor
-            draft={draft}
-            onChange={commit}
-            view={detail ?? bot}
-            mode="edit"
-            now={now}
-            icons={icons}
-            hasKey={hasKey}
-            errors={shown}
-            onDeleted={onClose}
-            onWatchDirty={setWatchDirty}
-            onOpenBot={(id) => leave(() => onSelect(id))}
-          />
+          <>
+            <SwitchToAgentCard bot={bot} />
+            <BotEditor
+              draft={draft}
+              onChange={commit}
+              view={detail ?? bot}
+              mode="edit"
+              now={now}
+              icons={icons}
+              hasKey={hasKey}
+              errors={shown}
+              onDeleted={onClose}
+              onWatchDirty={setWatchDirty}
+              onOpenBot={(id) => leave(() => onSelect(id))}
+            />
+          </>
         }
         rail={
           detail ? (
@@ -729,173 +590,11 @@ function EditPanel({
   );
 }
 
-// ── New bot ──
-
-function NewPanel({
-  initial,
-  now,
-  onClose,
-  onCreated,
-  onUnfinished,
-}: {
-  initial: BotInput;
-  now: Date;
-  onClose: () => void;
-  onCreated: (id: string) => void;
-  onUnfinished?: (unfinished: Unfinished) => void;
-}) {
-  const create = useCreateBot();
-  const hasKey = useHasKey();
-  const [draft, setDraft] = useState(initial);
-  const [touched, setTouched] = useState(false);
-  // A watch typed into but not added yet counts too.
-  const [watchDirty, setWatchDirty] = useState(false);
-  const frameRef = useRef<HTMLElement>(null);
-  // The page asks before a board click replaces a touched draft.
-  const unfinished: Unfinished = touched || watchDirty ? "new" : null;
-  useReportUnfinished(unfinished, onUnfinished);
-  const leave = (go: () => void) => leaveUnfinished(unfinished, go);
-  useEffect(() => {
-    frameRef.current?.focus({ preventScroll: true });
-  }, []);
-  const icons = useBotIcons(
-    useMemo(() => botSites(draft.watches), [draft.watches]),
-  ).data;
-  const problems = draftErrors(draft, hasKey);
-  const errors = touched ? groupErrors(problems) : {};
-  const needsKey =
-    draft.watches.some(
-      (w) =>
-        w.kind === "price" &&
-        (!w.source || w.source === "stock" || w.source === "finnhub"),
-    ) && !hasKey("finnhub");
-  const change = (next: BotInput) => {
-    setDraft(next);
-    setTouched(true);
-    create.reset();
-  };
-  const submit = () =>
-    create.mutate(toInput(draft), {
-      onSuccess: (view) => {
-        say(
-          view.kind === "brief"
-            ? `${view.name} is set up. Its first brief goes out at ${view.briefTime || DEFAULT_BRIEF_TIME}.`
-            : `${view.name} is set up. Its first check runs now.`,
-        );
-        onUnfinished?.(null);
-        onCreated(view.id);
-      },
-    });
-
-  return (
-    <PanelFrame
-      label="New bot"
-      frameRef={frameRef}
-      onKeyDown={escapeCloses(() => leave(onClose))}
-    >
-      <header className="relative z-20 shrink-0 border-b border-border bg-card pb-4 pl-6 pr-5 pt-4">
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="grid size-10 shrink-0 place-items-center rounded-[12px] bg-fill text-muted-foreground"
-          >
-            {draft.kind === "brief" ? (
-              <Sunrise className="size-5" />
-            ) : (
-              <Bot className="size-5" />
-            )}
-          </span>
-          <NameField
-            value={draft.name}
-            onChange={(name) => change({ ...draft, name })}
-          />
-          <CloseButton onClose={() => leave(onClose)} />
-        </div>
-        {errors.head ? (
-          <p className="mt-1 text-xs text-destructive">{errors.head}</p>
-        ) : null}
-        <div className="mt-3">
-          <textarea
-            aria-label="Description"
-            value={draft.description}
-            rows={1}
-            placeholder="What should it keep an eye on, in your own words?"
-            onChange={(event) =>
-              change({ ...draft, description: event.target.value })
-            }
-            className={descClass}
-          />
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Optional. Your words are kept with the bot so you remember why you
-            made it.
-          </p>
-        </div>
-      </header>
-      <PanelBody
-        editor={
-          <BotEditor
-            draft={draft}
-            onChange={(next) => change(next)}
-            mode="new"
-            now={now}
-            icons={icons}
-            hasKey={hasKey}
-            onWatchDirty={setWatchDirty}
-            errors={{
-              ...errors,
-              watches: needsKey ? (
-                <>
-                  Stock prices need your free Finnhub key.{" "}
-                  <Link
-                    href={BOT_KEYS_HREF}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    Add a free Finnhub key
-                  </Link>
-                </>
-              ) : (
-                errors.watches
-              ),
-            }}
-          />
-        }
-        rail={<NewBotRail draft={draft} now={now} />}
-      />
-      <footer className="flex min-h-15 shrink-0 items-center gap-2 border-t border-border bg-card py-3 pl-6 pr-4">
-        <p
-          className={cn(
-            "min-w-0 flex-1 truncate text-[13px]",
-            create.error ? "text-destructive" : "text-muted-foreground",
-          )}
-        >
-          {create.error
-            ? create.error.message
-            : touched && problems.length
-              ? problems[0]
-              : draft.kind === "brief"
-                ? `Sends its first brief at ${draft.briefTime || DEFAULT_BRIEF_TIME}.`
-                : "Lands in Watching once its first check works."}
-        </p>
-        <Button variant="outline" onClick={() => leave(onClose)}>
-          Cancel
-        </Button>
-        <Button
-          disabled={problems.length > 0}
-          loading={create.isPending}
-          onClick={submit}
-        >
-          Create bot
-        </Button>
-      </footer>
-    </PanelFrame>
-  );
-}
-
 /**
- * The right-side panel of the Bots page: an open bot (edit as you go, with
- * its rail of price, checks and alerts) or New bot (a blank editor or a
- * starter's, created with Create bot). There is no scrim, and clicks outside
- * never close it, so a draft is never lost by a stray click.
+ * The right-side panel of the Assistant for a Bot: an agent Bot (check
+ * strip, Try it now, grouped-row editor and its Bot thread, with
+ * ?bot=<id>&thread=1 opening the thread), a rules Bot (its editor and rail,
+ * with a Switch to agent card), or New bot, which starts as its thread.
  */
 export function BotPanel({
   mode,
@@ -910,7 +609,8 @@ export function BotPanel({
 }: {
   mode: "edit" | "new";
   botId?: string | null;
-  starter?: StarterId | string | null;
+  /** A Starter's blueprint key (?new=1&starter=<key>). */
+  starter?: string | null;
   /** The bot as the board has it, drawn while its detail loads. */
   listed?: BotView;
   order: string[];
@@ -921,29 +621,20 @@ export function BotPanel({
   onUnfinished?: (unfinished: Unfinished) => void;
 }) {
   const query = useBot(mode === "edit" ? botId : null);
-  const defaults = useBotDefaults();
+  const router = useRouter();
+  const params = useSearchParams();
+  // ?bot=<id>&thread=1 is this Bot's own thread.
+  const tab = params.get("thread") === "1" ? "thread" : "setup";
   // Which nav button opened the next bot, for EditPanel's focus.
   const [via, setVia] = useState<{ id: string; on: "prev" | "next" } | null>(
     null,
   );
 
   if (mode === "new") {
-    if (defaults.isLoading) {
-      return (
-        <PanelNotice onClose={onClose}>
-          <SkeletonCards />
-        </PanelNotice>
-      );
-    }
-    const settings = defaults.data ?? DEFAULT_BOT_SETTINGS;
-    const from = starterById(starter);
-    const initial =
-      (from && starterDraft(from, settings)) || emptyDraft(settings);
     return (
-      <NewPanel
-        key={from?.id ?? "blank"}
-        initial={initial}
-        now={now}
+      <NewBotThread
+        key={starter ?? "blank"}
+        starter={starter}
         onClose={onClose}
         onCreated={onSelect}
         onUnfinished={onUnfinished}
@@ -963,6 +654,20 @@ export function BotPanel({
           </p>
         )}
       </PanelNotice>
+    );
+  }
+  if (isAgentBot(bot)) {
+    return (
+      <AgentBotPanel
+        key={bot.id}
+        bot={bot}
+        detail={query.data}
+        now={now}
+        initialTab={tab}
+        onClose={onClose}
+        onOpenChat={(chat) => router.push(assistantHref({ chat }))}
+        onUnfinished={onUnfinished}
+      />
     );
   }
   return (
