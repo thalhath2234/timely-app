@@ -419,3 +419,233 @@ func TestSnoozeUntil(t *testing.T) {
 		}
 	}
 }
+
+func strs(s ...string) *[]string { return &s }
+
+func rawJSON(s string) json.RawMessage { return json.RawMessage(s) }
+
+func TestCleanAgentAcceptsTheNewFields(t *testing.T) {
+	in := AgentInput{
+		Prompt:        strp("  Watch the Pixel. Alert when it is below ₹90,000.  "),
+		Schedule:      rawJSON(`"every 6h"`),
+		Timezone:      strp("Asia/Kolkata"),
+		Skills:        strs("product-price-monitor", "product-price-monitor"),
+		Tools:         &ToolsInput{BrowserSites: strs("https://www.Flipkart.com/x", "amazon.in"), Egress: strs("api.example.com"), UseMemory: boolp(true), MCP: map[string]string{"gmail": "ask", "notes": "use"}},
+		Permission:    strp(PermissionSupervised),
+		Gate:          strp(GateChanged),
+		MarketHours:   boolp(true),
+		ModelProvider: strp("claude"),
+		Model:         strp("sonnet"),
+	}
+	f, err := CleanAgent(in, nil, []Watch{product}, OriginApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Prompt != "Watch the Pixel. Alert when it is below ₹90,000." || f.Schedule.EveryMinutes != 360 || f.Timezone != "Asia/Kolkata" {
+		t.Errorf("fields %+v", f)
+	}
+	if len(f.Skills) != 1 || f.Skills[0] != "product-price-monitor" {
+		t.Errorf("skills %v", f.Skills)
+	}
+	if got := f.Tools.BrowserSites; len(got) != 2 || got[0] != "www.flipkart.com" || got[1] != "amazon.in" {
+		t.Errorf("browser sites %v", got)
+	}
+	if !f.Tools.UseMemory || f.Tools.MCP["gmail"] != "ask" || f.Permission != PermissionSupervised || f.Gate != GateChanged || !f.MarketHours || f.ModelProvider != "claude" || f.Model != "sonnet" {
+		t.Errorf("fields %+v", f)
+	}
+	if f.IntervalSeconds != 6*3600 {
+		t.Errorf("interval %d s, want 6 h", f.IntervalSeconds)
+	}
+
+	var b Bot
+	f.Apply(&b)
+	if b.Engine != EngineAgent || b.Prompt != f.Prompt || b.Schedule["everyMinutes"] != 360 || b.IntervalSeconds != 21600 || !b.UseMemory ||
+		len(b.Egress) != 1 || b.Egress[0] != "api.example.com" || b.Permission != PermissionSupervised || len(b.Skills) != 1 {
+		t.Errorf("Apply: %+v", b)
+	}
+
+	// Defaults on a new Bot: Auto, no tools, and no Reads means it runs on
+	// its schedule whatever gate was asked for.
+	d, err := CleanAgent(AgentInput{Prompt: strp("Remind me"), Schedule: rawJSON(`{"dailyAt":"09:00","weekdays":[1,2,3,4,5]}`)}, nil, nil, OriginApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Permission != PermissionAuto || d.Gate != GateAlways || d.Tools.UseMemory || len(d.Tools.BrowserSites) != 0 || d.Schedule.DailyAt != "09:00" {
+		t.Errorf("defaults %+v", d)
+	}
+	if d.IntervalSeconds != 86400 {
+		t.Errorf("a weekday schedule is a day apart: %d", d.IntervalSeconds)
+	}
+	if got, err := CleanAgent(AgentInput{Prompt: strp("x"), Schedule: rawJSON(`{"cron":"0 */6 * * *"}`)}, nil, []Watch{page}, OriginApp); err != nil || got.Gate != GateChanged || got.IntervalSeconds != 6*3600 {
+		t.Errorf("cron with a Read: %+v, %v", got, err)
+	}
+}
+
+// Whatever interval_seconds a schedule derives stays inside the table's CHECK.
+func TestCleanAgentIntervalStaysInsideTheCheck(t *testing.T) {
+	for _, sched := range []string{`"every 5m"`, `"every 1m"`, `"*/1 * * * *"`, `"* * * * *"`, `"every 7 days"`, `"0 0 1 1 *"`, `{"everyMinutes":10080}`, `"every monday 9am"`} {
+		for _, ws := range [][]Watch{nil, {quote}, {page}, {product}} {
+			f, err := CleanAgent(AgentInput{Prompt: strp("x"), Schedule: rawJSON(sched)}, nil, ws, OriginApp)
+			if err != nil {
+				t.Fatalf("%s: %v", sched, err)
+			}
+			if f.IntervalSeconds < 300 || f.IntervalSeconds > 604800 {
+				t.Errorf("%s with %d Reads: interval_seconds %d", sched, len(ws), f.IntervalSeconds)
+			}
+			if floor := int(AgentFloor(ws) / time.Second); f.IntervalSeconds < floor {
+				t.Errorf("%s with %d Reads: %d s is under the floor %d", sched, len(ws), f.IntervalSeconds, floor)
+			}
+		}
+	}
+	// A faster interval than the floor of its Reads is stored clamped.
+	f, err := CleanAgent(AgentInput{Prompt: strp("x"), Schedule: rawJSON(`"every 10m"`)}, nil, []Watch{product}, OriginApp)
+	if err != nil || f.Schedule.EveryMinutes != 360 {
+		t.Errorf("clamped: %+v, %v", f.Schedule, err)
+	}
+}
+
+func TestCleanAgentRefuses(t *testing.T) {
+	ok := AgentInput{Prompt: strp("x"), Schedule: rawJSON(`"every 1h"`)}
+	with := func(edit func(*AgentInput)) AgentInput {
+		in := ok
+		edit(&in)
+		return in
+	}
+	cases := []struct {
+		name string
+		in   AgentInput
+		want string
+	}{
+		{"no prompt", AgentInput{Schedule: rawJSON(`"every 1h"`)}, "Say what the bot should do"},
+		{"blank prompt", with(func(a *AgentInput) { a.Prompt = strp("  ") }), "Say what the bot should do"},
+		{"long prompt", with(func(a *AgentInput) { a.Prompt = strp(strings.Repeat("x", MaxPromptLen+1)) }), "Keep the prompt"},
+		{"no schedule", AgentInput{Prompt: strp("x")}, "Say when it runs"},
+		{"one-shot schedule", with(func(a *AgentInput) { a.Schedule = rawJSON(`"2026-12-01T09:00:00"`) }), "Reminder"},
+		{"bad schedule", with(func(a *AgentInput) { a.Schedule = rawJSON(`"whenever"`) }), "can't read"},
+		{"two shapes", with(func(a *AgentInput) { a.Schedule = rawJSON(`{"everyMinutes":5,"cron":"0 9 * * *"}`) }), "Set one schedule"},
+		{"number schedule", with(func(a *AgentInput) { a.Schedule = rawJSON(`5`) }), "Give the schedule"},
+		{"bad zone", with(func(a *AgentInput) { a.Timezone = strp("Mars/Base") }), "not a time zone"},
+		{"local zone", with(func(a *AgentInput) { a.Timezone = strp("Local") }), "not a time zone"},
+		{"bad skill", with(func(a *AgentInput) { a.Skills = strs("../etc/passwd") }), "not a skill name"},
+		{"too many skills", with(func(a *AgentInput) {
+			s := make([]string, MaxSkills+1)
+			for i := range s {
+				s[i] = "skill-" + string(rune('a'+i))
+			}
+			a.Skills = &s
+		}), "up to 10 skills"},
+		{"private browser site", with(func(a *AgentInput) { a.Tools = &ToolsInput{BrowserSites: strs("localhost")} }), "not a public site"},
+		{"address as egress", with(func(a *AgentInput) { a.Tools = &ToolsInput{Egress: strs("169.254.169.254")} }), "not a public site"},
+		{"one-word egress", with(func(a *AgentInput) { a.Tools = &ToolsInput{Egress: strs("intranet")} }), "not a public site"},
+		{"bad mcp mode", with(func(a *AgentInput) { a.Tools = &ToolsInput{MCP: map[string]string{"gmail": "yes"}} }), "use, ask or off"},
+		{"bad permission", with(func(a *AgentInput) { a.Permission = strp("root") }), "supervised, auto or full"},
+		{"bad gate", with(func(a *AgentInput) { a.Gate = strp("sometimes") }), "changed or always"},
+		{"model without provider", with(func(a *AgentInput) { a.Model = strp("sonnet") }), "together"},
+	}
+	for _, c := range cases {
+		_, err := CleanAgent(c.in, nil, nil, OriginApp)
+		if err == nil {
+			t.Errorf("%s: no error", c.name)
+			continue
+		}
+		if msg := inputMsg(t, err); !strings.Contains(msg, c.want) {
+			t.Errorf("%s: %q does not contain %q", c.name, msg, c.want)
+		}
+	}
+}
+
+// An outside app (MCP) cannot give an agent Bot reach, a model or a new
+// prompt once it is on.
+func TestCleanAgentRefusesWhatMCPMustNotSet(t *testing.T) {
+	base := AgentInput{Prompt: strp("Watch it"), Schedule: rawJSON(`"every 1h"`)}
+	if _, err := CleanAgent(base, nil, nil, OriginMCP); err != nil {
+		t.Fatalf("a plain Bot over MCP: %v", err)
+	}
+	for name, edit := range map[string]func(*AgentInput){
+		"tools":         func(a *AgentInput) { a.Tools = &ToolsInput{MCP: map[string]string{"gmail": "use"}} },
+		"browser sites": func(a *AgentInput) { a.Tools = &ToolsInput{BrowserSites: strs("flipkart.com")} },
+		"egress":        func(a *AgentInput) { a.Tools = &ToolsInput{Egress: strs("example.com")} },
+		"memory":        func(a *AgentInput) { a.Tools = &ToolsInput{UseMemory: boolp(true)} },
+		"skills":        func(a *AgentInput) { a.Skills = strs("product-price-monitor") },
+		"permission":    func(a *AgentInput) { a.Permission = strp(PermissionFull) },
+		"model":         func(a *AgentInput) { a.ModelProvider, a.Model = strp("claude"), strp("opus") },
+	} {
+		in := base
+		edit(&in)
+		if _, err := CleanAgent(in, nil, nil, OriginMCP); !errors.Is(err, errMCPAgent) {
+			t.Errorf("%s: got %v, want errMCPAgent", name, err)
+		}
+		// The same edit made in the app is fine.
+		if _, err := CleanAgent(in, nil, nil, OriginApp); err != nil {
+			t.Errorf("%s in the app: %v", name, err)
+		}
+	}
+
+	active := Bot{Engine: EngineAgent, Status: StatusActive, Prompt: "Watch it", Schedule: Schedule{EveryMinutes: 60}.Map(), Permission: PermissionAuto, Gate: GateAlways}
+	edit := AgentInput{Prompt: strp("Watch something else")}
+	if _, err := CleanAgent(edit, &active, nil, OriginMCP); !errors.Is(err, errMCPPrompt) {
+		t.Errorf("an active Bot's prompt over MCP: %v", err)
+	}
+	// The same words, a pause, or the app: allowed.
+	if _, err := CleanAgent(AgentInput{Prompt: strp("Watch it")}, &active, nil, OriginMCP); err != nil {
+		t.Errorf("an unchanged prompt: %v", err)
+	}
+	paused := active
+	paused.Status = StatusPaused
+	if f, err := CleanAgent(edit, &paused, nil, OriginMCP); err != nil || f.Prompt != "Watch something else" {
+		t.Errorf("a paused Bot's prompt over MCP: %+v, %v", f, err)
+	}
+	if _, err := CleanAgent(edit, &active, nil, OriginApp); err != nil {
+		t.Errorf("an active Bot's prompt in the app: %v", err)
+	}
+	// What MCP may change on an active Bot: the schedule.
+	if f, err := CleanAgent(AgentInput{Schedule: rawJSON(`"every 2h"`)}, &active, nil, OriginMCP); err != nil || f.Schedule.EveryMinutes != 120 {
+		t.Errorf("schedule over MCP: %+v, %v", f, err)
+	}
+}
+
+func TestCleanAgentEditKeepsWhatIsNotSent(t *testing.T) {
+	cur := Bot{Engine: EngineAgent, Status: StatusActive, Prompt: "Old", Schedule: Schedule{Cron: "0 9 * * *"}.Map(), Timezone: "Asia/Kolkata",
+		Skills: jsonList[string]{"a-skill"}, Tools: AgentTools{BrowserSites: []string{"flipkart.com"}, Egress: []string{"example.com"}, MCP: map[string]string{"gmail": "ask"}},
+		UseMemory: true, Permission: PermissionFull, Gate: GateChanged, MarketHours: true, ModelProvider: "claude", Model: "sonnet"}
+	f, err := CleanAgent(AgentInput{Prompt: strp("New")}, &cur, []Watch{page}, OriginApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Prompt != "New" || f.Schedule.Cron != "0 9 * * *" || f.Timezone != "Asia/Kolkata" || len(f.Skills) != 1 || !f.Tools.UseMemory ||
+		f.Tools.BrowserSites[0] != "flipkart.com" || f.Tools.Egress[0] != "example.com" || f.Tools.MCP["gmail"] != "ask" ||
+		f.Permission != PermissionFull || f.Gate != GateChanged || !f.MarketHours || f.Model != "sonnet" {
+		t.Errorf("an edit lost fields: %+v", f)
+	}
+	// Part of the tools: the rest stays.
+	f, err = CleanAgent(AgentInput{Tools: &ToolsInput{BrowserSites: strs("amazon.in")}}, &cur, []Watch{page}, OriginApp)
+	if err != nil || f.Tools.BrowserSites[0] != "amazon.in" || f.Tools.Egress[0] != "example.com" || !f.Tools.UseMemory {
+		t.Errorf("tools edit: %+v, %v", f.Tools, err)
+	}
+	// Clearing the model.
+	f, err = CleanAgent(AgentInput{ModelProvider: strp(""), Model: strp("")}, &cur, []Watch{page}, OriginApp)
+	if err != nil || f.ModelProvider != "" || f.Model != "" {
+		t.Errorf("model cleared: %+v, %v", f, err)
+	}
+	// A rules Bot is converted first.
+	rules := Bot{Engine: EngineRules}
+	if _, err := CleanAgent(AgentInput{Prompt: strp("x")}, &rules, nil, OriginApp); err == nil || !strings.Contains(err.Error(), "Switch it to an agent") {
+		t.Errorf("a rules Bot: %v", err)
+	}
+}
+
+// The agent fields ride on Input and Patch, flat in the JSON.
+func TestAgentFieldsInInputJSON(t *testing.T) {
+	var in Input
+	body := `{"name":"Pixel","prompt":"Watch it","schedule":"weekdays at 9am","tools":{"browserSites":["flipkart.com"]},"gate":"changed","marketHours":true}`
+	if err := json.Unmarshal([]byte(body), &in); err != nil {
+		t.Fatal(err)
+	}
+	if in.Name != "Pixel" || in.Prompt == nil || *in.Prompt != "Watch it" || string(in.Schedule) != `"weekdays at 9am"` || in.Tools == nil || !in.Set() {
+		t.Errorf("Input %+v", in)
+	}
+	var p Patch
+	if err := json.Unmarshal([]byte(`{"name":"x"}`), &p); err != nil || p.Set() {
+		t.Errorf("a Patch with no agent fields reports some: %+v %v", p, err)
+	}
+}
