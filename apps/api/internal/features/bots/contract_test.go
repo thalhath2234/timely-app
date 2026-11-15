@@ -119,7 +119,7 @@ func TestContractWords(t *testing.T) {
 	}{
 		{"ReadMode", union("ReadMode"), []string{ReadText, ReadSelector, ReadProductPrice, ReadSelectorPrice}},
 		{"WatchKind", union("WatchKind"), []string{WatchPage, WatchFeed, WatchPrice}},
-		{"PauseReason", union("PauseReason"), []string{PausePerson, PauseStrikes, PauseMCP}},
+		{"PauseReason", union("PauseReason"), []string{PausePerson, PauseStrikes, PauseMCP, PauseInjection}},
 		{"CheckTrigger", union("CheckTrigger"), []string{TriggerSchedule, TriggerWake, TriggerRunNow, TriggerAsk, TriggerPass}},
 		{"AnswerFresh", union("AnswerFresh"), []string{FreshCheckedNow, FreshRecent, FreshWaiting, FreshPaused, FreshLimited, FreshFloor}},
 		{"Feedback", union("Feedback"), []string{FeedbackUseful, FeedbackNotUseful}},

@@ -116,6 +116,11 @@ type AgentResult struct {
 	// ErrorClass is "" for a run that finished, else one of the Class*
 	// constants.
 	ErrorClass string
+	// RetryAfter is how long the provider asked Timely to wait when the run
+	// ended ClassRateLimited (a 429's Retry-After). Zero when it said nothing;
+	// the tick then holds the next check for rateHold. Ignored for any other
+	// class.
+	RetryAfter time.Duration
 }
 
 // Report is one thing a run tells the person.

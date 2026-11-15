@@ -36,6 +36,8 @@ const (
 	// rateHold is how long a rate-limited provider holds the next check when
 	// the provider says nothing more.
 	rateHold = 15 * time.Minute
+	// maxRateHold caps what a provider's Retry-After may hold a Bot for.
+	maxRateHold = 24 * time.Hour
 	// maxReportBody bounds what a report's body keeps, in characters.
 	maxReportBody = 600
 )
@@ -64,6 +66,8 @@ type agentEnd struct {
 	// A tick that did not get its readings looked at (a failed or waiting run)
 	// leaves them, so the next tick wakes on the same change again.
 	consume bool
+	// retryAfter is the wait a rate-limited provider asked for, 0 for none.
+	retryAfter time.Duration
 }
 
 // endOf works out how a tick ended.
@@ -82,6 +86,7 @@ func endOf(run agentRun) agentEnd {
 		e.kind, e.outcome, e.errKind, e.consume = endUnreachable, outOffline, ClassUnreachable, false
 	case run.class == ClassRateLimited:
 		e.kind, e.outcome, e.errKind, e.consume = endRateLimited, outRateLimited, ClassRateLimited, false
+		e.retryAfter = run.res.RetryAfter
 	case run.class != "":
 		e.kind, e.outcome, e.errKind, e.consume = endStrike, outFailed, run.class, false
 	}
@@ -630,9 +635,23 @@ func (s *Service) finishAgentBot(tx *gorm.DB, c checkRun, b Bot, cur []Watch, en
 		// retry is not turned away by it.
 		set["check_started_at"] = c.prevStarted
 	case endRateLimited:
-		next = maxTime(done.Add(rateHold), c.spaced())
+		// Never a strike. The provider's Retry-After holds the Bot, no shorter
+		// than the source floor and no longer than a day; without one, rateHold.
+		next = maxTime(done.Add(rateHoldFor(end.retryAfter, c.floor)), c.spaced())
 		set["health"], set["health_detail"] = "rate_limited", "The AI provider asked Timely to wait until "+next.In(loc).Format("15:04")
 	case endStrike:
+		if end.errKind == ClassInjection {
+			// A page gave the run instructions: no strike to count, the Bot
+			// stops at once and the person decides.
+			set["health"], set["health_detail"] = ClassInjection, injectionLine
+			if b.Status == StatusActive {
+				set["status"], set["pause_reason"], set["next_check_at"] = StatusPaused, PauseInjection, nil
+				if err := s.injectionAlert(tx, b, c.checkID, done); err != nil {
+					return err
+				}
+			}
+			break
+		}
 		strikes := b.Strikes + 1
 		set["strikes"] = strikes
 		next = maxTime(done.Add(StrikeDelay(b.Interval(), strikes)), c.spaced())
@@ -662,6 +681,46 @@ func (s *Service) finishAgentBot(tx *gorm.DB, c checkRun, b Bot, cur []Watch, en
 		set["next_check_at"] = next
 	}
 	return tx.Model(&Bot{}).Where("id = ?", b.ID).Updates(set).Error
+}
+
+// rateHoldFor is how long a rate-limited run holds the Bot's next check: the
+// provider's Retry-After, no shorter than the source floor and no longer than
+// maxRateHold, or rateHold when it said nothing.
+func rateHoldFor(retryAfter, floor time.Duration) time.Duration {
+	if retryAfter <= 0 {
+		return rateHold
+	}
+	return min(max(retryAfter, floor), maxRateHold)
+}
+
+// injectionLine is the health line of a Bot stopped for following a page (the
+// contract's INJECTION_LINE).
+const injectionLine = "Stopped: a page tried to instruct it"
+
+// injectionAlert tells the person a Bot stopped at once because a page tried to
+// give it instructions, with a Resume they can act on from the alert. Like the
+// strike pause it is not counted in the daily cap.
+func (s *Service) injectionAlert(tx *gorm.DB, b Bot, checkID string, now time.Time) error {
+	settings, loc, err := notify.LoadAlertSettings(tx, b.UserID)
+	if err != nil {
+		return err
+	}
+	local := now.In(loc)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	title := b.Name + " stopped: a page tried to instruct it"
+	body := "It stopped because a page tried to give it instructions. Nothing it read was acted on. Check the Bot, then resume it from this alert or in the Assistant."
+	row := Alert{
+		ID: utils.PrefixedUUID("bal"), BotID: b.ID, UserID: b.UserID, CheckID: &checkID, Kind: alertKindPaused, LocalDay: day,
+		Title: title, Body: body, Figures: jsonMap[string, any]{"health": ClassInjection}, CreatedAt: now,
+	}
+	data := alertData(b, row.ID, checkID, "", alertKindPaused)
+	data["resume"] = true
+	ntf := botNotification(b, title, body, "bot:"+b.ID+":paused:"+checkID, data)
+	if _, err := notify.WriteAlert(tx, &ntf, settings, loc, notify.AlertOptions{Phone: b.NotifyPhone, Now: now}); err != nil {
+		return err
+	}
+	row.NotificationID = &ntf.ID
+	return tx.Create(&row).Error
 }
 
 // passAgent runs a pass tick of an agent Bot: the note another Bot passed is

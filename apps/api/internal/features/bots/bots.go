@@ -154,6 +154,9 @@ const (
 	PausePerson  = "person"
 	PauseStrikes = "strikes"
 	PauseMCP     = "mcp"
+	// PauseInjection: a run was stopped for obeying text from a page; the Bot
+	// waits for the person to Resume it.
+	PauseInjection = "injection"
 
 	JudgeRules = "rules"
 	JudgeAI    = "ai"
