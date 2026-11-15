@@ -107,3 +107,24 @@ func TestConvertScheduleIsClampedToTheFloor(t *testing.T) {
 		t.Errorf("no Reads: %+v", c)
 	}
 }
+
+// A brief becomes an agent prompt over its sources' notes, scheduled at its
+// daily time, with the gate always and no skills (plan 7.8).
+func TestConvertBrief(t *testing.T) {
+	b := Bot{ID: "bot_brief", Name: "Morning", Description: "What my bots found overnight", Kind: KindBrief, BriefTime: "07:30"}
+	prompt, sched, skills := ConvertPrompt(b, nil)
+	if !strings.HasPrefix(prompt, "Morning. What my bots found overnight. Sum up what these bots found since the last brief") {
+		t.Errorf("prompt %q", prompt)
+	}
+	if sched.Kind() != ScheduleDaily || sched.DailyAt != "07:30" || sched.EveryMinutes != 0 || len(sched.Weekdays) != 0 || len(skills) != 0 {
+		t.Errorf("schedule %+v skills %v", sched, skills)
+	}
+	if c := ConvertBot(b, nil); c.Prompt != prompt || c.Gate != GateAlways {
+		t.Errorf("ConvertBot %+v", c)
+	}
+	// A brief with no time of its own runs at the default.
+	b.BriefTime = ""
+	if _, sched, _ = ConvertPrompt(b, nil); sched.DailyAt != DefaultBriefTime {
+		t.Errorf("default time %+v", sched)
+	}
+}

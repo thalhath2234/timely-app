@@ -96,9 +96,14 @@ func (s *Service) HandleCheck(ctx context.Context, job *models.Job) error {
 		return nil
 	}
 	if b.Kind == KindBrief {
-		// A brief reads nothing: it sums up its sources' notes.
+		// A brief reads nothing: it sums up its sources' notes, worded by the
+		// Agent once converted (runBrief).
 		checkID := utils.PrefixedUUID("bchk")
-		c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: Floor(nil), checkID: checkID, chainID: checkID}
+		if b.Engine == EngineAgent {
+			// A converted brief's run is keyed by its job, like any agent tick.
+			checkID = agentCheckID(job)
+		}
+		c := checkRun{job: job, bot: b, trigger: trigger, started: started, floor: botFloor(b, nil), checkID: checkID, chainID: checkID}
 		err := s.runBrief(ctx, c)
 		if ctx.Err() != nil {
 			s.release(b.ID, job.ID, prevStarted)
