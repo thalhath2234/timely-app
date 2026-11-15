@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// heldDuplicate: an alert whose fingerprint repeated one sent in the last 7 days.
+const heldDuplicate = "duplicate"
+
 // Bot is one person's Bot (table bots). next_check_at is its only schedule:
 // set while active, NULL while paused.
 type Bot struct {
@@ -253,7 +256,7 @@ type Alert struct {
 	CheckID        *string              `gorm:"type:text" json:"checkId"`
 	NotificationID *string              `gorm:"type:text" json:"notificationId"`
 	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused|brief
-	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged|shared
+	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged|shared|duplicate
 	LocalDay       time.Time            `gorm:"type:date;not null" json:"-"`
 	Title          string               `gorm:"type:text;not null" json:"title"`
 	Body           string               `gorm:"type:text;not null" json:"body"`

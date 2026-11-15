@@ -132,7 +132,7 @@ func TestContractWords(t *testing.T) {
 		{"AiState", union("AiState"), []string{"", aiJudged, aiUnchecked, aiRejudged}},
 		{"Urgency", union("Urgency"), []string{UrgencyLow, UrgencyNormal, UrgencyHigh}},
 		{"AlertKind", union("AlertKind"), []string{alertKindAlert, alertKindMore, alertKindPaused, alertKindBrief}},
-		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared}},
+		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared, heldDuplicate}},
 		{"AwayReason", union("AwayReason"), []string{AwayClosed, AwayAsleep, AwayAllPaused}},
 		{"RuleKind", union("RuleKind"), []string{RuleAnyChange, RuleAbove, RuleBelow, RuleMovePct, RuleWordsAppear, RuleWordsDisappear, RuleNewItem, RuleInStock}},
 		{"Availability", union("Availability"), []string{extract.AvailInStock, extract.AvailOutOfStock, extract.AvailPreorder, extract.AvailBackorder, extract.AvailLimited, extract.AvailDiscontinued, extract.AvailUnknown}},
