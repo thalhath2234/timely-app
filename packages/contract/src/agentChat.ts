@@ -112,8 +112,8 @@ export const PERMISSION_COPY: Record<PermissionMode, PermissionCopy> = {
   auto: {
     name: "Auto",
     description:
-      "Edits files in the working folder and runs simple read-only commands there (listing, reading, searching, git status and log) on its own. Asks before any other command, and before deleting, sending your data out, paying, installing, changing settings, running code, using your browser, and changes after it reads outside content.",
-    short: "Runs only read-only commands on its own. Asks before other commands, deleting, sending your data out, paying, installing, changing settings, running code or using your browser",
+      "Does the everyday work on its own. Asks before deleting, sending your data out, paying, installing, changing settings, running code, using your browser, and changes after it reads outside content. On this computer it also runs only simple read-only commands (listing, reading, searching, git status and log) without asking.",
+    short: "Asks before risky steps. On this computer it runs only read-only commands on its own",
     icon: "shield",
     tone: "indigo",
   },

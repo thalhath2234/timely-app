@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { InstanceSettings } from "@timely/contract/instanceSettings";
+import { api } from "../../lib/api/client";
 import { Text, View } from "react-native";
 import { CreditCard, Globe, Package, Send, Settings2, Trash2, type LucideIcon } from "lucide-react-native";
 import {
@@ -57,6 +60,15 @@ const PICKER_TITLE: Record<Which, string> = {
  */
 export default function PermissionsCard({ settings }: { settings: AgentChatSettings }) {
   const patch = usePatchAgentChatSettings();
+  // The note about commands on this computer is for an account that can use
+  // it; chat-only accounts never get a host card.
+  const computer = useQuery({
+    queryKey: ["instance-settings"],
+    queryFn: () => api<InstanceSettings>("/instance/settings"),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const hostAllowed = !!computer.data?.thisAccountHostAllowed;
   const [picking, setPicking] = useState<Which | null>(null);
   const [choosing, setChoosing] = useState<Choice | null>(null);
   // Full Access asks once, naming what it lifts, then unlocks the phone (the step-up).
@@ -145,7 +157,7 @@ export default function PermissionsCard({ settings }: { settings: AgentChatSetti
           );
         })}
       </ListGroup>
-      <GroupHint>{AUTO_ASKS_HOST_NOTE}</GroupHint>
+      {hostAllowed ? <GroupHint>{AUTO_ASKS_HOST_NOTE}</GroupHint> : null}
 
       <GroupLabel>Full Access</GroupLabel>
       <ListGroup testID="full-access">

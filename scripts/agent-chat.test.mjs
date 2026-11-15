@@ -138,11 +138,14 @@ describe("permission copy", () => {
     assert.equal(FULL_ACCESS_PHONE_NOTE, "Turn on from the desktop app");
   });
 
-  test("Auto says it runs only read-only commands on its own (owner decision 2026-11-15)", () => {
-    for (const text of [PERMISSION_COPY.auto.description, PERMISSION_COPY.auto.short]) {
-      assert.match(text, /read-only commands/);
-      assert.doesNotMatch(text, /everyday/i);
-    }
+  test("Auto says it runs only read-only commands on its own, and says what it does everywhere first (owner decision 2026-11-15, review round 7)", () => {
+    for (const text of [PERMISSION_COPY.auto.description, PERMISSION_COPY.auto.short]) assert.match(text, /read-only commands/);
+    // the description leads with what Auto does for every account; the computer part is its last sentence
+    assert.match(PERMISSION_COPY.auto.description, /^Does the everyday work on its own\./);
+    assert.match(PERMISSION_COPY.auto.description, /On this computer it also runs only simple read-only commands/);
+    // one line in a picker row
+    assert.ok(PERMISSION_COPY.auto.short.length <= 100, PERMISSION_COPY.auto.short);
+    assert.match(PERMISSION_COPY.auto.short, /^Asks before risky steps/);
   });
 
   test("the six rows Auto always asks before, as drawn", () => {
@@ -349,12 +352,12 @@ describe("host cards", () => {
 
 describe("the Auto description names everything Auto asks before (review round 6)", () => {
   test("code, the browser and changes after outside content are there, and it does not say it asks only before them", () => {
-    for (const text of [PERMISSION_COPY.auto.description, PERMISSION_COPY.auto.short]) {
-      assert.match(text, /running code/);
-      assert.match(text, /browser/);
-      // "runs only read-only commands" (2026-11-15) is the allowlist; "asks only before" would undersell what asks
-      assert.doesNotMatch(text, /asks? only|only (asks|before)/i);
-    }
+    const text = PERMISSION_COPY.auto.description;
+    assert.match(text, /running code/);
+    assert.match(text, /browser/);
+    // "runs only read-only commands" (2026-11-15) is the allowlist; "asks only before" would undersell what asks
+    assert.doesNotMatch(text, /asks? only|only (asks|before)/i);
+    assert.doesNotMatch(PERMISSION_COPY.auto.short, /asks? only|only (asks|before)/i);
     assert.match(PERMISSION_COPY.auto.description, /outside content/);
   });
 });

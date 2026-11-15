@@ -39,6 +39,8 @@ import {
   type Surface,
 } from "@/app/_components/chat/hostView";
 import Select from "@/app/_components/_ui/select";
+import { useQuery } from "@tanstack/react-query";
+import { getInstanceSettings } from "@/app/utils/api/instance";
 import { cn } from "@/app/utils/cn";
 import { usePatchChatSettings } from "@/app/utils/hooks/chat";
 import { useDesktopShell } from "@/app/utils/hooks/desktop";
@@ -116,6 +118,15 @@ export default function PermissionsGroups({
   settings: AgentChatSettings;
 }) {
   const patch = usePatchChatSettings();
+  // The note about commands on this computer is for an account that can use
+  // it; chat-only accounts never get a host card.
+  const computer = useQuery({
+    queryKey: ["instance-settings"],
+    queryFn: getInstanceSettings,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const hostAllowed = !!computer.data?.thisAccountHostAllowed;
   // The desktop window is the step-up: loosening where Full Access or host
   // cards may be approved is only possible there (the server says 403 else).
   const surface: Surface = useDesktopShell() ? "desktop" : "web";
@@ -225,7 +236,7 @@ export default function PermissionsGroups({
             );
           })}
         </ListGroup>
-        <GroupHint>{AUTO_ASKS_HOST_NOTE}</GroupHint>
+        {hostAllowed && <GroupHint>{AUTO_ASKS_HOST_NOTE}</GroupHint>}
       </div>
 
       <div>
