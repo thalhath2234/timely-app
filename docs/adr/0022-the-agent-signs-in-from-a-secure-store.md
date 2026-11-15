@@ -73,3 +73,29 @@ sign-in tools, Take control and page input are never offered over MCP or to API
 keys. Pushes about private sites say only that a Bot needs the person or found
 a change. If the vault key is lost or replaced, every saved login reads "Sign
 in again" instead of failing quietly.
+
+## Amendment (2026-11-14, agent phase 5): chat uses the real browser profile
+
+This ADR describes the Secure Store sign-in the bots and the classic agent use,
+and its rule that the model never runs script in a page. The in-app agent on
+the new engine (ADR 0026) has Hermes' browser tools, and every one of them runs
+script or sends raw browser commands, so the owner answered Q-5.3 as follows:
+
+- In chat, for a host-allowed account, the browser tools use the owner's real
+  browser profile and its sign-ins (Hermes snapshots the installed Chrome or
+  Edge default profile into its own folder and drives that copy), and
+  `browser_exec` is allowed. The rule that the model never runs script in a page
+  does not hold in chat.
+- Every browser call is a host card in every mode (a script on a signed-in
+  profile can submit, send or buy, and no literal check can tell), and Allow for
+  this chat never covers one. Full Access does not lift this card yet: the
+  network-level control that keeps the browser off loopback, LAN and metadata
+  addresses (plan section 14) is not built, and a literal check misses an address
+  built at run time or a redirect. Once it is, Full Access may lift the card as it
+  does for any host tool.
+- Bots never get `browser_exec`. They keep the read-only `bot_browse` and the
+  Secure Store logins described above, which this amendment does not change.
+- `browser_vault` and `computer_use` stay blocked, and a browser call naming a
+  private, loopback or tailnet address is refused before Go is asked.
+- Tests and live checks point the "real" profile at a throwaway Chrome profile
+  in `$HOME/.cache/p5-sandbox`, never the owner's.

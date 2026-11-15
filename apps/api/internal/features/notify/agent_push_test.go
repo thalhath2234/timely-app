@@ -24,6 +24,7 @@ func TestAgentPushKeepsPrivateDetailsOffLockScreenAndTargetsChat(t *testing.T) {
 		}
 	}
 }
+
 // A question card's push (status running with the card's request id) says
 // the assistant has a question, not that it finished.
 func TestAgentQuestionPushSaysItHasAQuestion(t *testing.T) {
@@ -72,5 +73,28 @@ func TestDataBool(t *testing.T) {
 	}
 	if !dataBool(nil, "phone", true) {
 		t.Error("a nil payload lost the default")
+	}
+}
+
+// A host card's push says what the assistant wants to do (contract 4), with
+// no command, path or chat title, and carries the card's request.
+func TestAgentHostPushSaysWhatItWantsToDo(t *testing.T) {
+	kind, cid := "chat", "chat-a"
+	for hostKind, want := range map[string]string{
+		"terminal": "Your assistant wants to run a command.", "file": "Your assistant wants to change a file.",
+		"browser": "Your assistant wants to use your browser.", "mcp": "Your assistant wants to use github.",
+		"file_read": "Your assistant wants to read a file.",
+		"code":      "Your assistant wants to run a command.", "mcp_server": "Your assistant wants to add an MCP server.",
+	} {
+		n := &models.Notification{ID: "ntf-h", Category: "agent", Title: "rm -rf secrets", Body: "Your assistant needs your OK.", EntityType: &kind, EntityID: &cid,
+			Data: models.JobPayload{"status": "host_approval", "hostRequest": "req-1", "hostKind": hostKind, "hostServer": "github"}}
+		message := notificationPushMessage(n, "ExponentPushToken[test]", models.NotificationSettings{})
+		if message.Body != want || message.Title != "Timely assistant" || message.Data["hostRequest"] != "req-1" || message.ChannelID != "agent" {
+			t.Fatalf("%s push = %q %q %v", hostKind, message.Title, message.Body, message.Data)
+		}
+		raw, _ := json.Marshal(message)
+		if strings.Contains(string(raw), "rm -rf") {
+			t.Fatal("the card's title reached the push")
+		}
 	}
 }

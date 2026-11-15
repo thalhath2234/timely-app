@@ -25,6 +25,11 @@ Checks, each ``{"name", "ok", "detail"}``:
 - ``mcp``           no ``command`` MCP server unless the account is host-allowed and approved it
 - ``timely_tools``  every spec from ``hello.timely_tools`` is registered under toolset ``timely``
                     with timely_tools' own handler, and nothing else is in that toolset
+- ``host``          phase 5 (decision 9): an account render-account did not make host-allowed has no
+                    host toolset in its config, no ``terminal.home_mode: real`` (config or
+                    ``TERMINAL_HOME_MODE``), no ``browser.use_real_profile`` and no checkpoints; the
+                    dispatch fence (R6) and the real-home override (R7) are in place; and with the real
+                    profile on, the snapshot source resolves under ``HERMES_REAL_HOME``
 - ``no_sign_in``    Q-4.1: no Hermes sign-in in the home (``auth.json``, ``.anthropic_oauth.json``),
                     borrowing another app's login is off, and no ``model``, ``delegation`` or
                     ``auxiliary.*`` provider in the effective config is a sign-in provider or one
@@ -255,6 +260,25 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
 
     try:
         from hermes_cli.config import load_config
+        from timely_agent import host, real_profile
+        problems = host_problems(_account_state(want_home), load_config(), os.environ)
+        if not host.fence_active():
+            problems.append("the dispatch fence (R6) is missing: a host tool could start after Stop")
+        from timely_agent import mcp_net_guard
+        if not mcp_net_guard.active():
+            problems.append("the MCP address guard (R8) is missing: a remote MCP server could reach a private address")
+        if not real_profile.active():
+            problems.append("the real-home browser override (R7) is missing")
+        elif _account_state(want_home).get("use_real_profile") is True:
+            source = real_profile.source_problem()
+            if source:
+                problems.append(source)
+        checks.append(_check("host", not problems, "; ".join(problems)))
+    except Exception as exc:
+        checks.append(_check("host", False, f"{type(exc).__name__}: {exc}"))
+
+    try:
+        from hermes_cli.config import load_config
         problems = sign_in_problems(want_home, load_config(), oauth_provider_ids())
         from timely_agent import sign_in_guard
         if not sign_in_guard.active():
@@ -265,6 +289,27 @@ def run(*, expected_home: str, timely_skills_dir: str | None, browser_executable
 
     return {"ok": all(c["ok"] for c in checks), "checks": checks, "tools": tools,
             "timely_registered": registered}
+
+
+def host_problems(state: dict[str, Any], cfg: Any, env: Any) -> list[str]:
+    """Phase 5 (pure, for the self-test and unit tests): host settings in the effective config of
+    an account render-account did not make host-allowed."""
+    if state.get("host_allowed") is True:
+        return []
+    cfg = cfg if isinstance(cfg, dict) else {}
+    problems = []
+    hosts = policy.host_toolsets([str(t) for t in cfg.get("toolsets") or []])
+    if hosts:
+        problems.append(f"host toolsets {hosts} in the config of an account that is not host-allowed")
+    if str(config_render.get_dotted(cfg, "terminal.home_mode") or "").lower() in ("real", "host", "user", "real_home"):
+        problems.append("terminal.home_mode is real for an account that is not host-allowed")
+    if str((env or {}).get("TERMINAL_HOME_MODE") or "").lower() == "real":
+        problems.append("TERMINAL_HOME_MODE is real for an account that is not host-allowed")
+    if config_render.get_dotted(cfg, "browser.use_real_profile") is True:
+        problems.append("browser.use_real_profile is on for an account that is not host-allowed")
+    if config_render.get_dotted(cfg, "checkpoints.enabled") is True:
+        problems.append("checkpoints are on for an account that is not host-allowed")
+    return problems
 
 
 def oauth_provider_ids() -> set[str]:

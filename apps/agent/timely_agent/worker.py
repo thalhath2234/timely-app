@@ -29,6 +29,9 @@ MAX_RUNS = 3  # per-account run cap (section 3.3)
 HEARTBEAT_S = 10.0
 MAINTENANCE_S = 600.0  # curator tick (its own gates decide whether a pass is due)
 EXIT_REFUSED_ENV = 3
+# Go -> worker helper requests routed to timely_agent.mcp_admin (PROTOCOL.md section 12).
+MCP_HANDLERS = {"mcp.catalog": "catalog", "mcp.probe": "probe", "mcp.oauth.begin": "oauth_begin",
+                "mcp.oauth.finish": "oauth_finish"}
 
 
 def _setup_logging() -> None:
@@ -97,10 +100,11 @@ def skills_upstream() -> int:
         return 0
 
 
-def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
+def run_start_problem(msg: dict[str, Any], account_host_allowed: bool = False) -> Optional[str]:
     """Why a run.start's optional fields have the wrong shape, else None. Checked before the run
     thread starts, so a malformed start is refused with an error answering its id instead of
-    killing the thread before run.done."""
+    killing the thread before run.done. ``account_host_allowed`` is what render-account recorded
+    for this home (``.timely-account.json``): host toolsets need it and ``flags.host_allowed``."""
     shapes = {
         "tainted_sources": (list,), "pre_approved": (dict,), "history": (list,), "budgets": (dict,),
         "flags": (dict,), "model": (dict,), "session_key": (str,), "user_message": (str,),
@@ -146,6 +150,58 @@ def run_start_problem(msg: dict[str, Any]) -> Optional[str]:
         extra = [t for t in msg.get("toolsets") or [] if t not in P.NO_PERSIST_TOOLSETS]
         if extra:
             return f"a no-persist run takes only the toolsets {list(P.NO_PERSIST_TOOLSETS)}, not {extra}"
+    return host_start_problem(msg, account_host_allowed)
+
+
+def resolved_toolsets(toolsets: Any) -> dict[str, list[str]]:
+    """``{toolset: tools}`` as Hermes resolves each name (composites and postures included); {}
+    outside a worker (Hermes not imported: unit tests), where only the names are checked."""
+    if "toolsets" not in sys.modules or not isinstance(toolsets, list):
+        return {}
+    try:
+        from toolsets import resolve_toolset
+    except ImportError:
+        return {}
+    out: dict[str, list[str]] = {}
+    for name in toolsets:
+        try:
+            out[str(name)] = [str(t) for t in resolve_toolset(str(name)) or []]
+        except Exception:
+            out[str(name)] = []
+    return out
+
+
+def host_start_problem(msg: dict[str, Any], account_host_allowed: bool) -> Optional[str]:
+    """Phase 5 (PROTOCOL.md section 12): host toolsets only with ``flags.host_allowed`` for a
+    host-allowed account; Full Access only with permission ``full``; the live wait and the
+    continuation's pre-approved call well formed."""
+    from timely_agent import policy
+    flags = msg.get("flags") or {}
+    hosts = policy.host_toolsets(msg.get("toolsets"))
+    for name, tools in resolved_toolsets(msg.get("toolsets")).items():
+        blocked = sorted(t for t in tools if policy.is_blocked(t))
+        if blocked:
+            # a composite or posture (``coding``) would put never-offered tools in the model's list
+            return f"toolset {name!r} carries tools Timely never offers ({blocked})"
+        if name not in hosts and any(t in policy.HOST_TOOLS for t in tools):
+            hosts.append(name)
+    if hosts and not (flags.get("host_allowed") is True and account_host_allowed):
+        return (f"toolsets {hosts} need flags.host_allowed for an account render-account made host-allowed"
+                + ("" if account_host_allowed else " (this account is not)"))
+    if flags.get("full_access") is True and msg.get("permission") != "full":
+        return "flags.full_access needs permission full"
+    wait = msg.get("host_live_wait_s")
+    if wait is not None and (isinstance(wait, bool) or not isinstance(wait, (int, float))
+                             or not 0 < wait <= policy.HOST_LIVE_WAIT_MAX_S):
+        return f"host_live_wait_s must be a number of seconds from 1 to {policy.HOST_LIVE_WAIT_MAX_S}"
+    pre = msg.get("pre_approved")
+    if pre is not None:
+        if not isinstance(pre.get("tool"), str) or not pre.get("tool") or not policy.args_hash_ok(pre.get("args_hash")):
+            return "pre_approved needs tool and a 64-hex args_hash"
+        if pre.get("tool_call_id") is not None and not isinstance(pre.get("tool_call_id"), str):
+            return "pre_approved.tool_call_id must be a string"
+        if pre.get("cwd") is not None and not isinstance(pre.get("cwd"), str):
+            return "pre_approved.cwd must be a string"
     return None
 
 
@@ -286,6 +342,11 @@ class Worker:
         learning_counters.install()  # a stored review counter survives Hermes' first-turn hydration
         from timely_agent.learning import passes as learning_passes
         learning_passes.install_end_turn()  # a review-due turn ended by end_turn still learns
+        from timely_agent import host, real_profile
+        host.install_fence()  # R6: no host tool starts after Stop
+        real_profile.install()  # R7: the real browser profile is the real home's
+        from timely_agent import mcp_net_guard
+        mcp_net_guard.install()  # R8: a remote MCP server never reaches a private address
         # Bridge the account's terminal.* config into the TERMINAL_* process env, as Hermes' CLI and
         # gateway do at start: some readers (HOME for children: terminal.home_mode) only look there.
         # hermes_cli.config's bridge leaves out home_mode (only gateway/run.py bridges it), so
@@ -347,6 +408,11 @@ class Worker:
         except Exception:
             logger.exception("reporting an earlier worker's learning changes failed")
 
+    def account_host_allowed(self) -> bool:
+        """What render-account recorded for this home (``.timely-account.json``)."""
+        from timely_agent.config_render import account_state
+        return account_state(self.home).get("host_allowed") is True
+
     def busy(self) -> dict[str, Any]:
         """Work Go cannot see on its own (plan 6.2): live runs, a learning pass or curator run,
         tracked children."""
@@ -360,12 +426,105 @@ class Worker:
         from timely_agent.learning import curator, passes
         while not self.chan.closed and not self.stopping:
             time.sleep(MAINTENANCE_S)
-            if not self.ready or self.stopping or passes.active():
+            if not self.ready or self.stopping:
+                continue
+            report = getattr(self, "report_mcp_tokens", None)  # a stand-in host in tests has none
+            if report is not None:
+                report(changed_only=True)
+            if passes.active():
                 continue
             with self.runs_lock:
                 if self.runs:
                     continue
             curator.tick(self.home)
+
+    # ------------------------------------------------------------ MCP tokens and helpers (section 12)
+    def report_mcp_tokens(self, changed_only: bool) -> None:
+        """``mcp.tokens``: the token files Hermes refreshed since render-account wrote them (every
+        file at shutdown), so Go keeps them encrypted; the worker keeps no copy past its exit."""
+        from timely_agent import mcp_tokens
+        try:
+            tokens = mcp_tokens.read_back(self.home, changed_only=changed_only)
+        except Exception:
+            logger.exception("reading MCP token files failed")
+            return
+        if tokens:
+            self.send({"type": "mcp.tokens", "tokens": tokens})
+
+    def close_browsers(self) -> None:
+        """Stop the browsers Hermes launched for this worker (the real-profile copy included): the
+        worker leaves with ``os._exit``, so Hermes' own atexit sweep never runs."""
+        mod = sys.modules.get("tools.browser_session_lifecycle")
+        if mod is None:
+            return
+        try:
+            mod.cleanup_all_browsers()
+        except Exception:
+            logger.exception("stopping the browsers failed")
+
+    def drop_mcp_tokens(self) -> None:
+        from timely_agent import config_render, mcp_tokens
+        try:
+            mcp_tokens.remove(self.home)
+        except Exception:
+            logger.exception("removing MCP token files failed")
+        try:
+            config_render.scrub_mcp_secrets(self.home)
+        except Exception:
+            logger.exception("removing MCP secrets from config.yaml failed")
+
+    def on_checkpoint_restore(self, msg: dict[str, Any]) -> None:
+        """``checkpoint.restore {checkpoint, working_dir}`` -> ``checkpoint.result {ok, restored[], error?}``."""
+        mid = msg.get("id")
+        self._require_ready(mid)
+        checkpoint, folder = msg.get("checkpoint"), msg.get("working_dir")
+        if not isinstance(mid, str) or not mid or not isinstance(checkpoint, str) or not isinstance(folder, str):
+            raise P.ProtocolError(P.E_BAD_MESSAGE, "checkpoint.restore needs id, checkpoint and working_dir", mid)
+        if not self.account_host_allowed():
+            raise P.ProtocolError(P.E_REFUSED, "checkpoints exist only for a host-allowed account", mid)
+
+        def body() -> None:
+            from timely_agent import host
+            try:
+                out = host.restore_checkpoint(checkpoint, folder)
+            except Exception as exc:  # noqa: BLE001 - Go waits for an answer
+                logger.exception("checkpoint.restore failed")
+                out = {"ok": False, "restored": [], "error": f"{type(exc).__name__}: {exc}"[:500]}
+            self.send({"type": "checkpoint.result", "id": mid, **out})
+
+        threading.Thread(target=body, name="timely-checkpoint", daemon=True).start()
+
+    def on_mcp(self, msg: dict[str, Any]) -> None:
+        """``mcp.catalog``, ``mcp.probe``, ``mcp.oauth.begin``, ``mcp.oauth.finish``: handled by
+        ``timely_agent.mcp_admin`` (imported lazily) on a thread of their own; ``mcp.result {id, ok,
+        data}``. ``unsupported`` while the module is missing."""
+        mid = msg.get("id")
+        self._require_ready(mid)
+        if not isinstance(mid, str) or not mid:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"{msg['type']} needs an id", mid)
+        name = MCP_HANDLERS.get(msg["type"])
+        if name is None:
+            raise P.ProtocolError(P.E_UNKNOWN_TYPE, f"unknown message type {msg['type']!r}", mid)
+        try:
+            from timely_agent import mcp_admin  # the mcp work package's module
+        except ImportError:
+            raise P.ProtocolError(P.E_UNSUPPORTED, f"{msg['type']} is not supported by this worker yet", mid) from None
+        handler = getattr(mcp_admin, name, None)
+        if not callable(handler):
+            raise P.ProtocolError(P.E_UNSUPPORTED, f"{msg['type']} is not supported by this worker yet", mid)
+        fields = {k: v for k, v in msg.items() if k not in ("type", "id", "account")}
+
+        def body() -> None:
+            try:
+                data = handler(fields, self.home)
+                self.send({"type": "mcp.result", "id": mid, "ok": True, "data": data if data is not None else {}})
+            except ValueError as exc:
+                self.chan.error(P.E_BAD_MESSAGE, str(exc)[:2000], mid)
+            except Exception as exc:  # noqa: BLE001 - Go waits for an answer
+                logger.exception("%s failed", msg["type"])
+                self.chan.error(P.E_INTERNAL, f"{type(exc).__name__}: {exc}"[:2000], mid)
+
+        threading.Thread(target=contextvars.copy_context().run, args=(body,), name="timely-mcp", daemon=True).start()
 
     # ------------------------------------------------------------ learning (PROTOCOL.md section 10)
     def _stop_learning_runs(self, conversation: str, search_only: bool = False) -> None:
@@ -459,7 +618,7 @@ class Worker:
             raise P.ProtocolError(P.E_BAD_MESSAGE, "run.start needs run and conversation_id", mid)
         if not isinstance(msg.get("toolsets"), list):
             raise P.ProtocolError(P.E_BAD_MESSAGE, "run.start needs an explicit toolsets list", mid)
-        problem = run_start_problem(msg)
+        problem = run_start_problem(msg, self.account_host_allowed())
         if problem:
             # answers the start's own id, so Go ends the run (PROTOCOL.md "Errors")
             raise P.ProtocolError(P.E_BAD_MESSAGE, f"run.start {problem}", mid)
@@ -480,13 +639,11 @@ class Worker:
             done: Optional[dict[str, Any]] = None
             try:
                 from tools.approval import register_gateway_notify, unregister_gateway_notify
+                from timely_agent import host
                 session_key = str(msg.get("session_key") or f"timely:{conversation}")
-
-                def notify(data: dict) -> None:
-                    emit("approval.request", {k: v for k, v in data.items()
-                                              if isinstance(v, (str, int, float, bool, type(None)))})
-
-                register_gateway_notify(session_key, notify)
+                # The approval bridge (decision 4): Timely cards go to Go, Hermes' own second
+                # approvals for an approved call are answered once, anything else is denied.
+                register_gateway_notify(session_key, host.notifier(lambda: run.ctx, emit, session_key))
                 try:
                     done = run_turn(run, self.cache, emit)
                 finally:
@@ -538,9 +695,15 @@ class Worker:
             raise P.ProtocolError(P.E_UNKNOWN_RUN, f"no live run {msg.get('run')!r}", msg.get("id"))
         return run
 
+    def _session_key(self, run) -> str:
+        return str(run.msg.get("session_key") or f"timely:{run.msg.get('conversation_id')}")
+
     def on_run_stop(self, msg: dict[str, Any]) -> None:
-        from timely_agent import policy
+        from timely_agent import host, policy
         run = self._find_run(msg)
+        run.stop_reason = str(msg.get("reason") or "stopped")  # before the deny: no Run once after it
+        if run.ctx is not None:
+            host.deny_pending(run.ctx, self._session_key(run))  # a waiting host card never runs
         run.stop(str(msg.get("reason") or "stopped"))
         self.pending.cancel_run(run.run_id)  # a tool.call or gate.ask waiting on Go ends at once
         bridge.cancel_clarify(run.run_id, policy.CLARIFY_STOPPED)  # a question card closes cancelled
@@ -583,10 +746,9 @@ class Worker:
             # may not be the one the person answered.
             raise P.ProtocolError(P.E_BAD_MESSAGE, "approval.answer needs the approval.request's request_id",
                                   msg.get("id"))
-        from tools.approval import resolve_gateway_approval
-        key = str(run.msg.get("session_key") or f"timely:{run.msg.get('conversation_id')}")
-        n = resolve_gateway_approval(key, choice, request_id=request_id)
-        self.send({"type": "ack", "id": msg.get("id"), "ok": n > 0})
+        from timely_agent import host
+        ok = run.ctx is not None and host.answer(run.ctx, self._session_key(run), request_id, choice)
+        self.send({"type": "ack", "id": msg.get("id"), "ok": bool(ok)})
 
     def on_session_delete(self, msg: dict[str, Any]) -> None:
         conversation = str(msg.get("conversation_id") or "")
@@ -651,9 +813,13 @@ class Worker:
     def stop_waiting(self, reason: str) -> None:
         """Shutdown: a run waiting for the person's answer (a question card) cannot finish within
         the grace, so it is stopped at once and its card closes ``cancelled`` (phase 4)."""
-        from timely_agent import policy
+        from timely_agent import host, policy
         with self.runs_lock:
-            runs = [r for r in self.runs.values() if bridge.clarify_pending(r.run_id)]
+            live = list(self.runs.values())
+        for run in live:  # a live host card parks: nothing ran, Go keeps it answerable (decision 2)
+            if run.ctx is not None and host.pending(run.run_id):
+                host.park_pending(run.ctx)
+        runs = [r for r in live if bridge.clarify_pending(r.run_id)]
         for run in runs:
             try:
                 run.stop(reason)
@@ -685,6 +851,9 @@ class Worker:
             self.wait_passes(max(0.0, deadline - time.monotonic()))
             self._report_leftovers()
             self.cache.store_all()  # review counters survive the restart (plan 3.3)
+            self.report_mcp_tokens(changed_only=False)
+            self.drop_mcp_tokens()
+            self.close_browsers()
         except BaseException:  # noqa: BLE001 - exit whatever happens
             logger.exception("shutdown failed")
             code = 1
@@ -746,6 +915,10 @@ class Worker:
             self.on_session_delete(msg)
         elif t.startswith("learning.") or t == "settings.update":
             self.on_learning(msg)
+        elif t == "checkpoint.restore":
+            self.on_checkpoint_restore(msg)
+        elif t.startswith("mcp."):
+            self.on_mcp(msg)
         elif t == "shutdown":
             grace = msg.get("grace")
             self.begin_shutdown(float(grace) if isinstance(grace, (int, float)) and not isinstance(grace, bool)
@@ -768,6 +941,8 @@ class Worker:
                 self.wait_runs(2.0)
                 self._report_leftovers()  # nobody may read it; the saved baseline covers that
                 self.cache.store_all()
+                self.drop_mcp_tokens()  # Go is gone: nobody can take them; Go resends them at spawn
+                self.close_browsers()
                 return 0
             if not line.strip():
                 continue

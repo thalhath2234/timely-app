@@ -164,6 +164,17 @@ func ConfigFromEnv(getenv func(string) string, workDir string) Config {
 	runtime, err := ResolveRuntime(strings.TrimSpace(getenv("TIMELY_AGENT_RUNTIME")), workDir)
 	env := envFromHost(getenv)
 	env.Packaged = runtime.Packaged
+	// A test API's sandboxed "real" home (decision 20).
+	if dir, ok, herr := TestRealHome(getenv, env.RealHome); herr != nil {
+		// Fail closed: a refused sandbox folder must never leave the workers
+		// on the owner's real home. No worker starts until it is fixed.
+		log.Printf("agent engine: %v: no worker will start", herr)
+		runtime.Program = ""
+		err = fmt.Errorf("%w: %v", ErrNoRuntime, herr)
+	} else if ok {
+		log.Printf("agent engine: workers see %s as the real home (%s, test only)", dir, RealHomeEnv)
+		env.RealHome = dir
+	}
 	return Config{
 		Root:          DefaultRoot(getenv),
 		Runtime:       runtime,
@@ -230,7 +241,9 @@ type Supervisor struct {
 	prepared bool
 	prep     PrepareResult
 
-	slots   chan struct{}
+	// slots counts the workers started against MaxWorkers; SetLimits may
+	// change the cap while workers run.
+	slots   *slotSem
 	closing chan struct{}
 	reaped  chan struct{}
 	starts  sync.WaitGroup
@@ -243,6 +256,10 @@ type Supervisor struct {
 	// suspended counts Suspend calls not yet resumed per account; Ensure
 	// refuses the account while it is above zero.
 	suspended map[string]int
+
+	// idle is the idle timeout SetLimits set (0: Config.IdleTimeout).
+	limitsMu sync.Mutex
+	idle     time.Duration
 }
 
 type entry struct {
@@ -272,7 +289,7 @@ func New(cfg Config) *Supervisor {
 	s := &Supervisor{
 		cfg:       cfg,
 		layout:    Layout{Root: cfg.Root},
-		slots:     make(chan struct{}, cfg.MaxWorkers),
+		slots:     newSlotSem(cfg.MaxWorkers),
 		closing:   make(chan struct{}),
 		reaped:    make(chan struct{}),
 		workers:   map[string]*entry{},
@@ -506,7 +523,7 @@ func (s *Supervisor) startWorker(ctx context.Context, account string, e *entry, 
 	s.mu.Lock()
 	if ctx.Err() != nil {
 		s.mu.Unlock()
-		<-s.slots
+		s.slots.release()
 		return nil, errNoWaiters
 	}
 	e.spawned = true
@@ -519,12 +536,12 @@ func (s *Supervisor) startWorker(ctx context.Context, account string, e *entry, 
 		spec, err = s.cfg.Account(specCtx, account)
 		cancel()
 		if err != nil {
-			<-s.slots
+			s.slots.release()
 			return nil, &StartError{Account: account, Err: err, Detail: "reading account settings"}
 		}
 	}
 	if err := s.layout.prepare(account); err != nil {
-		<-s.slots
+		s.slots.release()
 		return nil, &StartError{Account: account, Err: err}
 	}
 	hash := settingsHash(spec.Settings)
@@ -534,19 +551,19 @@ func (s *Supervisor) startWorker(ctx context.Context, account string, e *entry, 
 		hash, err = s.renderAccount(renderCtx, account, spec.Settings)
 		cancel()
 		if err != nil {
-			<-s.slots
+			s.slots.release()
 			s.recordCrash(account, err.Error())
 			return nil, &StartError{Account: account, Err: err, Detail: "preparing the account's agent config"}
 		}
 	}
 	prep, err := s.preparedFor()
 	if err != nil {
-		<-s.slots
+		s.slots.release()
 		return nil, &StartError{Account: account, Err: err, Detail: "restart Timely to rewrite it"}
 	}
 	w, err := s.spawn(account, spec)
 	if err != nil {
-		<-s.slots
+		s.slots.release()
 		s.recordCrash(account, err.Error())
 		return nil, &StartError{Account: account, Err: err, Detail: "spawning the worker"}
 	}
@@ -581,17 +598,18 @@ func (s *Supervisor) untilClosing() (context.Context, context.CancelFunc) {
 // used idle worker when all are taken.
 func (s *Supervisor) acquireSlot(ctx context.Context) error {
 	for {
-		select {
-		case s.slots <- struct{}{}:
+		if s.slots.tryAcquire() {
 			return nil
-		default:
 		}
 		s.evictIdle()
 		t := time.NewTimer(250 * time.Millisecond)
 		select {
-		case s.slots <- struct{}{}:
+		case <-s.slots.freed:
 			t.Stop()
-			return nil
+			if s.slots.tryAcquire() {
+				return nil
+			}
+			continue
 		case <-ctx.Done():
 			t.Stop()
 			return errNoWaiters
@@ -790,7 +808,7 @@ func (s *Supervisor) workerExited(w *Worker) {
 	}
 	s.mu.Unlock()
 	if w.slot {
-		<-s.slots
+		s.slots.release()
 	}
 	if exit.Crashed {
 		s.recordCrash(w.account, exit.Reason)
@@ -827,8 +845,9 @@ func (s *Supervisor) reapIdle() {
 	}
 	s.mu.Unlock()
 	for _, w := range workers {
-		if w.stopIfIdle("idle", s.cfg.IdleTimeout) {
-			w.logf("stopping: idle for %s", s.cfg.IdleTimeout)
+		idle := s.idleTimeout()
+		if w.stopIfIdle("idle", idle) {
+			w.logf("stopping: idle for %s", idle)
 		}
 	}
 }

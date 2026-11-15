@@ -8,10 +8,17 @@ import type {
   ChatActivity,
   ChatEngine,
   ChatQuestion,
+  ClosedHost,
+  FullAccessRecord,
+  HostAnswerInput,
+  HostGrant,
+  HostRequest,
   PermissionMode,
 } from "@timely/contract/agentChat";
+import { newChatAccess } from "@timely/contract/agentChat";
 import { apiFetch } from "./client";
 import { browserTimezone } from "./schedule";
+import { desktopShell } from "./instance";
 
 export type ChatContext = { kind: string; label: string; value: string };
 /** pending → done, or failed (retry resets it), or discarded in an archived plan. */
@@ -31,6 +38,7 @@ export type ChatStatus =
   | "queued"
   | "running"
   | "approval"
+  | "host_approval"
   | "choose"
   | "idle"
   | "failed"
@@ -39,7 +47,9 @@ export type ChatStatus =
  * "" is a turn, "notice" a run event, "archive" a superseded or discarded
  * plan, "similar" a pointer to an earlier chat about the same request,
  * "steer" what the person said to a live agent run while it worked, and
- * "question" a question card the agent asked, with what came back.
+ * "question" a question card the agent asked, with what came back, and
+ * "host" a host card (command, file, browser or MCP tool) that closed, or a
+ * host call that left a checkpoint "Undo this change" can restore.
  */
 export type ChatMessageKind =
   | ""
@@ -47,7 +57,8 @@ export type ChatMessageKind =
   | "archive"
   | "similar"
   | "steer"
-  | "question";
+  | "question"
+  | "host";
 export type ChatMessage = {
   imageIds?: string[];
   receipt?: ReceiptDraft;
@@ -82,6 +93,8 @@ export type ChatMessage = {
   undoMessageId?: string;
   /** A "question" message's card: what was asked and answered, and how its wait ended. */
   question?: AnsweredQuestion;
+  /** A "host" message's card: how it closed, who answered and its checkpoint. */
+  host?: ClosedHost;
 };
 /** A bot picked in the composer's @-picker, sent as `botTags` with one message. */
 export type BotTag = { id: string; name: string };
@@ -99,6 +112,8 @@ export type ChatSummary = {
   errorCode?: string;
   /** The question card the live run waits on; `{}` when none waits. */
   question?: ChatQuestion;
+  /** The host card the chat waits on (status host_approval); `{}` when none waits. */
+  hostRequest?: HostRequest;
   updatedAt: string;
   createdAt: string;
 };
@@ -143,6 +158,12 @@ export type Chat = {
   activity?: ChatActivity;
   /** The question card the live run waits on (status stays running); `{}` when none waits. */
   question?: ChatQuestion;
+  /** The host card the chat waits on (status host_approval); `{}` when none waits. */
+  hostRequest?: HostRequest;
+  /** What "Allow for this chat" allowed here; each can be removed. */
+  hostGrants?: HostGrant[];
+  /** The step-up that turned Full Access on for this chat (`{}` when none). */
+  fullAccess?: FullAccessRecord;
   /** Stable code of a failure the app can offer a fix for (PROVIDER_NOT_CHOSEN). */
   errorCode?: string;
   updatedAt: string;
@@ -217,6 +238,103 @@ export const steerChat = (id: string, text: string) =>
 export const answerQuestion = (id: string, input: AnswerQuestionInput) =>
   chatRequest<Chat>(`/${encodeURIComponent(id)}/answer`, "POST", input);
 
+/** A request through the desktop window's bridge, as a chat call: the main
+ * process adds the credential and stamps the device. A 401 means the window's
+ * session is a refresh behind, so one normal request refreshes it first. */
+async function desktopChatRequest<T>(
+  op: "chat.hostApproval" | "chat.permission",
+  body: Record<string, string | number | boolean | null>,
+): Promise<T> {
+  const shell = desktopShell();
+  if (!shell) throw new Error("This works only in the Timely desktop app.");
+  let result = await shell.request(op, body);
+  if (result.status === 401) {
+    await apiFetch("/instance").catch(() => undefined);
+    result = await shell.request(op, body);
+  }
+  if (!result.ok) {
+    const message =
+      result.body && typeof result.body === "object" && "message" in result.body
+        ? String((result.body as { message: unknown }).message)
+        : "";
+    throw Object.assign(
+      new Error(message || "Couldn't update this conversation. Try again."),
+      { status: result.status },
+    );
+  }
+  return result.body as T;
+}
+
+/**
+ * Answers the host card the chat waits on: Run once, Allow for this chat or
+ * Deny. In the desktop window it goes through the shell bridge, so the
+ * server records the desktop window as the device; anywhere else it is a
+ * plain request. 409 once the card was answered or changed, 403 when the
+ * rule or the unlock refuses.
+ */
+export const answerHostCard = (id: string, input: HostAnswerInput) =>
+  desktopShell()
+    ? desktopChatRequest<Chat>("chat.hostApproval", {
+        chatId: id,
+        revision: input.revision ?? 0,
+        requestId: input.requestId,
+        choice: input.choice,
+      })
+    : chatRequest<Chat>(
+        `/${encodeURIComponent(id)}/host-approval`,
+        "POST",
+        input,
+      );
+
+/** "Undo this change": restores the checkpoint a host call left (409 once it is gone). */
+export const undoHostChange = (id: string, checkpointId: string) =>
+  chatRequest<{ restored: string[] }>(
+    `/${encodeURIComponent(id)}/host-undo`,
+    "POST",
+    { checkpointId },
+  );
+
+/** Removes one "Allow for this chat" grant. */
+export const removeHostGrant = (id: string, key: string) =>
+  chatRequest<Chat>(
+    `/${encodeURIComponent(id)}/host-grants/${encodeURIComponent(key)}`,
+    "DELETE",
+  );
+
+/**
+ * A chat's permission mode. Full Access needs the step-up, so in the
+ * desktop window it goes through the shell bridge; a phone-sized browser
+ * never turns it on.
+ */
+export const setChatPermission = (id: string, permission: PermissionMode) =>
+  permission === "full" && desktopShell()
+    ? desktopChatRequest<Chat>("chat.permission", { chatId: id, permission })
+    : chatRequest<Chat>(`/${encodeURIComponent(id)}`, "PATCH", { permission });
+
+/**
+ * Starts a chat. In the desktop window a chat that should start in Full
+ * Access is created Supervised and then turned to Full Access through the
+ * shell bridge (newChatAccess); when that step fails the chat keeps the
+ * stricter mode and its chip says so.
+ */
+export async function createChat(
+  body: Record<string, unknown>,
+  chosen: PermissionMode | null,
+  accountDefault: PermissionMode,
+): Promise<Chat> {
+  const { create, thenFull } = newChatAccess(
+    chosen,
+    accountDefault,
+    Boolean(desktopShell()),
+  );
+  const made = await chatRequest<Chat>("", "POST", {
+    ...body,
+    ...(create ? { permission: create } : {}),
+  });
+  if (!thenFull) return made;
+  return setChatPermission(made.id, "full").catch(() => made);
+}
+
 /** Puts back what an auto-applied proposal changed (messageId is its summary). */
 export const undoChange = (id: string, revision: number, messageId: string) =>
   chatRequest<Chat>(`/${encodeURIComponent(id)}/undo`, "POST", {
@@ -241,8 +359,38 @@ async function chatSettingsRequest(
   return res.json();
 }
 export const getChatSettings = () => chatSettingsRequest("GET");
-export const patchChatSettings = (patch: AgentChatSettingsPatch) =>
-  chatSettingsRequest("PATCH", patch);
+/**
+ * The desktop window sends Permissions changes through its bridge, which is
+ * the step-up a Full Access default, "Allowed on any device" and host cards
+ * back to any device need (the server answers 403 to anything else).
+ */
+export async function patchChatSettings(
+  patch: AgentChatSettingsPatch,
+): Promise<AgentChatSettings> {
+  const shell = desktopShell();
+  if (!shell) return chatSettingsRequest("PATCH", patch);
+  const body: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(patch))
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    )
+      body[key] = value;
+  let result = await shell.request("settings.permissions", body);
+  if (result.status === 401) {
+    await apiFetch("/instance").catch(() => undefined);
+    result = await shell.request("settings.permissions", body);
+  }
+  if (!result.ok) {
+    const message =
+      result.body && typeof result.body === "object" && "message" in result.body
+        ? String((result.body as { message: unknown }).message)
+        : "";
+    throw new Error(message || "Couldn't save chat settings. Try again.");
+  }
+  return result.body as AgentChatSettings;
+}
 
 export type ChatImage = {
   id: string;

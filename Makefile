@@ -214,7 +214,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent test-agent-chat test-agent-learning test-stage-agent ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent test-agent-chat test-agent-mcp test-agent-learning test-stage-agent ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -275,7 +275,7 @@ test-bots-ai-live: ## Run bots' AI judge, lesson, knowledge, brief, pass and sha
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema
-	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/realtime ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./internal/features/bots/... ./internal/features/portability ./internal/features/learning ./internal/features/auth ./cmd -run TestIntegration -count=1 -timeout 30m
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/jobs ./internal/realtime ./internal/features/chat ./internal/features/sheet ./internal/features/provider ./internal/features/search ./internal/features/workspace ./internal/features/placement ./internal/features/task ./internal/features/notify ./internal/features/schedule ./internal/features/suggest ./internal/features/bots/... ./internal/features/portability ./internal/features/learning ./internal/features/auth ./internal/features/instance ./internal/features/agentmcp ./cmd -run TestIntegration -count=1 -timeout 30m
 
 .PHONY: mcp-60day
 mcp-60day: ## Play 60 days of one person through MCP against a running API and check reads against a ledger (TIMELY_API, default :8081; ARGS=-seed N -out DIR)
@@ -539,6 +539,10 @@ test-web-api-proxy: ## Test that the web /api-proxy route reaches API_ORIGIN as 
 test-chat-stream: ## Test the web app's live chat stream: one tab holds it for the others, and it reconnects
 	@node --experimental-strip-types --test scripts/chat-stream.test.mjs
 
+.PHONY: test-agent-mcp
+test-agent-mcp: ## Test the external MCP servers helpers shared by web and phone (modes, catalog words, address and sign-in copy)
+	@node --experimental-strip-types --test scripts/agent-mcp.test.mjs
+
 .PHONY: test-agent-chat
 test-agent-chat: ## Test chat on the agent engine's shared contract: streamed reply deltas and the permission words
 	@node --experimental-strip-types --test scripts/agent-chat.test.mjs
@@ -622,6 +626,13 @@ agent-go-realworker: ## Phase 4 through the real worker (stub model, fake CLIs, 
 
 agent-go-vet-windows: ## go vet the agent supervisor for Windows (Job Object, process spawning) from any OS
 	@cd $(API) && GOOS=windows GOARCH=amd64 go vet ./internal/agenthost/...
+
+.PHONY: agent-host-sandbox agent-host-sandbox-clean
+agent-host-sandbox: ## Make the phase 5 test sandbox: a throwaway real home, working folder and Chrome profile under ~/.cache/p5-sandbox (prints the paths; use them for TIMELY_AGENT_REAL_HOME and the working folder)
+	@scripts/agent-host-sandbox.sh create
+
+agent-host-sandbox-clean: ## Remove ~/.cache/p5-sandbox (the phase 5 test sandbox)
+	@scripts/agent-host-sandbox.sh clean
 
 .PHONY: agent-record-fixtures agent-parity
 agent-record-fixtures: ## Record the worker's event fixtures for the Go engine's tests against the stub model, no network (OUT=<dir>, required; ONLY=<scenario>,... picks some)

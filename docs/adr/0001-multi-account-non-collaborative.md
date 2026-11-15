@@ -44,3 +44,22 @@ The following are permanently out of scope:
 - HTTP and MCP share the same domain services so they cannot diverge.
 - New features are judged by whether they help one person privately capture,
   decide, schedule, execute, or review their own work.
+
+## Amendment (2026-11-14, agent phase 5): host-allowed accounts
+
+The in-app agent can run commands and read files on the host (ADR 0026). Whether
+an account may do that is a decision of whoever runs the host, made outside
+Timely's account system: in the desktop window, through an action only that
+window can call, or on a server with `TIMELY_AGENT_HOST_ACCOUNTS`. Nobody is
+host-allowed by default.
+
+- **Several accounts may be host-allowed at once**, each turned on separately,
+  with no cap (the owner's Q-5.2). The earlier text, at most one account on the
+  local terminal backend, is replaced.
+- Being host-allowed is not a role. It grants no access to another account
+  through Timely's API, which still answers not-found for cross-account reads,
+  and the chat-only agent features stay open to every account.
+- The limit is real and stays: an approved command of a host-allowed account
+  runs as the host's OS user on the real home, so it can read what that user
+  reads, including other accounts' agent homes, the database files and other
+  workers' environments. Settings → Server says so when an account is turned on.

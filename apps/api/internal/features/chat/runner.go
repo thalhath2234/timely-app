@@ -151,6 +151,16 @@ func (s *Service) work(ctx context.Context) {
 				c.RunEngine = runEngine(tx, &c, s.sensitiveNoPersist)
 				c.AgentRunID, c.AgentInstance = "", ""
 			}
+			// A parked host card's approved call (phase 5 decision 3): this
+			// claim's lane carries it to run.start (a fresh run, or a
+			// resumed row no run was named on, whose lane died before
+			// Start). It stays on the row until Start's checkpoint, the one
+			// that names the run, takes it off, and run.start goes out only
+			// after that checkpoint, so the call runs at most once.
+			if (c.Status == "queued" || c.AgentRunID == "") && c.Continuation.pending() {
+				cont := c.Continuation
+				c.PreApproved = &cont
+			}
 			// One expired lease can be safely resumed: writes and checkpoints commit together.
 			lease := now.Add(3 * time.Minute)
 			c.Status = "running"
@@ -172,6 +182,11 @@ func (s *Service) work(ctx context.Context) {
 			// The engine's follower holds the lease from here (Q-2.3: no
 			// Timely cap on an agent run, so this lane goes back to claiming).
 			err = s.startAgentRun(ctx, &c, providerErr)
+		} else if c.PreApproved != nil {
+			// Only the agent engine can run a parked card's approved call;
+			// never re-plan the old message instead. The failure below
+			// settles the card as not run.
+			err = errors.New("The approved command did not run because this chat cannot continue it. Ask again")
 		} else {
 			err = s.runClassic(ctx, &c, providerErr)
 		}
@@ -184,6 +199,15 @@ func (s *Service) work(ctx context.Context) {
 				row.Status = "failed"
 				row.Error = msg
 				row.ErrorAction = failureAction(err)
+				// A failed claim ends every run of this chat: a card the person
+				// approved whose call never ran is "not run". That is a
+				// continuation that never started (a refused start, the engine
+				// changed, the account is no longer host-allowed) and also an
+				// agent run that was Lost (an API crash or a lease that
+				// expired), which a resumed claim cannot name by run or by
+				// request any more.
+				settleAllHostCards(row)
+				row.Continuation = HostContinuation{}
 				if row.Phase == "apply" {
 					// Name the step that stopped the run; retry resets it to pending.
 					for i := range row.Plan {

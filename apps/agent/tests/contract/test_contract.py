@@ -121,7 +121,7 @@ def test_c02_approval_once_and_deny_through_timely_gate(agent, worker, stub):
     Go answers ``gate.ask`` with ``approve``; Hermes raises its own approval gate, which reaches
     Go as an ``approval.request`` event; ``approval.answer`` once runs the tool, deny blocks it.
     Phase 2 maps the event to a Timely card; the wire round trip is the same."""
-    workspace = agent.home / "workspace"
+    workspace = agent.work
     marker = workspace / "c2-approved.txt"
     denied = workspace / "c2-denied.txt"
     cmd_ok = f"echo approved > {marker.name}"
@@ -181,7 +181,7 @@ def test_c03_interrupt_mid_request_returns_within_one_second(agent, worker, stub
 def test_c04_write_file_works(agent, worker, stub):
     """4. ``write_file`` works: guards the ``acp_adapter`` trap (removing it makes every
     ``write_file``/``patch`` fail with "approval guard failed", plan 4.2)."""
-    target = agent.home / "workspace" / "c4-notes.txt"
+    target = agent.work / "c4-notes.txt"
     args = {"path": str(target), "content": "written by contract test 4\n"}
     worker.send(harness.run_start(agent, stub, run_id="c4", conversation="c-c4", toolsets=["file"],
                                   text=f"CALL write_file {json.dumps(args)}"))
@@ -414,6 +414,30 @@ SYMBOLS: dict[str, list[str] | None] = {
     "agent.curator:maybe_run_curator": ["idle_for_seconds"],
     "agent.prompt_builder:clear_skills_system_prompt_cache": ["clear_snapshot"],
     "run_agent:AIAgent._spawn_background_review": [],
+    # phase 5: the approval bridge, Full Access, the dispatch fence (R6), checkpoints, the
+    # real-home browser override (R7), MCP discovery and tool info, browser cleanup at exit
+    "tools.approval:withdraw_gateway_approval": ["session_key", "request_id", "cause"],
+    "tools.approval:observe_gateway_settle": ["session_key", "request_id", "observer"],
+    "tools.approval:enable_session_yolo": ["session_key"],
+    "tools.approval:disable_session_yolo": ["session_key"],
+    "tools.approval:_floor_block": ["command"],
+    "tools.registry:registry.dispatch": ["name", "args"],
+    "tools.checkpoint_manager:CheckpointManager.list_checkpoints": ["working_dir"],
+    "tools.checkpoint_manager:CheckpointManager.restore": ["working_dir", "commit_hash", "safe"],
+    "tools.checkpoint_manager:CheckpointManager.get_working_dir_for_path": ["file_path"],
+    "tools.file_tools_paths:_resolve_path_for_task": [],
+    "hermes_cli.browser_connect:real_profile_data_dir": ["browser", "system"],
+    "hermes_cli.browser_connect:_run_stdout": ["argv"],
+    "hermes_cli.browser_connect:detect_default_chromium": ["system"],
+    "hermes_cli.browser_connect:UNSUPPORTED_CHANNEL": None,
+    "hermes_cli.browser_connect:_BROWSER_BY_KEY": None,
+    "hermes_cli.browser_connect:_LINUX_SNAP_PROFILE_PARTS": None,
+    "hermes_cli.browser_connect:_LINUX_FLATPAK_IDS": None,
+    "tools.browser_session_lifecycle:cleanup_all_browsers": [],
+    "tools.mcp_tool:_mcp_tool_server_names": None,
+    "tools.mcp_tool:_servers": None,
+    "tools.mcp_tool_discovery:discover_mcp_tools": ["allowed_mcp_names"],
+    "agent.context_file_sources:context_file_sources_for_agent": ["agent"],
 }
 
 
@@ -526,7 +550,7 @@ def test_c08_self_test_rejects_worker_without_timely_plugins(stub):
     acfg = json.loads((a.home / "config.yaml").read_text().split("\n", 1)[1])
     acfg["plugins"]["enabled"] = []
     sha = config_render.write_atomic(a.home / "config.yaml", (config_render.HEADER + json.dumps(acfg)).encode())
-    w = harness.Worker(a.env())
+    w = harness.Worker(a.env(), a.argv())
     try:
         w.send(a.hello(settings_hash=sha))
         ready, _ = w.until("ready", timeout=120)
@@ -542,7 +566,7 @@ def test_c08_self_test_rejects_worker_without_timely_plugins(stub):
 
 
 def _ready_fresh(a, **env):
-    w = harness.Worker(a.env(**env))
+    w = harness.Worker(a.env(**env), a.argv() if a.host else None)
     w.send(a.hello())
     ready, _ = w.until("ready", timeout=120)
     return w, ready
@@ -553,7 +577,7 @@ def test_c08_self_test_rejects_a_home_plugin_that_shadows_timely_gate(stub):
     Hermes' discovery (a directory plugin wins over an entry point with the same key), even when
     its callback claims ``__module__ = timely_agent.plugins.timely_gate``. The self-test must
     refuse that worker, so the shadow never runs a tool unasked."""
-    a = harness.Agent(harness.new_root("c8b"))
+    a = harness.Agent(harness.new_root("c8b"), host=True)
     shadow = a.home / "plugins" / "timely_gate"
     shadow.mkdir(parents=True)
     (shadow / "plugin.yaml").write_text("name: timely_gate\nversion: '1'\nkind: standalone\n")
@@ -570,7 +594,7 @@ def test_c08_self_test_rejects_a_home_plugin_that_shadows_timely_gate(stub):
         failed = {c["name"]: c["detail"] for c in ready["self_test"]["checks"] if not c["ok"]}
         assert "timely_gate" in failed.get("user_plugins", ""), failed
         assert "timely_gate" in failed.get("plugins", "") and "gate_hook" in failed, failed
-        marker = a.home / "workspace" / "shadow.txt"
+        marker = a.work / "shadow.txt"
         w.send(harness.run_start(a, stub, run_id="c8b", toolsets=["terminal"],
                                  text=f"CALL terminal {json.dumps({'command': f'echo ran > {marker.name}'})}"))
         err = w.recv()
@@ -628,18 +652,15 @@ def test_c11b_never_offered_toolsets_and_platform_bundles_are_refused(agent, wor
         err = worker.recv()
         assert err["type"] == "error" and err["code"] == "bad_message" and err["id"] == f"s-c11b-{i}", (name, err)
         assert name in err["message"], err
+    # The `coding` posture re-lists browser_vault and manage_connections (never offered) next to the
+    # host tools: phase 5 refuses any toolset that resolves to a never-offered tool (the `browser`
+    # composite is no longer subtracted, because browser-use and browser-cdp offer its other tools).
+    for flags in ({}, {"host_allowed": True}):
+        worker.send(harness.run_start(agent, stub, run_id="c11b-coding", conversation="c-c11b-coding",
+                                      toolsets=["todo", "coding"], flags=flags))
+        err = worker.recv()
+        assert err["type"] == "error" and err["code"] == "bad_message" and "browser_vault" in err["message"], err
     assert len(stub.requests) == asked  # no turn ran
-    # The `coding` posture re-lists browser_* (toolset browser) and manage_connections
-    # (connections); disabled_toolsets strips them before the model sees the tool list.
-    worker.send(harness.run_start(agent, stub, run_id="c11b-coding", conversation="c-c11b-coding",
-                                  toolsets=["coding"]))
-    done, _ = worker.until("run.done")
-    assert done["completed"], done
-    offered = {t["function"]["name"] for r in stub.requests[asked:] if r.get("body")
-               for t in (r["body"].get("tools") or [])}
-    assert "todo_list" in offered, offered
-    stray = sorted(n for n in offered if n.startswith("browser_") or n == "manage_connections")
-    assert not stray, stray
 
 
 # ---------------------------------------------------------------- 12
@@ -706,9 +727,11 @@ def test_c12_managed_file_edited_after_prepare_fails_the_self_test(stub):
     try:
         assert ready["self_test"]["ok"] is False, ready["self_test"]
         detail = next(c["detail"] for c in ready["self_test"]["checks"] if c["name"] == "managed_config")
-        for key in ("agent.disabled_toolsets", "browser.use_real_profile", "tools.connectors.enabled",
+        for key in ("agent.disabled_toolsets", "tools.connectors.enabled",
                     "cron.allow_agent_scheduling", "lsp.install_strategy"):
             assert f"managed {key}" in detail, (key, detail)
+        # phase 5: the real profile is the account's, not a floor; the managed file may not add it
+        assert "browser.use_real_profile" in detail, detail
         w.send(harness.run_start(a, stub, run_id="c12a2"))
         err = w.recv()
         assert err["type"] == "error" and err["code"] == "refused", err
@@ -767,7 +790,7 @@ def test_c12_account_command_allowlist_never_skips_an_approval(stub):
     The managed floor pins it to ``[]`` and the overlay replaces lists, so an account
     ``config.yaml`` that pre-approves the call (here with a matching hash) still raises
     ``approval.request`` after Go's ``approve``."""
-    a = harness.Agent(harness.new_root("c12a5"))
+    a = harness.Agent(harness.new_root("c12a5"), host=True)
     acfg = json.loads((a.home / "config.yaml").read_text().split("\n", 1)[1])
     acfg["command_allowlist"] = ["plugin_rule:timely:call_1", "plugin_rule:timely:terminal"]
     sha = config_render.write_atomic(a.home / "config.yaml", (config_render.HEADER + json.dumps(acfg)).encode())
@@ -776,7 +799,7 @@ def test_c12_account_command_allowlist_never_skips_an_approval(stub):
         w.send(a.hello(settings_hash=sha))
         ready, _ = w.until("ready", timeout=120)
         assert ready["self_test"]["ok"] is True, ready["self_test"]
-        marker = a.home / "workspace" / "c12a5.txt"
+        marker = a.work / "c12a5.txt"
         w.send(harness.run_start(a, stub, run_id="c12a5", conversation="c-c12a5", toolsets=["terminal"],
                                  text=f"CALL terminal {json.dumps({'command': f'echo hi > {marker.name}'})}"))
         ask, _ = w.until("gate.ask")
@@ -827,7 +850,7 @@ PROBE_BROWSER_GATE = textwrap.dedent("""
     asked = []
     bridge.ask = lambda msg, timeout: asked.append(msg["tool"]) or {"type": "gate.verdict", "verdict": "allow"}
     bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="c", kind="chat",
-                                             tainted_sources=[], pre_approved=None))
+                                             tainted_sources=[], pre_approved=None, host_allowed=True))
     calls = {
         "cdp_loopback": ("browser_cdp", {"method": "Page.navigate", "params": {"url": "http://127.0.0.1:8080/api/health"}}),
         "cdp_new_tab_lan": ("browser_cdp", {"method": "Target.createTarget", "params": {"url": "http://192.168.1.1/"}}),
@@ -871,14 +894,14 @@ def test_c12_write_file_never_installs_a_language_server(stub):
     Hermes' LSP layer ``go install gopls`` (its default ``lsp.install_strategy: auto`` runs
     installers from PATH without pm). The managed floor pins ``manual`` and the install guard
     replaces the installer; a fake ``go`` records every call it gets."""
-    a = harness.Agent(harness.new_root("c12i"))
+    a = harness.Agent(harness.new_root("c12i"), host=True)
     fake_bin = a.root / "fake-bin"
     fake_bin.mkdir()
     calls = a.root / "go-calls.log"
     go = fake_bin / "go"
     go.write_text(f"#!/bin/sh\necho \"$*\" >> '{calls}'\nexit 0\n")
     go.chmod(0o755)
-    workspace = a.home / "workspace"
+    workspace = a.work
     subprocess.run(["git", "init", "-q", str(workspace)], check=True, capture_output=True)
     (workspace / "go.mod").write_text("module example.com/probe\n\ngo 1.22\n")
     w, ready = _ready_fresh(a, PATH=f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '/usr/bin:/bin')}")
@@ -975,8 +998,9 @@ def test_c12_env_allowlist_holds_at_start():
 
 @pytest.mark.skipif(IS_WINDOWS, reason="uses a POSIX shell command; the Windows job runs test 19")
 def test_c12_env_allowlist_holds_inside_terminal_children(agent, worker, stub):
-    """12d. A terminal child sees none of the refused names, and its ``HOME`` is the account's
-    profile home (``terminal.home_mode: profile``), never the OS user's home."""
+    """12d. A terminal child sees none of the refused names. Its ``HOME`` is the real home (phase 5,
+    Q-5.4: ``terminal.home_mode: real`` for a host-allowed account), which in tests is the sandbox's
+    ``HERMES_REAL_HOME`` under ``$HOME/.cache/p5-sandbox``, never the account's profile home."""
     cmd = "env | cut -d= -f1 | sort | tr '\\n' ' '; echo; echo HOME_IS=$HOME"
     worker.send(harness.run_start(agent, stub, run_id="c12d", conversation="c-c12d", toolsets=["terminal"],
                                   text=f"CALL terminal {json.dumps({'command': cmd})}"))
@@ -987,7 +1011,8 @@ def test_c12_env_allowlist_holds_inside_terminal_children(agent, worker, stub):
     assert "HOME_IS=" in out, out
     for name in FORBIDDEN_ENV:
         assert name not in out, (name, out)
-    assert f"HOME_IS={agent.home / 'home'}" in out, out
+    assert f"HOME_IS={agent.real_home}" in out, out
+    assert str(agent.real_home).startswith(str(harness.SANDBOX_BASE)), agent.real_home
 
 
 @pytest.mark.skipif(IS_WINDOWS, reason="uses a POSIX shell command; the Windows job runs test 19")
@@ -996,7 +1021,7 @@ def test_c12_home_dotenv_never_reaches_the_worker(stub):
     imports ``run_agent``. A planted one (``HERMES_YOLO_MODE=1`` would switch the approval gate
     off) is set aside before that import: the gate still raises ``approval.request`` and a
     terminal child never sees the name."""
-    a = harness.Agent(harness.new_root("c12e"))
+    a = harness.Agent(harness.new_root("c12e"), host=True)
     (a.home / ".env").write_text("HERMES_YOLO_MODE=1\nPROBE_DOTENV=1\n")
     (a.home / ".op.env").write_text("HERMES_ALLOW_PRIVATE_URLS=1\n")
     w, ready = _ready_fresh(a)

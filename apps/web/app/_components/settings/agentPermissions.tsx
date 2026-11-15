@@ -18,10 +18,32 @@ import {
   type CriticalRow,
   type PermissionMode,
 } from "@timely/contract/agentChat";
-import { GroupHint, GroupLabel, ListGroup, ListRow } from "@/app/_components/_ui/groupedList";
-import { PermissionChip, PermissionPopover } from "@/app/_components/chat/permissionPicker";
+import {
+  GroupHint,
+  GroupLabel,
+  ListGroup,
+  ListRow,
+} from "@/app/_components/_ui/groupedList";
+import {
+  PermissionChip,
+  PermissionPopover,
+} from "@/app/_components/chat/permissionPicker";
+import {
+  AUTO_ASKS_HOST_NOTE,
+  HOST_ALLOWED_ON_OPTIONS,
+  HOST_RULE_OPTIONS,
+  HOST_TIMEOUT_CHOICES,
+  LOOSEN_ON_DESKTOP,
+  settingAccess,
+  timeoutLabel,
+  type Surface,
+} from "@/app/_components/chat/hostView";
+import Select from "@/app/_components/_ui/select";
+import { useQuery } from "@tanstack/react-query";
+import { getInstanceSettings } from "@/app/utils/api/instance";
 import { cn } from "@/app/utils/cn";
 import { usePatchChatSettings } from "@/app/utils/hooks/chat";
+import { useDesktopShell } from "@/app/utils/hooks/desktop";
 
 /**
  * Settings → Agent → Permissions, the drawn "Settings › Assistant" panel
@@ -61,7 +83,9 @@ function ModeRow({
       value={value}
       onChange={onChange}
       scope={scope}
-      title={scope === "bots" ? "Permission for bots" : "Permission for new chats"}
+      title={
+        scope === "bots" ? "Permission for bots" : "Permission for new chats"
+      }
       placement="below"
       trigger={({ open, toggle }) => (
         <button
@@ -74,17 +98,46 @@ function ModeRow({
             edge === "top" ? "rounded-t-[11px]" : "rounded-b-[11px]",
           )}
         >
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{label}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
+            {label}
+          </span>
           <PermissionChip mode={value} size="sm" />
-          <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <ChevronRight
+            aria-hidden
+            className="size-3.5 shrink-0 text-muted-foreground"
+          />
         </button>
       )}
     />
   );
 }
 
-export default function PermissionsGroups({ settings }: { settings: AgentChatSettings }) {
+export default function PermissionsGroups({
+  settings,
+}: {
+  settings: AgentChatSettings;
+}) {
   const patch = usePatchChatSettings();
+  // The note about commands on this computer is for an account that can use
+  // it; chat-only accounts never get a host card.
+  const computer = useQuery({
+    queryKey: ["instance-settings"],
+    queryFn: getInstanceSettings,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const hostAllowed = !!computer.data?.thisAccountHostAllowed;
+  // The desktop window is the step-up: loosening where Full Access or host
+  // cards may be approved is only possible there (the server says 403 else).
+  const surface: Surface = useDesktopShell() ? "desktop" : "web";
+  const rule = settings.hostApprovalRule ?? "devices";
+  const allowedOn = settings.fullAccessAllowedOn;
+  const ruleLocked =
+    !settingAccess(surface, "hostApprovalRule", "devices", allowedOn).allowed &&
+    rule === "desktop";
+  const allowedLocked =
+    !settingAccess(surface, "fullAccessAllowedOn", "devices", allowedOn)
+      .allowed && allowedOn === "desktop";
   return (
     <div className="flex flex-col gap-5" data-testid="agent-permissions">
       <div>
@@ -115,6 +168,54 @@ export default function PermissionsGroups({ settings }: { settings: AgentChatSet
       </div>
 
       <div>
+        <GroupLabel>Commands, files and browser</GroupLabel>
+        <ListGroup>
+          <ListRow
+            label="Host cards"
+            wrapMeta
+            meta="Who can approve a card"
+          >
+            <Select
+              variant="row"
+              aria-label="Host cards"
+              value={rule}
+              onChange={(value) =>
+                patch.mutate({ hostApprovalRule: value as typeof rule })
+              }
+              options={HOST_RULE_OPTIONS.map((o) => ({
+                value: o.value,
+                label: o.label,
+                disabled: o.value === "devices" && ruleLocked,
+              }))}
+            />
+          </ListRow>
+          <ListRow
+            label="Paused cards wait up to"
+            wrapMeta
+            meta="A card first waits 10 minutes with the reply paused on it. Then it waits this long more, and closes without running."
+          >
+            <Select
+              variant="row"
+              aria-label="Paused cards wait up to"
+              value={String(settings.hostApprovalTimeoutMinutes ?? 60)}
+              onChange={(value) =>
+                patch.mutate({ hostApprovalTimeoutMinutes: Number(value) })
+              }
+              options={HOST_TIMEOUT_CHOICES.map((m) => ({
+                value: String(m),
+                label: timeoutLabel(m),
+              }))}
+            />
+          </ListRow>
+        </ListGroup>
+        <GroupHint>
+          {ruleLocked ? `${LOOSEN_ON_DESKTOP}. ` : ""}
+          {HOST_RULE_OPTIONS.find((o) => o.value === rule)?.hint}
+          {rule === "desktop" ? "" : " Deny always works from any device."}
+        </GroupHint>
+      </div>
+
+      <div>
         <GroupLabel>Auto always asks before</GroupLabel>
         <ListGroup>
           {AUTO_ASKS_BEFORE.map((row) => {
@@ -122,25 +223,50 @@ export default function PermissionsGroups({ settings }: { settings: AgentChatSet
             return (
               <ListRow
                 key={row.item}
-                icon={<Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
+                icon={
+                  <Icon
+                    aria-hidden
+                    className="size-4 shrink-0 text-muted-foreground"
+                  />
+                }
                 label={row.title}
+                wrapMeta
                 meta={row.detail}
               />
             );
           })}
         </ListGroup>
+        {hostAllowed && <GroupHint>{AUTO_ASKS_HOST_NOTE}</GroupHint>}
       </div>
 
       <div>
         <GroupLabel>Full Access</GroupLabel>
         <ListGroup>
           <ListRow label="Turning it on asks for">
-            <span className="text-[13px] font-medium text-muted-foreground">A confirmation</span>
-          </ListRow>
-          <ListRow label="Allowed on">
-            <span className="text-[13px] font-medium text-muted-foreground">
-              {settings.fullAccessAllowedOn === "devices" ? "All your devices" : "This desktop"}
+            <span className="min-w-0 text-right text-[13px] font-medium leading-4 text-muted-foreground">
+              {allowedOn === "devices"
+                ? "Confirm, then your phone's lock"
+                : "Confirm in the desktop app"}
             </span>
+          </ListRow>
+          <ListRow
+            label="Allowed on"
+            wrapMeta
+            meta={allowedLocked ? LOOSEN_ON_DESKTOP : undefined}
+          >
+            <Select
+              variant="row"
+              aria-label="Full Access allowed on"
+              value={allowedOn}
+              onChange={(value) =>
+                patch.mutate({ fullAccessAllowedOn: value as typeof allowedOn })
+              }
+              options={HOST_ALLOWED_ON_OPTIONS.map((o) => ({
+                value: o.value,
+                label: o.label,
+                disabled: o.value === "devices" && allowedLocked,
+              }))}
+            />
           </ListRow>
         </ListGroup>
         <p className="flex gap-1.5 px-1 pt-1.5 text-xs leading-relaxed text-muted-foreground">

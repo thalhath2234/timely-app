@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopAction, DesktopInstance, DesktopSettingKey } from "../electron-env";
+import type { DesktopAction, DesktopInstance, DesktopSettingKey, ShellOp, ShellResult } from "../electron-env";
+import { isShellOp } from "./shellOps";
 
 const hosted = process.argv.includes("--timely-hosted");
 
@@ -39,6 +40,15 @@ contextBridge.exposeInMainWorld("timelyDesktop", {
           setSetting: (key: DesktopSettingKey, value: boolean): Promise<DesktopInstance> =>
             ipcRenderer.invoke("instance:setSetting", key, value),
           action: (name: DesktopAction) => ipcRenderer.invoke("instance:action", name),
+        },
+        // Requests from the fixed list in shellOps.ts, sent by the main process
+        // with the shell token. The token and the session never reach the page.
+        shell: {
+          request: (op: ShellOp, body?: Record<string, string | number | boolean | null>): Promise<ShellResult> => {
+            if (!isShellOp(op)) return Promise.reject(new Error("Unknown request"));
+            return ipcRenderer.invoke("shell:request", op, body ?? {});
+          },
+          pickFolder: (): Promise<{ canceled: true } | { canceled: false; path: string }> => ipcRenderer.invoke("shell:pickFolder"),
         },
       }
     : {}),

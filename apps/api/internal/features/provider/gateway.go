@@ -96,7 +96,8 @@ func (g *Gateway) Close(ctx context.Context) error { return g.srv.Shutdown(ctx) 
 func (g *Gateway) BaseURL() string { return g.base }
 
 // grant is the secret for one account, provider, model and Sensitive flag,
-// made once per process.
+// made once per worker of the account: RevokeAccount drops it when the
+// account's worker exits.
 func (g *Gateway) grant(uid, provider, model string, sensitive bool) string {
 	who := gatewayGrant{uid, provider, model, sensitive}
 	g.mu.Lock()
@@ -110,6 +111,23 @@ func (g *Gateway) grant(uid, provider, model string, sensitive bool) string {
 	g.grants[secret] = who
 	g.issued[who] = secret
 	return secret
+}
+
+// RevokeAccount ends every grant of an account (phase 5 decision 18): the
+// worker that held them exited, so a terminal child it started that reaches
+// 127.0.0.1 holds no lasting key. The account's next run gets a fresh one.
+func (g *Gateway) RevokeAccount(uid string) {
+	if g == nil || uid == "" {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for secret, who := range g.grants {
+		if who.uid == uid {
+			delete(g.grants, secret)
+			delete(g.issued, who)
+		}
+	}
 }
 
 func (g *Gateway) caller(r *http.Request) (gatewayGrant, bool) {

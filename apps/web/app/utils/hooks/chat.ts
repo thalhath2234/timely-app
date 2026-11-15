@@ -17,7 +17,7 @@ import {
 } from "../api/chat";
 import { apiFetch } from "../api/client";
 import { ReplyDrafts, startChatStream } from "../api/chatStream";
-import { isBusy } from "@/app/_components/chat/chatMeta";
+import { isBusy, needsHostAnswer } from "@/app/_components/chat/chatMeta";
 import { learningKey } from "./learning";
 export const chatsKey = ["chats"] as const;
 export const chatKey = (id: string) => ["chat", id] as const;
@@ -33,7 +33,8 @@ export function useChats() {
     queryFn: () => chatRequest<ChatSummary[]>(""),
     // Keeps going in a hidden window so a finished run still notifies.
     refetchInterval: (q) =>
-      !streaming && q.state.data?.some((c) => isBusy(c.status))
+      !streaming &&
+      q.state.data?.some((c) => isBusy(c.status) || needsHostAnswer(c.status))
         ? 5000
         : IDLE_POLL,
     refetchIntervalInBackground: true,
@@ -57,7 +58,10 @@ export function useChat(id?: string | null) {
     // A deleted chat answers 404 for good: show it at once, do not retry.
     retry: (count, error) => !isChatGone(error) && count < 3,
     refetchInterval: (q) =>
-      !streaming && isBusy(q.state.data?.status) ? 1500 : IDLE_POLL,
+      !streaming &&
+      (isBusy(q.state.data?.status) || needsHostAnswer(q.state.data?.status))
+        ? 1500
+        : IDLE_POLL,
     refetchOnWindowFocus: true,
     staleTime: 5000,
   });

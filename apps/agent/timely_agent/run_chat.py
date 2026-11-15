@@ -29,6 +29,11 @@ Build or reuse the conversation's ``AIAgent``, run ``run_conversation``, forward
 - **Sub-tasks** (phase 4): the agent is built inside Hermes' joined-delegation scope, so a
   ``delegate_task`` call runs its children inside the call and returns their results to the turn;
   no child outlives the run (``timely_agent.delegation``).
+- **Host tools** (phase 5, PROTOCOL.md section 12): a host-allowed account's agent gets Hermes'
+  filesystem checkpoints (``checkpoints.enabled``) and, when a working folder was chosen, its
+  project context files (each one a taint source). Full Access turns on Hermes' session YOLO for
+  the run (``host.start_yolo``). A host card whose live wait ended parks: the turn ends after that
+  round and ``run.done`` says ``turn_exit_reason: "approval_parked"`` with ``parked``.
 - **No-persist** (phase 4, Q-4.2; ``flags.no_persist``, test-only): an uncached agent with
   ``session_db=None``, ``skip_memory``, no learning pass, no review counters, no learning feed and
   no request dumps; Go sends the whole conversation as ``history`` every turn. Nothing of the run
@@ -46,7 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from timely_agent import bridge, config_render, policy, untrusted
+from timely_agent import bridge, config_render, host, policy, untrusted
 from timely_agent.learning import feed as learning_feed
 from timely_agent.learning import passes as learning_passes
 
@@ -159,6 +164,8 @@ class Run:
     learning_stopped: bool = False
     # The same for "Search my past chats" turned off (``learning.stop`` with ``search_only``).
     search_stopped: bool = False
+    # The run's bridge.RunContext once the turn built it (the approval bridge reads it).
+    ctx: Any = None
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def attach(self, agent: Any) -> None:
@@ -202,6 +209,42 @@ def clarify_timeout(msg: dict[str, Any]) -> float:
     return float(policy.CLARIFY_TIMEOUT_S)
 
 
+def host_live_wait(msg: dict[str, Any]) -> float:
+    """``run.start.host_live_wait_s`` (Go sends 600), else ``policy.HOST_LIVE_WAIT_S``."""
+    value = msg.get("host_live_wait_s")
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+        return float(min(value, policy.HOST_LIVE_WAIT_MAX_S))
+    return float(policy.HOST_LIVE_WAIT_S)
+
+
+def host_options(msg: dict[str, Any]) -> dict[str, Any]:
+    """What a host-allowed run's agent is built with: checkpoints, and project context files only
+    when the account chose a working folder (decision 10). Read from render-account's record."""
+    if (msg.get("flags") or {}).get("host_allowed") is not True:
+        return {"checkpoints": False, "context_files": False}
+    from hermes_constants import get_hermes_home
+    state = config_render.account_state(Path(get_hermes_home()))
+    if state.get("host_allowed") is not True:
+        return {"checkpoints": False, "context_files": False}
+    return {"checkpoints": state.get("checkpoints") is True, "context_files": bool(state.get("working_dir"))}
+
+
+def connect_mcp(msg: dict[str, Any]) -> list[str]:
+    """Connect the MCP servers the run names (``mcp-<server>`` toolsets) before its agent is built:
+    a worker has no gateway start-up discovery, so Hermes would offer none of their tools.
+    Idempotent (a live server is reused; one whose connect failed is retried after its cooldown)."""
+    names = sorted({str(t)[len(policy.MCP_TOOLSET_PREFIX):] for t in msg.get("toolsets") or []
+                    if str(t).startswith(policy.MCP_TOOLSET_PREFIX)})
+    if not names:
+        return []
+    try:
+        from tools.mcp_tool_discovery import discover_mcp_tools
+        return list(discover_mcp_tools(allowed_mcp_names=names) or [])
+    except Exception:
+        logger.exception("connecting MCP servers %s failed", names)
+        return []
+
+
 def config_signature(msg: dict[str, Any]) -> str:
     """Agent cache key part: model, provider, key, toolsets and the Timely block hash (section 3.3).
     The key enters only as a hash: a key changed in Settings must reach the next turn."""
@@ -213,6 +256,8 @@ def config_signature(msg: dict[str, Any]) -> str:
         "toolsets": sorted(msg.get("toolsets") or []), "system": msg.get("system_hash") or "",
         # the learning pass is a constructor choice (skip_background_review)
         "learning": (msg.get("flags") or {}).get("learning_writes") is True,
+        # checkpoints and context files are constructor choices (phase 5)
+        "host": (msg.get("flags") or {}).get("host_allowed") is True,
         # the block itself too: with ephemeral_system_prompt a changed block needs a new agent
         "system_text": hashlib.sha256(str(msg.get("system_text") or "").encode()).hexdigest(),
     }
@@ -360,6 +405,7 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
 
     reasoning_cfg = model.get("reasoning")
     system_text = str(msg.get("system_text") or "")
+    hosted = {"checkpoints": False, "context_files": False} if ephemeral else host_options(msg)
     # Joined delegation: the delegate_task the model sees returns its children's results in the
     # call (Hermes' gateway inline mode, frozen on the agent at its first tool build), so no child
     # runs in the background after the turn.
@@ -374,13 +420,17 @@ def build_agent(msg: dict[str, Any], emit: EmitRef):
             enabled_toolsets=toolsets,  # explicit, never None (section 8.1)
             # The managed floor agent.disabled_toolsets: AIAgent does not read that key itself (Hermes'
             # CLI and gateway pass it in), so pass it here; subtracted last, after any composite.
-            disabled_toolsets=list(config_render.NEVER_TOOLSETS),
+            disabled_toolsets=list(config_render.DISABLED_TOOLSETS),
             quiet_mode=True,
             platform="timely",
             session_id=msg.get("conversation_id"),
             session_db=None if ephemeral else SessionDB(),
             load_soul_identity=True,
-            skip_context_files=True,
+            # Phase 5: only a host-allowed account with a chosen working folder reads its project
+            # context files (each reported as a taint source, host.context_file_taint).
+            skip_context_files=not hosted["context_files"],
+            checkpoints_enabled=hosted["checkpoints"],
+            checkpoint_max_snapshots=config_render.CHECKPOINT_MAX_SNAPSHOTS,
             # A chat always reads About you and Notes (plan 9b.3; review round 6): learning off, a
             # Sensitive or Don't-learn chat or an answer-only turn stops writes and the learning pass
             # only. Without the memory toolset the model has no memory tool, Hermes ticks no memory
@@ -592,8 +642,11 @@ def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) ->
         run_id=run.run_id, session_key=session_key, conversation_id=conversation, kind="chat",
         tainted_sources=list(msg.get("tainted_sources") or []), pre_approved=msg.get("pre_approved") or None,
         permission=str(msg.get("permission") or "supervised"), flags=flags,
-        flush=sink.flush, emit=sink.emit, session=state, clarify_timeout_s=clarify_timeout(msg))
+        flush=sink.flush, emit=sink.emit, session=state, clarify_timeout_s=clarify_timeout(msg),
+        host_allowed=flags.get("host_allowed") is True, host_live_wait_s=host_live_wait(msg),
+        full_access=flags.get("full_access") is True and msg.get("permission") == "full")
     ctx.stopped = lambda: bool(run.stop_reason)
+    run.ctx = ctx
     ephemeral = no_persist(msg)
     counters = None if ephemeral else getattr(cache, "counters", None)
     turn_ran = False
@@ -607,6 +660,7 @@ def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) ->
         # binds it per turn: home_mode profile, cwd = the account workspace, local backend. Unresolvable
         # config installs Hermes' refusal scope, so terminal tools fail closed.
         scope_token = install_profile_terminal_scope(get_hermes_home())
+        connect_mcp(msg)
         signature = config_signature(msg)
         if ephemeral:
             # Never a cached agent: one built for a persisting turn holds the session database,
@@ -632,6 +686,10 @@ def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) ->
         ctx.agent = agent
         state.agent = agent
         run.attach(agent)
+        context_taint = host.context_file_taint(agent)
+        if context_taint:
+            bridge.report_taint(ctx, context_taint)
+        host.start_yolo(ctx)
         if run.stop_reason:
             done.update(interrupted=True, turn_exit_reason="interrupted")
             return done
@@ -673,7 +731,12 @@ def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) ->
             # the person's next turn.
             pending_steer=str(result.get("pending_steer") or ""),
         )
-        if ctx.end_turn_hit and not run.stop_reason:
+        if ctx.parked is not None and not run.stop_reason:
+            # A host card's live wait ended (decision 2): the tool did not run, the card stays with
+            # Go, and Run once later starts a continuation turn with exactly this call pre-approved.
+            done.update(interrupted=False, completed=False, turn_exit_reason=policy.PARKED_EXIT,
+                        parked=dict(ctx.parked), final_response="")
+        elif ctx.end_turn_hit and not run.stop_reason:
             # timely_gate ended the turn on a tool call after a recorded proposal (Q-2.4): that is
             # the turn finishing, not a Stop. The interrupt it raised is cleared below.
             done.update(interrupted=False, completed=True, turn_exit_reason=END_TURN_EXIT,
@@ -689,6 +752,8 @@ def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) ->
         cache.drop(conversation, keep_counters=not ephemeral)  # stores the counters first
     finally:
         bridge.forget_children(ctx)
+        host.forget_run(ctx)
+        host.end_yolo(ctx)
         done["tainted_sources"] = ctx.taint_snapshot()
         if turn_ran and counters is not None and run.agent is not None:
             counters.store(conversation, run.agent)  # after every turn (plan 3.3)
@@ -698,7 +763,7 @@ def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) ->
             logger.exception("run %s: flushing stream text failed", run.run_id)
         if not ephemeral:
             _report_run(ctx)  # after the stream text, before run.done
-        if ctx.end_turn_hit and run.agent is not None:
+        if (ctx.end_turn_hit or ctx.parked is not None) and run.agent is not None:
             try:
                 run.agent.clear_interrupt()
             except Exception:

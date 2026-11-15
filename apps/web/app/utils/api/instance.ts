@@ -1,3 +1,6 @@
+import type { ShellOp } from "@/electron-env";
+import type { AgentLimitsPayload, HostAccountPayload, InstanceSettings } from "@timely/contract/instanceSettings";
+import { saveFailureMessage } from "@timely/contract/instanceSettings";
 import { apiFetch } from "./client";
 import { getAgentProviders, type AgentProviders } from "./agentProviders";
 
@@ -92,4 +95,76 @@ export async function rescanProviders(): Promise<AgentProviders> {
     // empty or non-JSON body: fall through to a fresh read
   }
   return getAgentProviders();
+}
+
+// ---------------------------------------------------------------------------
+// Instance settings: who may use this computer, the worker limits
+// ---------------------------------------------------------------------------
+
+/** The desktop window's bridge for requests the server answers only to it, or null in a browser. */
+export function desktopShell() {
+  if (typeof window === "undefined") return null;
+  return window.timelyDesktop?.shell ?? null;
+}
+
+type ShellBody = Record<string, string | number | boolean | null>;
+
+/** Sends one listed request through the desktop main process (it adds the
+ * credential the page never holds). A 401 means the window's session cookie
+ * is a refresh behind, so one normal request refreshes it and this one is
+ * sent again. */
+async function shellRequest(op: ShellOp, body?: ShellBody) {
+  const shell = desktopShell();
+  if (!shell) throw new Error("This can only be changed in the Timely desktop app.");
+  let result = await shell.request(op, body);
+  if (result.status === 401) {
+    await apiFetch("/instance").catch(() => undefined);
+    result = await shell.request(op, body);
+  }
+  return result;
+}
+
+function bodyMessage(body: unknown): string | undefined {
+  if (body && typeof body === "object" && "message" in body && typeof (body as { message: unknown }).message === "string") {
+    return (body as { message: string }).message;
+  }
+  return undefined;
+}
+
+/** `GET /instance/settings`. In the desktop window it goes through the main
+ * process so the answer's `shell` is true; anywhere else it is a plain read. */
+export async function getInstanceSettings(): Promise<InstanceSettings> {
+  if (desktopShell()) {
+    const result = await shellRequest("instance.settings");
+    if (!result.ok) throw new Error(saveFailureMessage(result.status, bodyMessage(result.body)));
+    return result.body as InstanceSettings;
+  }
+  const res = await apiFetch("/instance/settings");
+  if (!res.ok) {
+    throw new Error(await readMessage(res, `Could not read the computer settings (${res.status})`));
+  }
+  return res.json();
+}
+
+async function shellSave(op: ShellOp, body: ShellBody): Promise<InstanceSettings> {
+  const result = await shellRequest(op, body);
+  if (!result.ok) throw new Error(saveFailureMessage(result.status, bodyMessage(result.body)));
+  return result.body as InstanceSettings;
+}
+
+/** Turns the signed-in account's access to this computer on or off. Desktop window only. */
+export function setHostAccount(uid: string, on: boolean): Promise<InstanceSettings> {
+  const payload: HostAccountPayload = { uid, on };
+  return shellSave("hostAccounts.set", payload as ShellBody);
+}
+
+/** Sets or clears ("") the signed-in account's working folder. Desktop window only. */
+export function setWorkingFolder(uid: string, workingDir: string): Promise<InstanceSettings> {
+  const payload: HostAccountPayload = { uid, workingDir };
+  return shellSave("hostAccounts.workingDir", payload as ShellBody);
+}
+
+/** The worker cap and idle minutes. Desktop window only. */
+export function setAgentLimits(limits: AgentLimitsPayload): Promise<InstanceSettings> {
+  return shellSave("agentLimits.set", limits as ShellBody);
 }

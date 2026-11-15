@@ -94,24 +94,28 @@ type engineHarness struct {
 
 // newEngineHarness starts two chat lanes and the agent engine on the fake
 // worker. Fixtures are routed per conversation (fixture).
-func newEngineHarness(t *testing.T) *engineHarness {
+func newEngineHarness(t *testing.T, opts ...func(*WorkerEngineOptions)) *engineHarness {
 	t.Helper()
 	kit := agenthosttest.New(t)
-	h := newEngineHarnessWith(t, kit.Config(), testModel)
+	h := newEngineHarnessWith(t, kit.Config(), testModel, opts...)
 	h.kit = kit
 	return h
 }
 
 // newEngineHarnessWith runs the engine on the supervisor cfg describes (the
 // fake worker, or the real one in engine_realworker_test.go).
-func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context.Context, string, string, string, RunModelOptions) (any, error)) *engineHarness {
+func newEngineHarnessWith(t *testing.T, cfg agenthost.Config, model func(context.Context, string, string, string, RunModelOptions) (any, error), opts ...func(*WorkerEngineOptions)) *engineHarness {
 	t.Helper()
 	db := integrationDB(t)
 	s := New(db, engineCatalog, nil)
 	hub := realtime.NewHub()
 	s.SetLive(hub)
 	logs := newGuardedLog(t)
-	e := NewWorkerEngine(s, WorkerEngineOptions{Model: model, Logf: logs.logf})
+	o := WorkerEngineOptions{Model: model, Logf: logs.logf}
+	for _, fn := range opts {
+		fn(&o)
+	}
+	e := NewWorkerEngine(s, o)
 	if cfg.Logf == nil {
 		cfg.Logf = logs.logf
 	}
@@ -1035,7 +1039,7 @@ func TestIntegrationAgentEngineDeleteWaitsForAWorker(t *testing.T) {
 // every other account keeps it.
 func TestIntegrationAgentEngineHostAllowedDropsTheScopeLine(t *testing.T) {
 	h := newEngineHarness(t)
-	h.e.opts.HostAllowed = func(uid string) bool { return uid == "user-a" }
+	h.e.opts.HostAllowed = func(_ context.Context, uid string) bool { return uid == "user-a" }
 	c := h.chat("Write me a poem", "supervised", "host", lines(reply("A poem", 0)))
 	h.wait(c.ID, "replied", statusIs("idle"))
 	var start struct {

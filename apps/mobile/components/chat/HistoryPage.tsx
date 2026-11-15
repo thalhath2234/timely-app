@@ -112,12 +112,17 @@ export default function HistoryPage({
           <View key={group.label} style={styles.group}>
             <Text style={styles.groupLabel}>{group.label}</Text>
             {group.items.map((chat) => {
-              const meta = statusMeta(chat.status, chat.question);
+              const meta = statusMeta(
+                chat.status,
+                chat.question,
+                chat.hostRequest,
+              );
               const Icon = meta.icon;
               const color = toneColor(meta.tone, colors);
               const active = chat.id === activeId;
               const attention = [
                 "approval",
+                "host_approval",
                 "choose",
                 "failed",
                 "running",

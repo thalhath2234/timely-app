@@ -144,11 +144,8 @@ stored with the `plain:` prefix and the file is created with mode 0600.
 | `ALLOW_REGISTRATION` | `allowRegistration` |
 | `PATH`, `HOME` | login-shell PATH on macOS/Linux; process env on Windows |
 | `TIMELY_LIFELINE` | `stdin` (exit when the app's stdin pipe closes; see Boot order). The API unsets it at start so the programs it runs do not inherit it. |
+| `TIMELY_SHELL_TOKEN` | A random 32-byte token (64 hex characters) made by the supervisor for every launch of the app (`shellBridge.ts` `newShellToken`), the same for every restart of the API within the launch. The desktop window's proof for the instance settings (see "Shell requests"). An inherited value is always dropped. The API reads it at start and removes it from its own environment, so no program it starts inherits it. It is never logged and never part of the `DesktopInstance` snapshot or any message to a page. |
 | `TIMELY_AGENT_RUNTIME` | Packaged: always `<resources>/agent` (`paths.ts` `agentRuntime`), even when a damaged install lacks `boot.py`: the API then reports the runtime missing instead of searching for an `apps/agent` above its data folder. Unpackaged hosted runs: the staged `.electron-agent/<os>-<arch>` when it holds `boot.py`, otherwise unset so the API finds the checkout's `apps/agent`. A value inherited from the shell is always dropped, so a packaged app never runs a developer's runtime. The API starts `<agent>/python/bin/python3 -I <agent>/boot.py` (`python\python.exe` on Windows) with `PYTHONDONTWRITEBYTECODE=1`. The `boot: resources` line in `supervisor.log` ends with `agent=<dir>`. |
-
-`TIMELY_SHELL_TOKEN` (plan section 12: the desktop window's proof for `PUT /instance/host-accounts`)
-is not passed yet. It comes with phase 5, together with the host-allowed account setting that
-reads it.
 
 Agent CLIs the API starts (Claude Code, Codex and others) get this environment without the
 server's own settings (`JWT_*`, `DB_*`, `TIMELY_*`, `API_*`, `ALLOW_REGISTRATION`,
@@ -197,6 +194,44 @@ or with none. It is missing while the database is down. `GET /instance` returns 
   "localCli": true
 }
 ```
+
+### Instance settings (Phase 5)
+
+`GET /instance/settings` (authenticated) says which accounts may use this computer, the
+worker limits, and whether this very request came from the desktop window:
+
+```json
+{
+  "hostAccounts": [
+    { "uid": "usr_…", "email": "me@example.com", "workingDir": "/home/me/project", "source": "desktop" },
+    { "uid": "usr_…", "email": "you@example.com", "workingDir": "", "source": "server" }
+  ],
+  "thisAccountHostAllowed": true,
+  "thisAccountWorkingDir": "/home/me/project",
+  "maxWorkers": 3,
+  "idleMinutes": 15,
+  "shell": false
+}
+```
+
+`hostAccounts` is the accounts turned on in the desktop window (`instance_settings`,
+`source: "desktop"`) united with the ids in `TIMELY_AGENT_HOST_ACCOUNTS` (comma-separated,
+`source: "server"`, which the desktop window cannot turn off). Any number of accounts can be
+host-allowed, each turned on separately; an account that is not gets no terminal, file, code or
+browser tool. Chat-only features stay open to every account. `workingDir` is "" for the
+assistant's own folder. `shell` is true only for a request that carries the shell token.
+Types: `packages/contract/src/instanceSettings.ts`.
+
+`PUT /instance/host-accounts` `{"uid", "on"?, "workingDir"?}` and
+`PUT /instance/agent-limits` `{"maxWorkers", "idleMinutes"}` (1 to 16 workers, 1 to 240 idle
+minutes) answer **404 to every request that does not carry the shell token from a loopback
+address**, before sign-in is asked, so the routes do not exist for anyone else. With it they
+need the signed-in session as usual, and `uid` must be the signed-in account: turning on
+another account means signing in as it in the desktop window. `workingDir` must be an
+existing absolute folder, and only an account that is on can have one. Both answer with the
+new `GET /instance/settings` body. An approved host command runs as the operating-system user
+that runs the API and can read every account's data on this computer; Settings → Server says
+so next to the switch.
 
 `POST /register` returns 403 `{"message": "New accounts are turned off on this server"}` when
 `ALLOW_REGISTRATION` is not `true` and at least one account exists. Sign-ups after the first
@@ -254,6 +289,41 @@ apps move the pointer, and macOS isn't supported, so there it does nothing.
 ```ts
 timelyDesktop.snapPointer(x: number, y: number): void
 ```
+
+### Shell requests (`timelyDesktop.shell`, hosted mode only)
+
+```ts
+timelyDesktop.shell.request(op: ShellOp, body?: { [field: string]: string | number | boolean | null }): Promise<{ ok: boolean; status: number; body: unknown }>
+timelyDesktop.shell.pickFolder(): Promise<{ canceled: true } | { canceled: false; path: string }>
+```
+
+Some requests change what this computer lets the assistant do (the host-allowed accounts, the
+worker limits, Full Access, host card answers). The API treats a request as coming from "the
+desktop window" only when it carries `X-Timely-Shell-Token` with the launch's token (compared
+in constant time), arrives from a loopback address, and did not pass through a proxy
+(`X-Forwarded-For`, `Forwarded`, `X-Real-Ip` make it never match); with no token configured
+nothing ever matches. **The page never holds the token.** The renderer asks the main process
+to send an operation from a fixed list; the main process checks the sender is the main
+window's own origin, builds the request from the table in `electron/shellOps.ts` (an unknown
+operation, an unknown or mistyped field, or a chat id that is not a plain id is refused), adds
+the token and the window's `session` cookie, and sends it to the API on loopback only
+(`electron/shellBridge.ts`; any other address is refused). The preload exposes `shell` next to
+`instance` and only when hosted.
+
+| `op` | API request | Body fields |
+| --- | --- | --- |
+| `instance.settings` | `GET /instance/settings` | none; the answer's `shell` is true |
+| `hostAccounts.set` | `PUT /instance/host-accounts` | `uid`, `on` |
+| `hostAccounts.workingDir` | `PUT /instance/host-accounts` | `uid`, `workingDir` ("" clears) |
+| `agentLimits.set` | `PUT /instance/agent-limits` | `maxWorkers`, `idleMinutes` (integers) |
+| `chat.permission` | `PATCH /chats/:chatId` | `chatId`, `permission` (Full Access needs this window, or an unlocked phone when Settings allows it on any device) |
+| `settings.permissions` | `PATCH /agent/chat-settings` | a flat object of the account's permission settings |
+| `chat.hostApproval` | `POST /chats/:chatId/host-approval` | `chatId`, `revision`, `requestId`, `choice`; the main process adds `device: {kind: "desktop", name: <this computer>}` |
+
+`pickFolder()` opens the system's folder picker for the working folder. If the session cookie
+has expired the API answers 401; the web app refreshes its session with a normal request and
+sends the operation again. The result is the API's answer (`status`, JSON `body`); the token
+and the cookie are never in it.
 
 ## Start at login
 

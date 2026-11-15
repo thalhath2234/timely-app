@@ -25,9 +25,15 @@ def _clean_test_root():
     included). Set TIMELY_AGENT_KEEP=1 to keep them for debugging."""
     yield
     import os
-    if os.environ.get("TIMELY_AGENT_KEEP") != "1" and harness.TEST_ROOT.exists():
+    if os.environ.get("TIMELY_AGENT_KEEP") != "1":
         from timely_agent.seed import remove_tree
-        remove_tree(harness.TEST_ROOT)
+        import shutil
+        for root in (harness.TEST_ROOT, harness.SANDBOX):
+            if root.exists():
+                try:
+                    remove_tree(root)
+                except OSError:  # a browser a worker left was still writing its profile copy
+                    shutil.rmtree(root, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -39,8 +45,11 @@ def stub():
 
 @pytest.fixture(scope="module")
 def agent():
-    """A prepared agent folder (fixture Timely skills and override) with one rendered account."""
-    return harness.Agent(harness.new_root("mod"), prepare_opts={"timely_skills_src": str(FIXTURE_SKILLS)})
+    """A prepared agent folder (fixture Timely skills and override) with one rendered account. It
+    is host-allowed (phase 5): its real home and working folder are in the sandbox and its workers
+    run under the exec trap."""
+    return harness.Agent(harness.new_root("mod"), prepare_opts={"timely_skills_src": str(FIXTURE_SKILLS)},
+                         host=True)
 
 
 @pytest.fixture(scope="module")

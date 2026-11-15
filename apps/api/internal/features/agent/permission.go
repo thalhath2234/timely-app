@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -76,7 +77,7 @@ const (
 	CriticalPaying     = 3 // Buying, paying or signing in
 	CriticalInstalling = 4 // Installing software
 	CriticalSettings   = 5 // Changing settings or permissions
-	CriticalTainted    = 6 // Changes after reading outside pages
+	CriticalTainted    = 6 // Changes after reading outside content (a page, a file, command output)
 )
 
 // bulkItems is the most items one change may touch before it counts as a
@@ -343,6 +344,7 @@ const (
 	HostFileRead   = "file_read"   // Path
 	HostFileWrite  = "file_write"  // Path: write or patch
 	HostFileDelete = "file_delete" // Path
+	HostDelete     = "delete"      // a connected service's tool that deletes, removes or destroys something (MCP)
 	HostFetch      = "fetch"       // URL: web fetch or browser navigation
 	HostInput      = "input"       // URL: typing into a page
 	HostSubmit     = "submit"      // URL: a form submit or a submitting click
@@ -360,6 +362,16 @@ type HostAction struct {
 	Command string
 	Path    string
 	URL     string
+	// Cwd is the folder the call runs in (the terminal's workdir, else the
+	// session's recorded folder): relative paths and a command's relative
+	// operands are judged from there, not from the agent's folder.
+	Cwd string
+	// Also are further actions of the same call (a V4A patch names several
+	// files): the call is as critical as its worst one.
+	Also []HostAction
+	// Code is set when Command is a program (execute_code), not a command
+	// line.
+	Code bool
 }
 
 // HostScope is what the person has already let in.
@@ -372,16 +384,35 @@ type HostScope struct {
 	Hosts []string
 	// Tainted is set when the conversation has read outside pages.
 	Tainted bool
+	// Cwd is the folder a relative path is taken from (the call's own
+	// folder); empty means Workspace. CwdUnknown is set after a command line
+	// moved somewhere it cannot follow (cd $X, popd, cd -): a relative path
+	// then is never inside the agent's folder.
+	Cwd        string
+	CwdUnknown bool
+	// Home is the OS user's home, which `cd`, `~` and $HOME mean.
+	Home string
+	// vars are the variables a command line set earlier on the same line
+	// (H=~; rm -rf $H), for the hardline floor.
+	vars map[string]string
 }
 
 // CriticalHost is Critical for a host action.
 func CriticalHost(h HostAction, scope HostScope) (item int, reason string, ok bool) {
+	if h.Cwd != "" {
+		scope.Cwd = h.Cwd
+	}
 	item, reason = hostItem(h, scope)
+	for _, more := range h.Also {
+		if i, r := hostItem(more, scope); i != 0 && (item == 0 || i < item) {
+			item, reason = i, r
+		}
+	}
 	if item != 0 {
 		return item, reason, true
 	}
 	if scope.Tainted && h.Kind != HostFileRead && h.Kind != HostFetch {
-		return CriticalTainted, "comes after reading outside pages", true
+		return CriticalTainted, "comes after reading outside content (pages, files or command output)", true
 	}
 	return 0, "", false
 }
@@ -391,9 +422,12 @@ func hostItem(h HostAction, scope HostScope) (int, string) {
 	case HostTerminal:
 		return commandItem(h.Command, scope)
 	case HostFileRead:
+		if secretFiles.MatchString(strings.TrimSpace(h.Path)) {
+			return CriticalSettings, "reads a file that holds passwords or sign-ins"
+		}
 		return 0, ""
 	case HostFileWrite:
-		if configPath(h.Path) {
+		if scope.config(h.Path) || scope.repoSettings(h.Path) {
 			return CriticalSettings, "changes a settings file"
 		}
 		if !scope.inside(h.Path) {
@@ -401,10 +435,12 @@ func hostItem(h HostAction, scope HostScope) (int, string) {
 		}
 		return 0, ""
 	case HostFileDelete:
-		if !scope.inside(h.Path) {
+		if !scope.insideLink(h.Path) {
 			return CriticalDeleting, "deletes a file outside the agent's folder"
 		}
 		return 0, ""
+	case HostDelete:
+		return CriticalDeleting, "deletes something on a connected service"
 	case HostFetch:
 		if !scope.known(h.URL) {
 			return CriticalSendingOut, "opens a site the person has not mentioned"
@@ -437,22 +473,113 @@ func hostItem(h HostAction, scope HostScope) (int, string) {
 	return CriticalDeleting, "is not a known action"
 }
 
-// inside reports whether p is within the agent's own folder. Relative paths
-// are taken from that folder, where the terminal starts.
-func (s HostScope) inside(p string) bool {
+// base is the folder a relative path is taken from, false when it is not
+// known.
+func (s HostScope) base() (string, bool) {
+	if s.CwdUnknown || s.Workspace == "" {
+		return "", false
+	}
+	ws := path.Clean(s.Workspace)
+	if s.Cwd == "" {
+		return ws, true
+	}
+	if path.IsAbs(s.Cwd) {
+		return path.Clean(s.Cwd), true
+	}
+	return path.Join(ws, s.Cwd), true
+}
+
+// inside reports whether p is within the agent's own folder. A relative path
+// is taken from the folder the call runs in (Cwd, else the agent's folder,
+// where the terminal starts), and from nowhere after a cd it cannot follow.
+// A working folder that is the disk's root, the home or a folder above the
+// home is no safe folder at all.
+func (s HostScope) inside(p string) bool { return s.insideAt(p, true) }
+
+// insideLink is inside for a link itself: deleting or moving a symlink takes
+// the link, not its target, so only the folder it sits in is followed.
+func (s HostScope) insideLink(p string) bool { return s.insideAt(p, false) }
+
+func (s HostScope) insideAt(p string, follow bool) bool {
 	p = strings.TrimSpace(p)
 	if s.Workspace == "" || p == "" {
 		return false
 	}
 	ws := path.Clean(s.Workspace)
+	if ws == "/" || (s.Home != "" && (ws == path.Clean(s.Home) || strings.HasPrefix(path.Clean(s.Home)+"/", ws+"/"))) {
+		return false
+	}
 	if strings.HasPrefix(p, "~") || strings.HasPrefix(p, "$") {
 		return false
 	}
 	if !path.IsAbs(p) {
-		p = path.Join(ws, p)
+		base, ok := s.base()
+		if !ok {
+			return false
+		}
+		p = joinRaw(base, p)
 	}
-	p = path.Clean(p)
-	return p == ws || strings.HasPrefix(p, strings.TrimSuffix(ws, "/")+"/")
+	// A .. after a link is taken from the link's target, as the kernel does.
+	p = kernelPath(p)
+	if !(p == ws || strings.HasPrefix(p, strings.TrimSuffix(ws, "/")+"/")) {
+		return false
+	}
+	// A link in the folder that leads out of it is not inside: a write to it
+	// lands on its target.
+	if follow {
+		return s.realInside(resolveLinks(p))
+	}
+	return s.realInside(path.Join(resolveLinks(path.Dir(p)), path.Base(p)))
+}
+
+// cdScope is the scope after a cd, pushd, popd or chdir part of a command
+// line; ok is false for any other part.
+func cdScope(part string, scope HostScope) (HostScope, bool) {
+	words := fields(strings.TrimLeft(strings.TrimSpace(part), "({ "))
+	if len(words) == 0 {
+		return scope, false
+	}
+	switch words[0] {
+	case "cd", "pushd", "popd", "chdir":
+	default:
+		return scope, false
+	}
+	unknown := func() (HostScope, bool) {
+		scope.Cwd, scope.CwdUnknown = "", true
+		return scope, true
+	}
+	if words[0] == "popd" {
+		return unknown()
+	}
+	target := "~"
+	if ops := operands(words[1:]); len(ops) > 0 {
+		target = ops[0]
+	}
+	switch {
+	case target == "-" || strings.ContainsAny(target, "`*?[") || strings.Contains(target, "$("):
+		return unknown()
+	case target == "~" || strings.HasPrefix(target, "~/"):
+		if scope.Home == "" {
+			return unknown()
+		}
+		target = path.Join(scope.Home, target[1:])
+	case strings.HasPrefix(target, "$HOME") || strings.HasPrefix(target, "${HOME}"):
+		if scope.Home == "" {
+			return unknown()
+		}
+		target = path.Join(scope.Home, strings.TrimPrefix(strings.TrimPrefix(target, "${HOME}"), "$HOME"))
+	case strings.HasPrefix(target, "$") || strings.HasPrefix(target, "~"):
+		return unknown()
+	}
+	if !path.IsAbs(target) {
+		base, ok := scope.base()
+		if !ok {
+			return unknown()
+		}
+		target = path.Join(base, target)
+	}
+	scope.Cwd, scope.CwdUnknown = path.Clean(target), false
+	return scope, true
 }
 
 // known reports whether a URL's host was seen before, or is this machine.
@@ -513,10 +640,19 @@ func configPath(p string) bool {
 var (
 	commandSplit = regexp.MustCompile(`\|\||&&|[;\n|&]`)
 	pipeToShell  = regexp.MustCompile(`(?i)\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b|\b(ba|z)?sh\s+-c\s+["']?\$\((curl|wget)\b`)
-	sqlDestroy   = regexp.MustCompile(`(?i)\b(drop\s+(table|database|schema|index)|truncate\s+(table\s+)?\w|delete\s+from)\b`)
-	urlPattern   = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>|;)]+`)
-	redirectTo   = regexp.MustCompile(`(?:^|[^>&0-9])>\|?\s*([^\s>&|;]+)`)
-	appendTo     = regexp.MustCompile(`>>\s*([^\s>&|;]+)`)
+	// sqlDestroy reads SQL that deletes data or structure: DROP of anything
+	// that holds data or rules, TRUNCATE of a named table (a bare name must
+	// end the statement or its quote, so prose such as "truncate long
+	// titles" is not one), DELETE FROM, ALTER TABLE ... DROP, and the
+	// stores' wipe commands.
+	sqlDestroy = regexp.MustCompile(`(?i)\b(drop\s+(table|database|schema|index|view|function|procedure|owned|role|user|group|collection|materialized|sequence|type|extension|trigger|domain|tablespace|policy|publication|subscription)|alter\s+table\b[^;]*?\bdrop|delete\s+from)\b|\btruncate\s+table\s+["\w]|\btruncate\s+(?:only\s+)?["\w.]+\s*(?:[;"')]|$|cascade\b|restart\b|continue\b)|\b(flushall|flushdb)\b|\.drop(?:Database)?\(|\bdeleteMany\(`)
+	urlPattern = regexp.MustCompile(`(?i)\bhttps?://[^\s'"<>|;)]+`)
+	redirectTo = regexp.MustCompile(`(?:^|[^>&0-9])>\|?\s*([^\s>&|;]+)`)
+	appendTo   = regexp.MustCompile(`>>\s*([^\s>&|;]+)`)
+	// substitution matches the innermost $( ), <( ), >( ) and backtick groups.
+	substitution = regexp.MustCompile("[$<>]\\(([^()]*)\\)|`([^`]*)`")
+	// pipeToInterpreter is a shell or interpreter reading its program from a pipe.
+	pipeToInterpreter = regexp.MustCompile(`\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*/)?(?:a|ba|z|da|k|c|tc|mk)?sh(?:\s+-[A-Za-z]+)*\s*(?:$|[;&|)\n])|\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\S*/)?(?:python[0-9.]*|node|nodejs|perl|ruby|php|lua|pwsh|powershell)(?:\s+-[A-Za-z]*)?\s*(?:$|[;&|)\n])`)
 )
 
 func commandItem(line string, scope HostScope) (int, string) {
@@ -537,24 +673,39 @@ func commandItem(line string, scope HostScope) (int, string) {
 	if sqlDestroy.MatchString(line) {
 		consider(CriticalDeleting, "deletes database data")
 	}
-	for _, m := range redirectTo.FindAllStringSubmatch(line, -1) {
-		target := strings.Trim(m[1], `"'`)
-		if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
+	// Each simple command is judged from the folder it runs in: a cd, pushd or
+	// popd earlier on the line moves it (and one it cannot follow makes every
+	// relative path count as outside the agent's folder).
+	for _, part := range commandSplit.Split(line, -1) {
+		if next, ok := cdScope(part, scope); ok {
+			scope = next
 			continue
 		}
-		if configPath(target) {
-			consider(CriticalSettings, "changes a settings file")
-		} else if !scope.inside(target) {
-			consider(CriticalDeleting, "overwrites a file outside the agent's folder")
+		for _, m := range redirectTo.FindAllStringSubmatch(part, -1) {
+			target := strings.Trim(m[1], `"'`)
+			if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
+				continue
+			}
+			if scope.config(target) || scope.repoSettings(target) {
+				consider(CriticalSettings, "changes a settings file")
+			} else if !scope.inside(target) {
+				consider(CriticalDeleting, "overwrites a file outside the agent's folder")
+			}
 		}
-	}
-	for _, m := range appendTo.FindAllStringSubmatch(line, -1) {
-		if configPath(strings.Trim(m[1], `"'`)) {
-			consider(CriticalSettings, "changes a settings file")
+		for _, m := range appendTo.FindAllStringSubmatch(part, -1) {
+			if t := strings.Trim(m[1], `"'`); scope.config(t) || scope.repoSettings(t) {
+				consider(CriticalSettings, "changes a settings file")
+			}
 		}
-	}
-	for _, part := range commandSplit.Split(line, -1) {
 		consider(simpleCommandItem(part, scope))
+	}
+	// A command run inside $( ), backticks or <( ) is judged on its own, and
+	// a shell or interpreter at the end of a pipe runs whatever it is fed.
+	for _, m := range substitution.FindAllStringSubmatch(line, -1) {
+		consider(commandItem(m[1]+m[2], scope))
+	}
+	if pipeToInterpreter.MatchString(line) {
+		consider(CriticalDeleting, "runs commands it was handed")
 	}
 	// Any request to a host the person has not mentioned could carry data
 	// out in its address, whichever program makes it.
@@ -578,11 +729,149 @@ func fields(part string) []string {
 	return words
 }
 
-func simpleCommandItem(part string, scope HostScope) (int, string) {
-	words := fields(part)
-	elevated := false
+// wrapper programs run the command that follows their own options. valued
+// are the options that take the next word as their value; operands are the
+// plain words that come before the command (a duration, a lock file).
+type wrapper struct {
+	valued   []string
+	operands int
+}
+
+var wrappers = map[string]wrapper{
+	"env":      {valued: []string{"-u", "-C", "-S", "--unset", "--chdir"}},
+	"nohup":    {},
+	"time":     {valued: []string{"-f", "-o"}},
+	"command":  {},
+	"builtin":  {},
+	"exec":     {valued: []string{"-a"}},
+	"nice":     {valued: []string{"-n", "--adjustment"}},
+	"ionice":   {valued: []string{"-c", "-n", "-p", "--class", "--classdata"}},
+	"stdbuf":   {},
+	"setsid":   {},
+	"timeout":  {valued: []string{"-s", "-k", "--signal", "--kill-after"}, operands: 1},
+	"watch":    {valued: []string{"-n", "-d", "--interval"}},
+	"flock":    {valued: []string{"-w", "-E", "--timeout"}, operands: 1},
+	"taskset":  {operands: 1},
+	"xargs":    {valued: []string{"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "-J"}},
+	"busybox":  {},
+	"unbuffer": {},
+	"chronic":  {},
+}
+
+// unwrap drops a wrapper's own options and operands, leaving the command it runs.
+func unwrap(w wrapper, args []string) []string {
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") && args[0] != "--" {
+		valued := slices.Contains(w.valued, args[0])
+		args = args[1:]
+		if valued && len(args) > 0 {
+			args = args[1:]
+		}
+	}
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
+	for i := 0; i < w.operands && len(args) > 0; i++ {
+		args = args[1:]
+	}
+	return args
+}
+
+// shellPrograms run a command line they are given with -c.
+var shellPrograms = set("sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "csh", "tcsh", "mksh", "cmd", "cmd.exe")
+
+// interpreters run code given inline (-c, -e, a heredoc, stdin). inline
+// lists the options that carry it; cluster is the letter that may sit in a
+// cluster of short options (python -Sc, perl -ne).
+var interpreters = map[string]struct {
+	inline  []string
+	cluster string
+}{
+	"python": {[]string{"-c"}, "c"}, "python2": {[]string{"-c"}, "c"}, "python3": {[]string{"-c"}, "c"},
+	"pypy": {[]string{"-c"}, "c"}, "pypy3": {[]string{"-c"}, "c"},
+	"node": {[]string{"-e", "--eval", "-p", "--print"}, ""}, "nodejs": {[]string{"-e", "--eval", "-p", "--print"}, ""},
+	"bun": {[]string{"-e", "--eval", "-p", "--print"}, ""}, "deno": {[]string{"eval"}, ""},
+	"perl": {[]string{"-e", "-E"}, "eE"}, "ruby": {[]string{"-e"}, "e"}, "php": {[]string{"-r"}, ""},
+	"lua": {[]string{"-e"}, ""}, "osascript": {[]string{"-e"}, ""}, "rscript": {[]string{"-e"}, ""},
+	"julia":      {[]string{"-e", "-E", "--eval"}, ""},
+	"pwsh":       {[]string{"-c", "-command", "-encodedcommand", "-e", "-ec"}, ""},
+	"powershell": {[]string{"-c", "-command", "-encodedcommand", "-e", "-ec"}, ""},
+}
+
+// stdinFrom is a redirect that feeds a program from a file (python < x.py).
+var stdinFrom = regexp.MustCompile(`(?:^|\s)\d?<\s*[^\s<(]`)
+
+// pythonVersion matches python3.12 and friends.
+var pythonVersion = regexp.MustCompile(`^(python|pypy)[0-9.]+$`)
+
+// shellPayload is the command line a shell is given with -c (or cmd's /c),
+// "" when it has none.
+func shellPayload(args []string) (string, bool) {
+	for i, a := range args {
+		if a == "--" {
+			return "", false
+		}
+		lower := strings.ToLower(a)
+		isFlag := (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && len(a) > 1 && strings.Contains(a, "c") && strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyz") == "") || lower == "/c" || lower == "/k"
+		if isFlag {
+			return strings.Join(args[i+1:], " "), true
+		}
+		if !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "/") {
+			return "", false // a script file: its code is not on the line
+		}
+	}
+	return "", false
+}
+
+// inlineCode reports whether an interpreter is handed its program on the
+// command line, a heredoc or stdin: code nobody can read on a card.
+func inlineCode(prog string, args []string, part string) bool {
+	info, ok := interpreters[prog]
+	if !ok && pythonVersion.MatchString(prog) {
+		info, ok = interpreters["python"], true
+	}
+	if !ok {
+		return false
+	}
+	if strings.Contains(part, "<<") || stdinFrom.MatchString(part) {
+		return true
+	}
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "-" {
+			return true
+		}
+		if prog == "deno" {
+			return a == "eval"
+		}
+		if !strings.HasPrefix(a, "-") {
+			return false // the script it runs
+		}
+		if slices.Contains(info.inline, strings.ToLower(a)) || slices.Contains(info.inline, a) {
+			return true
+		}
+		if strings.HasPrefix(a, "--") {
+			continue
+		}
+		if info.cluster != "" && strings.ContainsAny(a[1:], info.cluster) && strings.Trim(a[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == "" {
+			return true
+		}
+		for _, f := range info.inline { // -cprint(1): the code attached to the option
+			if len(f) == 2 && strings.HasPrefix(a, f) && len(a) > 2 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// unwrapCommand drops what comes before the program of a simple command:
+// sudo, doas and su, FOO=bar assignments and wrapper programs (nohup,
+// timeout, xargs, ...). elevated says a privilege wrapper was there.
+func unwrapCommand(words []string) (rest []string, elevated bool) {
 	for len(words) > 0 {
-		w := words[0]
+		w := strings.TrimLeft(words[0], `\`)
 		switch {
 		case w == "sudo" || w == "doas" || w == "su":
 			elevated = true
@@ -591,28 +880,131 @@ func simpleCommandItem(part string, scope HostScope) (int, string) {
 				words = words[1:]
 			}
 			continue
-		case w == "env" || w == "nohup" || w == "time" || w == "command" || w == "exec" || w == "nice" || w == "builtin":
-			words = words[1:]
-			continue
 		case strings.Contains(w, "=") && !strings.HasPrefix(w, "-") && !strings.HasPrefix(w, "="):
 			words = words[1:] // FOO=bar before the program
 			continue
 		}
+		if path.Base(w) == "env" {
+			if split, ok := envSplit(words[1:]); ok {
+				words = split // env -S 'bash tidy.sh': the string is the command
+				continue
+			}
+		}
+		if wr, ok := wrappers[path.Base(w)]; ok {
+			words = unwrap(wr, words[1:])
+			continue
+		}
 		break
 	}
+	return words, elevated
+}
+
+// envSplit is the command env -S / --split-string runs: its string, split into
+// words, then whatever words follow it.
+func envSplit(args []string) ([]string, bool) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-S" || a == "--split-string":
+			if i+1 < len(args) {
+				return append(fields(args[i+1]), args[i+2:]...), true
+			}
+			return nil, false
+		case strings.HasPrefix(a, "--split-string="):
+			return append(fields(strings.TrimPrefix(a, "--split-string=")), args[i+1:]...), true
+		case strings.HasPrefix(a, "-S") && len(a) > 2:
+			return append(fields(a[2:]), args[i+1:]...), true
+		case !strings.HasPrefix(a, "-") && !strings.Contains(a, "="):
+			return nil, false // the command: no -S before it
+		case oneOf(a, "-u", "-C", "--unset", "--chdir") || oneOf(a, "-a"):
+			i++
+		}
+	}
+	return nil, false
+}
+
+func simpleCommandItem(part string, scope HostScope) (int, string) {
+	words, elevated := unwrapCommand(fields(part))
 	if len(words) == 0 {
 		if elevated {
 			return CriticalSettings, "runs as administrator"
 		}
 		return 0, ""
 	}
-	prog := path.Base(words[0])
+	prog := strings.ToLower(path.Base(strings.TrimLeft(words[0], `\`)))
 	args := words[1:]
-	item, reason := programItem(prog, args, scope)
+	var item int
+	var reason string
+	switch {
+	case prog == "eval":
+		item, reason = commandItem(strings.Join(args, " "), scope)
+	case shellPrograms[prog]:
+		if payload, ok := shellPayload(args); ok {
+			item, reason = commandItem(payload, scope)
+		} else if scriptOperand(args) {
+			item, reason = CriticalDeleting, scriptReason
+		} else if !hasFlag(args, "", "--version", "--help") {
+			// A shell with no program on the line reads its commands from
+			// stdin (a pipe, a file, xargs -a): code nobody can read here.
+			item, reason = CriticalDeleting, "runs commands it was handed"
+		}
+	case inlineCode(prog, args, part):
+		item, reason = CriticalDeleting, "runs code written on the spot"
+	case scriptRun(prog, words[0], args):
+		item, reason = CriticalDeleting, scriptReason
+	default:
+		item, reason = programItem(prog, args, scope)
+	}
 	if item == 0 && elevated {
 		return CriticalSettings, "runs as administrator"
 	}
 	return item, reason
+}
+
+// scriptReason is why running a script file asks in Auto: the agent may have
+// written it a moment ago (write_file, a redirect, a patch), and nothing on a
+// card shows what it does.
+const scriptReason = "runs a script file whose code is not on the card"
+
+// scriptOperand reports whether a shell or interpreter is given a script file
+// to run (its first plain operand), not a flag-only call.
+func scriptOperand(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return i+1 < len(args)
+		}
+		if a == "-m" {
+			// A module runs code from the folder (python -m tidy); only a few
+			// standard ones do not.
+			return i+1 < len(args) && !benignModules[strings.ToLower(args[i+1])]
+		}
+		if a == "-W" || a == "-X" || a == "-O" || a == "--rcfile" || a == "--init-file" || a == "-o" {
+			i++ // -W ignore: the next word is the flag's value
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+var scriptExt = regexp.MustCompile(`(?i)\.(sh|bash|zsh|ksh|py|rb|pl|js|mjs|cjs|ps1|bat|cmd|command|lua|php)$`)
+
+// scriptRun reports whether a simple command runs a script file: an
+// interpreter given one, source or ".", a program path that is a script
+// (./tidy.sh, ../x, /home/me/work/tidy.py).
+func scriptRun(prog, word string, args []string) bool {
+	if _, ok := interpreters[prog]; ok || pythonVersion.MatchString(prog) {
+		return scriptOperand(args)
+	}
+	if prog == "source" || prog == "." {
+		return len(operands(args)) > 0
+	}
+	word = strings.TrimLeft(word, `\`)
+	return strings.HasPrefix(word, "./") || strings.HasPrefix(word, "../") || (strings.Contains(word, "/") && scriptExt.MatchString(word))
 }
 
 // hasFlag reports whether args hold a short flag letter (as in -rf) or one
@@ -666,24 +1058,59 @@ func oneOf(s string, options ...string) bool {
 	return false
 }
 
+// programItem is the worse of the two readings of a program (the second is in
+// permission_more.go).
 func programItem(prog string, args []string, scope HostScope) (int, string) {
+	item, why := programItem0(prog, args, scope)
+	if i2, w2 := timelyDataItem(prog, args); i2 != 0 && (item == 0 || i2 < item) {
+		item, why = i2, w2
+	}
+	if i2, w2 := moreProgramItem(prog, args, scope); i2 != 0 && (item == 0 || i2 < item) {
+		return i2, w2
+	}
+	return item, why
+}
+
+func programItem0(prog string, args []string, scope HostScope) (int, string) {
 	switch prog {
 	// 1. Deleting or overwriting.
-	case "rm":
-		if hasFlag(args, "rR", "--recursive") {
+	case "rm", "unlink":
+		if prog == "rm" && hasFlag(args, "rR", "--recursive") {
 			return CriticalDeleting, "deletes folders"
 		}
 		for _, p := range operands(args) {
-			if !scope.inside(p) {
+			if !scope.insideLink(p) {
 				return CriticalDeleting, "deletes a file outside the agent's folder"
+			}
+		}
+	case "sed", "gsed":
+		// sed -i rewrites its files in place: judged like a redirect.
+		if hasFlag(args, "i", "--in-place") || inPlaceSuffix(args) {
+			files := operands(args)
+			if !hasFlag(args, "ef", "--expression", "--file") && len(files) > 0 {
+				files = files[1:] // the first plain word is the script
+			}
+			for _, f := range files {
+				if scope.config(f) || scope.repoSettings(f) {
+					return CriticalSettings, "changes a settings file"
+				}
+				if !scope.inside(f) {
+					return CriticalDeleting, "overwrites a file outside the agent's folder"
+				}
 			}
 		}
 	case "rmdir", "shred", "wipefs", "dd", "truncate", "srm":
 		return CriticalDeleting, "deletes or overwrites data"
 	case "find":
 		for i, a := range args {
-			if a == "-delete" || (a == "-exec" && i+1 < len(args) && path.Base(args[i+1]) == "rm") {
+			if a == "-delete" || (oneOf(a, "-exec", "-execdir", "-ok", "-okdir") && i+1 < len(args) && path.Base(args[i+1]) == "rm") {
 				return CriticalDeleting, "deletes the files it finds"
+			}
+			// -exec, -execdir, -ok and -okdir run a command on each file.
+			if oneOf(a, "-exec", "-execdir", "-ok", "-okdir") && i+1 < len(args) {
+				if item, reason := simpleCommandItem(strings.Join(args[i+1:], " "), scope); item != 0 {
+					return item, reason
+				}
 			}
 		}
 	case "mv", "cp", "rsync", "install", "ln", "tee":
@@ -700,7 +1127,7 @@ func programItem(prog string, args []string, scope HostScope) (int, string) {
 		}
 		if prog == "tee" {
 			for _, op := range ops {
-				if configPath(op) {
+				if scope.config(op) || scope.repoSettings(op) {
 					return CriticalSettings, "changes a settings file"
 				}
 				if !scope.inside(op) {
@@ -709,9 +1136,25 @@ func programItem(prog string, args []string, scope HostScope) (int, string) {
 			}
 			return 0, ""
 		}
+		if prog == "ln" && len(ops) > 0 {
+			// A link inside the folder that points outside it lets a later
+			// write through the folder reach the target.
+			targets := ops
+			if len(ops) >= 2 {
+				targets = ops[:len(ops)-1]
+			}
+			for _, op := range targets {
+				if scope.config(op) {
+					return CriticalSettings, "links to a settings file"
+				}
+				if !scope.inside(op) {
+					return CriticalDeleting, "links to a file outside the agent's folder"
+				}
+			}
+		}
 		if len(ops) >= 2 {
 			dest := ops[len(ops)-1]
-			if configPath(dest) {
+			if scope.config(dest) || scope.repoSettings(dest) {
 				return CriticalSettings, "changes a settings file"
 			}
 			if !scope.inside(dest) {
@@ -720,12 +1163,19 @@ func programItem(prog string, args []string, scope HostScope) (int, string) {
 		}
 		if prog == "mv" {
 			for _, op := range ops {
-				if !scope.inside(op) {
+				if !scope.insideLink(op) {
 					return CriticalDeleting, "moves files outside the agent's folder"
 				}
 			}
 		}
 	case "git":
+		// Global options come before the subcommand: -C <dir> and -c k=v take a
+		// value (`git -C . push --force` is a force-push, `git -c
+		// alias.x=!cmd x` runs cmd).
+		args, gitCode := gitSubcommandArgs(args)
+		if gitCode {
+			return CriticalSettings, "changes git settings for one command"
+		}
 		switch sub(args, 0) {
 		case "push":
 			if hasFlag(args, "f", "--force", "--force-with-lease", "--mirror", "--delete") {
@@ -791,6 +1241,11 @@ func programItem(prog string, args []string, scope HostScope) (int, string) {
 		if oneOf(sub(args, 0), "auth") {
 			return CriticalPaying, "signs in"
 		}
+		// gh api turns into a POST with any -f/-F/--field/--input and obeys
+		// -X/--method.
+		if sub(args, 0) == "api" && (hasFlag(args, "fF", "--field", "--raw-field", "--input") || hasFlag(args, "X", "--method")) {
+			return CriticalSendingOut, "posts to a code host"
+		}
 		if oneOf(sub(args, 1), "create", "comment", "edit", "merge", "close", "delete", "upload", "review") || hasFlag(args, "", "--method") {
 			return CriticalSendingOut, "posts to a code host"
 		}
@@ -847,6 +1302,47 @@ func programItem(prog string, args []string, scope HostScope) (int, string) {
 		return CriticalSettings, "changes system settings"
 	}
 	return 0, ""
+}
+
+// gitSubcommandArgs drops git's global options (-C <dir>, -c <k=v>,
+// --git-dir, --work-tree, --namespace, --exec-path, flags) so the first
+// operand is the subcommand; code is true when -c or an alias was used.
+func gitSubcommandArgs(args []string) (rest []string, code bool) {
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		switch {
+		case a == "-C" || a == "--git-dir" || a == "--work-tree" || a == "--namespace" || a == "--super-prefix" || a == "--config-env":
+			i += 2
+		case a == "-c":
+			code = true
+			i += 2
+		case strings.HasPrefix(a, "-c") && len(a) > 2 && strings.Contains(a, "="):
+			code = true
+			i++
+		case strings.HasPrefix(a, "--config-env"):
+			code = true
+			i++
+		case strings.HasPrefix(a, "-"):
+			i++
+		default:
+			return args[i:], code
+		}
+	}
+	return nil, code
+}
+
+// inPlaceSuffix reports a sed -i.bak style flag.
+func inPlaceSuffix(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if strings.HasPrefix(a, "-i") || strings.HasPrefix(a, "--in-place=") {
+			return true
+		}
+	}
+	return false
 }
 
 // installSubcommand reports whether a package manager call installs or
@@ -930,4 +1426,52 @@ func looksLikeHost(op string) bool {
 	}
 	host := strings.SplitN(op, "/", 2)[0]
 	return hostShape.MatchString(host) && !fileShape.MatchString(host)
+}
+
+// Timely's own data. The agent runs as the same OS user as the API, and
+// Timely keeps its settings, permissions and every chat's mode in Postgres:
+// one UPDATE from a database client would turn Full Access on for the chat
+// with no card, and the database password sits in the repo's .env and the
+// desktop's config.json. So a database client is never run unasked (item 5,
+// never grantable, as every item up to 5 is), and neither is a read of a
+// file that holds those secrets.
+
+// databaseClients are programs that talk to a database. Their grants would
+// be keyed on the program name, so one harmless SELECT could cover an UPDATE:
+// each call asks.
+var databaseClients = set("psql", "pgcli", "pg_dump", "pg_dumpall", "pg_restore", "createdb", "dropdb", "createuser", "dropuser",
+	"createlang", "droplang", "reindexdb", "vacuumdb", "clusterdb", "pg_ctl", "pg_basebackup", "sqlite3", "litecli", "mysql", "mycli",
+	"mysqldump", "mysqladmin", "mysqlsh", "mariadb", "mongo", "mongosh", "mongodump", "mongorestore", "usql", "cockroach", "duckdb")
+
+// secretFiles are files that hold passwords, keys or sign-ins: the repo's
+// .env files (not .env.example), the desktop app's config.json and browser
+// profile stores, Postgres' password file and a process's environment.
+var secretFiles = regexp.MustCompile(`(?i)(^|[/=])\.env(\.(local|prod\w*|dev\w*|secret\w*))?$|/Timely[^/]*/(config\.json|Cookies|Local State|Login Data|Network/Cookies)$|(^|[/=])\.pgpass$|/proc/(self|\d+|[^/]*)/environ$`)
+
+// timelyDataItem judges a program on what it reaches: Timely's database or a
+// secret file, by name and by its operands.
+func timelyDataItem(prog string, args []string) (int, string) {
+	switch prog {
+	case "dropdb", "dropuser":
+		return CriticalDeleting, "deletes a database or a database user"
+	case "pg_restore":
+		if hasFlag(args, "c", "--clean") {
+			return CriticalDeleting, "deletes database data"
+		}
+	case "mysqladmin":
+		for _, a := range args {
+			if a == "drop" {
+				return CriticalDeleting, "deletes database data"
+			}
+		}
+	}
+	if databaseClients[prog] {
+		return CriticalSettings, "talks to a database directly (Timely keeps its settings and permissions in one)"
+	}
+	for _, a := range args {
+		if secretFiles.MatchString(strings.Trim(a, `"'`)) {
+			return CriticalSettings, "reads a file that holds passwords or sign-ins"
+		}
+	}
+	return 0, ""
 }

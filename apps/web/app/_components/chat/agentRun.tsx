@@ -4,11 +4,14 @@ import {
   Check,
   ChevronRight,
   MessageCircleQuestionMark,
+  ShieldQuestionMark,
   Undo2,
   X,
 } from "lucide-react";
 import { planGroups } from "@timely/contract/changeReview";
 import {
+  HOST_PAUSED_LINE,
+  hostWaiting,
   questionWaiting,
   type ActivityLine,
   type ReplyDraft,
@@ -80,17 +83,22 @@ export function RunActivity({ chat }: { chat: Chat }) {
   const shown = lines.slice(-SHOWN_LINES);
   const hidden = lines.length - shown.length;
   const asking = questionWaiting(chat);
+  // Paused on a host card: it needs the person's OK, so nothing spins.
+  const hosting = hostWaiting(chat);
+  const paused = asking || hosting;
   return (
     <section
       role="status"
       aria-label="What Timely is doing"
-      data-state={asking ? "question" : "working"}
+      data-state={asking ? "question" : hosting ? "host" : "working"}
       className="mt-5 rounded-xl border border-border bg-card px-3.5 py-3 text-sm"
     >
       <div className="flex items-center gap-3">
         <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           {asking ? (
             <MessageCircleQuestionMark aria-hidden className="size-4" />
+          ) : hosting ? (
+            <ShieldQuestionMark aria-hidden className="size-4" />
           ) : (
             <TimelyLogo
               size={16}
@@ -102,9 +110,13 @@ export function RunActivity({ chat }: { chat: Chat }) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="font-medium">
-            {asking ? QUESTION_WAITING_LINE : "Working"}
+            {asking
+              ? QUESTION_WAITING_LINE
+              : hosting
+                ? HOST_PAUSED_LINE
+                : "Working"}
           </p>
-          {!asking && (
+          {!paused && (
             <p className="text-xs text-muted-foreground">
               This keeps running on the server. You can leave and come back, or
               reply to steer it.
@@ -133,7 +145,7 @@ export function RunActivity({ chat }: { chat: Chat }) {
               )}
             >
               <span className="flex w-3.5 shrink-0 justify-center">
-                <LineIcon state={line.state} waiting={asking} />
+                <LineIcon state={line.state} waiting={paused} />
               </span>
               <LineLabel line={line} />
             </li>

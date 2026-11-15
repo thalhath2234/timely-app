@@ -125,3 +125,98 @@ test("the start-at-login row never shows On while the system turned the entry of
   for (const [name, got, want] of table) assert.deepEqual(got, want, name);
   for (const meta of [ON, OFF]) assert.ok(meta.length <= 48, `"${meta}" fits the row without truncating`);
 });
+
+// Instance settings (phase 5): who may use this computer, said the same on web and phone.
+import {
+  HOST_DESKTOP_ONLY,
+  HOST_LIMIT_COPY,
+  agentLimitsError,
+  hostAccountRows,
+  hostSectionState,
+  parseWholeNumber,
+  phoneHostLine,
+  saveFailureMessage,
+  sourceLabel,
+  workingFolderLabel,
+} from "../packages/contract/src/instanceSettings.ts";
+
+const hostSettings = {
+  hostAccounts: [
+    { uid: "usr_b", email: "bob@example.test", workingDir: "", source: "server" },
+    { uid: "usr_a", email: "alice@example.test", workingDir: "/home/alice/project", source: "desktop" },
+    { uid: "usr_c", email: "", workingDir: "", source: "desktop" },
+  ],
+  otherHostAccounts: 2,
+  thisAccountHostAllowed: true,
+  thisAccountWorkingDir: "/home/alice/project",
+  maxWorkers: 3,
+  idleMinutes: 15,
+  shell: false,
+};
+
+test("host accounts: the signed-in account's row comes first, each says where it was turned on and its folder", () => {
+  const rows = hostAccountRows(hostSettings, "usr_a");
+  assert.deepEqual(rows.map((r) => r.uid), ["usr_a", "usr_b", "usr_c"]);
+  assert.equal(rows[0].you, "You");
+  assert.equal(rows[1].you, "");
+  assert.equal(rows[0].sourceLabel, "Turned on in the desktop app");
+  assert.equal(rows[1].sourceLabel, "Set by the server");
+  assert.equal(rows[0].folder, "/home/alice/project");
+  assert.match(rows[1].folder, /^Not chosen/);
+  assert.equal(rows[2].title, "Account", "an unreadable email does not leave a blank row");
+  assert.deepEqual(hostAccountRows(hostSettings, null).map((r) => r.you), ["", "", ""]);
+  assert.equal(sourceLabel("server"), "Set by the server");
+  assert.equal(workingFolderLabel("  "), workingFolderLabel(""));
+});
+
+test("host section: editable only in the desktop window, and a server-set account cannot be turned off there", () => {
+  const outside = hostSectionState(hostSettings, false, "desktop");
+  assert.equal(outside.editable, false);
+  assert.equal(outside.canTurnOff, false);
+  assert.equal(outside.note, HOST_DESKTOP_ONLY);
+  assert.equal(outside.checked, true);
+  const inside = hostSectionState(hostSettings, true, "desktop");
+  assert.deepEqual(inside, { editable: true, canTurnOff: true, checked: true, note: "" });
+  const server = hostSectionState(hostSettings, true, "server");
+  assert.equal(server.editable, true);
+  assert.equal(server.canTurnOff, false);
+  assert.match(server.note, /TIMELY_AGENT_HOST_ACCOUNTS/);
+  const off = hostSectionState({ ...hostSettings, thisAccountHostAllowed: false }, true, null);
+  assert.deepEqual(off, { editable: true, canTurnOff: true, checked: false, note: "" });
+  assert.match(HOST_LIMIT_COPY, /runs as you on this computer/);
+  assert.match(HOST_LIMIT_COPY, /every account's data/);
+  // Only a Supervised chat asks before each call: the copy says what each mode does (review round 6).
+  for (const text of [HOST_LIMIT_COPY, phoneHostLine(hostSettings).hint]) {
+    assert.doesNotMatch(text, /approve each one( on a card first)?\./);
+    assert.match(text, /Supervised/);
+    assert.match(text, /Auto/);
+    assert.match(text, /Full Access/);
+  }
+});
+
+test("phone: a read-only Yes or No for this account", () => {
+  assert.equal(phoneHostLine(hostSettings).value, "Yes");
+  assert.equal(phoneHostLine({ ...hostSettings, thisAccountHostAllowed: false }).value, "No");
+  assert.match(phoneHostLine({ ...hostSettings, thisAccountHostAllowed: false }).hint, /desktop app/);
+  assert.equal(phoneHostLine(null).value, "—");
+  assert.equal(phoneHostLine(hostSettings).label, "This account can use the computer");
+});
+
+test("worker limits: whole numbers inside what the server accepts", () => {
+  assert.equal(agentLimitsError(3, 15), null);
+  assert.equal(agentLimitsError(1, 1), null);
+  assert.equal(agentLimitsError(16, 240), null);
+  for (const [workers, idle] of [[0, 15], [17, 15], [1.5, 15], [Number.NaN, 15], ["3", 15], [3, 0], [3, 241], [3, Number.NaN], [3, 2.5]]) {
+    assert.notEqual(agentLimitsError(workers, idle), null, `${workers} ${idle}`);
+  }
+  assert.equal(parseWholeNumber(" 12 "), 12);
+  for (const text of ["", "1.5", "-2", "abc", "1e3", "12345"]) assert.ok(Number.isNaN(parseWholeNumber(text)), text);
+  assert.match(agentLimitsError(parseWholeNumber("x"), 5), /Workers must be a whole number from 1 to 16/);
+});
+
+test("a refused save says why in plain words", () => {
+  assert.equal(saveFailureMessage(400, "That folder doesn't exist on this computer."), "That folder doesn't exist on this computer.");
+  assert.match(saveFailureMessage(404, undefined), /desktop app/);
+  assert.match(saveFailureMessage(401, undefined), /Sign in again/);
+  assert.match(saveFailureMessage(500, undefined), /500/);
+});

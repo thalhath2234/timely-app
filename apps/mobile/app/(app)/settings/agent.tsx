@@ -69,6 +69,7 @@ import { FocusGroup, FocusGroupScrollView } from "../../../components/ui/FocusGr
 import EngineCard from "../../../components/settings/EngineCard";
 import PermissionsCard from "../../../components/settings/PermissionsCard";
 import { LearnedRow } from "../../../components/settings/LearnedParts";
+import { McpRow } from "../../../components/settings/McpParts";
 
 /** A model row's second line: its id when the name differs, and any note. */
 function modelDetail(option: ModelOption) {
@@ -1574,6 +1575,7 @@ export default function AgentSettings() {
                 <LearnedRow agent={chatSettings.data.engine === "agent"} />
               </>
             ) : null}
+            <McpRow />
             <OpenRouterCard data={data} ask={setProviderRequest} />
             {decisions.data ? (
               <SmartSuggestionsCard

@@ -529,7 +529,8 @@ def test_gate_blocks_messaging_and_never_offered_names_without_asking_go():
                 (name, verdict)
         assert asked == []
         # the control: an ordinary tool does reach Go
-        token = bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="c"))
+        token = bridge.current_run.set(bridge.RunContext(run_id="r", session_key="k", conversation_id="c",
+                                                         host_allowed=True))
         try:
             assert timely_gate.pre_tool_call(tool_name="terminal", args={"command": "ls"}) is None
         finally:

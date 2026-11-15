@@ -256,6 +256,37 @@ class RunContext:
     children_started: int = 0
     children_held: dict[str, int] = field(default_factory=dict, repr=False)
     child_tool_calls: int = 0
+    # Phase 5 host tools (PROTOCOL.md section 12): flags.host_allowed, the live wait before a host
+    # card is parked, Full Access (flags.full_access with permission "full": Hermes' session YOLO).
+    host_allowed: bool = False
+    host_live_wait_s: float = 600.0
+    full_access: bool = False
+    yolo: bool = False
+    # Calls Timely let run (Go's allow, a person's Run once, the continuation's pre-approved call):
+    # call id -> args hash. Hermes' own second approval for one of them is answered once
+    # (``approval.auto``); any other approval Hermes raises is denied (decision 4).
+    approved_calls: dict[str, str] = field(default_factory=dict, repr=False)
+    # Of those, the calls only Go's mode let through (Auto): no person stood behind them, so Hermes'
+    # own dangerous-command or protected-path prompt for one of them is NOT answered for the person
+    # (it becomes a card).
+    unbacked_calls: set[str] = field(default_factory=set, repr=False)
+    # Calls Go answered ``approve`` (the card is pending): call id -> {tool, args_hash, toolset}.
+    asked: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
+    # The host card the live wait parked (``run.done.parked``), and every request it withdrew.
+    parked: Optional[dict[str, Any]] = None
+    parked_all: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    # Calls the dispatch fence refused (the run was stopped after Run once, before the tool ran).
+    fence_blocked: set[str] = field(default_factory=set, repr=False)
+    # The newest checkpoint of a call's folder when the gate let the call through, by call id: only
+    # a newer one belongs to the call (``host.snapshot_before``).
+    checkpoints_before: dict[str, str] = field(default_factory=dict, repr=False)
+    # call id -> the folder's newest checkpoint when its files equal that checkpoint's tree just before
+    # an approved write: Hermes then takes no new snapshot (nothing changed), and that checkpoint is
+    # this call's restore point
+    checkpoints_reusable: dict[str, str] = field(default_factory=dict, repr=False)
+    started_at: float = field(default_factory=time.time, repr=False)
+    _call_tools: dict[str, str] = field(default_factory=dict, repr=False)
+    _inner_seq: int = field(default=0, repr=False)
 
     def __post_init__(self) -> None:
         if self.session is not None:
@@ -347,6 +378,58 @@ class RunContext:
         """The gate saw this call (the handler's fallback when the call id is not in context)."""
         with self._lock:
             self._last_call[_call_key(child, tool_name)] = tool_call_id
+            if tool_call_id:
+                self._call_tools[tool_call_id] = tool_name
+
+    def call_tool(self, tool_call_id: str) -> str:
+        """The tool the gate saw under ``tool_call_id`` ("" when unknown)."""
+        with self._lock:
+            return self._call_tools.get(tool_call_id or "", "")
+
+    def inner_call_id(self, outer: str) -> str:
+        """A call id for a tool call made inside ``execute_code`` (Hermes gives it none): unique per
+        run, naming the ``execute_code`` call it came from."""
+        with self._lock:
+            self._inner_seq += 1
+            return f"{outer}:inner:{self._inner_seq}"
+
+    # ------------------------------------------------------------ host tools (phase 5)
+    def approve_call(self, tool_call_id: str, args_hash: str, backed: bool = True) -> None:
+        """Timely let this call run (Go's allow, Run once, a pre-approved continuation call).
+        ``backed`` is False for an allow Go gave by mode alone (Auto): a person did not choose it."""
+        with self._lock:
+            self.approved_calls[tool_call_id] = args_hash
+            if backed:
+                self.unbacked_calls.discard(tool_call_id)
+            else:
+                self.unbacked_calls.add(tool_call_id)
+
+    def is_approved(self, tool_call_id: str) -> bool:
+        with self._lock:
+            return bool(tool_call_id) and tool_call_id in self.approved_calls
+
+    def is_backed(self, tool_call_id: str) -> bool:
+        """Approved, and a person (Run once, an Allow for this chat, a pre-approved continuation)
+        or Full Access stands behind it, not Auto's mode alone."""
+        with self._lock:
+            return bool(tool_call_id) and tool_call_id in self.approved_calls and tool_call_id not in self.unbacked_calls
+
+    def note_asked(self, tool_call_id: str, info: dict[str, Any]) -> None:
+        with self._lock:
+            self.asked[tool_call_id] = dict(info)
+
+    def asked_for(self, tool_call_id: str) -> Optional[dict[str, Any]]:
+        with self._lock:
+            info = self.asked.get(tool_call_id)
+            return dict(info) if info else None
+
+    @property
+    def stopping(self) -> bool:
+        """The person stopped this run (no host tool may start after this)."""
+        try:
+            return bool(self.stopped())
+        except Exception:
+            return True
 
     def last_call(self, tool_name: str, child: str = "") -> str:
         with self._lock:

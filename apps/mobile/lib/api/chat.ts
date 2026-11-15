@@ -9,6 +9,8 @@ import type {
   AgentChatSettingsPatch,
   AnswerQuestionInput,
   ChatEngine,
+  HostAnswerInput,
+  HostDevice,
   PermissionMode,
 } from "@timely/contract/agentChat";
 
@@ -63,7 +65,12 @@ export const patchAgentChatSettings = (patch: AgentChatSettingsPatch) => {
 /** A chat's own permission mode or engine ("" follows the account). */
 export const configureChatAgent = (
   id: string,
-  fields: { permission?: PermissionMode; engine?: ChatEngine },
+  // `device` is the phone's unlock claim; Full Access needs it (the server refuses without).
+  fields: {
+    permission?: PermissionMode;
+    engine?: ChatEngine;
+    device?: HostDevice;
+  },
 ) => chatRequest(`/${encodeURIComponent(id)}`, "PATCH", fields);
 /** "Don't learn from this chat" (PATCH /chats/:id {noLearning}); the answer is the whole chat. */
 export const setChatNoLearning = (id: string, noLearning: boolean) =>
@@ -79,5 +86,33 @@ export const steerChat = (id: string, text: string, questionRequestId = "") =>
 export const answerQuestion = (id: string, input: AnswerQuestionInput) =>
   chatRequest(`/${encodeURIComponent(id)}/answer`, "POST", input);
 /** Puts back what an auto-applied proposal changed; messageId is that proposal's message. */
-export const undoChatChange = (id: string, revision: number, messageId: string) =>
-  chatRequest(`/${encodeURIComponent(id)}/undo`, "POST", { revision, messageId });
+export const undoChatChange = (
+  id: string,
+  revision: number,
+  messageId: string,
+) =>
+  chatRequest(`/${encodeURIComponent(id)}/undo`, "POST", {
+    revision,
+    messageId,
+  });
+
+/**
+ * Answers the host card the chat waits on (Run once, Allow for this chat,
+ * Deny). 409 once it was answered or changed; 403 when the phone did not
+ * unlock or the account's rule sends the answer to the desktop window.
+ */
+export const answerHostCard = (id: string, input: HostAnswerInput) =>
+  chatRequest(`/${encodeURIComponent(id)}/host-approval`, "POST", input);
+/** "Undo this change": restores the checkpoint a host call left (409 once it is gone). */
+export const undoHostChange = (id: string, checkpointId: string) =>
+  chatRequest<{ restored: string[] }>(
+    `/${encodeURIComponent(id)}/host-undo`,
+    "POST",
+    { checkpointId },
+  );
+/** Removes one "Allow for this chat" grant; the answer is the whole chat. */
+export const removeHostGrant = (id: string, key: string) =>
+  chatRequest(
+    `/${encodeURIComponent(id)}/host-grants/${encodeURIComponent(key)}`,
+    "DELETE",
+  );

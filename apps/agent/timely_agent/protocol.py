@@ -22,17 +22,19 @@ GO_TYPES = frozenset({
     "hello", "ping", "run.start", "bot.run", "run.stop", "run.steer", "approval.answer",
     "tool.result", "gate.verdict", "session.delete", "shutdown", "settings.update",
     "clarify.answer",  # phase 4 (PROTOCOL.md section 11)
+    "checkpoint.restore",  # phase 5 (PROTOCOL.md section 12)
 })
-GO_PREFIX_TYPES = ("learning.",)
+GO_PREFIX_TYPES = ("learning.", "mcp.")
 # worker -> Go
 WORKER_TYPES = frozenset({
     "ready", "event", "tool.call", "gate.ask", "taint", "run.done", "bot.done", "log",
     "ack", "error", "heartbeat", "pong", "learning", "learning.result",
+    "checkpoint.result", "mcp.result", "mcp.tokens",  # phase 5 (PROTOCOL.md section 12)
 })
 # Phase 3 run.start lists (PROTOCOL.md section 10): conversation ids and hosts, all strings.
 RUN_START_LISTS = ("tainted_conversations", "search_exclude", "search_allow")
 RUN_START_BOOL_FLAGS = ("learning_writes", "search_history", "web", "from_bot", "sensitive", "answer_only",
-                        "rich_ui", "no_persist")
+                        "rich_ui", "no_persist", "host_allowed", "full_access")
 # Phase 4: the only toolsets a no-persist run may have (PROTOCOL.md section 11).
 NO_PERSIST_TOOLSETS = ("timely", "todo")
 

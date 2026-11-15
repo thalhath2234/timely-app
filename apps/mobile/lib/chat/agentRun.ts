@@ -14,6 +14,7 @@ import {
   draftFromActivity,
   type ChatActivity,
   type ChatDelta,
+  type FullAccessAllowedOn,
   type PermissionMode,
   type ReplyDraft,
 } from "@timely/contract/agentChat";
@@ -52,24 +53,54 @@ export type PermissionOption = {
 };
 
 /**
- * Full Access can't be turned on from the phone in phase 2: it needs the
- * desktop app's confirmation (device unlock arrives in phase 5). A chat
- * already on Full Access shows it chosen and can still move to a stricter mode.
+ * Full Access needs the step-up (phase 5, decision 7): the desktop app by
+ * default. The phone can turn it on only where the account chose "Allowed on:
+ * any of my devices", and then only after device unlock. A chat already on
+ * Full Access shows it chosen and can still move to a stricter mode. An
+ * account whose setting is not known yet (older server) counts as desktop.
  */
-export function fullAccessDisabledOnPhone(): boolean {
-  return true;
+export function fullAccessDisabledOnPhone(
+  allowedOn?: FullAccessAllowedOn,
+): boolean {
+  return allowedOn !== "devices";
 }
 
 /** The three rows of the phone's permission picker. */
-export function permissionOptions(current: string | undefined | null): PermissionOption[] {
+/** What the permission list says about Full Access before the chat has started (the web's wording). */
+export const FULL_ACCESS_UNSENT_NOTE = "Start the chat first, then turn it on";
+
+export function permissionOptions(
+  current: string | undefined | null,
+  allowedOn?: FullAccessAllowedOn,
+  /** A chat that has not started: its first run begins before any step-up could be recorded. */
+  unsent = false,
+): PermissionOption[] {
   const selected = chatPermission(current);
   return PERMISSION_MODES.map((mode) => {
     const copy = PERMISSION_COPY[mode];
-    const lockedFull = mode === "full" && fullAccessDisabledOnPhone();
+    if (mode === "full" && unsent && allowedOn === "devices") {
+      return {
+        mode,
+        name: copy.name,
+        line: `${copy.short}. ${FULL_ACCESS_UNSENT_NOTE}`,
+        selected: mode === selected,
+        disabled: mode !== selected,
+      };
+    }
+    const lockedFull = mode === "full" && fullAccessDisabledOnPhone(allowedOn);
+    const unlockNote =
+      mode === "full" && !lockedFull
+        ? "Asks for your fingerprint, face or screen lock first"
+        : "";
     return {
       mode,
       name: copy.name,
-      line: lockedFull && !copy.short.includes(FULL_ACCESS_PHONE_NOTE) ? `${copy.short}. ${FULL_ACCESS_PHONE_NOTE}` : copy.short,
+      line:
+        lockedFull && !copy.short.includes(FULL_ACCESS_PHONE_NOTE)
+          ? `${copy.short}. ${FULL_ACCESS_PHONE_NOTE}`
+          : unlockNote
+            ? `${copy.short}. ${unlockNote}`
+            : copy.short,
       selected: mode === selected,
       // The chosen row is never "disabled": it is what the chat runs on.
       disabled: lockedFull && mode !== selected,
@@ -78,9 +109,18 @@ export function permissionOptions(current: string | undefined | null): Permissio
 }
 
 /** Whether picking `next` on the phone sends anything. */
-export function canPickPermission(current: string | undefined | null, next: PermissionMode): boolean {
+export function canPickPermission(
+  current: string | undefined | null,
+  next: PermissionMode,
+  allowedOn?: FullAccessAllowedOn,
+): boolean {
   if (chatPermission(current) === next) return false;
-  return !(next === "full" && fullAccessDisabledOnPhone());
+  return !(next === "full" && fullAccessDisabledOnPhone(allowedOn));
+}
+
+/** Host cards wait the way questions do: the row is not busy, but it still changes on its own. */
+export function needsHostAnswer(status?: string): boolean {
+  return status === "host_approval";
 }
 
 /** Busy: queued or running (chatMeta.isBusy, kept here so tests need no icons). */
@@ -137,7 +177,15 @@ export function wantsReplyStream(
  * (POST /chats/:id/steer), "send" starts a turn, "none" waits (a classic run
  * or an apply is going; Stop is the one action).
  */
-export function composerMode(chat: Pick<Chat, "status" | "phase" | "runEngine" | "activity"> | undefined): "send" | "steer" | "none" {
+export function composerMode(
+  chat:
+    | Pick<Chat, "status" | "phase" | "runEngine" | "activity" | "hostRequest">
+    | undefined,
+): "send" | "steer" | "none" {
+  // A live host card: the run is paused on it, so only Stop applies. A parked
+  // card lets a message through (it skips the card and runs as the next turn).
+  if (chat?.status === "host_approval")
+    return chat.hostRequest?.phase === "parked" ? "send" : "none";
   if (!chat || !busy(chat.status)) return "send";
   // Steer needs the run to have started: the server answers 409 before.
   return chat.status === "running" && agentRunLive(chat) ? "steer" : "none";

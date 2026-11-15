@@ -5,7 +5,7 @@ import TimelyLogo, {
   LogoSpinner,
   SPINNER_LOOP_SECONDS,
 } from "@/app/_components/_ui/timelyLogo";
-import type { PermissionMode } from "@timely/contract/agentChat";
+import type { HostGrant, PermissionMode } from "@timely/contract/agentChat";
 import type { BotTag, ChatContext, ChatImage } from "@/app/utils/api/chat";
 import { cn } from "@/app/utils/cn";
 import { BotTagChips, useBotMention } from "./botMentionPicker";
@@ -20,6 +20,13 @@ export type ComposerPermission = {
   defaultMode: PermissionMode;
   onChange: (mode: PermissionMode) => void;
   onChangeDefault: () => void;
+  /** The chat has not started yet: Full Access can't be recorded for it. */
+  unsent?: boolean;
+  /** What "Allow for this chat" allowed here (absent before the chat exists). */
+  grants?: HostGrant[];
+  onRemoveGrant?: (key: string) => void;
+  /** Why the last Remove failed. */
+  grantError?: string;
 };
 
 export function ContextChips({
@@ -217,6 +224,10 @@ export default function Composer({
                   defaultMode={permission.defaultMode}
                   onChange={permission.onChange}
                   onChangeDefault={permission.onChangeDefault}
+                  unsent={permission.unsent}
+                  grants={permission.grants}
+                  onRemoveGrant={permission.onRemoveGrant}
+                  grantError={permission.grantError}
                   disabled={pending}
                 />
               )}

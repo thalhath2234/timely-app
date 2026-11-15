@@ -68,7 +68,13 @@
           "microphonePermission": false
         }
       ],
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Use Face ID to approve what your assistant runs on your computer."
+        }
+      ]
     ],
     "updates": {
       "enabled": false

@@ -162,6 +162,7 @@ export default function ActivityIsland() {
         (isBusy(c.status) ||
           c.status === "approval" ||
           c.status === "choose" ||
+          c.status === "host_approval" ||
           c.unread)
       )
         items.push(c);

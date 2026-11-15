@@ -37,6 +37,7 @@ export function ListGroup({ children, className }: { children: ReactNode; classN
 export function ListRow({
   label,
   meta,
+  wrapMeta = false,
   icon,
   children,
   onClick,
@@ -47,6 +48,8 @@ export function ListRow({
   label: ReactNode;
   /** Second line under the label. */
   meta?: ReactNode;
+  /** Let a long second line wrap instead of ending in "…" (an explanation the row needs to be read whole). */
+  wrapMeta?: boolean;
   icon?: ReactNode;
   children?: ReactNode;
   onClick?: () => void;
@@ -58,7 +61,10 @@ export function ListRow({
   const body = (
     <>
       {tone === "add" && !icon ? <Plus className="size-4 shrink-0 text-primary" /> : icon}
-      <span className="flex min-w-0 flex-1 flex-col">
+      {/* w-0 with flex-1: the label column grows into what the value leaves, but its long
+          (nowrap) text never counts toward the row's minimum width, so a row with a long
+          meta line can't push the whole column wider than a phone. */}
+      <span className="flex w-0 min-w-0 flex-1 flex-col">
         <span
           className={cn(
             "truncate text-[13px] font-medium",
@@ -67,7 +73,7 @@ export function ListRow({
         >
           {label}
         </span>
-        {meta ? <span className="truncate text-xs text-muted-foreground">{meta}</span> : null}
+        {meta ? <span className={cn("text-xs text-muted-foreground", wrapMeta ? "whitespace-normal" : "truncate")}>{meta}</span> : null}
       </span>
       {children ? <span className="flex min-w-0 max-w-[65%] shrink-0 items-center justify-end gap-1.5">{children}</span> : null}
       {onClick && tone === "default" && !children ? <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" /> : null}

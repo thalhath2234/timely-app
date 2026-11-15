@@ -11,6 +11,7 @@ prompt is left as it is, so the stub plays the conversation's REVIEW list.
 """
 import json
 import os
+import re
 import sys
 import time
 from http.server import ThreadingHTTPServer
@@ -19,7 +20,16 @@ if __name__ == "__main__":
     sys.path.insert(0, sys.argv[2])
 import stub_openai  # noqa: E402
 
-DIRECTIVES = ("SCRIPT ", "CALL ", "STREAM ", "LOOP ", "SLOW ")
+# Host tool shorthands (phase 5): one call to a host tool, for the phrase table. Each becomes a
+# CALL directive, so a continuation turn that carries no directive of its own replays the same
+# call (the shim gives it the newest directive of the conversation) and the approved call's
+# arguments, hence its hash, are the ones the card showed.
+#   TERMINAL <command>                   -> CALL terminal {"command": <command>}
+#   READ_FILE <path>                     -> CALL read_file {"path": <path>}
+#   WRITE_FILE <path> :: <content>       -> CALL write_file {"path": <path>, "content": <content>}
+#   MCP_TOOL <server> <tool> [<json args>] -> CALL mcp__<server>__<tool> <json args>
+HOST_DIRECTIVES = ("TERMINAL ", "READ_FILE ", "WRITE_FILE ", "MCP_TOOL ")
+DIRECTIVES = ("SCRIPT ", "CALL ", "STREAM ", "LOOP ", "SLOW ") + HOST_DIRECTIVES
 # Optional: TIMELY_SHIM_LOG names a JSONL file that gets each model request's
 # last messages (each cut at 2,000 characters), to show what the model saw.
 LOG = os.environ.get("TIMELY_SHIM_LOG", "")
@@ -54,9 +64,33 @@ def phrase_directive(text):
     return None
 
 
+HOST_LINE = re.compile(r"(?m)^(?:%s)" % "|".join(HOST_DIRECTIVES))
+
+
+def host_call(text):
+    """A host tool shorthand as the CALL directive it stands for (see HOST_DIRECTIVES)."""
+    head, _, rest = text.split("\n", 1)[0].partition(" ")  # one line: what follows is Timely's own text
+    rest = rest.strip()
+    if head == "TERMINAL":
+        return "CALL terminal " + json.dumps({"command": rest})
+    if head == "READ_FILE":
+        return "CALL read_file " + json.dumps({"path": rest})
+    if head == "WRITE_FILE":
+        path, _, content = rest.partition(" :: ")
+        return "CALL write_file " + json.dumps({"path": path.strip(), "content": content})
+    if head == "MCP_TOOL":
+        server, _, more = rest.partition(" ")
+        tool, _, args = more.strip().partition(" ")
+        return "CALL mcp__%s__%s %s" % (server, tool, args.strip() or "{}")
+    return text
+
+
 def cut(text):
-    hits = [i for i in (text.find(d) for d in DIRECTIVES) if i >= 0]
-    return text[min(hits):] if hits else text
+    hits = [i for i in (text.find(d) for d in DIRECTIVES if d not in HOST_DIRECTIVES) if i >= 0]
+    # A host shorthand counts only at the start of a line, so prose that happens to hold the word
+    # is not turned into a tool call.
+    hits += [m.start() for m in HOST_LINE.finditer(text)]
+    return host_call(text[min(hits):]) if hits else text
 
 
 def cut_body(body):
@@ -71,9 +105,9 @@ def cut_body(body):
             if stub_openai.is_review(text):
                 pass  # the learning pass: decide() plays the REVIEW list it finds
             elif mapped:
-                last = mapped
+                last = host_call(mapped)
                 m["content"] = last
-            elif any(d in text for d in DIRECTIVES):
+            elif any(d in text for d in DIRECTIVES if d not in HOST_DIRECTIVES) or HOST_LINE.search(text):
                 last = cut(text)
                 m["content"] = last
             elif last and stub_openai.STEER_MARK not in text[:200]:

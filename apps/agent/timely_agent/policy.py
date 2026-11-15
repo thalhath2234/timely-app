@@ -282,3 +282,67 @@ def truthy(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
     return bool(value)
+
+
+# ---------------------------------------------------------------- phase 5: host tools (plan 5.5, 5.5b, 12)
+
+# Tools that act on the host (decision 6 of the phase 5 packages): every call asks Go (``gate.ask``),
+# never allowed locally, blocked in bot runs and for an account that is not host-allowed (a second
+# line behind Go). ``vision_analyze`` is one only when its image is a local path (``is_host_call``).
+HOST_TOOLS = frozenset({
+    "terminal", "process", "process_manage", "read_file", "search_files", "write_file", "patch",
+    "execute_code", "browser_exec", "browser_cdp", "browser_dialog",
+})
+# The toolsets that carry them: run.start may name these only with flags.host_allowed for a
+# host-allowed account (PROTOCOL.md section 12).
+HOST_TOOLSETS = ("terminal", "file", "code_execution", "browser-use", "browser-cdp")
+MCP_TOOLSET_PREFIX = "mcp-"
+MCP_TOOL_PREFIX = "mcp__"
+# Reads the learning pass may make of the account's own skills folder without a card (plan 5.5).
+SKILLS_READ_TOOLS = ("read_file", "search_files")
+CHECKPOINT_TOOLS = ("write_file", "patch", "terminal")
+
+# Q-5.1: the live wait (run.start.host_live_wait_s; Go sends 600), then the card is parked.
+HOST_LIVE_WAIT_S = 600
+HOST_LIVE_WAIT_MAX_S = 3600
+# Hermes' own approval timeout (approvals.timeout) is rendered above the longest live wait, so the
+# worker's timer always ends a wait first and a wait is never "timed out" by Hermes instead of parked.
+APPROVAL_TIMEOUT_FLOOR_S = HOST_LIVE_WAIT_MAX_S + 60
+PARKED_TEXT = "Paused: waiting for the person's approval"
+PARKED_EXIT = "approval_parked"
+STOPPED = "Blocked: the person stopped this reply, so this was not run. Do not call more tools."
+BOT_HOST = "Blocked: bots cannot use this computer."
+NOT_HOST_ALLOWED = ("Blocked: this account can't use this computer. Turn it on in the desktop app, "
+                    "Settings → Server.")
+UNMATCHED_APPROVAL = "Hermes asked to approve a call Timely did not approve"
+
+
+def _local_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    lowered = value.strip().lower()
+    return not lowered.startswith(("http://", "https://", "data:"))
+
+
+def is_host_call(tool: str, args: Mapping[str, Any] | None = None) -> bool:
+    """Whether a call acts on the host: a host tool, or ``vision_analyze`` on a local file."""
+    if tool in HOST_TOOLS:
+        return True
+    if tool == "vision_analyze":
+        args = args if isinstance(args, Mapping) else {}
+        return _local_path(args.get("image_url")) or _local_path(args.get("path"))
+    return False
+
+
+def is_mcp_tool(tool: str, toolset: str = "") -> bool:
+    return toolset.startswith(MCP_TOOLSET_PREFIX) or tool.startswith(MCP_TOOL_PREFIX)
+
+
+def host_toolsets(toolsets: list[str] | tuple[str, ...] | None) -> list[str]:
+    """The host toolsets in a run.start list."""
+    return [t for t in toolsets or [] if t in HOST_TOOLSETS]
+
+
+def args_hash_ok(value: Any) -> bool:
+    """A ``policy.args_hash`` value: 64 lower-case hex characters."""
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)

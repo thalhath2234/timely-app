@@ -1459,6 +1459,270 @@
       "signature": "HERMES_OVERLAYS: dict[str, HermesOverlay] = {\n    \"moa\": HermesOverlay(auth_type=\"virtual\", base_url_override=\"moa://local\"),\n    \"openrouter\": HermesOverlay(is_aggregator=True, base_url_env_var=\"OPENROUTER_BASE_URL\"),\n    \"nous\": HermesOverlay(auth_type=\"oauth_device_code\", base_url_override=\"https://inference-api.nousresearch.com/v1\"),\n    \"openai-codex\": HermesOverlay(transport=\"codex_responses\", auth_type=\"oauth_external\",\n                                  base_url_override=\"https://chatgpt.com/backend-api/codex\"),\n    \"openai-api\": HermesOverlay(transport=\"codex_responses\", base_url_override=\"https://api.openai.com/v1\",\n                                base_url_env_var=\"OPENAI_BASE_URL\"),\n    \"xai-oauth\": HermesOverlay(transport=\"codex_responses\", auth_type=\"oauth_external\",\n                               base_url_override=\"https://api.x.ai/v1\", base_url_env_var=\"XAI_BASE_URL\"),\n    \"qwen-oauth\": HermesOverlay(auth_type=\"oauth_external\", base_url_override=\"https://portal.qwen.ai/v1\",\n                                base_url_env_var=\"HERMES_QWEN_BASE_URL\"),\n    \"lmstudio\": HermesOverlay(extra_env_vars=(\"LM_API_KEY\",), base_url_override=\"http://127.0.0.1:1234/v1\",\n                              base_url_env_var=\"LM_BASE_URL\"),\n    \"anthropic\": HermesOverlay(transport=\"anthropic_messages\", extra_env_vars=(\"ANTHROPIC_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN\")),\n    \"zai\": HermesOverlay(extra_env_vars=(\"GLM_API_KEY\", \"ZAI_API_KEY\", \"Z_AI_API_KEY\"), base_url_env_var=\"GLM_BASE_URL\"),\n    \"kimi-for-coding\": HermesOverlay(base_url_env_var=\"KIMI_BASE_URL\"),\n    \"stepfun\": HermesOverlay(extra_env_vars=(\"STEPFUN_API_KEY\",),\n                             base_url_override=\"https://api.stepfun.ai/step_plan/v1\",\n                             base_url_env_var=\"STEPFUN_BASE_URL\"),\n    \"minimax\": HermesOverlay(transport=\"anthropic_messages\", base_url_env_var=\"MINIMAX_BASE_URL\"),\n    \"minimax-oauth\": HermesOverlay(transport=\"anthropic_messages\", auth_type=\"oauth_external\",\n                                   base_url_override=\"https://api.minimax.io/anthropic\"),\n    \"minimax-cn\": HermesOverlay(transport=\"anthropic_messages\", base_url_env_var=\"MINIMAX_CN_BASE_URL\"),\n    \"deepseek\": HermesOverlay(base_url_env_var=\"DEEPSEEK_BASE_URL\"),\n    \"alibaba\": HermesOverlay(base_url_env_var=\"DASHSCOPE_BASE_URL\"),\n    \"alibaba-coding-plan\": HermesOverlay(base_url_env_var=\"ALIBABA_CODING_PLAN_BASE_URL\"),\n    \"vercel\": HermesOverlay(is_aggregator=True),\n    \"opencode\": HermesOverlay(is_aggregator=True, base_url_env_var=\"OPENCODE_ZEN_BASE_URL\"),\n    \"opencode-go\": HermesOverlay(is_aggregator=True, base_url_env_var=\"OPENCODE_GO_BASE_URL\"),\n    \"kilo\": HermesOverlay(is_aggregator=True, base_url_env_var=\"KILOCODE_BASE_URL\"),\n    \"huggingface\": HermesOverlay(is_aggregator=True, base_url_env_var=\"HF_BASE_URL\"),\n    \"novita\": HermesOverlay(is_aggregator=True, base_url_env_var=\"NOVITA_BASE_URL\"),\n    \"xai\": HermesOverlay(transport=\"codex_responses\", base_url_override=\"https://api.x.ai/v1\", base_url_env_var=\"XAI_BASE_URL\"),\n    \"nvidia\": HermesOverlay(base_url_override=\"https://integrate.api.nvidia.com/v1\", base_url_env_var=\"NVIDIA_BASE_URL\"),\n    \"xiaomi\": HermesOverlay(base_url_env_var=\"XIAOMI_BASE_URL\"),\n    \"tencent-tokenhub\": HermesOverlay(base_url_env_var=\"TOKENHUB_BASE_URL\"),\n    \"tencent-tokenplan\": HermesOverlay(transport=\"anthropic_messages\",\n                                       base_url_override=\"https://api.lkeap.cloud.tencent.com/plan/anthropic\",\n                                       base_url_env_var=\"TOKENPLAN_BASE_URL\"),\n    \"arcee\": HermesOverlay(base_url_override=\"https://api.arcee.ai/api/v1\", base_url_env_var=\"ARCEE_BASE_URL\"),\n    # models.dev lists CommandCode under CMD_API_KEY; the plugin profile and docs use COMMANDCODE_API_KEY.\n    \"commandcode\": HermesOverlay(extra_env_vars=(\"COMMANDCODE_API_KEY\",),\n                                 base_url_override=\"https://api.commandcode.ai/provider/v1\",\n                                 base_url_env_var=\"COMMANDCODE_BASE_URL\"),\n    \"gmi\": HermesOverlay(extra_env_vars=(\"GMI_API_KEY\",), base_url_override=\"https://api.gmi-serving.com/v1\",\n                         base_url_env_var=\"GMI_BASE_URL\"),\n    \"fireworks\": HermesOverlay(extra_env_vars=(\"FIREWORKS_API_KEY\",),\n                               base_url_override=\"https://api.fireworks.ai/inference/v1\"),\n    \"actual\": HermesOverlay(transport=\"chat_completions\", extra_env_vars=(\"ACTUAL_API_KEY\",),\n                            base_url_override=\"https://api.actual.inc/v1\", base_url_env_var=\"ACTUAL_BASE_URL\"),\n    \"upstage\": HermesOverlay(extra_env_vars=(\"UPSTAGE_API_KEY\",), base_url_override=\"https://api.upstage.ai/v1\",\n                             base_url_env_var=\"UPSTAGE_BASE_URL\"),\n    \"nebius-token-factory\": HermesOverlay(extra_env_vars=(\"NEBIUS_API_KEY\", \"NEBIUS_TOKEN_FACTORY_API_KEY\"),\n                                          base_url_override=\"https://api.tokenfactory.nebius.com/v1\",\n                                          base_url_env_var=\"NEBIUS_BASE_URL\"),\n    \"ollama-cloud\": HermesOverlay(base_url_override=\"https://ollama.com/v1\", base_url_env_var=\"OLLAMA_BASE_URL\"),\n    # Azure Foundry serves OpenAI- and Anthropic-style endpoints; transport comes from model.api_mode.\n    \"azure-foundry\": HermesOverlay(base_url_env_var=\"AZURE_FOUNDRY_BASE_URL\"),\n    \"bedrock\": HermesOverlay(transport=\"bedrock_converse\", auth_type=\"aws_sdk\"),\n    # Vertex is OAuth2 (service-account JSON / ADC), resolved by agent/vertex_adapter.py. Without an\n    # overlay get_provider(\"vertex\") is None and auxiliary_client._preserve_provider_with_base_url\n    # would treat a Vertex MoA slot as an unknown custom endpoint, losing the identity\n    # _refresh_provider_credentials() needs to re-mint an expired token on 401.\n    \"vertex\": HermesOverlay(auth_type=\"vertex\"),\n}",
       "sha256": "37a439e442c4443536be95035a21f32401c827d4b5ca21c50b481c16f8fa5417"
     },
+    "approval: gateway wait (notify then poll)": {
+      "file": "tools/approval_gateway_wait.py",
+      "qualname": "_await_gateway_decision",
+      "line": 140,
+      "end_line": 264,
+      "signature": "def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict, *, surface: str='gateway') -> dict",
+      "sha256": "7af484cb3896394ac7bcf13f3918667aeea9b7fdd6a0ccdd92e7368293d6720c"
+    },
+    "approval: withdraw a pending request": {
+      "file": "tools/approval.py",
+      "qualname": "withdraw_gateway_approval",
+      "line": 192,
+      "end_line": 206,
+      "signature": "def withdraw_gateway_approval(session_key: str, request_id: str, cause: str) -> bool",
+      "sha256": "decb42c34d4eaec58b5550e97676e5628b19e91ef4197e9e22e44204ec67a91e"
+    },
+    "approval: observe a request's settle": {
+      "file": "tools/approval.py",
+      "qualname": "observe_gateway_settle",
+      "line": 226,
+      "end_line": 233,
+      "signature": "def observe_gateway_settle(session_key: str, request_id: str, observer) -> bool",
+      "sha256": "653e2b41cb7d65f184b4aea361d55d1e2fef3adaf85a08001a826793845bcad5"
+    },
+    "approval: enable_session_yolo": {
+      "file": "tools/approval.py",
+      "qualname": "enable_session_yolo",
+      "line": 302,
+      "end_line": 304,
+      "signature": "def enable_session_yolo(session_key: str) -> None",
+      "sha256": "48dab1710dbc64bf70a2b84133281a9e29185bb734cf59b3a690b7dbffe3b808"
+    },
+    "approval: disable_session_yolo": {
+      "file": "tools/approval.py",
+      "qualname": "disable_session_yolo",
+      "line": 307,
+      "end_line": 309,
+      "signature": "def disable_session_yolo(session_key: str) -> None",
+      "sha256": "5d0086f651d638b271e95af8bc2b1a8ffd6f67d57e1f6d295e225b5b04e8e411"
+    },
+    "approval: plugin approve gate (YOLO short-circuit)": {
+      "file": "tools/approval.py",
+      "qualname": "_run_approval_gate",
+      "line": 1048,
+      "end_line": 1120,
+      "signature": "def _run_approval_gate(*, pattern_key: str, description: str, display_target: str, approval_callback=None, subject: str='', noun: str='flagged actions', advice: str='Find an alternative approach that avoids this action.', cron_deny_message: str='', single_query_deny_message: str='', unattended_deny_message: str='', autoapprove_log_prefix: str, fail_closed_when_no_human: bool=False, no_human_block_message: str='', pattern_keys: list[str] | None=None) -> dict",
+      "sha256": "1f2db4d8c44a064c8bfab7b693d9366394d62e8533b667184d24253ac2da8add"
+    },
+    "approval: hardline floor before YOLO": {
+      "file": "tools/approval.py",
+      "qualname": "_floor_block",
+      "line": 1151,
+      "end_line": 1174,
+      "signature": "def _floor_block(command: str, *, sudo_guard: bool=False) -> dict | None",
+      "sha256": "c2bafbd1d1c5e8a5ac3a2e485995fe54106f539c8fb9607fddedc9257ea048be"
+    },
+    "approval: terminal guard (second approval)": {
+      "file": "tools/approval.py",
+      "qualname": "check_all_command_guards",
+      "line": 1238,
+      "end_line": 1285,
+      "signature": "def check_all_command_guards(command: str, env_type: str, approval_callback=None, has_host_access: bool=False) -> dict",
+      "sha256": "721e011dfade285fbf5a2d12b6e425bc5e1a0a269de084fbe95392bc7265f0b6"
+    },
+    "approval: execute_code whole-script guard": {
+      "file": "tools/approval.py",
+      "qualname": "check_execute_code_guard",
+      "line": 1307,
+      "end_line": 1377,
+      "signature": "def check_execute_code_guard(code: str, env_type: str, has_host_access: bool=False) -> dict",
+      "sha256": "7a3ed3825e22237eb1a7c662869d3b5dc39a2a0a34a3032879162289c147296b"
+    },
+    "approval: hardline patterns": {
+      "file": "tools/approval_detection.py",
+      "qualname": "module:HARDLINE_PATTERNS",
+      "line": 124,
+      "end_line": 157,
+      "signature": "HARDLINE_PATTERNS = [\n    # Root path: any root-anchored path whose components collapse to \"/\" in the shell (\"/\", \"//\",\n    # \"/.\", \"/./\", \"/../..\", optional trailing glob). Each inter-slash segment must be exactly \".\"\n    # or \"..\", so \"/tmp\", \"/.ssh\", even \"/...\" are literal dirs that fall through to the softer\n    # DANGEROUS rules. The \"/ \\*\" alt covers `rm -rf / *` (two args: \"/\" plus the glob).\n    (_RM_FLAG_PREFIX + _hardline_rm_path(r'/(?:(?:\\.\\.?)?/)*(?:\\.\\.?)?\\**|/ \\*'), \"recursive delete of root filesystem\"),\n    (_RM_FLAG_PREFIX + _hardline_rm_path(_HARDLINE_SYSTEM_DIRS), \"recursive delete of system directory\"),\n    (_RM_FLAG_PREFIX + _hardline_rm_path(r'(?:~|\\$\\{?HOME\\}?)(?:/?|/\\*)?'), \"recursive delete of home directory\"),\n    # Command-name rules (mkfs, dd, kill, shutdown...) are _CMDPOS-anchored so quoted prose\n    # (`echo \"does this use mkfs?\"`) cannot trip the floor.\n    # See #93392.\n    (_CMDPOS + r'mkfs(\\.[a-z0-9]+)?\\b', \"format filesystem (mkfs)\"),\n    # `dd` is a command-name token, so anchor it to command position like mkfs/rm/shutdown (#93392): quoted\n    # prose such as `git commit -m \"never dd of=/dev/sda\"` is an argument, not a command. The argument tail\n    # ([^\\n]*of=/dev/...) is kept so flag order doesn't matter.\n    (_CMDPOS + r'dd\\b[^\\n]*\\bof=/dev/(sd|nvme|hd|mmcblk|vd|xvd)[a-z0-9]*', \"dd to raw block device\"),\n    # Positionless rules (no command-name token: `>` sits mid-command, the fork bomb is a function\n    # definition) are matched against a QUOTE-MASKED variant (_QUOTE_MASKED_HARDLINE_DESCRIPTIONS /\n    # _mask_quoted_prose) so quoted prose cannot trip them; sh -c / bash -c / eval payloads still scan raw.\n    # The redirect rule has no command-name token to anchor (`>` appears mid-command: `cat f > /dev/sda`),\n    # so command-position anchoring is the wrong tool. It is instead matched against a QUOTE-MASKED variant\n    # of the command (see _QUOTE_MASKED_HARDLINE / _mask_quoted_strings) so quoted prose (`echo \"cat f >\n    # /dev/sda\"`) cannot trip it, while shell-carrying wrappers (sh -c / bash -c / eval) still surface their\n    # payload as a raw detection variant — quoting is not a bypass (#93392).\n    (r'>\\s*/dev/(sd|nvme|hd|mmcblk|vd|xvd)[a-z0-9]*\\b', \"redirect to raw block device\"),\n    (r':\\(\\)\\s*\\{\\s*:\\s*\\|\\s*:\\s*&\\s*\\}\\s*;\\s*:', \"fork bomb\"),\n    # Kill every process on the system — anchor the command-name token so `echo \"kill -1 sends SIGHUP to\n    # everything\"` doesn't trip (#93392).\n    (_CMDPOS + r'kill\\s+(-[^\\s]+\\s+)*-1\\b', \"kill all processes\"),\n    (_CMDPOS + r'(shutdown|reboot|halt|poweroff)\\b', \"system shutdown/reboot\"),\n    (_CMDPOS + r'init\\s+[06]\\b', \"init 0/6 (shutdown/reboot)\"),\n    (_CMDPOS + r'systemctl\\s+(poweroff|reboot|halt|kexec)\\b', \"systemctl poweroff/reboot\"),\n    (_CMDPOS + r'telinit\\s+[06]\\b', \"telinit 0/6 (shutdown/reboot)\"),\n]",
+      "sha256": "7782b105f048476413ebc40a8aa52a7e2fb52bacabc900dd5b0cbc9d3e5f796f"
+    },
+    "approval context: executing call id": {
+      "file": "tools/approval_context.py",
+      "qualname": "module:_approval_tool_call_id",
+      "line": 26,
+      "end_line": 26,
+      "signature": "_approval_tool_call_id: contextvars.ContextVar[str] = _ctx(\"approval_tool_call_id\")",
+      "sha256": "387f7437a9a9d7def013701d0bd7f923fe4f2867fa6a366f29bf83349e8bf48c"
+    },
+    "plugin approve resolution (then the tool runs)": {
+      "file": "hermes_cli/plugins.py",
+      "qualname": "_resolve_block_from_details",
+      "line": 1987,
+      "end_line": 2016,
+      "signature": "def _resolve_block_from_details(details: _PreToolCallDirective, tool_name: str, *, turn_id: str='', tool_call_id: str='', session_id: str='') -> Optional[str]",
+      "sha256": "acd296f213f0e853cc2a416fc6f6c158fa572d5a02e0e0949089739f5691587e"
+    },
+    "registry dispatch (dispatch fence R6)": {
+      "file": "tools/registry.py",
+      "qualname": "ToolRegistry.dispatch",
+      "line": 972,
+      "end_line": 1000,
+      "signature": "def dispatch(self, name: str, args: dict, *, scope: Optional[str]=None, **kwargs) -> str | dict",
+      "sha256": "d2bc31f3a1db7177181d8d85ce2bd076c0b964a6b8bc8bbc0b0e723df29de64a"
+    },
+    "checkpoint taken before write/patch/destructive terminal": {
+      "file": "agent/tool_executor.py",
+      "qualname": "_begin_tool_execution",
+      "line": 1007,
+      "end_line": 1044,
+      "signature": "def _begin_tool_execution(agent, ref: _ToolCallRef, display_index: int | None) -> None",
+      "sha256": "300f73e1cc0cd6d64916f436e952d1312e3ec6bf66f9b5bf758cb54073529c04"
+    },
+    "checkpoint manager": {
+      "file": "tools/checkpoint_manager.py",
+      "qualname": "CheckpointManager.*",
+      "line": 895,
+      "end_line": 1838,
+      "signature": "class CheckpointManager()\ndef new_turn(self) -> None\ndef unsupported_backend_reason(self, task_id: str='default') -> Optional[str]\ndef record_agent_write(self, file_path: str) -> None\ndef ensure_checkpoint(self, working_dir: str, reason: str='auto') -> bool\ndef list_checkpoints(self, working_dir: str) -> list[dict]\ndef list_all_checkpoints(self) -> list[dict]\ndef diff(self, working_dir: str, commit_hash: str) -> dict\ndef session_diff(self, working_dir: str) -> dict\ndef restore(self, working_dir: str, commit_hash: str, file_path: str | None=None, safe: bool=False) -> dict\ndef get_working_dir_for_path(self, file_path: str) -> str",
+      "sha256": "71ab5fda1ffda065e745e20c41b9e15d3b74fc52171badeafe9b21708aa51cd0"
+    },
+    "AIAgent checkpoint and context-file arguments": {
+      "file": "agent/agent_init.py",
+      "qualname": "_init_session_state",
+      "line": 1096,
+      "end_line": 1131,
+      "signature": "def _init_session_state(agent, session_id, session_db, parent_session_id, reasoning_config, max_tokens, checkpoints_enabled, checkpoint_max_snapshots, checkpoint_max_total_size_mb, checkpoint_max_file_size_mb)",
+      "sha256": "c1a20ab185e2c91ffcc7b8344f34180fe323ef9599d6889de5c44fa7bdb91a3d"
+    },
+    "context files of a live agent": {
+      "file": "agent/context_file_sources.py",
+      "qualname": "context_file_sources_for_agent",
+      "line": 99,
+      "end_line": 112,
+      "signature": "def context_file_sources_for_agent(agent: Any) -> list[dict[str, Any]]",
+      "sha256": "1b0c21cbb0def5172be046b052c085c589dbba000b0f5ecf40bafc772162fe85"
+    },
+    "browser_exec only next to terminal": {
+      "file": "model_tools.py",
+      "qualname": "_rewrite_browser_exec",
+      "line": 395,
+      "end_line": 399,
+      "signature": "def _rewrite_browser_exec(td: dict[str, Any], available: set) -> Optional[dict[str, Any]]",
+      "sha256": "aac601330cd2886d5c3a69bc8c3bf7f48e19c9463bdda998d0480d2bc2b259b2"
+    },
+    "browser_cdp offered only with a static CDP URL": {
+      "file": "tools/browser_cdp_tool.py",
+      "qualname": "_browser_cdp_check",
+      "line": 489,
+      "end_line": 496,
+      "signature": "def _browser_cdp_check() -> bool",
+      "sha256": "56466888cfb0ef590b5eba421b1532bb5d4f5b9614a353a4dd2408cb11c1b42f"
+    },
+    "real-profile CDP (snapshot and launch)": {
+      "file": "tools/browser_session_real_profile.py",
+      "qualname": "real_profile_cdp",
+      "line": 123,
+      "end_line": 154,
+      "signature": "def real_profile_cdp() -> tuple[Optional[str], Optional[str]]",
+      "sha256": "c514d13b0a73fbc229e0d556a75123130750478547244839a248ae0a1dcd0d32"
+    },
+    "real profile folder from ~ (R7)": {
+      "file": "hermes_cli/browser_connect.py",
+      "qualname": "real_profile_data_dir",
+      "line": 181,
+      "end_line": 203,
+      "signature": "def real_profile_data_dir(browser: str, system: str | None=None) -> str | None",
+      "sha256": "ceb381277ef76581c23d000952cae1ca4ed40d69a5df8ea6cf6088a74320596a"
+    },
+    "default browser probe (R7)": {
+      "file": "hermes_cli/browser_connect.py",
+      "qualname": "_run_stdout",
+      "line": 286,
+      "end_line": 291,
+      "signature": "def _run_stdout(argv: list[str]) -> str | None",
+      "sha256": "bc86ae8bb2079aa25cb6fe0c7e1298cd2a586806cccbe35119efccab6fdc52b1"
+    },
+    "default browser detection": {
+      "file": "hermes_cli/browser_connect.py",
+      "qualname": "detect_default_chromium",
+      "line": 343,
+      "end_line": 346,
+      "signature": "def detect_default_chromium(system: str | None=None) -> str | None",
+      "sha256": "4eb07b7732958a7be3979e411682793db0b32cb25f42a1edf275902d6239767b"
+    },
+    "real profile snapshot": {
+      "file": "hermes_cli/browser_connect.py",
+      "qualname": "snapshot_real_profile",
+      "line": 738,
+      "end_line": 792,
+      "signature": "def snapshot_real_profile(browser: str, src: str | None=None) -> tuple[str | None, str | None]",
+      "sha256": "a9a706420228744f58c3c52b3866d97d1f9f7289f7c7aa3a88f3b62eca82bc96"
+    },
+    "browser cleanup (worker exit)": {
+      "file": "tools/browser_session_lifecycle.py",
+      "qualname": "cleanup_all_browsers",
+      "line": 204,
+      "end_line": 234,
+      "signature": "def cleanup_all_browsers() -> None",
+      "sha256": "2ca85f96191d68a8ea0ac31dc071ea98caff62d43c1a54e48765f63e725be04f"
+    },
+    "MCP wire cap transport (address guard R8)": {
+      "file": "tools/mcp_tool_errors.py",
+      "qualname": "_make_mcp_body_cap_transport",
+      "line": 341,
+      "end_line": 400,
+      "signature": "def _make_mcp_body_cap_transport(httpx_mod, inner_transport, limit: int=_MCP_HTTP_MAX_BODY_BYTES)",
+      "sha256": "1df6ff2690a62a62870832a25177f20caea5362a8d8a204bff0d95dda94a37be"
+    },
+    "MCP redirect-aware client factory (address guard R8)": {
+      "file": "tools/mcp_tool_errors.py",
+      "qualname": "_make_redirect_header_stripper",
+      "line": 286,
+      "end_line": 322,
+      "signature": "def _make_redirect_header_stripper(httpx_mod, original_url, *, strict: bool=False, configured_header_names: set[str] | frozenset[str]=frozenset())",
+      "sha256": "9435a1cf98c1853d8b9d672593e502ec701d2c16454fd96691844d8be5af8143"
+    },
+    "MCP SDK httpx module (address guard R8, OAuth pre-flight)": {
+      "file": "tools/mcp_tool.py",
+      "qualname": "sdk_httpx",
+      "line": 194,
+      "end_line": 214,
+      "signature": "def sdk_httpx()",
+      "sha256": "5a86688e0ad46b5f818c62df9b650d3517372a04c8096f0f906b273638bc0e0c"
+    },
+    "MCP discovery per run": {
+      "file": "tools/mcp_tool_discovery.py",
+      "qualname": "discover_mcp_tools",
+      "line": 604,
+      "end_line": 658,
+      "signature": "def discover_mcp_tools(allowed_mcp_names: Optional[list[str]]=None) -> list[str]",
+      "sha256": "5e3e793dd6fcf6619526b3c97620c6869d6af58760a9f55684c713732e7a8394"
+    },
+    "MCP token folder": {
+      "file": "tools/mcp_oauth.py",
+      "qualname": "_get_token_dir",
+      "line": 229,
+      "end_line": 233,
+      "signature": "def _get_token_dir(hermes_home: str | Path | None=None) -> Path",
+      "sha256": "0e7a4f556db0260363b5407d48287e7a23665b36a7f1bdf60a797ade9d0b9a9f"
+    },
+    "MCP token file names": {
+      "file": "tools/mcp_oauth.py",
+      "qualname": "_safe_filename",
+      "line": 236,
+      "end_line": 238,
+      "signature": "def _safe_filename(name: str) -> str",
+      "sha256": "9035716458f9747a5a22960e3ab13e5cd785ee26674c16c0ef55965514c236df"
+    },
+    "MCP token storage files": {
+      "file": "tools/mcp_oauth.py",
+      "qualname": "HermesTokenStorage",
+      "line": 412,
+      "end_line": 661,
+      "signature": "class HermesTokenStorage()",
+      "sha256": "632bc0d7f46ac3c500c9f51797452e3cccaa9546c44ea8cc40b0df95a22a08ed"
+    },
+    "MCP tool name prefix": {
+      "file": "tools/mcp_tool_schema.py",
+      "qualname": "module:MCP_TOOL_NAME_PREFIX",
+      "line": 159,
+      "end_line": 159,
+      "signature": "MCP_TOOL_NAME_PREFIX = \"mcp__\"",
+      "sha256": "7004461be9744926e128061f1f58c1e8c5d40c5d7cff506351749ced005c7b76"
+    },
     "_iters_since_skill reset sites": {
       "file": "",
       "qualname": "",

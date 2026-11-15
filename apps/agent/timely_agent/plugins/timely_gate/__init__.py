@@ -50,6 +50,28 @@ paths from what the model reads (``delegation.transform_result``).
 
 An ``approve`` verdict becomes Hermes' human-approval gate with ``rule_key
 timely:<tool_call_id>`` (the approval payload carries no arguments, so the key carries the id).
+
+Phase 5 (host tools, PROTOCOL.md section 12; ``timely_agent.host``):
+
+0b. A stopped run blocks every call (no host tool after Stop); the dispatch fence (R6) also
+    refuses a host tool whose Run once raced the Stop.
+8. A host call (``policy.is_host_call``: terminal, process, files, ``execute_code``, ``browser_exec``,
+   ``browser_cdp``, ``browser_dialog``, ``vision_analyze`` on a local path) or an MCP tool: blocked in
+   a bot run, and a host call is blocked when the run lacks ``flags.host_allowed`` (second lines
+   behind Go). ``read_file``/``search_files`` inside the account's own skills folder run without a
+   card (plan 5.5, the learning pass reads skills). Rule 2 (pre-approved continuation call) applies;
+   otherwise the call always asks Go, never ``LOCAL_ALLOW``. ``gate.ask`` carries ``args_hash``,
+   ``toolset``, ``inner: true`` for a call made inside ``execute_code`` (Hermes gives it no call id;
+   the gate names it ``<execute_code id>:inner:<n>``) and ``mcp {server, tool, annotations}``.
+   What a ``process``/``process_manage`` ``write`` or ``submit`` types into a running command is
+   checked against Hermes' hardline floor first, in every mode (Hermes guards no stdin).
+   An ``allow`` records the call as Timely-approved (``by: "auto"``: by Auto's mode alone, so
+   Hermes' own second prompt for it becomes a card instead of an automatic yes); an ``approve``
+   records what the card is for and, in Full Access, turns the run's YOLO off first so the card
+   reaches the person.
+
+``post_tool_call`` sends ``event host.ran`` for every host or MCP call that finished, with the
+checkpoint Hermes took before it (``checkpoint``, ``checkpoint_dir``).
 """
 
 from __future__ import annotations
@@ -57,7 +79,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from timely_agent import bridge, delegation, policy
+from timely_agent import bridge, delegation, host, policy
 
 logger = logging.getLogger("timely_agent.plugins.timely_gate")
 
@@ -113,11 +135,81 @@ def _timely_tool(tool_name: str) -> bool:
         return False
 
 
+def _toolset(tool_name: str) -> str:
+    try:
+        from tools.registry import registry
+        return str(getattr(registry.get_entry(tool_name), "toolset", "") or "")
+    except Exception:
+        return ""
+
+
+def _in_skills_folder(args: dict) -> bool:
+    """Every path a read names resolves inside ``HERMES_HOME/skills`` (symlinks followed)."""
+    import os
+    from pathlib import Path
+    home = os.environ.get("HERMES_HOME", "")
+    raw = args.get("path")
+    if not home or not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        root = (Path(home) / "skills").resolve()
+        # A relative path means what the file tool means by it: the terminal's folder (the person's
+        # working folder), never the skills folder. Hermes' own resolver does the anchoring.
+        try:
+            from tools.file_tools_paths import _resolve_path_for_task
+            target = Path(str(_resolve_path_for_task(raw, "default"))).resolve()
+        except ImportError:  # unit tests without Hermes on the path: the same anchoring by hand
+            target = Path(raw).expanduser()
+            if not target.is_absolute():
+                target = Path(os.environ.get("TERMINAL_CWD") or os.getcwd()) / target
+            target = target.resolve()
+        return target == root or root in target.parents
+    except Exception as exc:
+        logger.debug("skills folder check for %r: %s", raw, exc)
+        return False
+
+
+def mcp_info(tool_name: str, toolset: str) -> dict[str, Any]:
+    """``{server, tool, annotations}`` for an MCP tool: the server that registered it, the tool's own
+    name and the hints it declared (empty when unknown; Go then treats it as a write)."""
+    server = toolset[len(policy.MCP_TOOLSET_PREFIX):] if toolset.startswith(policy.MCP_TOOLSET_PREFIX) else ""
+    original, annotations = tool_name, {}
+    try:
+        from tools import mcp_tool as core
+        server = core._mcp_tool_server_names.get(tool_name, server) or server
+        from tools.mcp_tool_common import mcp_field
+        from tools.mcp_tool_schema import sanitize_mcp_name_component
+        prefix = f"{policy.MCP_TOOL_PREFIX}{sanitize_mcp_name_component(server)}__"
+        short = tool_name[len(prefix):] if tool_name.startswith(prefix) else tool_name
+        for task in list(core._servers.values()):
+            if getattr(task, "name", None) != server:
+                continue
+            for t in getattr(task, "_tools", None) or []:
+                if sanitize_mcp_name_component(getattr(t, "name", "")) == short:
+                    original = str(t.name)
+                    ann = getattr(t, "annotations", None)
+                    for snake, camel in (("read_only_hint", "readOnlyHint"), ("destructive_hint", "destructiveHint"),
+                                         ("idempotent_hint", "idempotentHint"), ("open_world_hint", "openWorldHint")):
+                        value = mcp_field(ann, snake, camel) if ann is not None else None
+                        if isinstance(value, bool):
+                            annotations[camel] = value
+                    break
+            break
+        else:
+            original = short
+    except Exception as exc:
+        logger.debug("MCP tool info for %s: %s", tool_name, exc)
+    return {"server": server, "tool": original, "annotations": annotations}
+
+
 def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: str = "",
                   session_id: str = "", task_id: str = "", **_: Any) -> dict | None:
     args = args if isinstance(args, dict) else {}
     if policy.is_blocked(tool_name):
         return {"action": "block", "message": f"Blocked: {tool_name} is not available in Timely."}
+    run = bridge.current_run.get()
+    if run is not None and run.stopping:
+        return {"action": "block", "message": policy.STOPPED}
     try:
         target = private_browser_target(tool_name, args)
     except Exception as exc:  # fail closed: a broken check must not let the call through
@@ -125,7 +217,6 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
         target = f"an address Timely could not check ({type(exc).__name__})"
     if target:
         return {"action": "block", "message": PRIVATE_TARGET.format(tool=tool_name, url=target[:200])}
-    run = bridge.current_run.get()
     if run is not None and run.end_turn:
         return _end_turn(run)
     child = bridge.current_child(run, session_id)
@@ -133,6 +224,11 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
         verdict = delegation.child_verdict(run, child, tool_name)
         if verdict is not None:
             return verdict
+    inner = False
+    if run is not None and not tool_call_id:
+        outer = host.context_call_id()
+        if outer and run.call_tool(outer) == "execute_code":
+            inner, tool_call_id = True, run.inner_call_id(outer)
     if run is not None and tool_call_id:
         run.note_call(tool_name, tool_call_id, child)
     if tool_name == policy.CLARIFY_TOOL:
@@ -146,27 +242,83 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
             return {"action": "block", "message": UNKNOWN_BATCH}
         if batch.size != 1:
             return {"action": "block", "message": policy.PROPOSE_ALONE}
+    toolset = _toolset(tool_name)
+    is_host = policy.is_host_call(tool_name, args)
+    is_mcp = policy.is_mcp_tool(tool_name, toolset)
+    digest = policy.args_hash(args)
+    if is_host or is_mcp:
+        if run is None:
+            return {"action": "block", "message": NO_RUN}
+        if run.kind != "chat":
+            return {"action": "block", "message": policy.BOT_HOST}
+        if is_host and not run.host_allowed:
+            return {"action": "block", "message": policy.NOT_HOST_ALLOWED}
+        if tool_name in policy.SKILLS_READ_TOOLS and _in_skills_folder(args):
+            return None
+        if is_host:
+            try:
+                refusal = host.stdin_floor(tool_name, args)
+            except Exception as exc:  # fail closed: a broken check must not let typed input through
+                logger.warning("stdin floor check failed for %s: %s", tool_name, exc)
+                refusal = f"Blocked: Timely could not check what {tool_name} would type ({type(exc).__name__})."
+            if refusal:
+                return {"action": "block", "message": refusal}
     pre = run.pre_approved if run else None
-    if pre and pre.get("tool") == tool_name and pre.get("args_hash") == policy.args_hash(args):
+    if pre and pre.get("tool") == tool_name and pre.get("args_hash") == digest:
         run.pre_approved = None  # exactly one matching call
-        return None
-    if tool_name in policy.LOCAL_ALLOW or _timely_tool(tool_name):
+        # The card showed, and Go judged, the call in the terminal's recorded folder (a ``cd`` of an
+        # earlier call). A worker that was reaped while the card waited starts in the working folder,
+        # so relative paths would mean something else: then the approval is void and Go decides
+        # again, with a card of its own for the folder the call really runs in.
+        moved = is_host and isinstance(pre.get("cwd"), str) and pre["cwd"] != host.session_cwd(task_id, session_id)
+        if moved:
+            logger.info("pre-approved %s: the terminal folder changed since the card, asking Go again", tool_name)
+        else:
+            if tool_call_id:
+                run.approve_call(tool_call_id, digest)
+                host.mark_executing(run, tool_call_id)
+                host.snapshot_before(run, tool_name, args, tool_call_id)
+            return None
+    if not (is_host or is_mcp) and (tool_name in policy.LOCAL_ALLOW or _timely_tool(tool_name)):
         return None
     if run is None or bridge.ask is None:
         return {"action": "block", "message": NO_RUN}
-    reply = bridge.ask({
+    ask: dict[str, Any] = {
         "type": "gate.ask", "run": run.run_id, "tool_call_id": tool_call_id, "tool": tool_name,
         "args": args, "tainted_sources": list(run.tainted_sources), "run_kind": run.kind,
-    }, bridge.HOOK_ANSWER_TIMEOUT_S)
+        "args_hash": digest, "toolset": toolset,
+    }
+    if inner:
+        ask["inner"] = True
+    if is_host:
+        cwd = host.session_cwd(task_id, session_id)
+        if cwd:
+            ask["cwd"] = cwd
+    if is_mcp:
+        ask["mcp"] = mcp_info(tool_name, toolset)
+    reply = bridge.ask(ask, bridge.HOOK_ANSWER_TIMEOUT_S)
     if not reply or reply.get("type") != "gate.verdict":
         return {"action": "block", "message": NO_ANSWER}
     verdict = reply.get("verdict")
     message = str(reply.get("message") or "")
+    if run.stopping:  # Stop landed while Go answered
+        return {"action": "block", "message": policy.STOPPED}
     if verdict == "allow":
+        if tool_call_id:
+            # ``by: "auto"``: Go let it through by Auto's mode alone, so no person stands behind it
+            # (Hermes' own dangerous-command prompt for it becomes a card, not an automatic yes).
+            run.approve_call(tool_call_id, digest, backed=reply.get("by") != "auto")
+            host.mark_executing(run, tool_call_id)
+            host.snapshot_before(run, tool_name, args, tool_call_id)
         return None
     if verdict == "approve":
+        call_key = tool_call_id or tool_name
+        run.note_asked(call_key, {"tool": tool_name, "args_hash": digest, "toolset": toolset})
+        host.suspend_yolo(run)
+        host.mark_executing(run, call_key)
+        host.snapshot_before(run, tool_name, args, call_key)
         return {"action": "approve", "message": message or f"Run {tool_name}?",
-                "rule_key": f"timely:{tool_call_id or tool_name}"}
+                "rule_key": f"timely:{call_key}"}
     return {"action": "block", "message": message or f"Blocked: Timely did not allow {tool_name}."}
 
 
@@ -185,7 +337,18 @@ def _end_turn(run) -> dict:
 def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | None = None,
                    session_id: str = "", **kw: Any) -> None:
     """Report each host a ``web_extract`` that ran named as taint (the page's site); after a
-    ``delegate_task``, remember its children's transcript folders under the chat."""
+    ``delegate_task``, remember its children's transcript folders under the chat; after a host or
+    MCP call, send ``host.ran``."""
+    a = args if isinstance(args, dict) else {}
+    if policy.is_host_call(tool_name, a) or policy.is_mcp_tool(tool_name):
+        run = bridge.current_run.get()
+        if run is not None:
+            call_id = (str(kw.get("tool_call_id") or "") or host.executing_call(run)
+                       or host.context_call_id())
+            try:
+                host.report_ran(run, tool_name, a, call_id, status)
+            except Exception as exc:
+                logger.warning("reporting host.ran for %s failed: %s", tool_name, exc)
     if tool_name == policy.DELEGATE_TOOL:  # any status: the call's hold on the children cap ends
         delegation.settle(bridge.current_run.get(), str(kw.get("tool_call_id") or ""))
     if status == "blocked" or tool_name not in ("web_extract", policy.DELEGATE_TOOL):

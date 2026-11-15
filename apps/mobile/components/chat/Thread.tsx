@@ -43,6 +43,7 @@ import { useAgentProvidersQuery, useChatPromptsQuery, useDecisionFeedback } from
 import { readyProviders } from "./ModelSheet";
 import { AutoAppliedCard } from "./AgentRun";
 import { ClosedQuestionCard } from "./QuestionCard";
+import { ClosedHostCard } from "./HostCard";
 import { KeepCard, LearningChip, NotLearningLine } from "./LearningCards";
 import { autoCardArchives, offersUseClassic } from "../../lib/chat/agentRun";
 import {
@@ -289,6 +290,9 @@ export default function Thread({
   onAsk,
   onUndo,
   undoing = false,
+  onHostUndo,
+  hostUndoPending = false,
+  hostUndoError,
   learning,
 }: {
   chat: Chat;
@@ -302,6 +306,11 @@ export default function Thread({
   /** Undoes a proposal that applied on its own (Auto, Full Access). */
   onUndo?: (message: ChatMessage) => void;
   undoing?: boolean;
+  /** "Undo this change" on a host call's checkpoint; unset while offline or a run is going. */
+  onHostUndo?: (checkpoint: string) => void;
+  hostUndoPending?: boolean;
+  /** The refusal of the last Undo this change, for the card it was for. */
+  hostUndoError?: { checkpoint: string; message: string };
   /** What each agent turn learned: the chip and the Keep / Discard card. */
   learning?: ThreadLearning;
 }) {
@@ -406,6 +415,27 @@ export default function Thread({
                   {learning && anchors.has(message.id) ? (
                     <TurnLearningView turn={turnLearning(learning.events, message)} learning={learning} />
                   ) : null}
+                </View>
+              </View>
+            ) : message.kind === "host" && message.host ? (
+              // A host card whose wait ended, or a host call that left a checkpoint.
+              <View style={styles.assistantRow}>
+                <View style={styles.avatar}>
+                  <Sparkles size={14} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
+                  <ClosedHostCard
+                    host={message.host}
+                    at={message.createdAt}
+                    pending={hostUndoPending}
+                    undoError={
+                      hostUndoError &&
+                      hostUndoError.checkpoint === message.host.checkpoint
+                        ? hostUndoError.message
+                        : undefined
+                    }
+                    onUndo={onHostUndo}
+                  />
                 </View>
               </View>
             ) : isUser ? (

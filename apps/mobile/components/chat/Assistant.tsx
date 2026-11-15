@@ -35,16 +35,20 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FS from "expo-file-system/legacy";
 import { useAuth } from "../../lib/auth/AuthProvider";
 import {
+  answerHostCard,
   answerQuestion,
   chatRequest,
   configureChatAgent,
   deleteChat,
+  removeHostGrant,
   renameChat,
   setChatNoLearning,
   steerChat,
   undoChatChange,
+  undoHostChange,
   uploadChatImage,
 } from "../../lib/api/chat";
+import { unlockDevice, withUnlock } from "../../lib/deviceUnlock";
 import { isOffline, subscribeOffline } from "../../lib/networkState";
 import { contextProjectId, mergeContext } from "../../lib/chat/context";
 import {
@@ -79,21 +83,42 @@ import {
 } from "../../lib/hooks";
 import { offersDontLearn } from "../../lib/chat/learning";
 import { getLearningEvents } from "../../lib/api/learning";
-import { ApiError } from "../../lib/api/client";
+import { ApiError, api } from "../../lib/api/client";
+import type { InstanceSettings } from "@timely/contract/instanceSettings";
 import { chipUndoAlso } from "@timely/contract/agentLearning";
 import { ChatMenuSheet } from "./LearningCards";
 import {
+  HOST_ERRORS,
+  HOST_STATUS_WORDS,
   QUESTION_CARD_TITLES,
+  hostNeedsUnlock,
+  hostWaiting,
   questionCardState,
   questionWaiting,
+  type HostChoice,
+  type HostDevice,
+  type HostRequest,
   type PermissionMode,
   type QuestionAnswer,
 } from "@timely/contract/agentChat";
-import { QUESTION_PLACEHOLDER, QUESTION_WAITING_LINE } from "../../lib/chat/question";
+import {
+  answerDevice,
+  hostAnswerBody,
+  hostAnswerError,
+  hostAnswerStale,
+  hostClosedAnnouncement,
+  hostComposer,
+} from "../../lib/chat/host";
+import HostCard from "./HostCard";
+import {
+  QUESTION_PLACEHOLDER,
+  QUESTION_WAITING_LINE,
+} from "../../lib/chat/question";
 import QuestionCard from "./QuestionCard";
 import {
   agentRunLive,
   composerMode,
+  needsHostAnswer,
   followsLearning,
   engineLabel,
   isUndoPlan,
@@ -118,6 +143,17 @@ type Page = "chat" | "history" | "proposal" | "receipt";
 
 /** A chat deleted on another device: its detail answers 404 for good. */
 const isChatGone = (reason: unknown) => reason instanceof ApiError && reason.status === 404;
+
+/** The phone's unlock was cancelled or failed: nothing was sent. */
+class UnlockRefused extends Error {}
+
+/** The device name an answer records. */
+const phoneName = () =>
+  Platform.OS === "ios"
+    ? "iPhone"
+    : Platform.OS === "android"
+      ? "Android phone"
+      : "Phone browser";
 
 export default function Assistant() {
   const assistant = useAssistant();
@@ -169,7 +205,9 @@ export default function Assistant() {
     enabled: !!id && assistant.visible && assistant.foreground && !offline,
     initialData: id ? assistant.cache.conversations[id] : undefined,
     refetchInterval: (q) =>
-      assistant.foreground && !offline && isBusy(q.state.data?.status)
+      assistant.foreground &&
+      !offline &&
+      (isBusy(q.state.data?.status) || needsHostAnswer(q.state.data?.status))
         ? streamLive.current
           ? 5000
           : 1500
@@ -191,6 +229,16 @@ export default function Assistant() {
   const busy = isBusy(chat?.status);
   // The live run waits on a question card; a message sent now answers it.
   const asking = questionWaiting(chat);
+  // The row waits on a host card (status host_approval, not busy): live while
+  // the run waits, parked once it paused. A message never answers it.
+  const hosting = hostWaiting(chat);
+  const hostCard = hosting ? chat?.hostRequest : undefined;
+  const hostId = hostCard?.requestId;
+  const hostUi = hostComposer(hostCard, hosting);
+  // What the last unlock said when it sent nothing (cancelled, failed, no screen lock).
+  const [hostNote, setHostNote] = useState("");
+  // The unlock prompt is open (not yet the request): the card says which.
+  const [hostUnlocking, setHostUnlocking] = useState(false);
   // What the agent learned in this chat (plan 9b.4): an older server
   // without /agent/learning answers 404 and no chip or card shows.
   const learningSettings = useLearningSettingsQuery(
@@ -387,6 +435,7 @@ export default function Assistant() {
     else scroll.current?.scrollToEnd({ animated: false });
   };
   const questionId = asking ? chat?.question?.requestId : undefined;
+  const cardId = questionId ?? hostId;
   // The card closed (time limit, Stop on another device, an answer from the web) while the screen
   // reader had it: the card unmounts under the person, so say how it closed, as the web does with a
   // polite status. The newest question message holds the outcome.
@@ -401,13 +450,36 @@ export default function Assistant() {
       `Question closed: ${QUESTION_CARD_TITLES[questionCardState(closed.question.outcome)]}`,
     );
   }, [questionId, chat?.messages]);
+  // The host card closed (answered on another device, time limit, Stop): say how.
+  const shownHost = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const was = shownHost.current;
+    shownHost.current = hostId;
+    if (hostId && was !== hostId && hostCard) {
+      // A card arrived: say so ("Needs your OK: Run this command?"). Android
+      // does not announce a live region that is already in the tree at mount.
+      AccessibilityInfo.announceForAccessibility(
+        `${HOST_STATUS_WORDS[hostCard.phase === "parked" ? "parked" : "live"]}: ${hostCard.card?.title ?? ""}`.trim(),
+      );
+    }
+    if (!was || was === hostId) return;
+    const closed = [...(chat?.messages ?? [])]
+      .reverse()
+      .find((m) => m.kind === "host" && m.host?.requestId === was);
+    if (closed)
+      AccessibilityInfo.announceForAccessibility(
+        hostClosedAnnouncement(closed.host),
+      );
+  }, [hostId, chat?.messages]);
   useEffect(() => {
     cardBox.current = null;
-    if (questionId) followCardUntil.current = Date.now() + 1500;
-  }, [questionId]);
+    setHostNote("");
+    if (cardId) followCardUntil.current = Date.now() + 1500;
+  }, [cardId]);
   useEffect(() => {
-    if (page === "chat" && !questionId) scroll.current?.scrollToEnd({ animated: true });
-  }, [chat?.messages?.length, chat?.status, questionId]);
+    if (page === "chat" && !cardId)
+      scroll.current?.scrollToEnd({ animated: true });
+  }, [chat?.messages?.length, chat?.status, cardId]);
 
   const scope = { id: `chat:${id}` };
   const mutation = useMutation({
@@ -528,8 +600,11 @@ export default function Assistant() {
   // The chat's own permission mode or engine; the answer is the whole chat.
   const agentMutation = useMutation({
     scope,
-    mutationFn: (fields: { permission?: PermissionMode; engine?: "classic" }) =>
-      configureChatAgent(id ?? "", fields),
+    mutationFn: (fields: {
+      permission?: PermissionMode;
+      engine?: "classic";
+      device?: HostDevice;
+    }) => configureChatAgent(id ?? "", fields),
     onSuccess: (next) => {
       queryClient.setQueryData(detailKey, next);
       setError("");
@@ -568,6 +643,74 @@ export default function Assistant() {
     onError: () => {
       void query.refetch();
     },
+  });
+  // The host card's Run once, Allow for this chat and Deny (Q-5.7). Run once
+  // and Allow for this chat unlock the phone first and send nothing when the
+  // unlock fails or is cancelled; Deny never asks. A card that was answered or
+  // changed meanwhile (409) refetches, so the thread shows how it closed.
+  const hostMutation = useMutation({
+    scope,
+    mutationFn: async (input: { request: HostRequest; choice: HostChoice }) => {
+      const sent = await withUnlock(
+        hostNeedsUnlock(input.choice, "phone"),
+        (unlocked) =>
+          answerHostCard(
+            id ?? "",
+            hostAnswerBody(
+              input.request,
+              chat?.revision ?? 0,
+              input.choice,
+              answerDevice("phone", phoneName(), unlocked),
+            ),
+          ),
+        async (prompt) => {
+          setHostUnlocking(true);
+          try {
+            return await unlockDevice(prompt);
+          } finally {
+            setHostUnlocking(false);
+          }
+        },
+      );
+      if (!sent.sent) throw new UnlockRefused(sent.message);
+      return sent.value;
+    },
+    onSuccess: (next) => {
+      queryClient.setQueryData(detailKey, next);
+      void queryClient.invalidateQueries({ queryKey: listKey });
+      setHostNote("");
+      setError("");
+    },
+    onError: (reason) => {
+      if (reason instanceof UnlockRefused) return setHostNote(reason.message);
+      if (
+        hostAnswerStale(reason instanceof ApiError ? reason.status : undefined)
+      )
+        void query.refetch();
+    },
+  });
+  const hostUndoMutation = useMutation({
+    scope,
+    mutationFn: (checkpoint: string) => undoHostChange(id ?? "", checkpoint),
+    onSettled: () => {
+      void query.refetch();
+    },
+  });
+  // Only an account the owner let use this computer can get a host card, so
+  // only its chats list "Allowed for this chat" (a chat that already has
+  // grants keeps the list so they can be removed).
+  const computer = useQuery({
+    queryKey: ["instance-settings"],
+    queryFn: () => api<InstanceSettings>("/instance/settings"),
+    enabled: !offline,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const grantMutation = useMutation({
+    scope,
+    mutationFn: (key: string) => removeHostGrant(id ?? "", key),
+    onSuccess: (next) => queryClient.setQueryData(detailKey, next),
+    onError: (reason) => setError(reason.message),
   });
   // "Don't learn from this chat"; the answer is the whole chat.
   const noLearningMutation = useMutation({
@@ -707,10 +850,30 @@ export default function Assistant() {
       runningAction.current = false;
     }
   }
+  // Full Access is the step-up: the sheet already asked, so the phone unlocks
+  // and the request says so (the server refuses a phone that did not).
+  async function withFullAccessUnlock<T>(
+    mode: PermissionMode,
+    send: (device?: HostDevice) => T,
+  ): Promise<T | undefined> {
+    if (mode !== "full") return send();
+    const unlocked = await unlockDevice();
+    if (!unlocked.ok) {
+      setError(unlocked.message);
+      return undefined;
+    }
+    return send(answerDevice("phone", phoneName(), true));
+  }
   function pickPermission(mode: PermissionMode) {
     setPermissionOpen(false);
     if (id) {
-      if (chat?.permission !== mode) agentMutation.mutate({ permission: mode });
+      if (chat?.permission !== mode)
+        void withFullAccessUnlock(mode, (device) =>
+          agentMutation.mutate({
+            permission: mode,
+            ...(device ? { device } : {}),
+          }),
+        );
     } else
       assistant.setDraft((value) => ({
         ...value,
@@ -726,6 +889,8 @@ export default function Assistant() {
     );
   }
   async function send() {
+    // A live host card is answered on the card; a typed message can't.
+    if (hostUi.locked) return;
     if (steering) return steer();
     if (
       runningAction.current ||
@@ -1097,21 +1262,23 @@ export default function Assistant() {
     : page === "history"
       ? `${list.data?.length ?? 0} ${list.data?.length === 1 ? "conversation" : "conversations"}`
       : asking && page === "chat"
-      ? QUESTION_WAITING_LINE
-      : busy
-      ? phaseLabel(chat?.phase)
-      : page === "receipt"
-          ? "Step 1 of 2 · Check details"
-          : receiptConfirmation
-            ? "Step 2 of 2 · Confirm and save"
-            : page === "proposal"
-              ? "Nothing is saved until you apply"
-              : chat?.status === "approval"
-                ? "Waiting for your decision"
-                : chat?.provider
-                  ? // The engine first: a long model name would cut it off.
-                    `${engineLabel(chat) ? `${engineLabel(chat)} · ` : ""}${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}`
-                  : "Ask about your work";
+        ? QUESTION_WAITING_LINE
+        : hosting && page === "chat"
+          ? HOST_STATUS_WORDS[hostCard?.phase === "parked" ? "parked" : "live"]
+          : busy
+            ? phaseLabel(chat?.phase)
+            : page === "receipt"
+              ? "Step 1 of 2 · Check details"
+              : receiptConfirmation
+                ? "Step 2 of 2 · Confirm and save"
+                : page === "proposal"
+                  ? "Nothing is saved until you apply"
+                  : chat?.status === "approval"
+                    ? "Waiting for your decision"
+                    : chat?.provider
+                      ? // The engine first: a long model name would cut it off.
+                        `${engineLabel(chat) ? `${engineLabel(chat)} · ` : ""}${PROVIDER_LABELS[chat.provider as ProviderId] ?? chat.provider}${chat.model ? ` · ${chat.model}` : ""}`
+                      : "Ask about your work";
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
@@ -1124,6 +1291,7 @@ export default function Assistant() {
           status={page === "chat" && !preview ? chat?.status : undefined}
           phase={chat?.phase}
           question={chat?.question}
+          hostRequest={chat?.hostRequest}
           back={page !== "chat" || !!preview}
           onBack={close}
           onTitlePress={
@@ -1317,6 +1485,24 @@ export default function Assistant() {
                         offline ? undefined : (message) => undoMutation.mutate(message)
                       }
                       undoing={undoMutation.isPending}
+                      onHostUndo={
+                        offline || busy || hosting
+                          ? undefined
+                          : (checkpoint) => hostUndoMutation.mutate(checkpoint)
+                      }
+                      hostUndoPending={hostUndoMutation.isPending}
+                      hostUndoError={
+                        hostUndoMutation.isError
+                          ? {
+                              checkpoint: hostUndoMutation.variables ?? "",
+                              message:
+                                hostUndoMutation.error instanceof ApiError &&
+                                hostUndoMutation.error.status === 409
+                                  ? HOST_ERRORS.undoGone
+                                  : hostUndoMutation.error.message,
+                            }
+                          : undefined
+                      }
                       learning={learning}
                     />
                   ) : null}
@@ -1405,8 +1591,16 @@ export default function Assistant() {
                       }}
                     />
                   ) : null}
-                  {chat && agentRunLive(chat) ? (
-                    <LiveRun chat={chat} draft={stream.draft} onLink={openLink} />
+                  {chat &&
+                  (agentRunLive(chat) ||
+                    (hosting &&
+                      hostCard?.phase !== "parked" &&
+                      chat.runEngine === "agent")) ? (
+                    <LiveRun
+                      chat={chat}
+                      draft={stream.draft}
+                      onLink={openLink}
+                    />
                   ) : chat ? (
                     <RunStatus chat={chat} />
                   ) : null}
@@ -1432,6 +1626,50 @@ export default function Assistant() {
                       }
                       onSkip={offline ? undefined : () => answerMutation.mutate({ requestId: chat.question!.requestId!, skip: true })}
                     />
+                    </View>
+                  ) : null}
+                  {hosting && hostCard?.requestId ? (
+                    <View
+                      onLayout={(e) => {
+                        const { y, height } = e.nativeEvent.layout;
+                        cardBox.current = { y, height };
+                        followCard();
+                      }}
+                    >
+                      <HostCard
+                        key={hostCard.requestId}
+                        request={hostCard}
+                        rule={agentSettings.data?.hostApprovalRule}
+                        sending={
+                          hostMutation.isPending
+                            ? (hostMutation.variables?.choice ?? null)
+                            : null
+                        }
+                        note={hostNote}
+                        unlocking={hostUnlocking}
+                        error={
+                          hostMutation.isError &&
+                          !(hostMutation.error instanceof UnlockRefused) &&
+                          hostMutation.variables?.request.requestId ===
+                            hostCard.requestId
+                            ? hostAnswerError(
+                                hostMutation.error instanceof ApiError
+                                  ? hostMutation.error.status
+                                  : undefined,
+                                hostMutation.error.message,
+                              )
+                            : undefined
+                        }
+                        onAnswer={
+                          offline
+                            ? undefined
+                            : (choice) =>
+                                hostMutation.mutate({
+                                  request: hostCard,
+                                  choice,
+                                })
+                        }
+                      />
                     </View>
                   ) : null}
                   {chat ? (
@@ -1464,13 +1702,15 @@ export default function Assistant() {
                     ? "Add a note (optional)…"
                     : asking
                       ? QUESTION_PLACEHOLDER
-                      : steering
-                      ? "Add something while it works…"
-                      : chat?.status === "approval"
-                        ? isBotPlan(chat.plan)
-                          ? "Reply, or ask for changes to the bot"
-                          : "Tell me what to change…"
-                        : "Ask Timely…"
+                      : hosting
+                        ? hostUi.placeholder
+                        : steering
+                          ? "Add something while it works…"
+                          : chat?.status === "approval"
+                            ? isBotPlan(chat.plan)
+                              ? "Reply, or ask for changes to the bot"
+                              : "Tell me what to change…"
+                            : "Ask Timely…"
                 }
                 chips={context}
                 onRemoveChip={(index) =>
@@ -1489,16 +1729,18 @@ export default function Assistant() {
                 canPickModel={canPickModel}
                 onPickModel={() => setModelOpen(true)}
                 privateImages={!!chat?.sensitive || draft.images.length > 0}
-                busy={busy}
+                busy={busy || hostUi.locked}
                 pending={pending}
                 uploading={uploading}
                 offline={offline}
-                editable={!pending && (!busy || steering)}
+                editable={!pending && (!busy || steering) && !hostUi.locked}
                 onSend={() => void send()}
                 onStop={() => act("/stop")}
                 steering={steering}
                 answering={asking}
-                permissionHint={permissionHint(permission)}
+                permissionHint={
+                  hosting ? hostUi.hint : permissionHint(permission)
+                }
                 hasDraft={hasDraft}
                 onDiscardDraft={() => setConfirmDiscard(true)}
                 otherDraft={otherDraft}
@@ -1518,10 +1760,26 @@ export default function Assistant() {
         value={permission}
         defaultMode={agentSettings.data?.chatPermission}
         saving={agentMutation.isPending}
+        allowedOn={agentSettings.data?.fullAccessAllowedOn}
+        unsent={!id}
+        grants={
+          id &&
+          (computer.data?.thisAccountHostAllowed ||
+            (chat?.hostGrants?.length ?? 0) > 0)
+            ? (chat?.hostGrants ?? [])
+            : undefined
+        }
+        onRemoveGrant={offline ? undefined : (key) => grantMutation.mutate(key)}
         onPick={pickPermission}
         onPickDefault={
           agentSettings.data
-            ? (mode) => patchAgentSettings.mutate({ chatPermission: mode })
+            ? (mode) =>
+                void withFullAccessUnlock(mode, (device) =>
+                  patchAgentSettings.mutate({
+                    chatPermission: mode,
+                    ...(device ? { device } : {}),
+                  }),
+                )
             : undefined
         }
       />
