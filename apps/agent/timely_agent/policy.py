@@ -58,7 +58,7 @@ PROPOSE_ALONE = "Call propose_changes alone, after all read tools finish"
 # ``delegate_task`` is not listed (phase 4): a sub-task's own outside reads reach the parent run
 # with ``via: "subagent"`` (``bridge.report_taint``), so a child that read nothing outside adds none.
 TAINT_SOURCES: dict[str, str] = {
-    "web_search": "web", "web_extract": "web", "x_search": "web", "bot_browse": "browser",
+    "web_search": "web", "web_extract": "web", "x_search": "web", "bot_browser_read": "browser",
     "read_file": "file", "search_files": "file",
     "terminal": "terminal", "process": "terminal", "process_manage": "terminal", "execute_code": "code",
     "vision_analyze": "vision",
@@ -282,6 +282,20 @@ def truthy(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
     return bool(value)
+
+
+# ---------------------------------------------------------------- phase 6: agent bots (plan 7.4, 7.5)
+
+# The toolsets a Bot tick is given (never terminal, file, code, delegation, clarify, session_search or
+# timely_schedule): Go's ``bot.run.tools`` only adds ``mcp-<server>`` toolsets and, when asked, ``timely``.
+BOT_TOOLSETS = ("skills", "web", "timely_bot")
+BOT_ITERATIONS = 12            # about 12 model iterations per tick (plan 7.3)
+BOT_DEADLINE_S = 300           # 5 minutes wall clock
+BOT_INACTIVITY_S = 120         # no tool or model progress for this long ends the tick
+BOT_REPORTS_MAX = 5
+BOT_PERMISSIONS = ("supervised", "auto", "full")
+SCHEDULE_TOOLSET = "timely_schedule"  # where the cronjob_manage shim lives (chat runs only)
+SHIM_MODULE = "timely_agent.plugins.timely_bot.cronjob_shim"
 
 
 # ---------------------------------------------------------------- phase 5: host tools (plan 5.5, 5.5b, 12)

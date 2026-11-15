@@ -72,6 +72,18 @@ Phase 5 (host tools, PROTOCOL.md section 12; ``timely_agent.host``):
 
 ``post_tool_call`` sends ``event host.ran`` for every host or MCP call that finished, with the
 checkpoint Hermes took before it (``checkpoint``, ``checkpoint_dir``).
+
+Phase 6 (a Bot tick, ``run.kind == "bot"``; ``timely_bot.egress``, plan 7.5):
+
+9. A bot run takes none of the chat rules above. ``timely_bot.egress.decide`` blocks what a tick never
+   gets (terminal, files, code, clarify, delegate_task, session_search, cronjob_manage, messaging,
+   ``propose_changes``), outbound URL tools to a host that is not a bot host, ``web_search`` once the
+   tick is tainted and a non-read-only MCP tool after taint (Full Access lifts the host, search and
+   MCP rules, never the "never" list). What passes is asked of Go (``gate.ask`` with ``run_kind:
+   "bot"`` and ``bot {bot_id, check_id, tainted, ...}``); ``approve`` parks: the call is refused with
+   a "parked" message, the tick goes on and ``bot.done.parked`` lists it. A continuation's
+   ``pre_approved`` call runs after the same floor. ``browser_exec``, ``browser_cdp`` and
+   ``browser_dialog`` reach Go only here, with ``bot.park: true``.
 """
 
 from __future__ import annotations
@@ -80,10 +92,13 @@ import logging
 from typing import Any
 
 from timely_agent import bridge, delegation, host, policy
+from timely_agent.plugins.timely_bot import egress as bot_egress
+from timely_agent.plugins.timely_bot import runctx as bot_runctx
 
 logger = logging.getLogger("timely_agent.plugins.timely_gate")
 
 PLUGIN = "timely_gate"
+shim_tool = "cronjob_manage"
 TIMELY_TOOLSET_PREFIX = "timely_"
 NO_RUN = "Blocked: this tool can only run inside a Timely chat or bot run."
 NO_ANSWER = "Blocked: Timely did not answer the permission check in time."
@@ -111,7 +126,7 @@ def _url_literals(value: Any, key: str = "") -> list[str]:
 
 def private_browser_target(tool_name: str, args: dict) -> str | None:
     """The first URL in a browser tool's arguments that Hermes' SSRF check refuses, else None."""
-    if not tool_name.startswith(BROWSER_PREFIX):
+    if not tool_name.startswith(BROWSER_PREFIX) and tool_name != bot_egress.BROWSER_READ:
         return None
     from tools.url_safety import is_safe_url
     for literal in dict.fromkeys(_url_literals(args)):
@@ -203,7 +218,21 @@ def mcp_info(tool_name: str, toolset: str) -> dict[str, Any]:
 
 
 def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: str = "",
-                  session_id: str = "", task_id: str = "", **_: Any) -> dict | None:
+                  session_id: str = "", task_id: str = "", **kw: Any) -> dict | None:
+    """Hermes' ``pre_tool_call`` hook. In a bot tick every refusal is also written to the tick's trace:
+    Hermes sends no tool-complete callback for a call a hook blocked, and "What it did" must show it."""
+    verdict = _pre_tool_call(tool_name, args, tool_call_id, session_id, task_id, **kw)
+    if isinstance(verdict, dict) and verdict.get("action") == "block":
+        run = bridge.current_run.get()
+        if run is not None and run.kind == "bot":
+            bot = bot_runctx.get(run.run_id)
+            if bot is not None:
+                bot.note_blocked(tool_name, args if isinstance(args, dict) else {}, str(verdict.get("message") or ""))
+    return verdict
+
+
+def _pre_tool_call(tool_name: str, args: dict | None, tool_call_id: str, session_id: str, task_id: str,
+                   **_: Any) -> dict | None:
     args = args if isinstance(args, dict) else {}
     if policy.is_blocked(tool_name):
         return {"action": "block", "message": f"Blocked: {tool_name} is not available in Timely."}
@@ -231,6 +260,10 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
             inner, tool_call_id = True, run.inner_call_id(outer)
     if run is not None and tool_call_id:
         run.note_call(tool_name, tool_call_id, child)
+    if run is not None and run.kind == "bot":
+        return _bot_verdict(run, tool_name, args, tool_call_id, toolset=_toolset(tool_name))
+    if tool_name == shim_tool:
+        return _cronjob_verdict()
     if tool_name == policy.CLARIFY_TOOL:
         return delegation.clarify_verdict(run)
     if tool_name == policy.DELEGATE_TOOL:
@@ -322,6 +355,77 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, tool_call_id: s
     return {"action": "block", "message": message or f"Blocked: Timely did not allow {tool_name}."}
 
 
+def _cronjob_verdict() -> dict | None:
+    """``cronjob_manage@plugin:timely_bot: allow, cronjob_manage@core: block`` (plan 7.10): the tool runs
+    only when the registry's handler is the Timely shim (it makes proposals, nothing is scheduled)."""
+    try:
+        from tools.registry import registry
+        handler = getattr(registry.get_entry(shim_tool), "handler", None)
+        owner = str(getattr(handler, "__module__", "") or "")
+    except Exception:
+        owner = ""
+    if owner == policy.SHIM_MODULE:
+        return None
+    return {"action": "block", "message": f"Blocked: {shim_tool} is not available in Timely."}
+
+
+def _bot_verdict(run, tool_name: str, args: dict, tool_call_id: str, toolset: str) -> dict | None:
+    """Phase 6: one call of a Bot tick (see the module docstring, rule 9)."""
+    bot = bot_runctx.get(run.run_id)
+    if bot is None:  # a bot run the plugin does not know: fail closed
+        return {"action": "block", "message": policy.BOT_HOST if policy.is_host_call(tool_name, args) else NO_RUN}
+    is_mcp = policy.is_mcp_tool(tool_name, toolset)
+    info = mcp_info(tool_name, toolset) if is_mcp else None
+    decision = bot_egress.decide(bot, tool_name, args, tainted=run.taint_snapshot(), toolset=toolset, mcp=info,
+                                 is_mcp=is_mcp, is_timely=_timely_tool(tool_name))
+    if decision.kind == "block":
+        return {"action": "block", "message": decision.message}
+    digest = policy.args_hash(args)
+    pre = run.pre_approved
+    if pre and pre.get("tool") == tool_name and pre.get("args_hash") == digest:
+        run.pre_approved = None  # a continuation runs exactly the approved call, once
+        if tool_call_id:
+            run.approve_call(tool_call_id, digest)
+        _bot_note_use(bot, tool_name, decision)
+        return None
+    if decision.kind == "allow":
+        return None
+    if bridge.ask is None:
+        return {"action": "block", "message": NO_RUN}
+    ask: dict[str, Any] = {
+        "type": "gate.ask", "run": run.run_id, "tool_call_id": tool_call_id, "tool": tool_name, "args": args,
+        "tainted_sources": list(run.tainted_sources), "run_kind": "bot", "args_hash": digest, "toolset": toolset,
+        "bot": decision.bot,
+    }
+    if info is not None:
+        ask["mcp"] = info
+    reply = bridge.ask(ask, bridge.HOOK_ANSWER_TIMEOUT_S)
+    if not reply or reply.get("type") != "gate.verdict":
+        return {"action": "block", "message": NO_ANSWER}
+    if run.stopping:
+        return {"action": "block", "message": policy.STOPPED}
+    verdict, message = reply.get("verdict"), str(reply.get("message") or "")
+    if verdict == "allow":
+        if tool_call_id:
+            run.approve_call(tool_call_id, digest, backed=reply.get("by") != "auto")
+        _bot_note_use(bot, tool_name, decision)
+        if tool_name == "web_search" and tool_call_id and not run.taint_snapshot():
+            bot.search_calls.add(tool_call_id)
+        return None
+    if verdict == "approve":  # nobody can approve during a tick: the card waits in Needs you
+        with bot.lock:
+            bot.parked.append({"tool": tool_name, "args_hash": digest, "tool_call_id": tool_call_id,
+                               "args": args, "message": message or f"Run {tool_name}?"})
+        return {"action": "block", "message": bot_egress.PARKED}
+    return {"action": "block", "message": message or f"Blocked: Timely did not allow {tool_name}."}
+
+
+def _bot_note_use(bot, tool_name: str, decision) -> None:
+    """Every outbound host a tick reaches is listed in "What it did" (``bot.done.hosts``)."""
+    for host_name in (decision.bot.get("hosts") or []) + ([decision.bot["host"]] if decision.bot.get("host") else []):
+        bot.note_host(host_name)
+
+
 def _end_turn(run) -> dict:
     """Block the call and stop the loop after this round (soft interrupt, system reason)."""
     run.end_turn_hit = True
@@ -340,6 +444,7 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
     ``delegate_task``, remember its children's transcript folders under the chat; after a host or
     MCP call, send ``host.ran``."""
     a = args if isinstance(args, dict) else {}
+    _bot_post(tool_name, kw)
     if policy.is_host_call(tool_name, a) or policy.is_mcp_tool(tool_name):
         run = bridge.current_run.get()
         if run is not None:
@@ -369,6 +474,23 @@ def post_tool_call(tool_name: str = "", args: dict | None = None, status: str | 
                                 session_id)
     except Exception as exc:
         logger.warning("reporting web_extract hosts as taint failed: %s", exc)
+
+
+def _bot_post(tool_name: str, kw: dict) -> None:
+    """A bot tick's ``web_search`` that ran before taint: its result hosts may be read later."""
+    if tool_name != "web_search":
+        return
+    run = bridge.current_run.get()
+    if run is None or run.kind != "bot":
+        return
+    bot = bot_runctx.get(run.run_id)
+    call_id = str(kw.get("tool_call_id") or "")
+    if bot is None or not call_id or call_id not in bot.search_calls:
+        return
+    bot.search_calls.discard(call_id)
+    result = kw.get("result")
+    text = result if isinstance(result, str) else str(result or "")
+    bot.add_search_hosts([h for h in (bot_runctx.norm_host(u) for u in bot_runctx.URL_IN_TEXT.findall(text)) if h])
 
 
 def register(ctx) -> None:
