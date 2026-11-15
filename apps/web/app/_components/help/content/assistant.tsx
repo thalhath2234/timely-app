@@ -211,13 +211,15 @@ export const assistant: HelpSection = {
           body: (
             <>
               <p>
-                Open <strong>Chat</strong> in the sidebar. Describe what you want in your own words, attach pictures if
+                Open <strong>Assistant</strong> in the sidebar: your chats and your Bots share one inbox. What waits
+                on you sits under <strong>Needs you</strong>; the rest is listed by recency. Pick a chat to open it, or
+                choose <strong>Chat</strong> to start one. Describe what you want in your own words, attach pictures if
                 they help, and turn on <strong>Web search</strong> when the answer needs it. Web search is off for a
                 chat with pictures.
               </p>
               <Still
                 id="assistant"
-                alt="The Chat page: the Chats list on the left, a conversation in which the assistant proposes four changes to the launch week and shows the calendar it would make, and the prompt box with Web search and the model menu."
+                alt="The Assistant page: the chats list on the left, a conversation in which the assistant proposes four changes to the launch week and shows the calendar it would make, and the prompt box with Web search and the model menu."
               />
               <ul>
                 <li>

@@ -1,5 +1,11 @@
 // Where a notification opens. Pure, so scripts/notification-target.test.mjs
-// runs it under Node; keep imports relative (or type-only).
+// runs it under Node; keep imports relative (or type-only). The Assistant
+// links are imported by path so Node resolves them without a package export.
+import {
+  ASSISTANT_PATH,
+  assistantHref,
+  notificationToAssistant,
+} from "../../../../../packages/contract/src/assistant";
 import type { AppNotification } from "@timely/contract/notifications";
 import { fileHref } from "../../utils/fileRoutes";
 
@@ -27,10 +33,15 @@ export function alertItems(
   );
 }
 
-/** A Bot alert opens its bot on the Bots page; one without a bot id opens the board. */
+/**
+ * A Bot alert opens its Bot thread in the Assistant (the alert is posted
+ * there too): `thread` is the thread's conversation id when the alert names
+ * it, else 1 for "this Bot's thread". One without a bot id opens the Assistant.
+ */
 export function botHref(item: Pick<AppNotification, "data">): string {
-  const botId = dataString(item, "botId");
-  return botId ? `/bots?bot=${encodeURIComponent(botId)}` : "/bots";
+  const bot = dataString(item, "botId");
+  if (!bot) return ASSISTANT_PATH;
+  return assistantHref({ bot, thread: dataString(item, "threadId") ?? "1" });
 }
 
 export function targetFor(item: AppNotification): NotificationTarget {
@@ -41,13 +52,12 @@ export function targetFor(item: AppNotification): NotificationTarget {
   if (item.entityType === "task" && item.entityId)
     return { kind: "task", id: item.entityId };
 
+  // A chat notification opens its chat in the Assistant.
+  const assistant = notificationToAssistant(item);
+  if (assistant) return { kind: "route", href: assistant };
+
   const entityId = item.entityId;
   if (entityId) {
-    if (item.entityType === "chat")
-      return {
-        kind: "route",
-        href: `/chat?id=${encodeURIComponent(entityId)}`,
-      };
     if (item.entityType === "project")
       return { kind: "route", href: `/projects/${entityId}` };
     if (item.entityType === "doc" || item.entityType === "sheet")
@@ -72,10 +82,10 @@ export function targetFor(item: AppNotification): NotificationTarget {
 }
 
 /**
- * Where a desktop Bot alert opens when clicked: its bot, found among the
- * notification lists already in the query cache (`cached` is every
- * ["notifications", …] entry, which also holds counts and settings), else the
- * board.
+ * Where a desktop alert opens when clicked: its Bot thread (or its chat),
+ * found among the notification lists already in the query cache (`cached` is
+ * every ["notifications", …] entry, which also holds counts and settings),
+ * else the Assistant.
  */
 export function openedAlertHref(
   id: string,
@@ -84,7 +94,11 @@ export function openedAlertHref(
   for (const list of cached) {
     if (!Array.isArray(list)) continue;
     const item = (list as AppNotification[]).find((entry) => entry?.id === id);
-    if (item) return botHref(item);
+    if (!item) continue;
+    const target = targetFor(item);
+    return target.kind === "route"
+      ? target.href
+      : `/tasks?taskId=${encodeURIComponent(target.id)}`;
   }
-  return "/bots";
+  return ASSISTANT_PATH;
 }

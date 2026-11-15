@@ -1,5 +1,5 @@
 // Where a notification opens (apps/web/app/_components/notifications/notificationTarget.ts):
-// the Notifications page's rows, and a desktop Bot alert clicked in the system tray.
+// the Notifications page's rows, and a desktop alert clicked in the system tray.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -18,36 +18,58 @@ const note = (fields) => ({
   ...fields,
 });
 
-test("a bot notification opens its bot on the Bots page", () => {
+test("a bot notification opens its Bot thread in the Assistant", () => {
   const alert = note({
     category: "bot",
     data: { botId: "bot_1", alertId: "bal_1" },
   });
   assert.deepEqual(targetFor(alert), {
     kind: "route",
-    href: "/bots?bot=bot_1",
+    href: "/assistant?bot=bot_1&thread=1",
   });
 });
 
-test("a bot notification without a bot id opens the board", () => {
+test("a bot notification that names its thread opens that thread", () => {
+  const alert = note({
+    category: "bot",
+    data: { botId: "bot_1", threadId: "cht_9" },
+  });
+  assert.deepEqual(targetFor(alert), {
+    kind: "route",
+    href: "/assistant?bot=bot_1&thread=cht_9",
+  });
+});
+
+test("a bot notification without a bot id opens the Assistant", () => {
   assert.deepEqual(targetFor(note({ category: "bot", data: {} })), {
     kind: "route",
-    href: "/bots",
+    href: "/assistant",
   });
   assert.deepEqual(targetFor(note({ category: "bot" })), {
     kind: "route",
-    href: "/bots",
+    href: "/assistant",
   });
   assert.equal(
     botHref({ data: { botId: 42 } }),
-    "/bots",
+    "/assistant",
     "only a string id counts",
   );
   assert.equal(
     botHref({ data: { botId: "bot a&b" } }),
-    "/bots?bot=bot%20a%26b",
+    "/assistant?bot=bot+a%26b&thread=1",
     "the id is escaped",
   );
+});
+
+test("a chat notification opens its chat in the Assistant", () => {
+  assert.deepEqual(
+    targetFor(note({ entityType: "chat", entityId: "chat_1" })),
+    { kind: "route", href: "/assistant?chat=chat_1" },
+  );
+  assert.deepEqual(targetFor(note({ data: { chatId: "chat_2" } })), {
+    kind: "route",
+    href: "/assistant?chat=chat_2",
+  });
 });
 
 test("other notifications keep their targets", () => {
@@ -55,10 +77,6 @@ test("other notifications keep their targets", () => {
     kind: "task",
     id: "tsk_1",
   });
-  assert.deepEqual(
-    targetFor(note({ entityType: "chat", entityId: "chat_1" })),
-    { kind: "route", href: "/chat?id=chat_1" },
-  );
   assert.deepEqual(targetFor(note({ entityType: "doc", entityId: "doc_1" })), {
     kind: "route",
     href: "/files/doc_1",
@@ -79,7 +97,7 @@ test("other notifications keep their targets", () => {
   assert.deepEqual(targetFor(note({})), { kind: "route", href: "/today" });
 });
 
-test("a clicked desktop alert opens the bot of the notification in the cache", () => {
+test("a clicked desktop alert opens the Bot thread of the notification in the cache", () => {
   const cached = [
     3, // ["notifications", "unread-count"]
     { quietHours: true }, // a settings entry
@@ -87,20 +105,35 @@ test("a clicked desktop alert opens the bot of the notification in the cache", (
     [note({ id: "ntf_other", category: "bot", data: { botId: "bot_other" } })],
     [note({ id: "ntf_7", category: "bot", data: { botId: "bot_7" } })],
   ];
-  assert.equal(openedAlertHref("ntf_7", cached), "/bots?bot=bot_7");
-  assert.equal(openedAlertHref("ntf_other", cached), "/bots?bot=bot_other");
+  assert.equal(
+    openedAlertHref("ntf_7", cached),
+    "/assistant?bot=bot_7&thread=1",
+  );
+  assert.equal(
+    openedAlertHref("ntf_other", cached),
+    "/assistant?bot=bot_other&thread=1",
+  );
 });
 
-test("a clicked desktop alert that is not in the cache opens the board", () => {
-  assert.equal(openedAlertHref("ntf_gone", []), "/bots");
+test("a clicked chat notification in the cache opens its chat", () => {
+  assert.equal(
+    openedAlertHref("ntf_c", [
+      [note({ id: "ntf_c", entityType: "chat", entityId: "chat_5" })],
+    ]),
+    "/assistant?chat=chat_5",
+  );
+});
+
+test("a clicked desktop alert that is not in the cache opens the Assistant", () => {
+  assert.equal(openedAlertHref("ntf_gone", []), "/assistant");
   assert.equal(
     openedAlertHref("ntf_gone", [[note({ id: "ntf_1" })], 0]),
-    "/bots",
+    "/assistant",
   );
   assert.equal(
     openedAlertHref("ntf_1", [
       [note({ id: "ntf_1", category: "bot", data: {} })],
     ]),
-    "/bots",
+    "/assistant",
   );
 });
