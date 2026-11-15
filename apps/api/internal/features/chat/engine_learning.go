@@ -72,7 +72,11 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 		e.opts.Logf("agent engine: chats with outside text: %v", err)
 		out.searchHistory = false
 	}
-	if err := e.s.db.WithContext(ctx).Model(&Conversation{}).Where("user_id = ? AND NOT no_learning AND NOT sensitive", c.UserID).
+	// Bot threads and new-Bot drafts carry alert and page text without the
+	// taint "Do this in chat" adds, so past-chat search never returns them.
+	if err := e.s.db.WithContext(ctx).Model(&Conversation{}).
+		Where("user_id = ? AND NOT no_learning AND NOT sensitive AND kind = ? AND NOT COALESCE(context @> ?::jsonb, false)",
+			c.UserID, KindChat, `[{"kind":"bot_draft"}]`).
 		Order("updated_at DESC").Limit(5000).Pluck("id", &out.searchAllow).Error; err != nil {
 		e.opts.Logf("agent engine: chats past-chat search may return: %v", err)
 		out.searchHistory = false
