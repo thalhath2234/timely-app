@@ -107,7 +107,7 @@ func TestAutoSafeCommandEveryEntry(t *testing.T) {
 		"echo hi", "echo -n 'rm -rf ~'", "printf '%s\\n' a b", "echo hi there",
 		// grep and rg
 		"grep -n TODO notes.md", "grep -rn TODO sub/x.txt", "grep -rn TODO clean", "grep -i -e todo -e fixme notes.md", "grep -c TODO notes.md data.csv",
-		"ls | grep notes", "rg TODO clean", "rg -n TODO clean", "rg -i --glob '*.md' TODO clean", "rg --files clean", "rg -l TODO sub/x.txt", "rg x sub",
+		"ls | grep notes", "rg TODO clean", "rg -n TODO clean", "rg -i --glob '*.md' TODO clean", "rg --files clean", "rg -l TODO sub/x.txt",
 		// find without actions
 		"find . -name '*.md'", "find sub -type f -maxdepth 2", "find . -name '*.md' -o -name '*.txt'", "find . ! -name '*.md' -type f", "find", "find . -newer notes.md", "find . -path ./sub -prune -o -print",
 		// tree, diff, cmp
@@ -123,7 +123,7 @@ func TestAutoSafeCommandEveryEntry(t *testing.T) {
 		"git branch --list 'feat*'", "git rev-parse --show-toplevel", "git rev-parse --abbrev-ref HEAD", "git rev-parse HEAD", "git ls-files", "git ls-files sub",
 		"git blame notes.md", "git blame -L 1,5 notes.md", "git remote", "git remote -v", "git -C sub status", "git -C clean log --oneline",
 		// pipes, lists and a cd inside the folder
-		"ls && pwd", "ls; pwd", "ls || pwd", "ls\npwd\n", "cd sub && ls", "cd sub && cat x.txt | wc -l", "cd sub && git status", "ls -la | sort | head -5",
+		"ls && pwd", "ls; pwd", "ls || pwd", "ls\npwd\n", "cd ./sub && ls", "cd ./sub && cat x.txt | wc -l", "cd ./sub && git status", "ls -la | sort | head -5",
 	)
 }
 
@@ -249,7 +249,7 @@ func TestAutoSafeCommandFolder(t *testing.T) {
 	f.asks(t, inSub, "cat ../../notes.txt", "cat .env.local")
 	stdin := f.scope
 	stdin.CwdUnknown = true
-	f.asks(t, stdin, "ls", "cat notes.md", "y", "yes", "rm -rf ~", "git status", "cd sub && ls")
+	f.asks(t, stdin, "ls", "cat notes.md", "y", "yes", "rm -rf ~", "git status", "cd ./sub && ls")
 	f.safe(t, stdin, "echo hi", "date", "cat "+filepath.Join(f.work, "notes.md"))
 	homeWork := HostScope{Workspace: f.home, Home: f.home}
 	f.asks(t, homeWork, "ls", "cat notes.txt", "git status")

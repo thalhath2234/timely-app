@@ -55,15 +55,77 @@ func resolveLinks(p string) string {
 	return p
 }
 
+// hasDotDot reports whether p has a .. component.
+func hasDotDot(p string) bool {
+	for _, c := range strings.Split(p, "/") {
+		if c == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// kernelPath is the absolute path p the way the kernel resolves it: each
+// component in turn, a symlink followed as it is reached, and a .. taken from
+// where the walk then is (link/.. is the parent of the link's target, not the
+// folder the link sits in). path.Clean would collapse link/.. first. The last
+// component is not followed (callers follow it, or keep the link's own name).
+// A path with no .. is cleaned lexically, which gives the same answer and
+// keeps the names it was written with.
+func kernelPath(p string) string {
+	if !hasDotDot(p) {
+		return path.Clean(p)
+	}
+	queue := strings.Split(p, "/")
+	cur, links := "/", 0
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		switch c {
+		case "", ".":
+			continue
+		case "..":
+			cur = path.Dir(cur)
+			continue
+		}
+		next := path.Join(cur, c)
+		fi, err := os.Lstat(filepath.FromSlash(next))
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 || len(queue) == 0 {
+			cur = next
+			continue
+		}
+		links++
+		target, err := os.Readlink(filepath.FromSlash(next))
+		if err != nil || links > 40 {
+			return path.Clean(p) // too many links or unreadable: the lexical answer is judged as it was
+		}
+		target = filepath.ToSlash(target)
+		if path.IsAbs(target) {
+			cur = "/"
+		}
+		queue = append(strings.Split(target, "/"), queue...)
+	}
+	return cur
+}
+
+// joinRaw is base/p with no cleaning, so a .. after a link survives to
+// kernelPath.
+func joinRaw(base, p string) string { return strings.TrimSuffix(base, "/") + "/" + p }
+
 // abs is p as an absolute path from the folder the call runs in, with ~ and
-// $HOME read as the home; false when that is not known.
+// $HOME read as the home; false when that is not known. A .. is resolved the
+// way the kernel does (see kernelPath).
 func (s HostScope) abs(p string) (string, bool) {
 	p = strings.TrimSpace(p)
 	if p == "" {
 		return "", false
 	}
 	if strings.HasPrefix(p, "~") || strings.HasPrefix(p, "$") {
-		p = expandPath(p, s)
+		if (p == "~" || strings.HasPrefix(p, "~/")) && s.Home != "" {
+			p = joinRaw(s.Home, strings.TrimPrefix(p[1:], "/"))
+		} else {
+			p = expandPath(p, s)
+		}
 		if strings.HasPrefix(p, "~") || strings.HasPrefix(p, "$") {
 			return "", false
 		}
@@ -73,9 +135,27 @@ func (s HostScope) abs(p string) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		p = path.Join(base, p)
+		p = joinRaw(base, p)
 	}
-	return path.Clean(p), true
+	return kernelPath(p), true
+}
+
+// repoSettings reports whether p names a git folder's own settings, hooks or
+// pointers (item 5) however it is spelled: as written, cleaned, and where its
+// links lead (.git/./config is .git/config; a link to .git/config is it too).
+func (s HostScope) repoSettings(p string) bool {
+	p = strings.Trim(strings.TrimSpace(p), `"'`)
+	if p == "" {
+		return false
+	}
+	if repoConfigPaths.MatchString(p) || repoConfigPaths.MatchString(path.Clean(p)) {
+		return true
+	}
+	abs, ok := s.abs(p)
+	if !ok {
+		return false
+	}
+	return repoConfigPaths.MatchString(abs) || repoConfigPaths.MatchString(resolveLinks(abs))
 }
 
 // config reports whether a file holds settings or credentials, as written or
@@ -98,10 +178,16 @@ func (s HostScope) realInside(real string) bool {
 // The settings and credential files of a repository and a shell: a git hook
 // or a repository's own config runs code on a later `git commit`, and a
 // .envrc runs on `direnv allow`.
-var repoConfigPaths = regexp.MustCompile(`(?i)(^|/)(\.git/(hooks/|config$|info/|modules/[^/]+/(hooks/|config$))|\.husky/|\.envrc$|\.githooks/)`)
+//
+// Anything under a .git folder counts, and so does a file or folder named
+// .git itself (a submodule's .git file points at the folder git then trusts)
+// and .gitmodules: git status and git diff run git inside every submodule, and
+// a setting in a submodule's own folder (.git/modules/<any/depth>/config) or in
+// the folder its .git file points at names a program git runs.
+var repoConfigPaths = regexp.MustCompile(`(?i)(^|/)(\.git(/|$)|\.gitmodules$|\.husky/|\.envrc$|\.githooks/)`)
 
 // riskyGitKeys are the git settings that name a program git then runs.
-var riskyGitKeys = regexp.MustCompile(`(?i)^(core\.(hookspath|sshcommand|pager|editor|fsmonitor|askpass|gitproxy|attributesfile|excludesfile)|alias\..+|filter\..+|diff\..+\.(textconv|command)|diff\.external|merge\..+\.driver|credential(\..+)?\.helper|sequence\.editor|gpg\.(.+\.)?program|http\.proxy|url\..+\.insteadof|include\.path|includeif\..+|safe\.directory|protocol\..+)$`)
+var riskyGitKeys = regexp.MustCompile(`(?i)^(core\.(hookspath|sshcommand|pager|editor|fsmonitor|askpass|gitproxy|attributesfile|excludesfile|worktree)|pager\..+|log\.showsignature|alias\..+|filter\..+|diff\..+\.(textconv|command)|diff\.external|merge\..+\.driver|credential(\..+)?\.helper|sequence\.editor|gpg\.(.+\.)?program|http\.proxy|url\..+\.insteadof|include\.path|includeif\..+|safe\.directory|protocol\..+)$`)
 
 // deleteWord is a subcommand or an operation name that deletes something on a
 // service or the machine (delete-bucket, apps:destroy, s3 rm, terminate-...).
@@ -131,7 +217,7 @@ func judgeDest(dest string, scope HostScope, reason string) (int, string) {
 	// A folder is judged as one (.ssh/ , .git/hooks/ name settings by their
 	// slash).
 	dir := strings.TrimSuffix(dest, "/") + "/"
-	if scope.config(dest) || scope.config(dir) || repoConfigPaths.MatchString(dir) {
+	if scope.config(dest) || scope.config(dir) || scope.repoSettings(dir) {
 		return CriticalSettings, "changes a settings file"
 	}
 	if !scope.inside(dest) {

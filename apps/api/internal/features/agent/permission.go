@@ -427,7 +427,7 @@ func hostItem(h HostAction, scope HostScope) (int, string) {
 		}
 		return 0, ""
 	case HostFileWrite:
-		if scope.config(h.Path) || repoConfigPaths.MatchString(h.Path) {
+		if scope.config(h.Path) || scope.repoSettings(h.Path) {
 			return CriticalSettings, "changes a settings file"
 		}
 		if !scope.inside(h.Path) {
@@ -517,9 +517,10 @@ func (s HostScope) insideAt(p string, follow bool) bool {
 		if !ok {
 			return false
 		}
-		p = path.Join(base, p)
+		p = joinRaw(base, p)
 	}
-	p = path.Clean(p)
+	// A .. after a link is taken from the link's target, as the kernel does.
+	p = kernelPath(p)
 	if !(p == ws || strings.HasPrefix(p, strings.TrimSuffix(ws, "/")+"/")) {
 		return false
 	}
@@ -685,14 +686,14 @@ func commandItem(line string, scope HostScope) (int, string) {
 			if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
 				continue
 			}
-			if scope.config(target) || repoConfigPaths.MatchString(target) {
+			if scope.config(target) || scope.repoSettings(target) {
 				consider(CriticalSettings, "changes a settings file")
 			} else if !scope.inside(target) {
 				consider(CriticalDeleting, "overwrites a file outside the agent's folder")
 			}
 		}
 		for _, m := range appendTo.FindAllStringSubmatch(part, -1) {
-			if t := strings.Trim(m[1], `"'`); scope.config(t) || repoConfigPaths.MatchString(t) {
+			if t := strings.Trim(m[1], `"'`); scope.config(t) || scope.repoSettings(t) {
 				consider(CriticalSettings, "changes a settings file")
 			}
 		}
@@ -1090,7 +1091,7 @@ func programItem0(prog string, args []string, scope HostScope) (int, string) {
 				files = files[1:] // the first plain word is the script
 			}
 			for _, f := range files {
-				if scope.config(f) || repoConfigPaths.MatchString(f) {
+				if scope.config(f) || scope.repoSettings(f) {
 					return CriticalSettings, "changes a settings file"
 				}
 				if !scope.inside(f) {
@@ -1126,7 +1127,7 @@ func programItem0(prog string, args []string, scope HostScope) (int, string) {
 		}
 		if prog == "tee" {
 			for _, op := range ops {
-				if scope.config(op) || repoConfigPaths.MatchString(op) {
+				if scope.config(op) || scope.repoSettings(op) {
 					return CriticalSettings, "changes a settings file"
 				}
 				if !scope.inside(op) {
@@ -1153,7 +1154,7 @@ func programItem0(prog string, args []string, scope HostScope) (int, string) {
 		}
 		if len(ops) >= 2 {
 			dest := ops[len(ops)-1]
-			if scope.config(dest) || repoConfigPaths.MatchString(dest) {
+			if scope.config(dest) || scope.repoSettings(dest) {
 				return CriticalSettings, "changes a settings file"
 			}
 			if !scope.inside(dest) {

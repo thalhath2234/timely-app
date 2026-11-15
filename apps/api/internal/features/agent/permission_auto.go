@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/binary"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -69,6 +72,12 @@ func AutoSafeCommand(line string, scope HostScope) (ok bool, why string) {
 		if words[0] == "cd" {
 			if listOr || (c.op != "&&" && c.op != "") {
 				return false, "it changes folder in a way Timely can't follow"
+			}
+			// bash looks a bare name up through CDPATH before the current
+			// folder, and Timely can't see that variable, so only ./x, ../x
+			// and absolute targets (and ~, expanded above) are known.
+			if len(words) == 2 && !cdPathFree(words[1]) {
+				return false, "cd to a bare name may go through CDPATH (write ./" + words[1] + ")"
 			}
 			next, why := autoCd(words[1:], scope)
 			if why != "" {
@@ -390,11 +399,26 @@ func autoCwd(scope HostScope) string {
 // Auto asks: the walk looks for secret files a search would print.
 const maxWalk = 20000
 
+// treeKind says how a content search walks a folder.
+type treeKind int
+
+const (
+	treeGrep treeKind = iota // grep -r: every entry, .git included
+	treeRg                   // rg: every entry, but .git only if rg could search it
+)
+
 // autoTree says why searching the contents of dir asks: a secret or settings
 // file anywhere under it (grep -r PASSWORD . would print a .env), or more
-// entries than Timely checks. Links are not followed, as grep -r and rg don't;
-// hidden is false for rg without --hidden, which skips dot files and folders.
-func autoTree(dir string, scope HostScope, hidden bool) string {
+// entries than Timely checks. Links are not followed, as grep -r and rg don't.
+// The walk always includes dot files, whatever the command line or an ignore
+// file says: rg skips hidden files unless a -g glob, a file type or a `!` line
+// in a .ignore file un-hides them, and a walk that follows those rules is one
+// the agent can steer (it can write a .ignore file). rg never searches a
+// .git folder unless something whitelists it (a -g glob, --hidden, -u, a `!`
+// line that could match .git), so for rg that folder is walked only then
+// (rgGit): a plain `rg x` in a repository is fine, `rg -g '*' x` reads
+// .git/config.
+func autoTree(dir string, scope HostScope, kind treeKind, rgGit bool) string {
 	abs, ok := scope.abs(dir)
 	if !ok {
 		return "it reads a path Timely can't place"
@@ -405,29 +429,90 @@ func autoTree(dir string, scope HostScope, hidden bool) string {
 	}
 	n := 0
 	found := ""
-	_ = filepath.WalkDir(filepath.FromSlash(real), func(p string, d fs.DirEntry, err error) error {
-		n++
-		if n > maxWalk {
-			found = "it searches more files than Timely can check first"
-			return filepath.SkipAll
-		}
-		if err != nil {
-			return nil
-		}
-		sp := filepath.ToSlash(p)
-		if !hidden && n > 1 && strings.HasPrefix(d.Name(), ".") {
-			if d.IsDir() {
+	var gitDirs []string
+	var walk func(root string, skipGit bool)
+	walk = func(root string, skipGit bool) {
+		_ = filepath.WalkDir(filepath.FromSlash(root), func(p string, d fs.DirEntry, err error) error {
+			n++
+			if n > maxWalk {
+				found = "it searches more files than Timely can check first"
+				return filepath.SkipAll
+			}
+			if err != nil {
+				return nil
+			}
+			sp := filepath.ToSlash(p)
+			if skipGit && d.IsDir() && d.Name() == ".git" && sp != root {
+				gitDirs = append(gitDirs, sp)
 				return filepath.SkipDir
 			}
+			if kind == treeRg && !d.IsDir() && ignoreFile.MatchString(d.Name()) && ignoreWhitelistsGit(p) {
+				rgGit = true
+			}
+			if secretName(sp) {
+				found = "it searches a folder that holds a file with passwords, keys or settings (" + path.Base(sp) + ")"
+				return filepath.SkipAll
+			}
 			return nil
+		})
+	}
+	if kind == treeRg {
+		// ignore files in the folders above the one searched apply too
+		for d := real; scope.realInside(d); d = path.Dir(d) {
+			for _, name := range []string{".ignore", ".rgignore", ".gitignore"} {
+				if ignoreWhitelistsGit(filepath.FromSlash(path.Join(d, name))) {
+					rgGit = true
+				}
+			}
+			if d == "/" {
+				break
+			}
 		}
-		if secretName(sp) {
-			found = "it searches a folder that holds a file with passwords, keys or settings (" + path.Base(sp) + ")"
-			return filepath.SkipAll
+	}
+	walk(real, kind == treeRg)
+	if found == "" && kind == treeRg && rgGit {
+		for _, g := range gitDirs {
+			if walk(g, false); found != "" {
+				break
+			}
 		}
-		return nil
-	})
+	}
 	return found
+}
+
+var ignoreFile = regexp.MustCompile(`^\.(ignore|rgignore|gitignore)$`)
+
+// ignoreWhitelistsGit reports whether an ignore file has a `!` line that
+// could whitelist a .git folder (which rg then searches).
+func ignoreWhitelistsGit(file string) bool {
+	f, err := os.Open(file)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	b, _ := io.ReadAll(io.LimitReader(f, 256<<10))
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "!") {
+			continue
+		}
+		pat := strings.Trim(strings.TrimPrefix(line, "!"), "/")
+		if strings.Contains(pat, "**") {
+			return true
+		}
+		for _, q := range []string{pat, path.Base(pat)} {
+			if m, err := path.Match(q, ".git"); err != nil || m {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// cdPathFree reports whether bash's cd skips CDPATH for a target: an absolute
+// one, ., .. and anything starting ./ or ../.
+func cdPathFree(t string) bool {
+	return strings.HasPrefix(t, "/") || t == "." || t == ".." || strings.HasPrefix(t, "./") || strings.HasPrefix(t, "../")
 }
 
 // autoCd is the scope after cd to a folder inside the working folder.
@@ -469,6 +554,9 @@ type progSpec struct {
 	cwd bool
 	// tree: a folder operand's whole contents are read (a content search).
 	tree bool
+	// noDir: a folder operand is compared or printed as a whole tree (diff
+	// -N prints every file only one side has), so it asks.
+	noDir bool
 }
 
 func shorts(kind byte, letters string, m map[byte]byte) map[byte]byte {
@@ -504,11 +592,14 @@ func spec(bools, values, paths, longBools, longValues, longOpts, longPaths strin
 
 func (s progSpec) with(f func(*progSpec)) progSpec { f(&s); return s }
 
-// autoPrograms is the list. Each entry is a command the agent uses to look
-// around a folder (the parity scenarios and live drives use ls, pwd, cat,
-// git status and git log far more than anything else), with every option
-// that writes, runs a program, follows links out of a recursive walk or reads
-// a list of files from a file left out, so it asks.
+// autoPrograms is the list. Each entry is a command an agent reaches for to
+// look around a folder. It was picked as the standard read-only inspection
+// set, not from counted usage: the parity scenarios make no terminal calls,
+// and the live drives and host tests ran ls -la, cat, echo and printf; git
+// status and git log are here because they are what a coding agent runs first
+// in a repository. Every option that writes, runs a program, follows links out
+// of a recursive walk or reads a list of files from a file is left out, so it
+// asks.
 var autoPrograms = map[string]progSpec{
 	// ls lists a folder. Left out: -L/--dereference (a recursive listing
 	// would follow links out of the folder).
@@ -536,11 +627,12 @@ var autoPrograms = map[string]progSpec{
 	// pwd prints the folder.
 	"pwd": spec("LP", "", "", "", "", "", "").with(func(s *progSpec) { s.operands = 'n' }),
 	// grep searches. Left out: -R/--dereference-recursive (follows every
-	// link), --exclude-from. A folder it searches is walked first for secret
-	// files.
-	"grep": spec("inrlLcvwxEFGPosqhHIaUzZTbyU", "emABCdD", "f",
+	// link), --exclude-from, and -d/--directories and -D/--devices (any value
+	// of --directories, even an abbreviation like rec, makes it recurse). A
+	// folder it searches is walked first for secret files.
+	"grep": spec("inrlLcvwxEFGPosqhHIaUzZTbyU", "emABC", "f",
 		"ignore-case no-ignore-case line-number recursive files-with-matches files-without-match count invert-match word-regexp line-regexp extended-regexp fixed-strings basic-regexp perl-regexp only-matching no-messages quiet silent no-filename with-filename text null null-data byte-offset initial-tab line-buffered",
-		"regexp max-count after-context before-context context include exclude exclude-dir label binary-files directories devices", "color colour", "file").
+		"regexp max-count after-context before-context context include exclude exclude-dir label binary-files", "color colour", "file").
 		with(func(s *progSpec) { s.numeric, s.pattern, s.tree = true, true, true }),
 	// rg searches. Left out: --pre/--pre-glob and -z/--search-zip (run other
 	// programs), -L/--follow, --hostname-bin, --ignore-file.
@@ -552,12 +644,14 @@ var autoPrograms = map[string]progSpec{
 	// -R, --fromfile.
 	"tree": spec("adfisDhpugCnNFxJAS", "LIP", "", "dirsfirst noreport gitignore du si", "filelimit sort charset", "", "").
 		with(func(s *progSpec) { s.cwd = true }),
-	// diff and cmp compare two files. Left out: diff -r (follows links into
-	// other folders), --from-file/--to-file, -x/-X.
+	// diff and cmp compare two files; a folder operand asks (diff compares
+	// the top-level files of two folders and prints the ones only one side
+	// has, whole). Left out: diff -r (follows links into other folders),
+	// --from-file/--to-file, -x/-X.
 	"diff": spec("cuqsbwBiyaEZtTpN", "UWCFIL", "",
 		"brief report-identical-files ignore-space-change ignore-all-space ignore-blank-lines ignore-case side-by-side text expand-tabs initial-tab show-c-function strip-trailing-cr minimal speed-large-files suppress-common-lines new-file",
-		"label width ignore-matching-lines", "unified context color", "").with(func(s *progSpec) { s.max = 2 }),
-	"cmp": spec("lsb", "ni", "", "verbose silent quiet print-bytes", "bytes ignore-initial", "", "").with(func(s *progSpec) { s.max = 4 }),
+		"label width ignore-matching-lines", "unified context color", "").with(func(s *progSpec) { s.max, s.noDir = 2, true }),
+	"cmp": spec("lsb", "ni", "", "verbose silent quiet print-bytes", "bytes ignore-initial", "", "").with(func(s *progSpec) { s.max, s.noDir = 4, true }),
 	// sort, uniq, cut and tr reshape text. Left out: sort -o/--output,
 	// -T, --compress-program (runs a program), --files0-from; a second uniq
 	// operand (it is an output file).
@@ -644,13 +738,16 @@ func autoSimple(words []string, scope HostScope) string {
 	}
 	// grep with no file and no -r reads what is piped into it
 	stdin := prog == "grep" && !recursiveGrep(args)
-	hidden := prog != "rg" || rgHidden(args)
+	kind, rgGit := treeGrep, false
+	if prog == "rg" {
+		kind, rgGit = treeRg, rgWhitelists(args)
+	}
 	if len(ops) == 0 && (s.cwd || s.tree) && !stdin {
 		if why := autoCwd(scope); why != "" {
 			return why
 		}
 		if s.tree {
-			return autoTree(".", scope, hidden)
+			return autoTree(".", scope, kind, rgGit)
 		}
 		return ""
 	}
@@ -658,8 +755,11 @@ func autoSimple(words []string, scope HostScope) string {
 		if why := autoPath(op, scope); why != "" {
 			return why
 		}
+		if s.noDir && isDir(op, scope) {
+			return prog + " is given a folder, which it reads as a whole tree"
+		}
 		if s.tree {
-			if why := autoTree(op, scope, hidden); why != "" {
+			if why := autoTree(op, scope, kind, rgGit); why != "" {
 				return why
 			}
 		}
@@ -667,14 +767,35 @@ func autoSimple(words []string, scope HostScope) string {
 	return ""
 }
 
-// rgHidden reports whether rg is told to search hidden files too (it skips
-// them by default, .git and .env among them).
-func rgHidden(args []string) bool {
+// isDir reports whether p, where its links lead, is a folder.
+func isDir(p string, scope HostScope) bool {
+	if p == "-" {
+		return false
+	}
+	abs, ok := scope.abs(p)
+	if !ok {
+		return true // unknown: treat as a folder
+	}
+	fi, err := os.Stat(filepath.FromSlash(resolveLinks(abs)))
+	return err == nil && fi.IsDir()
+}
+
+// rgWhitelists reports whether the command line can make rg search a .git
+// folder (rg skips it as hidden): -g/--glob/--iglob (an override glob
+// un-hides what it matches), --hidden, -u, --no-ignore and -. in any cluster.
+func rgWhitelists(args []string) bool {
 	for _, a := range args {
 		if a == "--" {
 			break
 		}
-		if a == "--hidden" || a == "--unrestricted" || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a, ".u")) {
+		switch {
+		case strings.HasPrefix(a, "--"):
+			name, _, _ := strings.Cut(a, "=")
+			switch name {
+			case "--glob", "--iglob", "--hidden", "--unrestricted", "--no-ignore", "--no-ignore-vcs", "--no-ignore-dot", "--no-ignore-parent":
+				return true
+			}
+		case strings.HasPrefix(a, "-") && len(a) > 1 && strings.ContainsAny(a[1:], ".ug"):
 			return true
 		}
 	}
@@ -688,7 +809,7 @@ func recursiveGrep(args []string) bool {
 		if a == "--" {
 			break
 		}
-		if a == "--recursive" || a == "--directories=recurse" || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a, "rd")) {
+		if a == "--recursive" || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a, "r")) {
 			return true
 		}
 	}
@@ -848,16 +969,37 @@ var gitSubs = map[string]progSpec{
 		"regexp-ignore-case all-match invert-grep basic-regexp extended-regexp fixed-strings perl-regexp walk-reflogs no-abbrev-commit raw boundary no-walk relative-date summary",
 		"max-count skip since until after before author committer grep format pretty date min-parents max-parents diff-filter encoding", "decorate color abbrev word-diff unified", "").
 		with(func(s *progSpec) { s.numeric = true }),
-	"diff": spec("pzRMCwbaU", "U", "", "cached staged no-index merge-base "+gitDiffBools, "diff-filter word-diff-regex inter-hunk-context src-prefix dst-prefix", "color word-diff unified submodule ignore-submodules dirstat", ""),
+	"diff": spec("pzRMCwbaU", "U", "", "cached staged merge-base "+gitDiffBools, "diff-filter word-diff-regex inter-hunk-context src-prefix dst-prefix", "color word-diff unified ignore-submodules dirstat", ""),
 	"show": spec("pzMCwbsU", "U", "", "oneline no-patch abbrev-commit no-color no-decorate source "+gitDiffBools, "format pretty date diff-filter encoding", "decorate color word-diff unified", ""),
 	"branch": spec("arvlq", "", "", "all remotes verbose list show-current no-color omit-empty ignore-case", "sort format points-at contains no-contains merged no-merged", "color column abbrev", "").
 		with(func(s *progSpec) { s.operands = 't' }),
 	"rev-parse": spec("q", "", "", "show-toplevel verify quiet git-dir is-inside-work-tree is-inside-git-dir show-prefix show-cdup absolute-git-dir symbolic symbolic-full-name git-common-dir is-bare-repository is-shallow-repository show-superproject-working-tree all branches tags remotes",
 		"", "short abbrev-ref", ""),
-	"ls-files": spec("cdmostkvfzi", "x", "", "cached deleted modified others stage killed exclude-standard full-name error-unmatch directory no-empty-directory eol debug deduplicate recurse-submodules", "exclude", "abbrev format", "").
+	"ls-files": spec("cdmostkvfzi", "x", "", "cached deleted modified others stage killed exclude-standard full-name error-unmatch directory no-empty-directory eol debug deduplicate", "exclude", "abbrev format", "").
 		with(func(s *progSpec) { s.operands = 'p' }),
 	"blame":  spec("wMCeslftpcnb", "L", "", "porcelain line-porcelain root show-email show-name show-number show-stats incremental minimal", "date", "abbrev color-lines color-by-age", ""),
 	"remote": spec("v", "", "", "verbose", "", "", "").with(func(s *progSpec) { s.operands = 'n' }),
+}
+
+// skipsSubmodules reports whether a git status or git diff is told, every
+// time it says so, to leave submodules alone (--ignore-submodules=all).
+func skipsSubmodules(name string, args []string) bool {
+	if name != "status" && name != "diff" {
+		return false
+	}
+	found := false
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if strings.HasPrefix(a, "--ignore-submodules") {
+			if a != "--ignore-submodules=all" {
+				return false
+			}
+			found = true
+		}
+	}
+	return found
 }
 
 func autoGit(args []string, scope HostScope) string {
@@ -894,12 +1036,20 @@ sub:
 	if why := autoCwd(scope); why != "" {
 		return why
 	}
-	if why := gitRepo(scope); why != "" {
+	if why := gitRepo(scope, skipsSubmodules(name, rest)); why != "" {
 		return why
 	}
 	ops, _, why := parseOptions("git "+name, s, rest, scope)
 	if why != "" {
 		return why
+	}
+	for _, a := range rest {
+		if a == "--" {
+			break
+		}
+		if strings.Contains(a, "%G") {
+			return "git " + name + " would check signatures, which runs gpg"
+		}
 	}
 	switch name {
 	case "branch":
@@ -920,6 +1070,12 @@ sub:
 		}
 	}
 	for _, op := range ops {
+		// git matches a path argument as a pathspec: a quoted * or ? still
+		// globs (git log -p -- '*env' prints a committed .env) and :(magic)
+		// changes what it means, so neither is judged as a literal name
+		if strings.ContainsAny(op, "*?[") || strings.HasPrefix(op, ":") {
+			return "git " + name + " is given a pattern, which can match a file with passwords or keys"
+		}
 		// a path, a revision (HEAD~2, main..dev) or rev:path; all are judged
 		// as paths from the folder, and a rev:path also by its path part
 		if why := autoPath(op, scope); why != "" {
@@ -935,11 +1091,15 @@ sub:
 // gitRepo says why git asks in the folder scope runs in, or "": the
 // repository git would find must have a real .git folder inside the working
 // folder, with no pointer elsewhere. A .git file, a bare repository laid out
-// in a folder, a commondir or config.worktree pointer, or a config that
-// includes another file would let a file the agent wrote set a program git
-// runs (core.fsmonitor, a diff driver), and only the .git folder's own config
-// and hooks are on the critical list.
-func gitRepo(scope HostScope) string {
+// in a folder, a commondir or config.worktree pointer, an alternates or
+// shallow file, or a config that includes another file or names a program
+// (core.fsmonitor, a diff driver, a pager) would let a file the agent wrote
+// make git read another repository or run a program. Writes under .git are on
+// the critical list (item 5), so these only exist when the repository came
+// that way. A repository with submodules asks too, unless the command skips
+// them (noSubmodules): git status and git diff start a git inside every
+// checked-out submodule, and that one reads the submodule's own config.
+func gitRepo(scope HostScope, noSubmodules bool) string {
 	base, ok := scope.base()
 	if !ok {
 		return "it runs in a folder Timely can't see"
@@ -954,13 +1114,23 @@ func gitRepo(scope HostScope) string {
 			if !scope.inside(filepath.ToSlash(dir)) {
 				return "its repository is outside the working folder"
 			}
-			for _, f := range []string{"commondir", "config.worktree"} {
-				if _, err := os.Lstat(filepath.Join(dotgit, f)); err == nil {
-					return "its repository points to another git folder"
+			for _, f := range []string{"commondir", "config.worktree", "shallow", "info/grafts", "objects/info/alternates", "objects/info/http-alternates"} {
+				if _, err := os.Lstat(filepath.Join(dotgit, filepath.FromSlash(f))); err == nil {
+					return "its repository points to another git folder or history (" + f + ")"
 				}
 			}
-			if b, err := os.ReadFile(filepath.Join(dotgit, "config")); err == nil && gitInclude.Match(b) {
-				return "its repository's settings include another file"
+			if b, err := os.ReadFile(filepath.Join(dotgit, "config")); err == nil {
+				if gitInclude.Match(b) {
+					return "its repository's settings include another file"
+				}
+				if key := riskyGitConfig(b); key != "" {
+					return "its repository's settings name a program git would run (" + key + ")"
+				}
+			}
+			if !noSubmodules {
+				if why := gitSubmodules(dir, dotgit); why != "" {
+					return why
+				}
 			}
 			return ""
 		}
@@ -973,6 +1143,97 @@ func gitRepo(scope HostScope) string {
 		}
 		dir = parent
 	}
+}
+
+const submoduleWhy = "its repository has submodules, and git runs inside each one with that folder's own settings"
+
+// gitSubmodules says why a repository with submodules asks: a .gitmodules
+// file, a .git/modules folder, a split index, or a gitlink in the index.
+func gitSubmodules(dir, dotgit string) string {
+	for _, p := range []string{filepath.Join(dir, ".gitmodules"), filepath.Join(dotgit, "modules")} {
+		if _, err := os.Lstat(p); err == nil {
+			return submoduleWhy
+		}
+	}
+	if m, _ := filepath.Glob(filepath.Join(dotgit, "sharedindex.*")); len(m) > 0 {
+		return "its index is split, which Timely can't read"
+	}
+	b, err := os.ReadFile(filepath.Join(dotgit, "index"))
+	if err != nil {
+		return "" // no index: nothing is staged, so no gitlink
+	}
+	gitlink, readable := indexHasGitlink(b)
+	switch {
+	case !readable:
+		return "its index is in a form Timely can't read"
+	case gitlink:
+		return submoduleWhy
+	}
+	return ""
+}
+
+// indexHasGitlink reads a git index, version 2 or 3, for an entry whose mode
+// is a gitlink (160000). readable is false for any other form.
+func indexHasGitlink(b []byte) (gitlink, readable bool) {
+	if len(b) < 12 || string(b[:4]) != "DIRC" {
+		return false, false
+	}
+	version, count := binary.BigEndian.Uint32(b[4:8]), int(binary.BigEndian.Uint32(b[8:12]))
+	if version != 2 && version != 3 {
+		return false, false
+	}
+	off := 12
+	for i := 0; i < count; i++ {
+		if off+62 > len(b) {
+			return false, false
+		}
+		mode := binary.BigEndian.Uint32(b[off+24 : off+28])
+		flags := binary.BigEndian.Uint16(b[off+60 : off+62])
+		fixed := 62
+		if version == 3 && flags&0x4000 != 0 {
+			fixed = 64
+		}
+		if mode&0xF000 == 0xE000 {
+			return true, true
+		}
+		nul := bytes.IndexByte(b[min(off+fixed, len(b)):], 0)
+		if nul < 0 {
+			return false, false
+		}
+		off += (fixed + nul + 8) &^ 7
+	}
+	return false, true
+}
+
+// riskyGitConfig is the first setting in a repository's config that names a
+// program git runs (riskyGitKeys), as section.subsection.key; "" for none.
+func riskyGitConfig(b []byte) string {
+	section := ""
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		for line != "" && line[0] == '[' {
+			end := strings.IndexByte(line, ']')
+			if end < 0 {
+				return "an unreadable section"
+			}
+			head := strings.TrimSpace(line[1:end])
+			if name, sub, ok := strings.Cut(head, " "); ok {
+				section = name + "." + strings.Trim(strings.TrimSpace(sub), `"`)
+			} else {
+				section = head
+			}
+			line = strings.TrimSpace(line[end+1:])
+		}
+		if line == "" || line[0] == '#' || line[0] == ';' {
+			continue
+		}
+		key, _, _ := strings.Cut(line, "=")
+		key = section + "." + strings.TrimSpace(key)
+		if riskyGitKeys.MatchString(key) {
+			return key
+		}
+	}
+	return ""
 }
 
 var gitInclude = regexp.MustCompile(`(?im)^\s*\[\s*include`)
