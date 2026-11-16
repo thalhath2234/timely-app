@@ -215,4 +215,3 @@ func TestIntegrationOutsideReadTaintsTheChat(t *testing.T) {
 		t.Fatalf("stored tainted_sources %s", stored)
 	}
 }
-
