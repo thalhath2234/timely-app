@@ -147,7 +147,10 @@ export function AgentBotPage({
         <View style={styles.section}>
           <GroupLabel>How it works</GroupLabel>
           <ListGroup>
-            <ListRow title="Prompt" meta={promptPreview(detail.prompt)} onPress={() => setPage("prompt")} />
+            {/* A wrapped subtitle gets the same 14 pt above and below its text as a one-line row. */}
+            <View style={styles.firstTallRow}>
+              <ListRow title="Prompt" meta={promptPreview(detail.prompt)} onPress={() => setPage("prompt")} />
+            </View>
             <ListRow title="Schedule" trailing={scheduleWords(detail.schedule)} onPress={() => setPage("schedule")} />
             {reads.length > 0 ? (
               <SwitchRow
@@ -316,6 +319,7 @@ function Chip({ children, tone }: { children: string; tone?: "ok" | "off" }) {
 const styles = createThemedStyleSheet(() => ({
   body: { paddingHorizontal: 16, paddingBottom: 16, gap: 16 },
   section: { gap: 8 },
+  firstTallRow: { paddingVertical: 6 },
   muted: { color: colors.mutedForeground, fontSize: 14 },
   lead: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 },
   name: { flexShrink: 1, color: colors.foreground, fontSize: 18, fontWeight: "600" },

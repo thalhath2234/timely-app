@@ -1,6 +1,7 @@
 // The lines of a Bot thread in order: the person's messages (from the thread's
 // own messages) between the cards the API builds (alerts, changes, answers).
 // Pure, so `make test-mobile-assistant` runs it under Node.
+import { hostWaiting, type HostRequest } from "@timely/contract/agentChat";
 import type { BotThreadLine } from "../../lib/api/chat";
 
 type ThreadMessage = { id: string; role: string; kind?: string; content: string; createdAt: string };
@@ -35,4 +36,14 @@ export function threadRows(messages: ThreadMessage[] | undefined, items: BotThre
 export function draftSetup(items: BotThreadLine[] | undefined): Extract<BotThreadLine, { kind: "draft_setup" }> | null {
   const setups = (items ?? []).filter((i): i is Extract<BotThreadLine, { kind: "draft_setup" }> => i.kind === "draft_setup");
   return setups.length ? setups[setups.length - 1] : null;
+}
+
+/** The step parked in Needs you on a Bot thread (its host card), or undefined when none waits. */
+export function parkedStep(thread: { status?: string; hostRequest?: HostRequest | null } | null | undefined): HostRequest | undefined {
+  return thread && hostWaiting(thread) ? (thread.hostRequest ?? undefined) : undefined;
+}
+
+/** Whether the thread shows its "Nothing yet" text: not while it loads, has lines or a step waits. */
+export function threadIsEmpty(rowCount: number, parked: HostRequest | undefined, loading: boolean): boolean {
+  return !loading && rowCount === 0 && !parked;
 }

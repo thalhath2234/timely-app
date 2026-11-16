@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
 import { useMutation } from "@tanstack/react-query";
+import { hostNeedsUnlock, type HostChoice, type HostRequest } from "@timely/contract/agentChat";
 import { Send, SlidersHorizontal } from "lucide-react-native";
 import BottomSheet from "../ui/BottomSheet";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { Field } from "../ui/primitives";
 import { SkeletonRows } from "../ui/motionKit";
 import {
+  answerHostCard,
   createBotFromDraft,
   doAlertInChat,
   resolveBotChange,
@@ -16,14 +18,25 @@ import {
   undoBotChange,
   type BotThreadLine,
 } from "../../lib/api/chat";
+import { ApiError } from "../../lib/api/client";
+import { unlockDevice, withUnlock } from "../../lib/deviceUnlock";
+import { answerDevice, hostAnswerBody, hostAnswerError, hostAnswerStale } from "../../lib/chat/host";
+import { useAgentChatSettingsQuery } from "../../lib/hooks";
 import { useToastStore } from "../../lib/toast";
 import { colors, createThemedStyleSheet } from "../../lib/theme";
 import { useAssistant } from "../chat/AssistantProvider";
+import HostCard from "../chat/HostCard";
 import { AlertCard, AnswerBubble, ChangeCard, DraftSetupCard, PendingCard, UserBubble } from "./ThreadCards";
-import { draftSetup, threadRows } from "./threadRows";
+import { draftSetup, parkedStep, threadIsEmpty, threadRows } from "./threadRows";
 import { useBotThread, useRefreshAssistant } from "./useAssistantData";
 
 const say = (message: string) => useToastStore.getState().show(message);
+
+/** The phone's unlock was cancelled or failed: nothing was sent. */
+class UnlockRefused extends Error {}
+
+/** The device name an answer records. */
+const phoneName = () => (Platform.OS === "ios" ? "iPhone" : Platform.OS === "android" ? "Android phone" : "Phone browser");
 const nextId = () => `thr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 /**
@@ -100,6 +113,44 @@ export function BotThread({
       onCreated(done.botId);
     },
     onError: (error: Error) => say(error.message),
+  });
+  // A step the Bot's run parked in Needs you: Run once or Deny, answered through the
+  // host-card call. Run once unlocks the phone first; Deny never asks.
+  const parked = parkedStep(view?.thread);
+  const settings = useAgentChatSettingsQuery(!!parked);
+  const [hostNote, setHostNote] = useState("");
+  const [hostUnlocking, setHostUnlocking] = useState(false);
+  const hostAnswer = useMutation({
+    mutationFn: async (input: { request: HostRequest; choice: HostChoice }) => {
+      const sent = await withUnlock(
+        hostNeedsUnlock(input.choice, "phone"),
+        (unlocked) =>
+          answerHostCard(
+            threadId as string,
+            hostAnswerBody(input.request, view?.thread.revision ?? 0, input.choice, answerDevice("phone", phoneName(), unlocked)),
+          ),
+        async (prompt) => {
+          setHostUnlocking(true);
+          try {
+            return await unlockDevice(prompt);
+          } finally {
+            setHostUnlocking(false);
+          }
+        },
+      );
+      if (!sent.sent) throw new UnlockRefused(sent.message);
+      return sent.value;
+    },
+    // The thread and the inbox's Needs-you count both move once the step is answered.
+    onSuccess: () => {
+      setHostNote("");
+      refresh(threadId ?? undefined);
+    },
+    onError: (reason) => {
+      if (reason instanceof UnlockRefused) return setHostNote(reason.message);
+      // The card closed or changed meanwhile (409): show how it ended.
+      if (hostAnswerStale(reason instanceof ApiError ? reason.status : undefined)) refresh(threadId ?? undefined);
+    },
   });
   const doInChat = useMutation({
     mutationFn: (alertId: string) => doAlertInChat(alertId, nextId()),
@@ -207,7 +258,7 @@ export function BotThread({
       <View style={styles.body}>
         {thread.isPending && (id ?? startedId) ? <SkeletonRows rows={3} height={72} /> : null}
         {thread.error && !view ? <Text style={styles.muted}>Couldn’t load this thread. Close it and try again.</Text> : null}
-        {(!thread.isPending || !(id ?? startedId)) && rows.length === 0 ? (
+        {threadIsEmpty(rows.length, parked, thread.isPending && !!(id ?? startedId)) ? (
           <Text style={styles.muted}>
             {draft || !id
               ? "Tell it what to watch or do, and when. It sets the whole Bot up for you to create."
@@ -221,6 +272,22 @@ export function BotThread({
             <View key={row.key}>{renderLine(row.line)}</View>
           ),
         )}
+        {parked?.requestId ? (
+          <HostCard
+            key={parked.requestId}
+            request={parked}
+            rule={settings.data?.hostApprovalRule}
+            sending={hostAnswer.isPending ? (hostAnswer.variables?.choice ?? null) : null}
+            note={hostNote}
+            unlocking={hostUnlocking}
+            error={
+              hostAnswer.isError && !(hostAnswer.error instanceof UnlockRefused) && hostAnswer.variables?.request.requestId === parked.requestId
+                ? hostAnswerError(hostAnswer.error instanceof ApiError ? hostAnswer.error.status : undefined, hostAnswer.error.message)
+                : undefined
+            }
+            onAnswer={(choice) => hostAnswer.mutate({ request: parked, choice })}
+          />
+        ) : null}
         {running || send.isPending ? <Text style={styles.muted}>Working on it…</Text> : null}
       </View>
     </BottomSheet>
