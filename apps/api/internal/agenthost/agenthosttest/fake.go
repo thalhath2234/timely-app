@@ -259,6 +259,8 @@ func (f *fake) handle(m map[string]any) {
 		}()
 	case "bot.run":
 		f.fail(id, str(m, "run"), "unsupported", "bot.run is a later phase")
+	case "bot.review", "bot.forget":
+		f.botLearning(id, typ, account)
 	default:
 		if strings.HasPrefix(typ, "learning.") || typ == "settings.update" {
 			f.learning(id, typ, account)
@@ -291,6 +293,22 @@ func (f *fake) learning(id, typ, account string) {
 	for _, raw := range r.Emit {
 		f.emit(raw)
 	}
+}
+
+// botLearning answers bot.review and bot.forget (PROTOCOL.md section 14)
+// with learning.result: what the script says (Kit.LearningReply with the
+// type), else a review that staged nothing ({pending_ids: [], events: []})
+// and a forget that removed the skill ({removed: true}).
+func (f *fake) botLearning(id, typ, account string) {
+	if _, ok := f.script().learningFor(account, typ); ok {
+		f.learning(id, typ, account)
+		return
+	}
+	data := map[string]any{"pending_ids": []string{}, "events": []any{}}
+	if typ == "bot.forget" {
+		data = map[string]any{"removed": true}
+	}
+	f.send(map[string]any{"type": "learning.result", "id": id, "ok": true, "data": data})
 }
 
 // emit sends one line from the script or the outbox; "_account" replaces
