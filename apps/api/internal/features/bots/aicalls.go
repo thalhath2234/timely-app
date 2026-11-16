@@ -38,8 +38,10 @@ func (AICall) TableName() string { return "bot_ai_calls" }
 
 // reserveAI takes one AI call for b before it is made, in its own short
 // transaction under the account's AI lock: errAICap when b has made
-// AIPerBot calls today, the account AIPerAccount (neither counts for an agent
-// run), or the chain ChainAI (whoever made them). Days are the notification
+// AIPerBot calls today, the account AIPerAccount, or the chain ChainAI
+// (whoever made them). Agent runs are never refused by the daily caps, and
+// their rows don't count toward them, so busy agent Bots can't use up the
+// judge, rejudge and brief calls rules Bots depend on (Q-B7). Days are the notification
 // zone's.
 func (s *Service) reserveAI(ctx context.Context, b Bot, chainID, purpose string, now time.Time) (string, error) {
 	id := utils.PrefixedUUID("bai")
@@ -53,10 +55,11 @@ func (s *Service) reserveAI(ctx context.Context, b Bot, chainID, purpose string,
 		}
 		var n struct{ Bot, Account, Chain int }
 		if err := tx.Raw(`
-SELECT count(*) FILTER (WHERE bot_id = @bot) AS bot, count(*) AS account,
+SELECT count(*) FILTER (WHERE bot_id = @bot AND purpose <> @run) AS bot,
+       count(*) FILTER (WHERE purpose <> @run) AS account,
        (SELECT count(*) FROM bot_ai_calls WHERE user_id = @uid AND chain_id = @chain AND @chain <> '') AS chain
 FROM bot_ai_calls WHERE user_id = @uid AND local_day = CAST(@day AS date)`,
-			sql.Named("bot", b.ID), sql.Named("uid", b.UserID), sql.Named("chain", chainID), sql.Named("day", day)).Scan(&n).Error; err != nil {
+			sql.Named("bot", b.ID), sql.Named("run", purposeRun), sql.Named("uid", b.UserID), sql.Named("chain", chainID), sql.Named("day", day)).Scan(&n).Error; err != nil {
 			return err
 		}
 		// An agent run is never refused by the per-Bot and per-account

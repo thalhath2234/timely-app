@@ -167,3 +167,47 @@ func TestLineEndKeepsOneShortLine(t *testing.T) {
 		t.Fatalf("line end %q", got)
 	}
 }
+
+// After page text was read in the turn, a new egress host or a tool server
+// turned on waits for the tap as well; without it they apply at once.
+func TestTaintedWidenReasonHoldsEgressAndMCP(t *testing.T) {
+	base := Reach{Permission: PermissionAuto, Egress: []string{"api.example.com"}, MCP: map[string]string{"files": "ask", "notes": "off"}}
+	cases := []struct {
+		name   string
+		after  Reach
+		reason string
+	}{
+		{"same", base, ""},
+		{"new host", Reach{Permission: PermissionAuto, Egress: []string{"api.example.com", "evil.example"}, MCP: base.MCP}, WidenEgress},
+		{"host in another case is the same", Reach{Permission: PermissionAuto, Egress: []string{" API.example.com "}, MCP: base.MCP}, ""},
+		{"host removed", Reach{Permission: PermissionAuto, MCP: base.MCP}, ""},
+		{"new server", Reach{Permission: PermissionAuto, Egress: base.Egress, MCP: map[string]string{"files": "ask", "notes": "off", "gmail": "ask"}}, WidenMCP},
+		{"off to use", Reach{Permission: PermissionAuto, Egress: base.Egress, MCP: map[string]string{"files": "ask", "notes": "use"}}, WidenMCP},
+		{"ask to use", Reach{Permission: PermissionAuto, Egress: base.Egress, MCP: map[string]string{"files": "use", "notes": "off"}}, WidenMCP},
+		{"ask to off", Reach{Permission: PermissionAuto, Egress: base.Egress, MCP: map[string]string{"files": "off"}}, ""},
+		{"new server off", Reach{Permission: PermissionAuto, Egress: base.Egress, MCP: map[string]string{"files": "ask", "x": "off"}}, ""},
+		{"the base rule still holds", Reach{Permission: PermissionFull, Egress: base.Egress, MCP: base.MCP}, WidenPermission},
+	}
+	for _, c := range cases {
+		if got := TaintedWidenReason(base, c.after); got != c.reason {
+			t.Errorf("%s: reason %q, want %q", c.name, got, c.reason)
+		}
+		tainted := ChangeInput{AfterPageText: true}
+		if got := tainted.WidenReason(base, c.after); got != c.reason {
+			t.Errorf("%s: tainted change reason %q, want %q", c.name, got, c.reason)
+		}
+		// Without a page read, only the base rule holds.
+		if got, want := (ChangeInput{}).WidenReason(base, c.after), WidenReason(base, c.after); got != want {
+			t.Errorf("%s: plain change reason %q, want %q", c.name, got, want)
+		}
+	}
+	if WidenReason(base, Reach{Permission: PermissionAuto, Egress: []string{"evil.example"}}) != "" {
+		t.Fatal("a new host must apply at once without a page read")
+	}
+	// The flag is never stored: a held change replayed by the tap has none.
+	b, _ := json.Marshal(ChangeInput{AfterPageText: true, From: "a", To: "b"})
+	var back ChangeInput
+	if err := json.Unmarshal(b, &back); err != nil || back.AfterPageText {
+		t.Fatalf("stored %s: %+v %v", b, back, err)
+	}
+}
