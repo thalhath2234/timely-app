@@ -24,6 +24,14 @@ returns before Hermes resets it, and the review would otherwise fire again every
 learning pass (Hermes' background review fork, a daemon thread after the run) there is no run:
 the hook finds the conversation's taint and flags through ``bridge.session_state(session_id)``.
 
+**Bots** (phase 7, plan 9b.3). A bot tick (kind ``bot``) and a bot feedback review (kind
+``bot_review``) bind their session with ``learning_writes`` on, so their writes reach the stage
+rule: always staged, origin ``bot``, with the session's ``bot_id``. A feedback review is scoped
+first: it may call only ``skills_list``, ``skill_view`` and ``skill_manage``, and ``skill_manage``
+only on its own bot skill (``state.skill_scope``, ``bot-<slug>``), never ``delete``; memory, files and
+any other skill are blocked. Its staged and blocked events are kept on the session for the
+``bot.review`` answer.
+
 **Past-chat search** (``session_search``, Q-3.5): only when the run says ``flags.search_history``.
 Go lists the chats a search may return (``run.start.search_allow``: the account's chats that are
 neither Sensitive nor "Don't learn from this chat"); a session it does not list (one a restore
@@ -77,6 +85,14 @@ NO_LEARNING_RUN = "Blocked: Timely saves skills and memory only inside a chat. A
 SEARCH_OFF = "Blocked: searching past chats is off for this chat. Answer without it; do not retry."
 SEARCH_EXCLUDED = "Blocked: that chat is not searchable. Do not retry."
 SEARCH_PROFILE = "Blocked: Timely searches only this account's chats."
+REVIEW_SCOPE = ("Blocked: this feedback review may only change the skill {skill}. "
+                "Change that skill or stop; do not retry.")
+REVIEW_TOOL = ("Blocked: a feedback review only reads skills and changes the skill {skill}. "
+               "Do not retry {tool}.")
+REVIEW_DELETE = "Blocked: a feedback review never deletes the bot's skill. Do not retry."
+# What a feedback review (kind ``bot_review``) may call: the skills tools, with skill_manage only on
+# its own bot skill (plan 9b.3, Q3). Hermes' review whitelist also admits read_file and search_files.
+REVIEW_TOOLS = ("skills_list", "skill_view", "skill_manage")
 LEARNING_TOOLS = ("skill_manage", "memory")
 SEARCH_TOOL = "session_search"
 PATH_TOOLS = ("write_file", "patch")
@@ -177,6 +193,9 @@ def external_skill(name: str) -> bool:
 
 def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> dict | None:
     args = args if isinstance(args, dict) else {}
+    scoped = _review_scope(tool_name, args, str(_.get("session_id") or ""))
+    if scoped is not None:
+        return scoped
     if tool_name in LEARNING_TOOLS or tool_name == SEARCH_TOOL:
         # A sub-task never saves or searches past chats (phase 4). timely_gate blocks it too; this
         # hook may run first, and it must not stage the write before that block lands.
@@ -224,6 +243,51 @@ def pre_tool_call(tool_name: str = "", args: dict | None = None, **_: Any) -> di
     return None
 
 
+def _review_state(session_id: str):
+    """The session state of a bot feedback review (kind ``bot_review``) this call runs in, else None."""
+    from timely_agent import bridge
+    run = bridge.current_run.get()
+    state = run.session if run is not None else bridge.session_state(session_id)
+    return state if state is not None and getattr(state, "kind", "") == "bot_review" else None
+
+
+def _review_scope(tool_name: str, args: dict, session_id: str) -> dict | None:
+    """A feedback review reads skills and changes only its own bot skill ``bot-<slug>``: any other
+    tool (memory, files, search) and any ``skill_manage`` target or delete is blocked. With no
+    scope on the state every write is blocked (fail closed)."""
+    try:
+        state = _review_state(session_id)
+    except Exception as exc:  # fail closed for a review; a chat never reaches here without a state
+        logger.warning("review scope check failed for %s: %s", tool_name, exc)
+        return {"action": "block", "message": f"Blocked: Timely could not check {tool_name} ({exc})."}
+    if state is None:
+        return None
+    skill = state.skill_scope or "(none)"
+    if tool_name not in REVIEW_TOOLS:
+        return {"action": "block", "message": REVIEW_TOOL.format(skill=skill, tool=tool_name)}
+    if tool_name != "skill_manage":
+        return None
+    actions = [args.get("action")] + [op.get("action") for op in args.get("operations") or []
+                                       if isinstance(op, dict)]
+    if "delete" in actions:
+        return {"action": "block", "message": REVIEW_DELETE}
+    targets = list(_skill_targets(args))
+    ops = args.get("operations")
+    if isinstance(ops, list) and any(not isinstance(op, dict) or op.get("name") != state.skill_scope for op in ops):
+        return {"action": "block", "message": REVIEW_SCOPE.format(skill=skill)}
+    if not state.skill_scope or not targets or any(t != state.skill_scope for t in targets):
+        return {"action": "block", "message": REVIEW_SCOPE.format(skill=skill)}
+    return None
+
+
+def _note_event(view, event) -> None:
+    """Keep a staged or blocked event on a bot review's session, for ``bot.review``'s answer."""
+    state = view.state
+    if state is not None and isinstance(event, dict) and getattr(state, "kind", "") == "bot_review":
+        with state.lock:
+            state.learning_events.append(event)
+
+
 class _View:
     """The facts the learning policy needs, from the live run or (in the learning pass, which
     has none) from the conversation's session state."""
@@ -243,6 +307,7 @@ class _View:
             spawner = bridge.spawning_run()
             if spawner is not None and spawner.run_id:
                 self.run_id = spawner.run_id
+        self.bot_id = str(getattr(state, "bot_id", "") or "") if state is not None else ""
         self.agent = (run.agent if run is not None else None) or (state.agent if state is not None else None)
         self.search_exclude = set(state.search_exclude) if state is not None else set()
         self.search_allow = set(state.search_allow or []) if state is not None else set()
@@ -320,18 +385,18 @@ def _learning_write(tool_name: str, args: dict, session_id: str) -> dict | None:
                             from_bot=view.from_bot, kind=view.kind, unattended=view.fork and _unattended(),
                             threat=_threat)
     context = dict(origin=view.origin, conversation_id=view.conversation_id, run_id=view.run_id,
-                   bot_id="", tainted_sources=view.taint)
+                   bot_id=view.bot_id, tainted_sources=view.taint)
     if decision.action == rules.BLOCK:
         if decision.reason == "off":
             return {"action": "block", "message": LEARNING_OFF}
         try:
-            staging.blocked_event(tool_name, args, message=decision.message, **context)
+            _note_event(view, staging.blocked_event(tool_name, args, message=decision.message, **context))
         except Exception:
             logger.exception("reporting a blocked learning write failed")
         return {"action": "block", "message": decision.message}
     if decision.action == rules.STAGE:
         try:
-            staging.stage(tool_name, args, reason=decision.reason, **context)
+            _note_event(view, staging.stage(tool_name, args, reason=decision.reason, **context))
         except staging.StageError as exc:
             return {"action": "block", "message": f"Not saved: {exc}"}
         except Exception as exc:  # fail closed: nothing is written unstaged

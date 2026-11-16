@@ -94,7 +94,7 @@ def session_context(session_id: str) -> Optional[Context]:
         return None
     origin = "bot" if state.from_bot or state.kind in ("bot", "bot_review") else "chat"
     return Context(origin=origin, conversation_id=state.session_id, run_id=state.run_id,
-                   tainted_sources=state.taint_snapshot())
+                   bot_id=state.bot_id, tainted_sources=state.taint_snapshot())
 
 
 def _review_context(session_id: str, ctx: Context) -> Context:

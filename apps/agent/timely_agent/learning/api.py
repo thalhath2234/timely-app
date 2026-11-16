@@ -762,6 +762,7 @@ def list_pending(home: Path) -> list[dict[str, Any]]:
                     "origin": meta.get("origin") or ("review" if record.get("origin") == "background_review"
                                                      else "chat"),
                     "conversation_id": meta.get("conversation_id") or "",
+                    "bot_id": meta.get("bot_id") or "",
                     "summary": meta.get("summary") or record.get("summary") or "",
                     "reason": meta.get("reason") if meta.get("reason") in feed_mod.REASONS else "",
                     "tainted_sources": list(meta.get("tainted_sources") or []),

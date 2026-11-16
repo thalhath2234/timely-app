@@ -222,13 +222,103 @@ def test_c09_chat_from_a_bot_stages_from_its_first_turn(lagent, lworker, stub):
 
 
 def test_c09_bot_run_and_bot_feedback_review_writes_stage():
-    """Policy level until ``bot.run`` (phase 6) and feedback reviews (phase 7) exist."""
+    """Policy level; the real worker runs in test_c09_bot_skill_and_feedback_review_stage_only_the_bot_skill."""
     from timely_agent.learning import rules
     for kind in ("bot", "bot_review"):
         d = rules.decide("skill_manage", {"action": "create", "name": "x", "content": "Sort the list."},
                          learning_writes=True, tainted=False, from_bot=False, kind=kind, unattended=False,
                          threat=lambda _t: None)
         assert d.action == rules.STAGE and d.reason == "bot", (kind, d)
+
+
+def _bot_tick(w, a, stub, check: str, **extra) -> tuple[dict, list[dict]]:
+    """One ``bot.run`` whose prompt the stub echoes; returns (bot.done, every message)."""
+    msg = {"type": "bot.run", "id": f"b-{check}", "account": a.account, "run_id": f"run-{check}", "bot_id": "bot_c09",
+           "check_id": check, "prompt": f"Watch the Pixel price ({check}).", "data": {}, "skills": [], "tools": {},
+           "permission": "auto", "use_memory": False, "model": harness.model_cfg(stub), "deadline_s": 90,
+           "dry_run": False, "name": "Pixel watch", "skill_slug": "c09-pixel", **extra}
+    w.send(msg)
+    seen = []
+    while True:
+        m = w.recv(120)
+        seen.append(m)
+        if m.get("type") == "bot.done" and m.get("run_id") == msg["run_id"]:
+            return m, seen
+        assert m.get("type") not in ("error", "__eof__"), (m, w.stderr[-3000:])
+
+
+def _bot_request(w, a, mtype, **fields) -> tuple[dict, list[dict]]:
+    """A ``bot.review`` / ``bot.forget``; returns (its answer, the learning events that came first)."""
+    mid = f"go-{mtype}-{time.monotonic_ns()}"
+    w.send({"type": mtype, "id": mid, "account": a.account, **fields})
+    events = []
+    while True:
+        m = w.recv(180)
+        if m.get("type") == "learning":
+            events.append(m["event"])
+        elif m.get("id") == mid and m.get("type") in ("learning.result", "error"):
+            return m, events
+
+
+def test_c09_bot_skill_and_feedback_review_stage_only_the_bot_skill(lagent, lworker, stub):
+    """Phase 7: the first tick with a new slug creates ``bot-<slug>`` with what the person taught and
+    loads it; a feedback review replays the tick and its write to the bot skill is staged with the
+    bot's id, while a write to another skill and a memory write are blocked; nothing is applied;
+    ``bot.forget`` deletes the skill."""
+    taught = "- Do not alert on refurbished phones."
+    done, _ = _bot_tick(lworker, lagent, stub, "c09bot-1", taught_seed=taught)
+    assert done["error_class"] == "" and done["skill_created"] is True, done
+    skill_md = skill_dir(lagent, "bot-c09-pixel") / "SKILL.md"
+    original = skill_md.read_text(encoding="utf-8")
+    assert "name: bot-c09-pixel" in original and "## What you taught me" in original and taught in original
+    assert taught in done["response"]  # the skill was loaded into the tick's prompt (the stub echoes it)
+    again, _ = _bot_tick(lworker, lagent, stub, "c09bot-2", taught_seed="something else")
+    assert again["skill_created"] is False and taught in again["response"]
+    assert skill_md.read_text(encoding="utf-8") == original
+
+    patch = ["skill_manage", {"action": "patch", "name": "bot-c09-pixel", "old_string": taught,
+                              "new_string": taught + "\n- Only alert for new phones sold by Flipkart."}]
+    other = ["skill_manage", {"action": "patch", "name": "c09-other", "old_string": "a", "new_string": "b"}]
+    new = create("c09bot-new")
+    memory = ["memory", {"action": "add", "target": "user", "content": "Buys refurbished phones."}]
+    review = [{"calls": [patch, other, new, memory]}, {"text": "Saved what the person taught."}]
+    messages = [{"role": "user", "content": "Watch the Pixel price (c09bot-1). REVIEW " + json.dumps(review)},
+                {"role": "assistant", "content": "", "tool_calls": [{"id": "t1", "type": "function", "function": {
+                    "name": "web_extract", "arguments": '{"urls": ["https://shop.example/p"]}'}}]},
+                {"role": "tool", "tool_call_id": "t1", "name": "web_extract", "content": "Refurbished Pixel 80000"},
+                {"role": "assistant", "content": "Pixel at 80000."}]
+    res, events = _bot_request(lworker, lagent, "bot.review", bot_id="bot_c09", bot_name="Pixel watch",
+                               skill_slug="c09-pixel", check_id="c09bot-1", prompt="Watch the Pixel price.",
+                               messages=messages, focus="It was refurbished.", feedback="not_useful",
+                               model=harness.model_cfg(stub))
+    assert res["type"] == "learning.result" and res["ok"], res
+    data = res["data"]
+    assert len(data["pending_ids"]) == 1, data
+    staged = [e for e in data["events"] if e["status"] == "staged"]
+    assert [(e["subject"], e["origin"], e["bot_id"], e["reason"]) for e in staged] == \
+        [("bot-c09-pixel", "bot", "bot_c09", "bot")], data
+    assert staged[0]["pending_id"] == data["pending_ids"][0]
+    assert [e["id"] for e in events if e["status"] == "staged"] == [staged[0]["id"]]  # Go hears it once, too
+    assert skill_md.read_text(encoding="utf-8") == original  # nothing applies before Keep
+    assert not skill_dir(lagent, "c09-other").exists() and not skill_dir(lagent, "c09bot-new").exists()
+    user = lagent.home / "memories" / "USER.md"
+    assert not user.exists() or "refurbished" not in user.read_text(encoding="utf-8")
+    reviews = [r for r in stub.requests if any(
+        m.get("role") == "user" and REVIEW_MARK in _text(m.get("content")) for m in (r.get("body") or {}).get("messages") or [])
+        and any("(c09bot-1). REVIEW" in _text(m.get("content")) for m in r["body"]["messages"])]
+    seen = [_text(m.get("content")) for m in reviews[-1]["body"]["messages"] if m.get("role") == "tool"]
+    assert sum("may only change the skill bot-c09-pixel" in t for t in seen) == 2, seen  # the other skill, the new one
+    assert len(seen) == 4 and sum(STAGED in t for t in seen) == 1, seen
+    assert any("'memory' does not exist" in t for t in seen), seen  # the review is never offered memory
+    pending = request(lworker, lagent, "learning.list", what="pending")["data"]["pending"]
+    assert [p["bot_id"] for p in pending if p["pending_id"] == data["pending_ids"][0]] == ["bot_c09"]
+
+    gone, _ = _bot_request(lworker, lagent, "bot.forget", skill_slug="c09-pixel")
+    assert gone["type"] == "learning.result" and gone["ok"] and gone["data"] == {"removed": True}, gone
+    assert not skill_dir(lagent, "bot-c09-pixel").exists()
+    bad, _ = _bot_request(lworker, lagent, "bot.review", bot_id="b", skill_slug="Bad Slug", check_id="x",
+                          feedback="useful", focus="hi", model=harness.model_cfg(stub))
+    assert bad["type"] == "error" and bad["code"] == "bad_message", bad
 
 
 # ---------------------------------------------------------------- 9e

@@ -27,6 +27,7 @@ logger = logging.getLogger("timely_agent.worker")
 
 MAX_RUNS = 3  # per-account chat run cap (section 3.3)
 MAX_BOT_RUNS = 2  # Bot ticks (plan 7.3: the bot_check lane runs agent ticks with CheckSlots 2)
+MAX_BOT_REVIEWS = 2  # feedback reviews at once (PROTOCOL.md section 14)
 BOT_DONE_KEEP = 64  # finished ticks remembered by check id (an idempotent retry gets the same answer)
 HEARTBEAT_S = 10.0
 MAINTENANCE_S = 600.0  # curator tick (its own gates decide whether a pass is due)
@@ -253,6 +254,7 @@ class Worker:
         self.prepared: dict[str, Any] = {}
         self.runs: dict[str, Any] = {}
         self.bot_done: dict[str, dict[str, Any]] = {}
+        self.bot_reviews: set[str] = set()  # check ids of the feedback reviews running now
         self.runs_lock = threading.Lock()
         self.ready = False
         self.refused_reason: Optional[str] = None
@@ -426,8 +428,8 @@ class Worker:
         tracked children."""
         from timely_agent.learning import passes
         with self.runs_lock:
-            runs = len(self.runs)
-        return {"runs": runs, "learning": passes.active(), "children": tracked_children()}
+            runs, reviews = len(self.runs), bool(self.bot_reviews)
+        return {"runs": runs, "learning": passes.active() or reviews, "children": tracked_children()}
 
     def _maintenance(self) -> None:
         """The maintenance tick (plan 9b.2 item 6): Hermes' curator, while nothing else runs."""
@@ -735,6 +737,53 @@ class Worker:
                 self.runs.pop(run_id, None)
             raise
 
+    def on_bot_review(self, msg: dict[str, Any]) -> None:
+        """``bot.review`` (a feedback review, ``timely_agent.bot_review``) and ``bot.forget`` (delete a
+        Bot's skill): answered by ``learning.result {id, ok, data}`` on a thread of their own, or an
+        ``error`` with the request's id."""
+        from timely_agent import bot_review
+        mid = msg.get("id")
+        self._require_ready(mid)
+        if not isinstance(mid, str) or not mid:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"{msg['type']} needs an id", mid)
+        forget = msg["type"] == "bot.forget"
+        bad = bot_review.forget_problem(msg) if forget else bot_review.problem(msg)
+        if bad:
+            raise P.ProtocolError(P.E_BAD_MESSAGE, f"{msg['type']} {bad}", mid)
+        check_id = "" if forget else msg["check_id"]
+        if not forget:
+            with self.runs_lock:
+                if check_id in self.bot_reviews:
+                    raise P.ProtocolError(P.E_DUPLICATE_RUN, f"a review of check {check_id} is already running", mid)
+                if len(self.bot_reviews) >= MAX_BOT_REVIEWS:
+                    raise P.ProtocolError(P.E_BUSY, f"the account already has {MAX_BOT_REVIEWS} bot reviews", mid)
+                self.bot_reviews.add(check_id)
+
+        def body() -> None:
+            try:
+                if forget:
+                    data = {"removed": bot_review.forget_skill(self.home, msg["skill_slug"])}
+                    ok = True
+                else:
+                    data = bot_review.review(msg, self.home)
+                    ok = not data.pop("failed", False)
+                self.send({"type": "learning.result", "id": mid, "ok": ok, "data": data})
+            except Exception as exc:  # noqa: BLE001 - Go waits for an answer
+                logger.exception("%s failed", msg["type"])
+                self.chan.error(P.E_INTERNAL, f"{type(exc).__name__}: {exc}"[:2000], mid)
+            finally:
+                if not forget:
+                    with self.runs_lock:
+                        self.bot_reviews.discard(check_id)
+
+        try:
+            threading.Thread(target=contextvars.copy_context().run, args=(body,),
+                             name=f"timely-{msg['type']}"[:40], daemon=True).start()
+        except BaseException:
+            with self.runs_lock:
+                self.bot_reviews.discard(check_id)
+            raise
+
     def _send_bot_done(self, mid: Optional[str], run_id: str, done: Optional[dict[str, Any]]) -> None:
         """Send bot.done; Go keeps a tick live until it arrives, so this never gives up silently."""
         if done is None:
@@ -988,6 +1037,8 @@ class Worker:
             self.on_run_start(msg)
         elif t == "bot.run":
             self.on_bot_run(msg)
+        elif t in ("bot.review", "bot.forget"):
+            self.on_bot_review(msg)
         elif t == "run.stop":
             self.on_run_stop(msg)
         elif t == "run.steer":
