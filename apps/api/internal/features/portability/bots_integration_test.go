@@ -11,7 +11,8 @@ import (
 	"timely-api/internal/models"
 )
 
-// A backup carries the account's Bots, watches, alerts, lessons, findings and
+// A backup carries the account's Bots (their skill slug and taught seed
+// too), watches, alerts, findings and
 // price days, but not the check log. Restored watches record a quiet baseline
 // first, and links to the check log come back NULL.
 func TestIntegrationBackupKeepsBots(t *testing.T) {
@@ -48,7 +49,7 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 		}
 	}
 	exec(`INSERT INTO bot_alerts (id, bot_id, user_id, check_id, notification_id, kind, local_day, title) VALUES ('bal_1', 'bot_1', ?, 'bchk_1', 'ntf_1', 'alert', '2026-11-06', 'BTC dip: below 25,000')`, uid)
-	exec(`INSERT INTO bot_lessons (id, bot_id, user_id, alert_id, text) VALUES ('bls_1', 'bot_1', ?, 'bal_1', 'Only dips under 25k matter')`, uid)
+	exec(`UPDATE bots SET skill_slug = 'btc-dip', taught_seed = 'Only dips under 25k matter' WHERE id = 'bot_1'`)
 	exec(`INSERT INTO bot_findings (id, bot_id, user_id, check_id, watch_id, kind, title, price, currency, alerted, digested_at)
 		VALUES ('bfd_1', 'bot_1', ?, 'bchk_1', 'bw_1', 'price', 'below 25,000', 24900.5, 'USD', true, now())`, uid)
 	exec(`INSERT INTO bot_price_days (watch_id, day, bot_id, user_id, currency, points, open, high, low, close)
@@ -60,12 +61,12 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for table, want := range map[string]int{"bots": 2, "bot_watches": 2, "bot_alerts": 1, "bot_lessons": 1, "bot_findings": 1, "bot_price_days": 2} {
+	for table, want := range map[string]int{"bots": 2, "bot_watches": 2, "bot_alerts": 1, "bot_findings": 1, "bot_price_days": 2} {
 		if got := len(backup.Rows[table]); got != want {
 			t.Fatalf("export %s: %d rows, want %d", table, got, want)
 		}
 	}
-	for _, table := range []string{"bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys", "bot_ai_calls", "bot_passes"} {
+	for _, table := range []string{"bot_lessons", "bot_checks", "bot_sites", "bot_robots", "bot_site_icons", "bot_source_keys", "bot_ai_calls", "bot_passes"} {
 		if _, ok := backup.Rows[table]; ok {
 			t.Fatalf("export carries %s", table)
 		}
@@ -119,8 +120,8 @@ func TestIntegrationBackupKeepsBots(t *testing.T) {
 	if n := count(`SELECT count(*) FROM bot_alerts WHERE id = 'bal_1' AND check_id IS NULL AND notification_id = 'ntf_1' AND local_day = '2026-11-06'`); n != 1 {
 		t.Fatal("alert did not round-trip with check_id NULL")
 	}
-	if n := count(`SELECT count(*) FROM bot_lessons WHERE id = 'bls_1' AND alert_id = 'bal_1'`); n != 1 {
-		t.Fatal("lesson lost its alert")
+	if n := count(`SELECT count(*) FROM bots WHERE id = 'bot_1' AND skill_slug = 'btc-dip' AND taught_seed = 'Only dips under 25k matter'`); n != 1 {
+		t.Fatal("skill slug or taught seed did not round-trip")
 	}
 	if n := count(`SELECT count(*) FROM bot_findings WHERE id = 'bfd_1' AND check_id IS NULL AND watch_id = 'bw_1' AND price = 24900.5 AND alerted AND digested_at IS NOT NULL`); n != 1 {
 		t.Fatal("finding did not round-trip")
@@ -1171,6 +1172,29 @@ func TestIntegrationBackupLeavesOutBotAway(t *testing.T) {
 		}
 		if away != 0 {
 			t.Fatalf("%d restored Bots kept a gap", away)
+		}
+	}
+}
+
+// An older backup's bot_lessons become its Bots' taught_seed, oldest first.
+func TestFoldLessons(t *testing.T) {
+	backup := &Backup{Rows: map[string][]json.RawMessage{
+		"bots": {json.RawMessage(`{"id":"bot_1","name":"A"}`), json.RawMessage(`{"id":"bot_2","name":"B","taught_seed":"Earlier"}`)},
+		"bot_lessons": {
+			json.RawMessage(`{"id":"bls_2","bot_id":"bot_1","text":"Second","created_at":"2026-11-02T00:00:00Z"}`),
+			json.RawMessage(`{"id":"bls_1","bot_id":"bot_1","text":"First\nline","created_at":"2026-11-01T00:00:00Z"}`),
+			json.RawMessage(`{"id":"bls_3","bot_id":"bot_2","text":"Third","created_at":"2026-11-03T00:00:00Z"}`),
+		},
+	}}
+	foldLessons(backup)
+	if _, ok := backup.Rows["bot_lessons"]; ok {
+		t.Fatal("bot_lessons kept")
+	}
+	want := []string{"First line\nSecond", "Earlier\nThird"}
+	for i, raw := range backup.Rows["bots"] {
+		var bot map[string]any
+		if err := json.Unmarshal(raw, &bot); err != nil || bot["taught_seed"] != want[i] {
+			t.Fatalf("bot %d: %s", i, raw)
 		}
 	}
 }

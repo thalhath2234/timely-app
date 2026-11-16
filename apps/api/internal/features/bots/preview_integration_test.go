@@ -19,7 +19,7 @@ import (
 )
 
 // previewTables are every per-account Bots table; a preview writes none.
-var previewTables = []string{"bots", "bot_watches", "bot_checks", "bot_alerts", "bot_findings", "bot_price_days", "bot_lessons", "bot_source_keys"}
+var previewTables = []string{"bots", "bot_watches", "bot_checks", "bot_alerts", "bot_findings", "bot_price_days", "bot_source_keys"}
 
 func previewNet(t *testing.T) *botstest.Network {
 	t.Helper()

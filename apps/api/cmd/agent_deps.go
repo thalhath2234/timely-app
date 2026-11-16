@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/url"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
 	"timely-api/internal/features/focus"
+	"timely-api/internal/features/learning"
 	"timely-api/internal/features/notify"
 	"timely-api/internal/features/placement"
 	"timely-api/internal/features/project"
@@ -160,7 +162,27 @@ func wireBotThreads(db *gorm.DB, chatService *chat.Service, botService *bots.Ser
 		botService.SetAgent(agent)
 		// Pause, Delete and Pause all stop the Bot's live ticks in the worker.
 		botService.SetStopper(agent.StopBot)
+		// A rated alert's feedback review, and Delete's skill delete (phase 7).
+		botService.SetReviewer(agent)
 	}
+}
+
+// wireBotLearning joins Bots, learning and notify for Bot skills (phase 7):
+// a Bot page reads what it was taught from the learning feature, a deleted
+// Bot's staged changes are discarded, and each change staged for a Bot sends
+// one "<bot> learned something - Keep?" push.
+func wireBotLearning(botService *bots.Service, learn *learning.Service, notifyService *notify.Service) {
+	if learn == nil {
+		return
+	}
+	botService.SetTeacher(learn)
+	learn.SetBotStaged(func(uid, botID, pendingID string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := notifyService.BotLearned(ctx, uid, botID, pendingID, time.Now()); err != nil {
+			log.Printf("bots: the push for what bot %s learned: %v", botID, err)
+		}
+	})
 }
 
 // boardData loads what the apps' dashboards read for one account, as their

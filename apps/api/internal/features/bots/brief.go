@@ -378,11 +378,7 @@ func (s *Service) writeBrief(ctx context.Context, b Bot, d briefDigest, w *brief
 	if err != nil {
 		return err
 	}
-	var lessons []string
-	if err := db.Model(&Lesson{}).Where("bot_id = ? AND user_id = ?", b.ID, b.UserID).
-		Order("created_at DESC, id DESC").Limit(judgeLessons).Pluck("text", &lessons).Error; err != nil {
-		return err
-	}
+	lessons := taughtLines(b, judgeLessons)
 	// A brief starts no chain: its call counts against the Bot and the
 	// account only.
 	callID, err := s.reserveAI(ctx, b, "", purposeBrief, now)

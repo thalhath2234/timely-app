@@ -429,10 +429,7 @@ func judgeContext(db *gorm.DB, b Bot, now time.Time) (lessons []string, last *Ju
 	if err != nil {
 		return nil, nil, "", err
 	}
-	if err := db.Model(&Lesson{}).Where("bot_id = ? AND user_id = ?", b.ID, b.UserID).
-		Order("created_at DESC, id DESC").Limit(judgeLessons).Pluck("text", &lessons).Error; err != nil {
-		return nil, nil, "", err
-	}
+	lessons = taughtLines(b, judgeLessons)
 	var rows []Alert
 	if err := db.Where("bot_id = ? AND user_id = ? AND kind = ? AND held = ''", b.ID, b.UserID, alertKindAlert).
 		Order("created_at DESC, id DESC").Limit(1).Find(&rows).Error; err != nil {

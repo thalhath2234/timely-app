@@ -136,8 +136,8 @@ func (l *liveBots) rate(botID, alertID, reason string) {
 	if err != nil {
 		l.t.Fatalf("rate %s: %v", alertID, err)
 	}
-	if res.Lesson != nil {
-		l.logf("lesson: %s", res.Lesson.Text)
+	if res.Feedback != nil {
+		l.logf("rated: %s", *res.Feedback)
 	}
 }
 

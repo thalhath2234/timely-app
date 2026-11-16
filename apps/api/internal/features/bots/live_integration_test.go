@@ -109,9 +109,6 @@ func TestIntegrationBotChangesNotify(t *testing.T) {
 		{"watch delete", `DELETE FROM bot_watches WHERE id = 'bwt_live'`},
 		{"alert insert", `INSERT INTO bot_alerts (id, bot_id, user_id, kind, local_day, title) VALUES ('bal_live', @bot, @user, 'alert', '2026-11-07', 'Dropped')`},
 		{"alert update", `UPDATE bot_alerts SET feedback = 'useful', feedback_at = now() WHERE id = 'bal_live'`},
-		{"lesson insert", `INSERT INTO bot_lessons (id, bot_id, user_id, alert_id, text) VALUES ('bls_live', @bot, @user, 'bal_live', 'Small moves do not matter')`},
-		{"lesson update", `UPDATE bot_lessons SET text = 'Only big moves' WHERE id = 'bls_live'`},
-		{"lesson delete", `DELETE FROM bot_lessons WHERE id = 'bls_live'`},
 		{"alert delete", `DELETE FROM bot_alerts WHERE id = 'bal_live'`},
 	}
 	for _, w := range writes {

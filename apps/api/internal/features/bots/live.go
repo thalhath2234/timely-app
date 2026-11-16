@@ -15,7 +15,7 @@ const liveTopic = "bots"
 func (s *Service) SetLive(live *realtime.Hub) { s.live = live }
 
 // Relay passes on the database's bot change notices (the triggers on bots,
-// bot_watches, bot_alerts and bot_lessons) to the live streams until ctx
+// bot_watches and bot_alerts) to the live streams until ctx
 // ends. Checks run on worker lanes in any API process on this database, so
 // the notices, not this process's own writes, are what the streams follow.
 func (s *Service) Relay(ctx context.Context) {

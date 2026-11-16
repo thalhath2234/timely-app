@@ -43,6 +43,8 @@ type View struct {
 	Watches         []WatchView `json:"watches"`
 	CreatedAt       time.Time   `json:"createdAt"`
 	UpdatedAt       time.Time   `json:"updatedAt"`
+	// SkillSlug names the Bot's own skill, bot-<slug>; "" until it is made.
+	SkillSlug string `json:"skillSlug,omitempty"`
 	// The board's fields.
 	OriginClient  string      `json:"originClient"`  // "" unless origin is mcp
 	Checking      bool        `json:"checking"`      // a check is running now
@@ -161,14 +163,16 @@ type WatchView struct {
 // Detail is a View with the Bot's recent log, alerts and prices.
 type Detail struct {
 	View
-	Checks      []CheckView    `json:"checks"`
-	Alerts      []AlertView    `json:"alerts"`
-	Prices      []PriceDayView `json:"prices"`
-	Lessons     []Lesson       `json:"lessons"`
-	Week        WeekCounts     `json:"week"`        // the last 7 days
-	AlertsMonth int            `json:"alertsMonth"` // alerts of the last 30 days
-	Rearms      []RearmView    `json:"rearms"`      // newest first: the last 30 days, at most 5
-	Links       []LinkView     `json:"links"`       // every link from or to the Bot, oldest first
+	Checks []CheckView    `json:"checks"`
+	Alerts []AlertView    `json:"alerts"`
+	Prices []PriceDayView `json:"prices"`
+	// Taught is "What this bot was taught": its skill's text and the staged
+	// suggestions waiting for Keep or Discard (plan 9b.3).
+	Taught      Taught      `json:"taught"`
+	Week        WeekCounts  `json:"week"`        // the last 7 days
+	AlertsMonth int         `json:"alertsMonth"` // alerts of the last 30 days
+	Rearms      []RearmView `json:"rearms"`      // newest first: the last 30 days, at most 5
+	Links       []LinkView  `json:"links"`       // every link from or to the Bot, oldest first
 }
 
 // RearmView is a below or above rule that armed again ("Armed again, no
@@ -332,7 +336,8 @@ func viewOf(b Bot, ws []Watch, bd *board, now time.Time) View {
 		OriginClient: b.OriginClient, Checking: b.CheckingJobID != nil, FloorLine: floorLine(floor),
 		Strip: bd.strips[b.ID], LatestAlert: bd.latest[b.ID], ItemsToday: bd.itemsToday[b.ID],
 		Suggestion: b.Suggestion, AIChecksToday: bd.aiCalls[b.ID], Knowledge: bd.knowledge[b.ID],
-		Kind: b.Kind, BriefOnly: b.BriefOnly, BriefAI: b.BriefAI, BriefTime: b.BriefTime, Sources: bd.sources[b.ID],
+		SkillSlug: b.SkillSlug,
+		Kind:      b.Kind, BriefOnly: b.BriefOnly, BriefAI: b.BriefAI, BriefTime: b.BriefTime, Sources: bd.sources[b.ID],
 		Away: botAway(b),
 	}
 	if v.Kind == "" {

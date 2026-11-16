@@ -1232,7 +1232,7 @@ func runClass(res AgentResult, err error) string {
 }
 
 // runInput assembles what the Agent is handed: the Bot's prompt with the
-// time, its lessons, notes, last alert, the gate's diff and the readings, the
+// time, its skill and taught seed, notes, last alert, the gate's diff and the readings, the
 // note a pass handed it, and the knowledge doc, if any.
 func (s *Service) runInput(ctx context.Context, c checkRun, diffs []ReadingDiff, passed *Finding) (RunInput, error) {
 	b := c.bot
@@ -1242,11 +1242,14 @@ func (s *Service) runInput(ctx context.Context, c checkRun, diffs []ReadingDiff,
 	if err != nil {
 		return RunInput{}, err
 	}
-	var lessons []string
-	if err := db.Model(&Lesson{}).Where("bot_id = ? AND user_id = ?", b.ID, b.UserID).
-		Order("created_at DESC, id DESC").Limit(judgeLessons).Pluck("text", &lessons).Error; err != nil {
+	// The Bot's skill (bot-<slug>) holds what it was taught; a Bot without
+	// one gets its slug now, and the tick that makes the skill writes the
+	// seed into it (plan 9b.3).
+	slug, err := EnsureSkillSlug(db, b.UserID, b.ID)
+	if err != nil {
 		return RunInput{}, err
 	}
+	b.SkillSlug = slug
 	var last []Alert
 	if err := db.Where("bot_id = ? AND user_id = ? AND kind = ? AND held = ''", b.ID, b.UserID, alertKindAlert).
 		Order("created_at DESC, id DESC").Limit(1).Find(&last).Error; err != nil {
@@ -1272,7 +1275,8 @@ func (s *Service) runInput(ctx context.Context, c checkRun, diffs []ReadingDiff,
 	in := RunInput{
 		Bot:        b,
 		Prompt:     b.Prompt + "\n\nNow: " + judgeTime(now, loc) + " (" + loc.String() + ").",
-		Lessons:    lessons,
+		SkillSlug:  slug,
+		TaughtSeed: b.TaughtSeed,
 		Notes:      notes,
 		Diff:       diffs,
 		Readings:   readings,

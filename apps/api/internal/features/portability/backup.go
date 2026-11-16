@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -106,7 +107,6 @@ var exportTables = []tableSpec{
 	{"bot_notes", `SELECT to_jsonb(x) || jsonb_build_object('id', x.bot_id || ':' || x.key) FROM bot_notes x WHERE x.user_id = ? ORDER BY x.bot_id, x.key`},
 	{"bot_watches", `SELECT to_jsonb(x) || jsonb_build_object('baseline_pending', true) FROM bot_watches x WHERE x.user_id = ? ORDER BY x.bot_id, x.position, x.id`},
 	{"bot_alerts", `SELECT to_jsonb(x) - 'ai_input' FROM bot_alerts x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
-	{"bot_lessons", `SELECT to_jsonb(x) FROM bot_lessons x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_links", `SELECT to_jsonb(x) FROM bot_links x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_findings", `SELECT to_jsonb(x) FROM bot_findings x WHERE x.user_id = ? ORDER BY x.created_at, x.id`},
 	{"bot_price_days", `SELECT to_jsonb(x) || jsonb_build_object('id', x.watch_id || ':' || x.day::text) FROM bot_price_days x WHERE x.user_id = ? ORDER BY x.watch_id, x.day`},
@@ -195,6 +195,7 @@ func validateBackup(backup *Backup) error {
 	if backup.SchemaVersion < minSchemaVersion || backup.SchemaVersion > schemaVersion {
 		return fmt.Errorf("unsupported backup schema %d", backup.SchemaVersion)
 	}
+	foldLessons(backup)
 	total := 0
 	known := map[string]bool{}
 	for _, spec := range exportTables {
@@ -507,7 +508,6 @@ var restoreParents = map[string][]parentRef{
 	// notification_id has no FK, and bumping a "more" alert rewrites that
 	// notification, so it must be one restored to this account.
 	"bot_alerts":     {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"notification_id", "notifications", false}},
-	"bot_lessons":    {{"bot_id", "bots", true}, {"alert_id", "bot_alerts", false}},
 	"bot_links":      {{"from_bot_id", "bots", true}, {"to_bot_id", "bots", true}},
 	"bot_findings":   {{"bot_id", "bots", true}, {"check_id", "bot_checks", false}, {"watch_id", "bot_watches", false}},
 	"bot_price_days": {{"watch_id", "bot_watches", true}, {"bot_id", "bots", true}},
@@ -742,4 +742,57 @@ func clearAccountData(tx *gorm.DB, userID string, withAgent bool) error {
 func checksum(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// foldLessons turns an older backup's bot_lessons (gone in phase 7) into its
+// Bots' taught_seed, as the bot_skill migration did: each Bot's lessons,
+// oldest first, one line each, after any seed the row already has.
+func foldLessons(backup *Backup) {
+	rows, ok := backup.Rows["bot_lessons"]
+	if !ok {
+		return
+	}
+	delete(backup.Rows, "bot_lessons")
+	type lesson struct {
+		BotID     string `json:"bot_id"`
+		Text      string `json:"text"`
+		CreatedAt string `json:"created_at"`
+		ID        string `json:"id"`
+	}
+	byBot := map[string][]lesson{}
+	for _, raw := range rows {
+		var l lesson
+		if json.Unmarshal(raw, &l) != nil || l.BotID == "" || strings.TrimSpace(l.Text) == "" {
+			continue
+		}
+		byBot[l.BotID] = append(byBot[l.BotID], l)
+	}
+	for i, raw := range backup.Rows["bots"] {
+		var bot map[string]any
+		if json.Unmarshal(raw, &bot) != nil {
+			continue
+		}
+		id, _ := bot["id"].(string)
+		list := byBot[id]
+		if len(list) == 0 {
+			continue
+		}
+		sort.SliceStable(list, func(a, b int) bool {
+			if list[a].CreatedAt != list[b].CreatedAt {
+				return list[a].CreatedAt < list[b].CreatedAt
+			}
+			return list[a].ID < list[b].ID
+		})
+		lines := []string{}
+		if seed, _ := bot["taught_seed"].(string); strings.TrimSpace(seed) != "" {
+			lines = append(lines, seed)
+		}
+		for _, l := range list {
+			lines = append(lines, strings.ReplaceAll(l.Text, "\n", " "))
+		}
+		bot["taught_seed"] = strings.Join(lines, "\n")
+		if out, err := json.Marshal(bot); err == nil {
+			backup.Rows["bots"][i] = out
+		}
+	}
 }

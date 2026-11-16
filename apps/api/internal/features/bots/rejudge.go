@@ -157,11 +157,7 @@ func (s *Service) rejudge(ctx context.Context, db *gorm.DB, job *models.Job, ale
 // person's and out of the bin). An edit, a forgotten lesson or removed
 // knowledge since the alert is respected.
 func (s *Service) rejudgeInput(ctx context.Context, db *gorm.DB, b Bot, stored JudgeInput) (JudgeInput, error) {
-	var lessons []string
-	if err := db.Model(&Lesson{}).Where("bot_id = ? AND user_id = ?", b.ID, b.UserID).
-		Order("created_at DESC, id DESC").Limit(judgeLessons).Pluck("text", &lessons).Error; err != nil {
-		return JudgeInput{}, err
-	}
+	lessons := taughtLines(b, judgeLessons)
 	in := stored
 	in.Bot, in.Description, in.Lessons, in.Knowledge = b.Name, clipRunes(b.Description, judgeDescription), nil, nil
 	for _, l := range lessons {

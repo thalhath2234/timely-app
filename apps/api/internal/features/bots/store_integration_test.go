@@ -2,6 +2,7 @@ package bots
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +34,16 @@ import (
 // migratedDB runs the full goose chain in an isolated schema, so the CHECK
 // constraints and partial indexes are the real ones.
 func migratedDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, sqlDB := emptySchemaDB(t)
+	if err := goose.Up(sqlDB, "."); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+// emptySchemaDB is a database in a new schema with no migration run yet.
+func emptySchemaDB(t *testing.T) (*gorm.DB, *sql.DB) {
 	t.Helper()
 	file := os.Getenv("CHAT_TEST_ENV")
 	if file == "" {
@@ -63,10 +75,106 @@ func migratedDB(t *testing.T) *gorm.DB {
 	t.Cleanup(func() { sqlDB.Close() })
 	goose.SetTableName(schema + ".goose_db_version")
 	t.Cleanup(func() { goose.SetTableName("goose_db_version") })
-	if err = goose.Up(sqlDB, "."); err != nil {
-		t.Fatal(err)
+	return db, sqlDB
+}
+
+// botSkillMigration is 20261117020000_bot_skill.sql.
+const botSkillMigration = 20261117020000
+
+// The bot_skill migration copies each Bot's lessons, oldest first, one line
+// each, into taught_seed and drops bot_lessons; down brings them back.
+func TestIntegrationBotSkillMigration(t *testing.T) {
+	db, sqlDB := emptySchemaDB(t)
+	must(t, goose.UpTo(sqlDB, ".", botSkillMigration-1))
+	me := addUser(t, db)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		must(t, db.Exec(q, args...).Error)
 	}
-	return db
+	exec(`INSERT INTO bots (id, user_id, name, interval_seconds, next_check_at) VALUES ('bot_a', ?, 'A', 900, now()), ('bot_b', ?, 'B', 900, now()), ('bot_c', ?, 'C', 900, now())`, me, me, me)
+	exec(`INSERT INTO bot_lessons (id, bot_id, user_id, text, created_at) VALUES
+		('bls_2', 'bot_a', ?, 'Second', '2026-11-02'),
+		('bls_1', 'bot_a', ?, E'First
+line', '2026-11-01'),
+		('bls_3', 'bot_a', ?, 'Third', '2026-11-03'),
+		('bls_4', 'bot_b', ?, 'Only one', '2026-11-01')`, me, me, me, me)
+	must(t, goose.UpTo(sqlDB, ".", botSkillMigration))
+	seeds := map[string]string{}
+	var rows []struct{ ID, TaughtSeed, SkillSlug string }
+	must(t, db.Raw(`SELECT id, taught_seed, skill_slug FROM bots ORDER BY id`).Scan(&rows).Error)
+	for _, r := range rows {
+		seeds[r.ID] = r.TaughtSeed
+		if r.SkillSlug != "" {
+			t.Fatalf("%s has slug %q", r.ID, r.SkillSlug)
+		}
+	}
+	if seeds["bot_a"] != "First line\nSecond\nThird" || seeds["bot_b"] != "Only one" || seeds["bot_c"] != "" {
+		t.Fatalf("seeds %q", seeds)
+	}
+	var exists bool
+	must(t, db.Raw(`SELECT to_regclass(current_schema() || '.bot_lessons') IS NOT NULL`).Scan(&exists).Error)
+	if exists {
+		t.Fatal("bot_lessons is still there")
+	}
+
+	// Down: the seeds come back as lessons, in order.
+	must(t, goose.DownTo(sqlDB, ".", botSkillMigration-1))
+	var texts []string
+	must(t, db.Raw(`SELECT text FROM bot_lessons WHERE bot_id = 'bot_a' ORDER BY created_at, id`).Scan(&texts).Error)
+	if !slices.Equal(texts, []string{"First line", "Second", "Third"}) {
+		t.Fatalf("lessons after down %q", texts)
+	}
+	var cols int
+	must(t, db.Raw(`SELECT count(*) FROM information_schema.columns WHERE table_name = 'bots' AND column_name IN ('skill_slug', 'taught_seed') AND table_schema = current_schema()`).Scan(&cols).Error)
+	if cols != 0 {
+		t.Fatalf("down kept %d new columns", cols)
+	}
+	// And up again.
+	must(t, goose.UpTo(sqlDB, ".", botSkillMigration))
+}
+
+// A Bot's skill slug is made from its name once, kept on rename, and a
+// clash within the account gets a number; another account's is its own.
+func TestIntegrationBotSkillSlug(t *testing.T) {
+	db := migratedDB(t)
+	me, other := addUser(t, db), addUser(t, db)
+	s := testService(db)
+	mk := func(uid, name string) string {
+		t.Helper()
+		code, body := call(t, s, uid, http.MethodPost, "/bots", pageBot(name))
+		if code != 201 && code != 200 {
+			t.Fatalf("create %d %v", code, body)
+		}
+		return fmt.Sprint(body["id"])
+	}
+	a, b, c := mk(me, "Prices: GPU!"), mk(me, "prices gpu"), mk(other, "Prices GPU")
+	slug := func(uid, id string) string {
+		t.Helper()
+		got, err := EnsureSkillSlug(db, uid, id)
+		must(t, err)
+		return got
+	}
+	if got := slug(me, a); got != "prices-gpu" {
+		t.Fatalf("slug %q", got)
+	}
+	if got := slug(me, b); got != "prices-gpu-2" {
+		t.Fatalf("clash %q", got)
+	}
+	if got := slug(other, c); got != "prices-gpu" {
+		t.Fatalf("other account %q", got)
+	}
+	must(t, db.Model(&Bot{}).Where("id = ?", a).Update("name", "Renamed").Error)
+	if got := slug(me, a); got != "prices-gpu" {
+		t.Fatalf("after rename %q", got)
+	}
+	if _, body := call(t, s, me, http.MethodGet, "/bots/"+a, nil); body["skillSlug"] != "prices-gpu" {
+		t.Fatalf("detail skillSlug %v", body["skillSlug"])
+	}
+	for _, name := range []string{"", "!!!", strings.Repeat("ab", 80)} {
+		if got := slugBase(name); !ValidSkillSlug(got) {
+			t.Errorf("slugBase(%q) = %q", name, got)
+		}
+	}
 }
 
 func must(t *testing.T, err error) {
@@ -202,7 +310,7 @@ func TestIntegrationBotsREST(t *testing.T) {
 		t.Fatalf("list %d %v", code, body)
 	}
 	code, body = call(t, s, me, http.MethodGet, "/bots/"+id, nil)
-	if code != 200 || body["id"] != id || body["checks"] == nil || len(body["checks"].([]any)) != 0 || len(body["lessons"].([]any)) != 0 || len(body["prices"].([]any)) != 0 {
+	if code != 200 || body["id"] != id || body["checks"] == nil || len(body["checks"].([]any)) != 0 || body["taught"] == nil || len(body["prices"].([]any)) != 0 {
 		t.Fatalf("detail %d %v", code, body)
 	}
 	if code, body := call(t, s, me, http.MethodGet, "/bots/"+url.PathEscape("phone PRICE"), nil); code != 200 || body["id"] != id {
@@ -334,7 +442,6 @@ func TestIntegrationBotsREST(t *testing.T) {
 	// Delete cascades to every child table.
 	var checkID = "bchk_1"
 	must(t, db.Create(&Check{ID: checkID, BotID: id, UserID: me, Trigger: "schedule", StartedAt: botNow, FinishedAt: botNow, Outcome: "baseline"}).Error)
-	must(t, db.Create(&Lesson{ID: "bls_1", BotID: id, UserID: me, Text: "Only below 20,000", CreatedAt: botNow}).Error)
 	must(t, db.Create(&PriceDay{WatchID: priceID, Day: botNow.Truncate(24 * time.Hour), BotID: id, UserID: me}).Error)
 	if code, _ := call(t, s, other, http.MethodDelete, "/bots/"+id, nil); code != 404 {
 		t.Fatalf("other account deletes %d", code)
@@ -342,7 +449,7 @@ func TestIntegrationBotsREST(t *testing.T) {
 	if code, _ := call(t, s, me, http.MethodDelete, "/bots/"+id, nil); code != http.StatusNoContent {
 		t.Fatalf("delete %d", code)
 	}
-	for _, table := range []string{"bots", "bot_watches", "bot_checks", "bot_alerts", "bot_findings", "bot_price_days", "bot_lessons"} {
+	for _, table := range []string{"bots", "bot_watches", "bot_checks", "bot_alerts", "bot_findings", "bot_price_days"} {
 		if n := count(t, db, table, "user_id = ?", me); n != 0 {
 			t.Errorf("%s keeps %d rows", table, n)
 		}

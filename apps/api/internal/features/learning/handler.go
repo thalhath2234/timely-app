@@ -130,7 +130,7 @@ func (s *Service) patchSettings(c *echo.Context) error {
 var listableStatus = []string{StatusApplied, StatusStaged, StatusBlocked, StatusUndone, StatusKept, StatusDiscarded}
 
 // listEvents is the account's learning feed, newest first:
-// ?conversationId= (one chat's), &status=, &before=<RFC 3339 createdAt of
+// ?conversationId= (one chat's), &botId= (one Bot's), &status=, &before=<RFC 3339 createdAt of
 // the last event seen>, &limit= (50, at most 200).
 func (s *Service) listEvents(c *echo.Context) error {
 	uid, err := signedIn(c)
@@ -140,6 +140,9 @@ func (s *Service) listEvents(c *echo.Context) error {
 	q := s.db.WithContext(c.Request().Context()).Where("user_id = ?", uid)
 	if conv := c.QueryParam("conversationId"); conv != "" {
 		q = q.Where("conversation_id = ?", conv)
+	}
+	if bot := c.QueryParam("botId"); bot != "" {
+		q = q.Where("bot_id = ?", bot)
 	}
 	if status := c.QueryParam("status"); status != "" {
 		if !slices.Contains(listableStatus, status) {
