@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, Pause, Play, RefreshCw, Trash2 } from "lucide-react-native";
-import { agoLabel, clockLabel, type BotDetail, type BotPermission, type BotSchedule } from "@timely/contract/bots";
+import { agoLabel, botPermissionNote, clockLabel, type BotDetail, type BotPermission, type BotSchedule } from "@timely/contract/bots";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import BottomSheet from "../ui/BottomSheet";
 import ConfirmSheet from "../ui/ConfirmSheet";
@@ -176,7 +176,12 @@ export function AgentBotPage({
           <ListGroup>
             <ListRow title="Tools" meta={toolsSummary(detail.tools)} onPress={() => setPage("tools")} />
             <ListRow title="Skills" trailing={skillsSummary(detail.skills)} onPress={() => setPage("skills")} />
-            <ListRow title="Permission" trailing={permissionWords(detail.permission)} onPress={() => setPage("permission")} />
+            <ListRow
+              title="Permission"
+              meta={botPermissionNote(detail.permission) || undefined}
+              trailing={permissionWords(detail.permission)}
+              onPress={() => setPage("permission")}
+            />
             <SwitchRow
               title="Memory and About you"
               meta="Off keeps each run clean. It never searches your past chats."

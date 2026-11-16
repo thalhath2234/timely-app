@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check } from "lucide-react-native";
-import type { BotPermission } from "@timely/contract/bots";
+import { botPermissionNote, type BotPermission } from "@timely/contract/bots";
 import { colors } from "../../lib/theme";
 import { GroupHint, ListGroup, ListRow } from "../settings/SettingsList";
 import { PERMISSION_COPY, PHONE_PERMISSIONS } from "./agentBot";
@@ -11,7 +11,7 @@ const ORDER: BotPermission[] = ["supervised", "auto", "full"];
 /**
  * How much the Bot may do without asking. In Supervised and Auto a step that
  * needs your OK waits in Needs you and the run goes on. Full Access is shown
- * but set on the desktop, after the step-up.
+ * but set on the desktop, after the step-up; until then it runs as Auto.
  */
 export function PermissionPage({
   open,
@@ -34,7 +34,7 @@ export function PermissionPage({
             <ListRow
               key={id}
               title={PERMISSION_COPY[id].name}
-              meta={PERMISSION_COPY[id].line}
+              meta={id === "full" && mode === "full" ? botPermissionNote(id) : PERMISSION_COPY[id].line}
               chevron={false}
               disabled={!offered}
               onPress={offered ? () => setMode(id) : undefined}

@@ -18,6 +18,7 @@ import {
   type CriticalRow,
   type PermissionMode,
 } from "@timely/contract/agentChat";
+import { botPermissionNote } from "@timely/contract/bots";
 import {
   GroupHint,
   GroupLabel,
@@ -78,6 +79,7 @@ function ModeRow({
   /** Rounds the hover to the card's corner. */
   edge: "top" | "bottom";
 }) {
+  const note = scope === "bots" ? botPermissionNote(value) : "";
   return (
     <PermissionPopover
       value={value}
@@ -94,12 +96,23 @@ function ModeRow({
           aria-expanded={open}
           onClick={toggle}
           className={cn(
-            "flex min-h-10 w-full cursor-pointer items-center gap-2.5 px-3.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 aria-expanded:bg-muted/50",
+            "flex w-full cursor-pointer items-center gap-2.5 px-3.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 aria-expanded:bg-muted/50",
+            note ? "min-h-12 py-1.5" : "min-h-10",
             edge === "top" ? "rounded-t-[11px]" : "rounded-b-[11px]",
           )}
         >
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
-            {label}
+          <span className="flex w-0 min-w-0 flex-1 flex-col">
+            <span className="truncate text-[13px] font-medium text-foreground">
+              {label}
+            </span>
+            {note ? (
+              <span
+                className="whitespace-normal text-xs text-warning-text"
+                data-testid="bot-full-access-note"
+              >
+                {note}
+              </span>
+            ) : null}
           </span>
           <PermissionChip mode={value} size="sm" />
           <ChevronRight
