@@ -223,7 +223,7 @@ var anchors = []anchor{
 		`if row.Status != statusHostApproval || !h.pending() { return errHostAnswered } if h.RequestID != requestID { return errHostStale }`,
 		"an answer is for the Bot card the thread still waits on (409 once it closed or another card replaced it)"},
 	{"BotContFenced", botEng, "(*BotAgent).run",
-		`if spec.fence != nil && (!spec.fence() || t.stopReason() != "") { t.err = errBotFenced return bots.AgentResult{}, errBotFenced }`,
+		`if spec.fence != nil && (!spec.fence() || t.stopReason() != "") { t.err = errBotFenced return bots.AgentResult{Model: choice}, errBotFenced }`,
 		"a continuation's bot.run is not sent unless the fence holds"},
 	{"BotContFenced", botEng, "(*BotAgent).continueCard",
 		`spec.fence = func() bool { return s.botRowHolds(ctx, uid, cid, runID, lease) }`,

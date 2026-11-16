@@ -281,12 +281,12 @@ func TestBotMCPDecisionTable(t *testing.T) {
 	yes := true
 	rules := &fakeMCP{modes: map[string]string{"mail": mcpUse, "notes": mcpUse, "old": mcpOff}}
 	type row struct {
-		name   string
-		server string
-		tool   string
-		args   map[string]any
-		ro     *bool
-		mod    func(*BotRunCtx)
+		name    string
+		server  string
+		tool    string
+		args    map[string]any
+		ro      *bool
+		mod     func(*BotRunCtx)
 		noRules bool
 		want    string
 	}

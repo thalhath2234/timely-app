@@ -105,12 +105,14 @@ func TestIntegrationAgentEngineRealWorkerBotTick(t *testing.T) {
 	}
 
 	// 3. The browser: a granted site's read runs alone (Go allows it, no
-	// card); browser_exec is no tool of a tick; a read of a site the Bot may
-	// reach but was not granted the browser for parks on its thread.
+	// card); a read of a site the Bot may reach but was not granted the
+	// browser for parks on its thread; a script (bot_browser_exec) never runs
+	// in a tick: it parks too, and with the thread's card taken it is not
+	// asked.
 	script = []any{
 		map[string]any{"calls": []any{[]any{"bot_browser_read", map[string]any{"url": "https://pixel.example/p"}}}},
-		map[string]any{"calls": []any{[]any{"browser_exec", map[string]any{"code": "print('BOTEXECMARK')"}}}},
 		map[string]any{"calls": []any{[]any{"bot_browser_read", map[string]any{"url": "https://ungranted.example/q"}}}},
+		map[string]any{"calls": []any{[]any{"bot_browser_exec", map[string]any{"code": "print('BOTEXECMARK')"}}}},
 		map[string]any{"text": "[SILENT]"},
 	}
 	res = tick("bchk_px_browser", pixel+"\nSCRIPT "+mustJSON(script), nil)
@@ -118,13 +120,20 @@ func TestIntegrationAgentEngineRealWorkerBotTick(t *testing.T) {
 		t.Fatalf("browser tick: %+v", res)
 	}
 	var reads []bots.ToolTrace
+	execs := 0
 	for _, tr := range res.Trace {
 		if tr.Tool == "bot_browser_read" {
 			reads = append(reads, tr)
 		}
-		if tr.Tool == "browser_exec" && tr.Outcome == "ok" {
-			t.Fatalf("browser_exec ran: %+v", res.Trace)
+		if tr.Tool == "bot_browser_exec" {
+			execs++
+			if tr.Outcome == "ok" {
+				t.Fatalf("bot_browser_exec ran: %+v", res.Trace)
+			}
 		}
+	}
+	if execs != 1 {
+		t.Fatalf("bot_browser_exec traced %d times, want 1 (trace %+v)", execs, res.Trace)
 	}
 	if len(reads) != 2 || reads[0].Outcome != "ok" || reads[0].Host != "pixel.example" || reads[1].Outcome != "parked" {
 		t.Fatalf("browser reads %+v (trace %+v)", reads, res.Trace)
