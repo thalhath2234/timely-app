@@ -651,7 +651,6 @@ func TestIntegrationAgentEngineRealWorkerPhotoChat(t *testing.T) {
 	c := h.realChat(stubScript("tag-photo", obj{"text": "A red square."}), "supervised", func(c *Conversation) {
 		c.Sensitive = true
 		c.Messages[0].ImageIDs = []string{imageID}
-		c.ImageReview = &ImageReview{ImageIDs: []string{imageID}, Status: "review", Text: "A red square"}
 		if err := os.WriteFile(imagePath(imageID), photo.Bytes(), 0o600); err != nil {
 			t.Fatal(err)
 		}

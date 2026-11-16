@@ -296,11 +296,8 @@ func (a *BotAgent) spec(ctx context.Context, uid string, in bots.RunInput) (botS
 		skills = []string{}
 	}
 	fields := map[string]any{
-		"bot_id": b.ID,
-		"prompt": prompt,
-		// The Bot's own skill, bot-<slug>, made on its first tick with the
-		// taught seed as "What you taught me" (PROTOCOL.md 14.1).
-		"skill_slug":  in.SkillSlug,
+		"bot_id":      b.ID,
+		"prompt":      prompt,
 		"taught_seed": in.TaughtSeed,
 		"data":        botData(in, addrs),
 		"skills":      skills,
@@ -313,6 +310,12 @@ func (a *BotAgent) spec(ctx context.Context, uid string, in bots.RunInput) (botS
 		// record for the Bot, which bots do not have yet, so it runs as Auto.
 		"permission": string(agent.BotMode(permission, false)),
 		"deadline_s": seconds,
+	}
+	if in.SkillSlug != "" {
+		// The Bot's own skill, bot-<slug>, made on its first tick with the
+		// taught seed as "What you taught me" (PROTOCOL.md 14.1). A Bot
+		// without a slug has none; the worker refuses an empty one.
+		fields["skill_slug"] = in.SkillSlug
 	}
 	if zone := strings.TrimSpace(b.Timezone); zone != "" {
 		if _, err := time.LoadLocation(zone); err == nil && zone != "Local" {
