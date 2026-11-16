@@ -307,6 +307,16 @@ func TestIntegrationAgentRunsHaveNoDailyCaps(t *testing.T) {
 		t.Fatalf("the daily caps refused an agent run: %+v", c)
 	}
 	ctx := context.Background()
+	// Run rows don't count toward the daily caps: a judge call still gets
+	// through after a full account's worth of runs.
+	if _, err := e.s.reserveAI(ctx, b, "fresh", purposeJudge, e.now); err != nil {
+		t.Fatalf("run rows used up the judge's daily caps: %v", err)
+	}
+	// Judge rows do count: past the per-Bot cap the next judge call is refused.
+	for range AIPerBot {
+		must(t, e.db.Exec(`INSERT INTO bot_ai_calls (id, user_id, bot_id, chain_id, local_day, purpose, created_at)
+			VALUES (?, ?, ?, ?, CAST(? AS date), 'judge', ?)`, "bai_cap_"+uuid.NewString(), e.user, b.ID, "chain_cap_"+uuid.NewString(), day, e.now).Error)
+	}
 	if _, err := e.s.reserveAI(ctx, b, "fresh", purposeJudge, e.now); !errors.Is(err, errAICap) {
 		t.Fatalf("a judge call past the daily caps: %v", err)
 	}
