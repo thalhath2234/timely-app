@@ -206,6 +206,9 @@ const (
 	// ClassBrowserBusy: a chat took the browser during the tick, so the
 	// Bot's next browser call was refused.
 	ClassBrowserBusy = "browser_busy"
+	// ClassStopped: the person paused or deleted the Bot (or turned on Pause
+	// all) and Go stopped its tick. Not a failure: no strike, no health change.
+	ClassStopped = "stopped"
 )
 
 // Why a tick did not run (bot_checks.skip_reason); "" when it ran.

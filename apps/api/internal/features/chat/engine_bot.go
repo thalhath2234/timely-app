@@ -122,9 +122,13 @@ func (a *BotAgent) StopBot(userID, botID string) {
 	}
 	a.e.mu.Unlock()
 	for _, t := range ticks {
-		a.e.stopTick(t, "bot stopped")
+		a.e.stopTick(t, botStopReason)
 	}
 }
+
+// botStopReason is the run.stop reason of a tick whose Bot was paused or
+// deleted (StopBot): the tick ends bots.ClassStopped, never a failure.
+const botStopReason = "bot stopped"
 
 // botTick is one bot.run this process follows: a tick or a continuation.
 type botTick struct {
@@ -623,7 +627,11 @@ func (a *BotAgent) follow(ctx context.Context, t *botTick, spec botSpec) (bots.A
 			if ctxErr != nil {
 				return bots.AgentResult{}, ctxErr
 			}
-			return bots.AgentResult{ErrorClass: bots.ClassTimeout, Trace: []bots.ToolTrace{}}, nil
+			class := bots.ClassTimeout
+			if !timedOut && t.stopReason() == botStopReason {
+				class = bots.ClassStopped
+			}
+			return bots.AgentResult{ErrorClass: class, Trace: []bots.ToolTrace{}}, nil
 		}
 	}
 }
@@ -733,6 +741,10 @@ func (d botDone) result(t *botTick, timedOut bool) bots.AgentResult {
 	}
 	res.Silent = d.Silent && len(res.Reports) == 0
 	res.ErrorClass = botClass(d.ErrorClass, timedOut)
+	if d.ErrorClass == "stopped" && !timedOut && t.stopReason() == botStopReason {
+		// The person paused or deleted the Bot: not a failure of the run.
+		res.ErrorClass = bots.ClassStopped
+	}
 	if res.ErrorClass == bots.ClassRateLimited && d.RetryAfterSeconds > 0 {
 		// Go clamps the hold (bots.rateHoldFor); this only converts the unit,
 		// and caps it so a huge number cannot overflow the Duration.
@@ -768,8 +780,9 @@ func botClass(class string, timedOut bool) string {
 		if timedOut {
 			return bots.ClassTimeout
 		}
-		// Stopped by Go for another reason (the Bot paused, Delete): no
-		// strike, it runs again on its schedule.
+		// Stopped by Go for another reason (ctx cancelled, the thread row
+		// fenced): no strike, it runs again on its schedule. A stop for a
+		// paused or deleted Bot is bots.ClassStopped (botDone.result).
 		return bots.ClassUnreachable
 	}
 	return bots.ClassCrash

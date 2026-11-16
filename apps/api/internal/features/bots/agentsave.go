@@ -52,6 +52,7 @@ const (
 	endUnreachable
 	endRateLimited
 	endStrike
+	endStopped
 )
 
 // agentEnd is how a tick ended, worked out from its run.
@@ -84,13 +85,15 @@ func endOf(run agentRun) agentEnd {
 		e.kind, e.outcome, e.consume = endCapped, outSkipped, false
 	case run.class == ClassUnreachable:
 		e.kind, e.outcome, e.errKind, e.consume = endUnreachable, outOffline, ClassUnreachable, false
+	case run.class == ClassStopped:
+		e.kind, e.outcome, e.consume = endStopped, outSkipped, false
 	case run.class == ClassRateLimited:
 		e.kind, e.outcome, e.errKind, e.consume = endRateLimited, outRateLimited, ClassRateLimited, false
 		e.retryAfter = run.res.RetryAfter
 	case run.class != "":
 		e.kind, e.outcome, e.errKind, e.consume = endStrike, outFailed, run.class, false
 	}
-	if run.class != "" && run.class != classNoAI && run.class != ClassBrowserBusy {
+	if run.class != "" && run.class != classNoAI && run.class != ClassBrowserBusy && run.class != ClassStopped {
 		text := run.res.Response
 		if run.err != nil {
 			text = run.err.Error()
@@ -648,6 +651,8 @@ func (s *Service) finishAgentBot(tx *gorm.DB, c checkRun, b Bot, cur []Watch, en
 		// Nothing was lost: the floor its claim took is given back so the
 		// retry is not turned away by it.
 		set["check_started_at"] = c.prevStarted
+	case endStopped:
+		// The person stopped it: the Bot's strikes and health stay as they were.
 	case endRateLimited:
 		// Never a strike. The provider's Retry-After holds the Bot, no shorter
 		// than the source floor and no longer than a day; without one, rateHold.
@@ -785,7 +790,7 @@ func (s *Service) savePassAgent(ctx context.Context, pc *passCheck, c checkRun, 
 		end := endOf(run)
 		state := passQuiet
 		switch end.kind {
-		case endBusy, endCapped:
+		case endBusy, endCapped, endStopped:
 			state = passFolded
 		case endNoAI, endUnreachable, endRateLimited, endStrike:
 			state = passFailed
