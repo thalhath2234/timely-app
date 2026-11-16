@@ -1,6 +1,6 @@
 """No-persist contract tests (phase 4, Q-4.2): ``run.start.flags.no_persist`` leaves nothing of the
-run in the account home. Sensitive and photo chats stay on classic (the flag is test-only and off
-by default in Go); this proves the worker half: no ``state.db`` rows, no memory, no learning, no
+run in the account home. Every Sensitive chat runs this way from phase 8 (``test_c_photos.py``
+covers ``flags.sensitive`` alone); this proves the worker half: no ``state.db`` rows, no memory, no learning, no
 counters, no log lines, no request dumps, and nothing a past-chat search can find.
 
 The proof is a snapshot of the home (every path with its size, mode, mtime and sha256) before and

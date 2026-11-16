@@ -34,10 +34,14 @@ Build or reuse the conversation's ``AIAgent``, run ``run_conversation``, forward
   project context files (each one a taint source). Full Access turns on Hermes' session YOLO for
   the run (``host.start_yolo``). A host card whose live wait ended parks: the turn ends after that
   round and ``run.done`` says ``turn_exit_reason: "approval_parked"`` with ``parked``.
-- **No-persist** (phase 4, Q-4.2; ``flags.no_persist``, test-only): an uncached agent with
-  ``session_db=None``, ``skip_memory``, no learning pass, no review counters, no learning feed and
-  no request dumps; Go sends the whole conversation as ``history`` every turn. Nothing of the run
-  is written under the account home (``NO_PERSIST`` lists the seams).
+- **No-persist** (phase 4, Q-4.2; phase 8, Q7): ``flags.no_persist``, ``run.start.no_persist``
+  and every Sensitive chat (``flags.sensitive``) get an uncached agent with ``session_db=None``,
+  ``skip_memory``, no learning pass, no review counters, no learning feed and no request dumps; Go
+  sends the whole conversation as ``history`` every turn. Nothing of the run is written under the
+  account home (``NO_PERSIST`` lists the seams).
+- **Photos** (phase 8, Q7; ``run.start.images``): the user message goes to Hermes as content
+  parts with one ``image_url`` per photo (``timely_agent.images``); a model Go did not mark
+  ``supports_vision`` fails the run with ``images.VISION_MISSING`` before Hermes is touched.
 """
 
 from __future__ import annotations
@@ -51,7 +55,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from timely_agent import bridge, config_render, host, policy, untrusted
+from timely_agent import bridge, config_render, host, images, policy, untrusted
+from timely_agent import no_persist as no_persist_runs
 from timely_agent.learning import feed as learning_feed
 from timely_agent.learning import passes as learning_passes
 
@@ -351,7 +356,7 @@ NO_PERSIST = ("session_db", "skip_memory", "skip_background_review", "agent_cach
 
 
 def no_persist(msg: dict[str, Any]) -> bool:
-    return (msg.get("flags") or {}).get("no_persist") is True
+    return no_persist_runs.wanted(msg)
 
 
 def clarify_callback(questions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -605,12 +610,18 @@ def _review_callback(conversation: str) -> Callable[[str], None]:
 
 def run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) -> dict[str, Any]:
     """Run one turn; returns the ``run.done`` fields (never raises). A no-persist turn runs with
-    Hermes' file logs closed to it (``timely_agent.no_persist``)."""
-    if not no_persist(run.msg):
+    Hermes' file logs closed to it (``timely_agent.no_persist``). A turn with photos on a model
+    Go did not mark as reading images fails here, before any agent is built."""
+    blocked = images.vision_problem(run.msg)
+    if blocked:
+        return {"final_response": "", "completed": False, "interrupted": False, "turn_exit_reason": "",
+                "tokens": {}, "estimated_cost_usd": None, "turn_id": None,
+                "tainted_sources": list(run.msg.get("tainted_sources") or []), "history_seeded": False,
+                "pending_steer": "", "error": blocked, "error_kind": images.ERROR_KIND_VISION}
+    if not no_persist_runs.mark(run.msg):
         return _run_turn(run, cache, emit)
     from hermes_constants import get_hermes_home
-    from timely_agent import no_persist as no_persist_logs
-    with no_persist_logs.scope(Path(get_hermes_home())):
+    with no_persist_runs.scope(Path(get_hermes_home())):
         return _run_turn(run, cache, emit)
 
 
@@ -702,8 +713,13 @@ def _run_turn(run: Run, cache: AgentCache, emit: Callable[[str, dict], None]) ->
         done["history_seeded"] = seeded
         if stored is not None:
             kwargs["conversation_history"] = stored
+        text = str(msg.get("user_message") or "")
+        photos = images.of(msg)
+        images.vouch(agent, bool(photos))  # vision_problem already required Go's supports_vision
+        if photos:
+            kwargs["persist_user_message"] = text  # state.db keeps the words, never the photos
         turn_ran = True
-        result = agent.run_conversation(str(msg.get("user_message") or ""), **kwargs) or {}
+        result = agent.run_conversation(images.user_content(text, photos), **kwargs) or {}
         # Hermes may have started the learning pass on a daemon thread: busy until it ends, then
         # report what it learned.
         if learning_passes.pending_review(agent) is not None:

@@ -1,4 +1,10 @@
-"""Keeping a no-persist run's text out of Hermes' log files (phase 4, Q-4.2; ``flags.no_persist``).
+"""No-persist runs (phase 4, Q-4.2; phase 8, Q7): which runs are no-persist, and keeping their
+text out of Hermes' log files.
+
+A run is no-persist when ``run.start.flags.no_persist`` or ``run.start.no_persist`` is true, and
+always when ``flags.sensitive`` is true: a Sensitive chat never leaves anything in the account
+home, whatever Go sent (``wanted``). ``mark`` writes the answer into ``flags.no_persist`` so every
+reader of the run's flags (the log filter below, ``delegation``, ``run_chat``) agrees.
 
 Hermes logs each turn at INFO into ``<home>/logs/agent.log`` (``agent.turn_context`` writes the
 person's message: ``msg='...'``), through one queue handler on the root logger
@@ -7,8 +13,7 @@ while one is live:
 
 - the queue handler (and any other Hermes handler on the root logger) drops every record: a
   record from a thread that did not copy the run's context (an HTTP client thread) cannot be told
-  apart, and the flag is test-only (off by default, decision 10), so other runs of the account lose
-  their log lines for that time;
+  apart, so other runs of the account lose their log lines for that time;
 - the worker's own stderr handler drops the run's records (its context names the run), so the
   person's text does not reach the API log either; other runs keep logging there.
 
@@ -22,9 +27,25 @@ import contextlib
 import logging
 import threading
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 from timely_agent import bridge
+
+
+def wanted(msg: dict[str, Any]) -> bool:
+    """The run must persist nothing: no-persist asked for, or a Sensitive chat."""
+    flags = msg.get("flags") if isinstance(msg.get("flags"), dict) else {}
+    return flags.get("no_persist") is True or msg.get("no_persist") is True or flags.get("sensitive") is True
+
+
+def mark(msg: dict[str, Any]) -> bool:
+    """Set ``flags.no_persist`` when the run is no-persist (see ``wanted``); returns it."""
+    if not wanted(msg):
+        return False
+    flags = msg.get("flags") if isinstance(msg.get("flags"), dict) else {}
+    msg["flags"] = {**flags, "no_persist": True}
+    return True
+
 
 _live = 0
 _lock = threading.Lock()
