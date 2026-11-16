@@ -113,7 +113,9 @@ func fakePropose(summary string, steps ...map[string]any) map[string]any {
 }
 
 // fakeReply is the run's streamed reply.
-func fakeReply(text string) map[string]any { return map[string]any{"fake": "reply", "text": text, "chunk": 0} }
+func fakeReply(text string) map[string]any {
+	return map[string]any{"fake": "reply", "text": text, "chunk": 0}
+}
 
 // script routes the run of the next message containing text to a fixture of
 // lines, and returns how many tool results the worker had received so far.
