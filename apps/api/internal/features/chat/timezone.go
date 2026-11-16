@@ -12,8 +12,6 @@ import (
 	"timely-api/internal/models"
 )
 
-const emptyReplyNudge = "System notice (not written by the user): your last reply was empty. Continue the request now: call the read tools you still need, call propose_changes with the complete plan for any change, or reply to the person."
-
 // validTimezone keeps a device zone only when the server can load it.
 func validTimezone(name string) string {
 	name = strings.TrimSpace(name)

@@ -14,59 +14,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// The classic loop's prompts and tool results, recorded before the per-call
-// branch moved out of plan() into toolcall.go (plan 5.8). Each digest is the
-// sha256 of what the model was sent on one call: every message (role,
-// content, tool calls, tool call id, cache mark) and the tool specs offered.
-// The time notice is the only part that changes from run to run, so it is
-// replaced by a placeholder before hashing. Recorded again when Classic
-// began wrapping outside reads (list_bots, ask_bot) in Hermes' untrusted
-// block (untrusted.go, Q-3.9): with markUntrusted as the identity the old
-// digests still matched, so the block is the only change.
-var classicGolden = map[string][]string{
-	"reads": {
-		"d4fbaf8d43bdf88bf12b9515b577f5e2f8f286b67eb5a5a94e86e1e1b7df381c",
-		"b2f1a56f65ee0177f25b1ed6176c57263a65d4a35728aa7539f5d986097a140b",
-		"a90449fa91da30f4ad5ebdd60e0b43c5bfb0939174cb867f596d159c420eaaea",
-		"55650c080b70f61c6fde1963fefe1831866c020dde04ebbbe1e5288b107d368d",
-		"4e5986988c068ff79fdcf2b6f399715b9e31b09b2ea73e9e5355d73d647b64d4",
-		"8fa8ba6c626dcc0615c1fcb00217fcea83b7ca6af04f2608aadd530db7ec717d",
-		"828476474d54830ff2aeb3fd3a21be1e7af5c660f28aacd803b634897489060f",
-		"425bddaf25f60ec4daf84115724c9ec1f06fcccd75a0dcaa543556de08fa9a22",
-	},
-	"tagged": {
-		"685463bc1e49061227fec2c7dd4f725005781ca0e0016b40d40a3be6d3bad20b",
-		"cc624758b34999223ddf2bcd16d3a51fcb44b4fccbfa7b47e6deb8d817eaa062",
-		"a1fcb9668923eb74bb5dccfd708a212b4805429d1df5a31a57537e40346a977c",
-	},
-	"propose": {
-		"cf8c0d24a7c2f556ff66423435a84f93722a02a6bdfb72b9f06e4eee11bf1c8f",
-	},
-}
-
 // recorder plays back responses and records each request the model gets.
 type recorder struct {
 	mu        sync.Mutex
 	responses []WireMessage
-	requests  []string
 	seen      [][]WireMessage
 }
 
-func (r *recorder) Complete(_ context.Context, messages []WireMessage, tools []any, _ bool) (WireMessage, error) {
+func (r *recorder) Complete(_ context.Context, messages []WireMessage, _ []any, _ bool) (WireMessage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	type wire struct {
-		WireMessage
-		Cache bool `json:"cache,omitempty"`
-	}
-	sent := make([]wire, len(messages))
-	for i, m := range messages {
-		if strings.HasPrefix(m.Content, "System notice (not written by the user):\nCurrent UTC time:") {
-			m.Content = "<time notice>"
-		}
-		sent[i] = wire{WireMessage: m, Cache: m.Cache}
-	}
-	r.requests = append(r.requests, string(raw(map[string]any{"messages": sent, "tools": tools})))
 	r.seen = append(r.seen, append([]WireMessage{}, messages...))
 	if len(r.responses) == 0 {
 		return WireMessage{}, fmt.Errorf("script exhausted")
@@ -74,14 +31,6 @@ func (r *recorder) Complete(_ context.Context, messages []WireMessage, tools []a
 	next := r.responses[0]
 	r.responses = r.responses[1:]
 	return next, nil
-}
-
-func (r *recorder) digests() []string {
-	out := make([]string, len(r.requests))
-	for i, req := range r.requests {
-		out[i] = fmt.Sprintf("%x", sha256.Sum256([]byte(req)))
-	}
-	return out
 }
 
 // calls is one assistant message with several tool calls, ids as given.
@@ -131,24 +80,22 @@ func goldenRun(t *testing.T, s *Service, db *gorm.DB, first Message, responses [
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	return model, c
 }
 
-// Classic plan() sends the same prompts and tool results as before the
-// per-call branch moved to toolCall: a read, an outside read, a write tool
+// What a turn's tool calls get back: a read, an outside read, a write tool
 // called directly, an unknown tool, an oversize result, propose_changes in
 // a batch, ask_bot over maxAsks, an answer-only refusal, and a proposal.
-func TestIntegrationClassicPromptsAreUnchanged(t *testing.T) {
+func TestIntegrationTurnToolResults(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, goldenCatalog, nil)
 	s.SetBotNames(func(context.Context, string) ([]BotName, error) { return tagNames, nil })
 	propose := map[string]any{"summary": "Create Buy milk", "direct": true, "language": "en", "reply": "", "remaining": "",
 		"steps": []any{map[string]any{"tool": "create_task", "summary": "Create Buy milk", "arguments": map[string]any{"name": "Buy milk"}}}}
 
-	got := map[string][]string{}
 	reads, _ := goldenRun(t, s, db, message("user", "Look around"), []WireMessage{
 		calls("c_read", "list_docs", map[string]any{}),
 		calls("c_outside", "list_bots", map[string]any{}),
@@ -160,7 +107,6 @@ func TestIntegrationClassicPromptsAreUnchanged(t *testing.T) {
 			"c_a3", "ask_bot", map[string]string{"bot": "bot_btc"}, "c_a4", "ask_bot", map[string]string{"bot": "bot_cafe"}),
 		{Role: "assistant", Content: "Here is what I found."},
 	})
-	got["reads"] = reads.digests()
 	last := lastToolResults(reads.seen[len(reads.seen)-1])
 	if len(last) != 11 || !strings.Contains(last[2], "never called directly") || !strings.Contains(last[3], `Unknown tool \"frobnicate\"`) ||
 		!strings.Contains(last[4], "Result is too large") || !strings.Contains(last[6], "Call propose_changes alone") || !strings.Contains(last[10], "as many bots as one request may ask (3)") {
@@ -169,28 +115,21 @@ func TestIntegrationClassicPromptsAreUnchanged(t *testing.T) {
 
 	tagged := message("user", "@Kettle, make a task")
 	tagged.BotTags = []string{"bot_kettle"}
-	answer, _ := goldenRun(t, s, db, tagged, []WireMessage{
+	answer, tc := goldenRun(t, s, db, tagged, []WireMessage{
 		calls("c_refused", "create_task", map[string]any{"name": "x"}),
 		calls("c_ask", "ask_bot", map[string]string{"bot": "bot_kettle"}),
 		{Role: "assistant", Content: "Kettle reads 49.99."},
 	})
-	got["tagged"] = answer.digests()
-
-	proposal, c := goldenRun(t, s, db, message("user", "Add Buy milk"), []WireMessage{calls("c_p", "propose_changes", propose)})
-	got["propose"] = proposal.digests()
-	if len(c.Plan) != 1 || c.Plan[0].Tool != "create_task" {
-		t.Fatalf("plan %+v", c.Plan)
+	if last := lastToolResults(answer.seen[len(answer.seen)-1]); len(last) != 2 || !strings.Contains(last[0], answerOnlyRefusal) || !strings.Contains(last[1], "bot_kettle") {
+		t.Fatalf("tagged tool results %v", last)
+	}
+	if reply := lastMessage(tc); reply.Content != "Kettle reads 49.99." || len(reply.BotAnswers) != 1 {
+		t.Fatalf("tagged reply %+v", reply)
 	}
 
-	for name, digests := range got {
-		want := classicGolden[name]
-		same := len(want) == len(digests)
-		for i := 0; same && i < len(want); i++ {
-			same = want[i] == digests[i]
-		}
-		if !same {
-			t.Errorf("%s: prompts changed\n got  %q\n want %q", name, digests, want)
-		}
+	_, c := goldenRun(t, s, db, message("user", "Add Buy milk"), []WireMessage{calls("c_p", "propose_changes", propose)})
+	if len(c.Plan) != 1 || c.Plan[0].Tool != "create_task" {
+		t.Fatalf("plan %+v", c.Plan)
 	}
 }
 
@@ -198,7 +137,7 @@ func TestIntegrationClassicPromptsAreUnchanged(t *testing.T) {
 // (sha256 recorded then); instructionFor(true) drops only the scope line.
 func TestInstructionForDropsOnlyTheScopeLine(t *testing.T) {
 	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(instructionFor(false)))); got != "c0272bc9674d05a5aa389052960a711662bf1145e45ba110be4119d88acfe9e0" {
-		t.Fatalf("the classic instruction changed: %s", got)
+		t.Fatalf("the instruction changed: %s", got)
 	}
 	host := instructionFor(true)
 	if strings.Contains(host, "Stay within Timely") || strings.Contains(host, "Politely decline unrelated requests") {

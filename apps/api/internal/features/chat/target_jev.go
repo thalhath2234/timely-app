@@ -39,12 +39,12 @@ var targetKinds = map[string]string{
 // targetHint is added to the system prompt only when resolve_target is offered.
 const targetHint = "\nWhen a change names an existing item in words that may match more than one (two dentist appointments, similarly named tasks, docs, sheets or projects), call resolve_target with its kind and name before proposing. Its pick is only the most likely candidate: read it before proposing, and when there is no pick and several fit, ask the person which one they mean."
 
-func targetSpec() any {
-	return toolSpec(targetTool, "Shortlist the existing items a change may be about when its name could match several, and say which one the person most likely means. Returns up to 8 candidates; a confident pick comes first and is named in pick. Read-only.",
-		map[string]any{"type": "object", "properties": map[string]any{
+func targetSpec() agent.ToolSpec {
+	return agent.ToolSpec{Name: targetTool, Description: "Shortlist the existing items a change may be about when its name could match several, and say which one the person most likely means. Returns up to 8 candidates; a confident pick comes first and is named in pick. Read-only.",
+		Parameters: map[string]any{"type": "object", "properties": map[string]any{
 			"kind": map[string]any{"type": "string", "enum": []string{"task", "event", "doc", "sheet", "project"}},
 			"name": map[string]any{"type": "string", "description": "The words the person used for the item, e.g. dentist appointment"},
-		}, "required": []string{"kind", "name"}})
+		}, "required": []string{"kind", "name"}}}
 }
 
 // Target is one candidate in resolve_target's answer.

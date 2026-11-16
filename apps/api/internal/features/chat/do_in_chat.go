@@ -70,7 +70,7 @@ func (s *Service) DoInChat(ctx context.Context, uid, alertID string, in DoInChat
 	row := Conversation{ID: cid, UserID: uid, Title: clip(request, 70), Status: "queued", Phase: "plan", Kind: KindChat, FromBotID: &botID,
 		TaintedSources: TaintSources{{Kind: "bot", BotID: a.BotID}}, ForceReview: true, Permission: string(agent.Supervised),
 		Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), HostGrants: HostGrants{}, Context: []ContextChip{},
-		Messages: []Message{first}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Messages: []Message{first}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	noteLanguage(&row, request)
 	res := s.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
 	if res.Error != nil {

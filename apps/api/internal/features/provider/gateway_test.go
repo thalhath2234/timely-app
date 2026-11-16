@@ -182,7 +182,7 @@ func TestGatewayRefusesOtherCallers(t *testing.T) {
 
 // With the gateway running, AgentModel gives a Claude Code run a custom
 // OpenAI endpoint on the gateway and a key that works there; without it the
-// chat stays classic.
+// chat cannot run.
 func TestAgentModelSendsCLIRunsThroughTheGateway(t *testing.T) {
 	fake := &gatewayFake{reply: chat.WireMessage{Role: "assistant", Content: "Hi."}}
 	g, _ := startTestGateway(t, fake)
@@ -405,7 +405,7 @@ func TestAgentModelForSensitiveNeedsTheGateway(t *testing.T) {
 	s := agentTestService(t)
 	for _, p := range []string{OpenRouter, "anthropic", "deepseek"} {
 		_, err := s.AgentModelFor(context.Background(), "u", p, "m", AgentRunOptions{Sensitive: true})
-		if !errors.Is(err, ErrAgentEngineUnsupported) || !strings.Contains(err.Error(), "Sensitive chats use the classic engine") {
+		if !errors.Is(err, ErrAgentEngineUnsupported) || !strings.Contains(err.Error(), "Sensitive chats cannot run") {
 			t.Errorf("%s: %v", p, err)
 		}
 	}

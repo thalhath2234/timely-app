@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
+	"timely-api/internal/agenthost"
+	"timely-api/internal/agenthost/agenthosttest"
 	"timely-api/internal/features/agent"
 	"timely-api/internal/features/bots"
 	"timely-api/internal/features/bots/botstest"
@@ -81,14 +84,88 @@ func proposeSteps(summary string, steps ...map[string]any) chat.WireMessage {
 }
 
 // botChat is the chat service on the real chat and rehearsal catalogs, with
-// Bots on a fake network, serving its routes as uid.
+// Bots on a fake network, serving its routes as uid. Chat turns run on the
+// agent engine with the fake worker (agenthosttest), which replays the
+// fixture script routes to each message.
 type botChat struct {
-	t     *testing.T
-	db    *gorm.DB
-	uid   string
-	svc   *bots.Service
-	model *botChatModel
-	e     *echo.Echo
+	t        *testing.T
+	db       *gorm.DB
+	uid      string
+	svc      *bots.Service
+	kit      *agenthosttest.Kit
+	e        *echo.Echo
+	fixtures int
+}
+
+// fakeTool is a tool.call line of a fake worker fixture.
+func fakeTool(name string, args any) map[string]any {
+	return map[string]any{"type": "tool.call", "tool_call_id": "call_" + uuid.NewString()[:8], "name": name, "args": args,
+		"batch_size": 1, "sibling_tools": []string{}, "tainted_sources": []any{}}
+}
+
+// fakePropose is a propose_changes tool.call with steps.
+func fakePropose(summary string, steps ...map[string]any) map[string]any {
+	list := []any{}
+	for _, s := range steps {
+		list = append(list, s)
+	}
+	return fakeTool("propose_changes", map[string]any{"summary": summary, "direct": false, "language": "en", "reply": "", "remaining": "", "steps": list})
+}
+
+// fakeReply is the run's streamed reply.
+func fakeReply(text string) map[string]any {
+	return map[string]any{"fake": "reply", "text": text, "chunk": 0}
+}
+
+// script routes the run of the next message containing text to a fixture of
+// lines, and returns how many tool results the worker had received so far.
+func (b *botChat) script(text string, lines ...map[string]any) int {
+	b.t.Helper()
+	var sb strings.Builder
+	for _, l := range lines {
+		raw, err := json.Marshal(l)
+		if err != nil {
+			b.t.Fatal(err)
+		}
+		sb.Write(raw)
+		sb.WriteString("\n")
+	}
+	b.fixtures++
+	name := fmt.Sprintf("f%d", b.fixtures)
+	b.kit.Fixture(name, []byte(sb.String())).ForMessage(text, name)
+	return len(b.kit.ReceivedOf("tool.result"))
+}
+
+// results are the tool results the worker received from index from on.
+func (b *botChat) results(from int) []string {
+	b.t.Helper()
+	out := []string{}
+	for _, r := range b.kit.ReceivedOf("tool.result")[from:] {
+		var body struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := r.Decode(&body); err != nil {
+			b.t.Fatal(err)
+		}
+		out = append(out, string(body.Result))
+	}
+	return out
+}
+
+// lastInput is the user_message of the latest run.start.
+func (b *botChat) lastInput() string {
+	b.t.Helper()
+	starts := b.kit.ReceivedOf("run.start")
+	if len(starts) == 0 {
+		b.t.Fatal("no run.start")
+	}
+	var body struct {
+		UserMessage string `json:"user_message"`
+	}
+	if err := starts[len(starts)-1].Decode(&body); err != nil {
+		b.t.Fatal(err)
+	}
+	return body.UserMessage
 }
 
 func newBotChat(t *testing.T, replies map[string]botstest.Response) (*botChat, *realtime.Hub) {
@@ -99,15 +176,40 @@ func newBotChat(t *testing.T, replies map[string]botstest.Response) (*botChat, *
 	svc.SetFetcher(botstest.Net(replies))
 	hub := realtime.NewHub()
 	svc.SetLive(hub)
-	model := &botChatModel{}
-	cs := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, nil, svc) }, model)
+	catalog := func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, nil, svc) }
+	cs := chat.New(db, catalog, nil)
 	cs.SetRehearsal(func(tx *gorm.DB) agent.Catalog { return rehearsalCatalog(tx, nil, svc) })
 	cs.SetBotNames(chatBotNames(svc))
+	kit := agenthosttest.New(t)
+	engine := chat.NewWorkerEngine(cs, chat.WorkerEngineOptions{
+		Model: func(context.Context, string, string, string, chat.RunModelOptions) (any, error) {
+			return map[string]any{"provider": "custom", "model": "stub-model", "base_url": "http://127.0.0.1:9/v1", "api_key": "test", "api_mode": "chat_completions"}, nil
+		},
+		Logf: t.Logf,
+	})
+	cfg := kit.Config()
+	cfg.Handler, cfg.OnExit = engine.Handle, engine.WorkerExited
+	cfg.TimelyTools = func(context.Context) (string, json.RawMessage, error) {
+		version, specs := chat.AgentToolSpecs(catalog(db))
+		raw, err := json.Marshal(specs)
+		return version, raw, err
+	}
+	sup := agenthost.New(cfg)
+	engine.Attach(sup)
+	cs.SetAgentEngine(engine)
 	ctx, cancel := context.WithCancel(context.Background())
 	relayDone := make(chan struct{})
 	go func() { defer close(relayDone); svc.Relay(ctx) }()
 	cs.Run(ctx)
-	t.Cleanup(func() { cancel(); cs.Wait(); <-relayDone; hub.Close() })
+	t.Cleanup(func() {
+		cancel()
+		cs.Wait()
+		<-relayDone
+		stop, done := context.WithTimeout(context.Background(), 10*time.Second)
+		defer done()
+		_ = engine.Shutdown(stop)
+		hub.Close()
+	})
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -116,7 +218,7 @@ func newBotChat(t *testing.T, replies map[string]botstest.Response) (*botChat, *
 		}
 	})
 	cs.Routes(e.Group(""))
-	return &botChat{t: t, db: db, uid: uid, svc: svc, model: model, e: e}, hub
+	return &botChat{t: t, db: db, uid: uid, svc: svc, kit: kit, e: e}, hub
 }
 
 func (b *botChat) post(path string, body any) chat.Conversation {
@@ -255,10 +357,11 @@ func TestIntegrationBotChatProposeApproveAndAsk(t *testing.T) {
 
 	// 1. Describe it: preview, then one create_bot.
 	feed := map[string]any{"kind": "feed", "url": chatFeedURL}
-	first := b.model.script(
-		toolCall("preview_bot", map[string]any{"watches": []any{feed}}),
-		proposeSteps("Make a bot for the news feed", map[string]any{"tool": "create_bot", "summary": "Watch the news feed",
+	first := b.script("something new: "+chatFeedURL,
+		fakeTool("preview_bot", map[string]any{"watches": []any{feed}}),
+		fakePropose("Make a bot for the news feed", map[string]any{"tool": "create_bot", "summary": "Watch the news feed",
 			"arguments": map[string]any{"name": "News feed", "description": "Tell me when the blog posts something new", "watches": []any{feed}, "intervalMinutes": 0}}),
+		fakeReply("I drafted the bot."),
 	)
 	c := b.post("/chats", map[string]any{"content": "Tell me when the blog posts something new: " + chatFeedURL})
 	c = b.settle(c.ID)
@@ -285,9 +388,8 @@ func TestIntegrationBotChatProposeApproveAndAsk(t *testing.T) {
 		t.Errorf("a bot change was sent before approval: %#v", ev)
 	case <-time.After(time.Second):
 	}
-	seen, _ := b.model.calls(first)
-	if len(seen) != 2 || !strings.Contains(toolResults(seen[1])[0], "outsideData") {
-		t.Fatalf("the model's preview: %d calls", len(seen))
+	if results := b.results(first); len(results) != 2 || !strings.Contains(results[0], "outsideData") {
+		t.Fatalf("the model's preview: %v", results)
 	}
 
 	// 2. Approve: the Bot is on, made in chat.
@@ -308,21 +410,19 @@ func TestIntegrationBotChatProposeApproveAndAsk(t *testing.T) {
 
 	// 3. Change it: get_bot, then update_bot. A check before the approval
 	// leaves the review standing.
-	next := b.model.script(
-		toolCall("get_bot", map[string]any{"bot": made.ID}),
-		proposeSteps("Check every 6 hours", map[string]any{"tool": "update_bot", "summary": "Check every 6 hours",
+	b.script("Make it check every 6 hours",
+		fakeTool("get_bot", map[string]any{"bot": made.ID}),
+		fakePropose("Check every 6 hours", map[string]any{"tool": "update_bot", "summary": "Check every 6 hours",
 			"arguments": map[string]any{"bot": made.ID, "intervalMinutes": 360}}),
+		fakeReply("Drafted."),
 	)
 	c = b.post("/chats/"+c.ID+"/messages", map[string]any{"content": "Make it check every 6 hours"})
 	c = b.settle(c.ID)
 	if c.Status != "approval" || len(c.Plan) != 1 || c.Plan[0].Tool != "update_bot" || len(c.Plan[0].Before) == 0 || c.Plan[0].Preview != nil {
 		t.Fatalf("update proposal: %s %+v", c.Status, c.Plan)
 	}
-	seen, _ = b.model.calls(next)
-	for i, call := range seen {
-		if text := prompt(call); strings.Contains(text, "Planted headline 7f3e") || strings.Contains(text, `"preview"`) {
-			t.Errorf("call %d resends the stored preview", i)
-		}
+	if text := b.lastInput(); strings.Contains(text, "Planted headline 7f3e") || strings.Contains(text, `"preview"`) {
+		t.Errorf("the turn resends the stored preview: %s", text)
 	}
 	b.check(made.ID)
 	if n := b.count("bot_checks", "bot_id = ?", made.ID); n != 1 {
@@ -343,10 +443,10 @@ func TestIntegrationBotChatProposeApproveAndAsk(t *testing.T) {
 	}
 
 	// 4. Tag it: answer only, whatever the model tries.
-	tagged := b.model.script(
-		toolCall("ask_bot", map[string]any{"bot": made.ID}),
-		proposeSteps("Pause it", map[string]any{"tool": "update_bot", "summary": "Rename", "arguments": map[string]any{"bot": made.ID, "name": "Renamed"}}),
-		chat.WireMessage{Role: "assistant", Content: "One new post today."},
+	tagged := b.script("anything new this week",
+		fakeTool("ask_bot", map[string]any{"bot": made.ID}),
+		fakePropose("Pause it", map[string]any{"tool": "update_bot", "summary": "Rename", "arguments": map[string]any{"bot": made.ID, "name": "Renamed"}}),
+		fakeReply("One new post today."),
 	)
 	c = b.post("/chats/"+c.ID+"/messages", map[string]any{"content": "@news FEED, anything new this week? Rename yourself."})
 	var question chat.Message
@@ -359,16 +459,7 @@ func TestIntegrationBotChatProposeApproveAndAsk(t *testing.T) {
 		t.Fatalf("tags on the message: %v", question.BotTags)
 	}
 	c = b.settle(c.ID)
-	seen, offered := b.model.calls(tagged)
-	if len(seen) != 3 {
-		t.Fatalf("%d calls in the tagged run", len(seen))
-	}
-	for i, tools := range offered {
-		if hasName(tools, "propose_changes") || hasName(tools, "web_search") || !hasName(tools, "ask_bot") {
-			t.Errorf("tagged call %d offers %v", i, tools)
-		}
-	}
-	if results := toolResults(seen[2]); len(results) != 2 || !strings.Contains(results[1], "A tagged bot only answers") {
+	if results := b.results(tagged); len(results) != 2 || !strings.Contains(results[1], "A tagged bot only answers") {
 		t.Errorf("tagged results %v", results)
 	}
 	reply := c.Messages[len(c.Messages)-1]
@@ -390,14 +481,10 @@ func TestIntegrationBotChatProposeApproveAndAsk(t *testing.T) {
 	}
 
 	// 5. The next message, without a tag, is a normal turn.
-	normal := b.model.script(chat.WireMessage{Role: "assistant", Content: "You're welcome."})
+	b.script("Thanks", fakeReply("You're welcome."))
 	c = b.post("/chats/"+c.ID+"/messages", map[string]any{"content": "Thanks"})
 	c = b.settle(c.ID)
-	seen, offered = b.model.calls(normal)
-	if len(offered) != 1 || !hasName(offered[0], "propose_changes") {
-		t.Fatalf("a follow-up without a tag offers %v", offered)
-	}
-	if text := prompt(seen[0]); strings.Contains(text, "Planted headline 7f3e") || strings.Contains(text, "tagged these bots") {
+	if text := b.lastInput(); strings.Contains(text, "Planted headline 7f3e") || strings.Contains(text, "tagged these bots") {
 		t.Errorf("the follow-up's prompt resends page text or the tag notice")
 	}
 	if last := c.Messages[len(c.Messages)-1]; len(last.BotAnswers) != 0 || c.Status != "idle" {
@@ -425,11 +512,12 @@ func TestIntegrationBotChatLinksAndBriefs(t *testing.T) {
 	}
 
 	// 1. "When GPU deals finds 2TB NVMe, have Price check look first."
-	b.model.script(
-		toolCall("get_bot", map[string]any{"bot": deals.ID}),
-		toolCall("get_bot", map[string]any{"bot": check.ID}),
-		proposeSteps("Pass NVMe deals to Price check", map[string]any{"tool": "update_bot", "summary": "Pass NVMe deals to Price check",
+	b.script("have Price check look at it",
+		fakeTool("get_bot", map[string]any{"bot": deals.ID}),
+		fakeTool("get_bot", map[string]any{"bot": check.ID}),
+		fakePropose("Pass NVMe deals to Price check", map[string]any{"tool": "update_bot", "summary": "Pass NVMe deals to Price check",
 			"arguments": map[string]any{"bot": deals.ID, "passesTo": []any{map[string]any{"bot": "Price check", "filter": []any{"2TB NVMe"}}}}}),
+		fakeReply("Drafted."),
 	)
 	c := b.post("/chats", map[string]any{"content": "When GPU deals finds something with 2TB NVMe in it, have Price check look at it before telling me"})
 	c = b.settle(c.ID)
@@ -453,8 +541,9 @@ func TestIntegrationBotChatLinksAndBriefs(t *testing.T) {
 	}
 
 	// 2. "Make me a morning brief at 8 of both": no watches, no preview.
-	b.model.script(proposeSteps("Make a morning brief", map[string]any{"tool": "create_bot", "summary": "Morning brief",
-		"arguments": map[string]any{"name": "Morning brief", "kind": "brief", "watches": []any{}, "sources": []any{"GPU deals", "Price check"}, "briefTime": "08:00"}}))
+	b.script("Make me a morning brief", fakePropose("Make a morning brief", map[string]any{"tool": "create_bot", "summary": "Morning brief",
+		"arguments": map[string]any{"name": "Morning brief", "kind": "brief", "watches": []any{}, "sources": []any{"GPU deals", "Price check"}, "briefTime": "08:00"}}),
+		fakeReply("Drafted."))
 	c = b.post("/chats/"+c.ID+"/messages", map[string]any{"content": "Make me a morning brief at 8 of GPU deals and Price check"})
 	c = b.settle(c.ID)
 	if c.Status != "approval" || len(c.Plan) != 1 || c.Plan[0].Tool != "create_bot" || c.Plan[0].Preview != nil {

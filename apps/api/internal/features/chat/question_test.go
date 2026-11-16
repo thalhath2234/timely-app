@@ -95,7 +95,7 @@ func TestCloseQuestionKeepsTheCardInTheThread(t *testing.T) {
 		Questions: []QuestionItem{{QID: "q0", Question: "Which day?", Choices: []string{"Mon"}}, {QID: "q1", Question: "Rooms?", MultiSelect: true}}, AskedAt: &asked}}
 	id := closeQuestion(row, map[string]any{"q0": "Mon", "q1": []string{"A", "B"}}, outcomeSubmitted)
 	m := lastMessage(*row)
-	if id == "" || m.ID != id || m.Kind != "question" || m.Role != "assistant" || m.AgentRun != "run-1" || m.Engine != engineAgent || row.Question.pending() {
+	if id == "" || m.ID != id || m.Kind != "question" || m.Role != "assistant" || m.AgentRun != "run-1" || row.Question.pending() {
 		t.Fatalf("message %+v, card %+v", m, row.Question)
 	}
 	if m.Content != "Timely asked:\n- Which day?\n  Answer: Mon\n- Rooms?\n  Answer: A, B" || m.Question.Outcome != outcomeSubmitted || m.Question.RequestID != "req-1" {
@@ -183,31 +183,25 @@ func TestLiveSubagentLines(t *testing.T) {
 	}
 }
 
-// Photo chats and Sensitive chats run classic (Q-4.2); Sensitive ones
-// follow the chat's choice only with the test-only no-persist switch.
-func TestRunEngineKeepsPhotoAndSensitiveChatsOnClassic(t *testing.T) {
-	agent := func(edit func(*Conversation)) *Conversation {
-		c := &Conversation{Phase: "plan", Engine: engineAgent, Messages: []Message{message("user", "hi")}}
-		if edit != nil {
-			edit(c)
-		}
-		return c
-	}
+// The agent's session has not seen a reply no agent run wrote (an
+// extraction reply, one from before this engine), so the next run reseeds;
+// cut replies and notices do not count as a reply.
+func TestReplyNotFromRun(t *testing.T) {
+	fromRun := message("assistant", "Here is your week")
+	fromRun.AgentRun = "run_1"
+	cut := message("assistant", "Draf")
+	cut.Cut = true
 	for name, tc := range map[string]struct {
-		c         *Conversation
-		noPersist bool
-		want      string
+		messages []Message
+		want     bool
 	}{
-		"plain":                      {agent(nil), false, engineAgent},
-		"sensitive":                  {agent(func(c *Conversation) { c.Sensitive = true }), false, engineClassic},
-		"sensitive, switch on":       {agent(func(c *Conversation) { c.Sensitive = true }), true, engineAgent},
-		"photo phase":                {agent(func(c *Conversation) { c.Phase = "receipt_plan" }), true, engineClassic},
-		"photo message":              {agent(func(c *Conversation) { c.Messages[0].ImageIDs = []string{"img_1"} }), true, engineClassic},
-		"receipt review":             {agent(func(c *Conversation) { c.ImageReview = &ImageReview{Status: "discarded"} }), true, engineClassic},
-		"sensitive photo, switch on": {agent(func(c *Conversation) { c.Sensitive, c.ImageReview = true, &ImageReview{} }), true, engineClassic},
+		"no reply yet":    {[]Message{message("user", "hi")}, false},
+		"run's reply":     {[]Message{message("user", "hi"), fromRun, message("user", "and?")}, false},
+		"Timely's reply":  {[]Message{message("user", "hi"), message("assistant", "A plant")}, true},
+		"cut after a run": {[]Message{message("user", "hi"), fromRun, cut, notice("Stopped")}, false},
 	} {
-		if got := runEngine(nil, tc.c, tc.noPersist); got != tc.want {
-			t.Errorf("%s: %s, want %s", name, got, tc.want)
+		if got := replyNotFromRun(tc.messages); got != tc.want {
+			t.Errorf("%s: %v, want %v", name, got, tc.want)
 		}
 	}
 }
@@ -227,7 +221,7 @@ func TestTypedAnswerIsHeldToTheAnswerLimit(t *testing.T) {
 
 // A failed turn shows Timely's own error text: Hermes' transport prefix
 // ("HTTP 424:") that the gateway's status code puts in front of it is not for
-// the person (classic shows the same failure without it).
+// the person.
 func TestFailedTurnTextDropsHermesTransportPrefix(t *testing.T) {
 	for _, c := range []struct{ in, text, action string }{
 		{"HTTP 424: Claude failed: no rule matched", "Claude failed: no rule matched", ActionRetry},

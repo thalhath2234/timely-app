@@ -45,8 +45,8 @@ type agentStack struct {
 // (worker "learning" messages, the About you copy on ready, the account's
 // learning switches for each run). Without a runtime (or in a worktree
 // without its own DB_SCHEMA) everything is still set, so Settings can say
-// why the engine is unavailable, and every chat runs on classic exactly as
-// before.
+// why the engine is unavailable, and every chat fails with that reason
+// (ADR 0029: there is no other engine).
 func newAgentEngine(db *gorm.DB, chatService *chat.Service, catalog func() agent.Catalog, providers *provider.Service, live *realtime.Hub) agentStack {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -89,9 +89,6 @@ func newAgentEngine(db *gorm.DB, chatService *chat.Service, catalog func() agent
 		LiveWait: liveWait,
 		ParkFor:  parkFor,
 	})
-	// Sensitive chats stay on classic (Q-4.2); a test API may run them as
-	// no-persist runs on the agent engine (phase 4 decision 10).
-	chatService.SetSensitiveNoPersist(sensitiveNoPersist(os.Getenv))
 	cfg.Handler = workerMux(func(w *agenthost.Worker, m agenthost.Message) bool {
 		if learn.HandleWorker(w, m) {
 			return true
@@ -147,13 +144,13 @@ func newAgentEngine(db *gorm.DB, chatService *chat.Service, catalog func() agent
 	chatService.SetAgentEngine(engine)
 	stack := agentStack{engine: engine, sup: sup, learning: learn, mcp: mcp}
 	if err := sup.Available(); err != nil {
-		log.Printf("agent engine: %v Chats use the classic engine.", err)
+		log.Printf("agent engine: %v Chats fail until the runtime is installed (make agent-install).", err)
 		return stack
 	}
 	// Claude Code and Codex reach the agent engine through the loopback
 	// model gateway (plan 5.7); it lives as long as the API process.
 	if g, err := providers.StartAgentGateway(); err != nil {
-		log.Printf("agent engine: %v. Claude Code and Codex chats use the classic engine.", err)
+		log.Printf("agent engine: %v. Claude Code and Codex chats cannot run.", err)
 	} else {
 		gateway.Store(g)
 	}
@@ -224,7 +221,7 @@ func webFetcher(getenv func(string) string) chat.PageFetcher {
 // (no-persist) run (phase 4 decision 11).
 func agentRunModel(providers *provider.Service) func(context.Context, string, string, string, chat.RunModelOptions) (any, error) {
 	return func(ctx context.Context, uid, providerID, model string, opts chat.RunModelOptions) (any, error) {
-		return providers.AgentModelFor(ctx, uid, providerID, model, provider.AgentRunOptions{Sensitive: opts.Sensitive})
+		return providers.AgentModelFor(ctx, uid, providerID, model, provider.AgentRunOptions{Sensitive: opts.Sensitive, SupportsVision: opts.SupportsVision})
 	}
 }
 
@@ -235,17 +232,6 @@ func testOnly(getenv func(string) string, name string) string {
 		return ""
 	}
 	return strings.TrimSpace(getenv(name))
-}
-
-// sensitiveNoPersist is TIMELY_AGENT_SENSITIVE_NO_PERSIST (1 or true) on a
-// test API: Sensitive plan turns then follow the chat's engine as no-persist
-// runs. Off by default and on every install (Q-4.2).
-func sensitiveNoPersist(getenv func(string) string) bool {
-	on, err := strconv.ParseBool(testOnly(getenv, "TIMELY_AGENT_SENSITIVE_NO_PERSIST"))
-	if err == nil && on {
-		log.Printf("agent engine: Sensitive chats run on the agent engine as no-persist runs (TIMELY_AGENT_SENSITIVE_NO_PERSIST, test only)")
-	}
-	return err == nil && on
 }
 
 // clarifyTimeout is how long a question card waits: 10 minutes, or

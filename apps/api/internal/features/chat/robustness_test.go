@@ -286,7 +286,7 @@ func TestIntegrationWebSearchSkipsBlankQueriesAndStopsAfterFailures(t *testing.T
 	c := planFixture(t, db)
 	c.WebSearch = true
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil || c.Status != "idle" {
+	if err := playTurn(context.Background(), s, &c); err != nil || c.Status != "idle" {
 		t.Fatalf("the run must end with an answer: %v %s", err, c.Status)
 	}
 	if len(model.searches) != maxSearchFailures || strings.HasPrefix(model.searches[0], " ") {
@@ -301,10 +301,10 @@ func TestIntegrationWebSearchSkipsBlankQueriesAndStopsAfterFailures(t *testing.T
 	}
 }
 
-func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T) {
+// A write tool called directly never runs: the model is told to propose it.
+func TestIntegrationDirectWritesAreRedirected(t *testing.T) {
 	db := integrationDB(t)
 	model := &scripted{responses: []WireMessage{
-		{Role: "assistant"},
 		call("capture_inbox_item", map[string]string{"name": "Start a podcast"}),
 		{Role: "assistant", Content: "Proposed."},
 	}}
@@ -315,16 +315,13 @@ func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T
 		}}}
 	}, model)
 	c := planFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if c.Status != "idle" || c.Messages[len(c.Messages)-1].Content != "Proposed." {
 		t.Fatalf("run did not finish with the reply: %s %+v", c.Status, c.Messages)
 	}
-	if last := model.seen[1][len(model.seen[1])-1]; !strings.Contains(last.Content, "your last reply was empty") {
-		t.Fatalf("empty reply was not nudged: %+v", last)
-	}
-	if last := model.seen[2][len(model.seen[2])-1]; last.Role != "tool" || !strings.Contains(last.Content, "never called directly") || !strings.Contains(last.Content, "propose_changes") {
+	if last := model.seen[1][len(model.seen[1])-1]; last.Role != "tool" || !strings.Contains(last.Content, "never called directly") || !strings.Contains(last.Content, "propose_changes") {
 		t.Fatalf("direct write was not redirected to a proposal: %+v", last)
 	}
 }
@@ -377,18 +374,18 @@ func TestIntegrationDeviceTimezoneReachesTools(t *testing.T) {
 	c := planFixture(t, db)
 	c.Timezone = "Asia/Tokyo"
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if seen != "Asia/Tokyo" {
 		t.Fatalf("tool saw timezone %q", seen)
 	}
-	// The clock follows the stored conversation, out of the cached system prompt.
+	// The turn's clock notice names the device zone.
 	prompt := ""
 	for _, m := range model.seen[0] {
 		prompt += m.Content + "\n"
 	}
-	if !strings.Contains(prompt, "Asia/Tokyo (from their device") || strings.Contains(model.seen[0][0].Content, "Asia/Tokyo") {
+	if !strings.Contains(prompt, "Asia/Tokyo (from their device") {
 		t.Fatal("the prompt's clock notice lacks the device timezone")
 	}
 	if !strings.Contains(prompt, "Current get_context result") || !strings.Contains(prompt, "2026-10-02T20:47:00+09:00") {
@@ -500,7 +497,7 @@ func TestIntegrationBatchedProposalContinuesAndRepliesToTheQuestion(t *testing.T
 		}}}
 	}, model)
 	c := planFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if c.Language != "ja" || c.Messages[len(c.Messages)-1].Content != "Tomorrow is Saturday, October 3." {
@@ -522,7 +519,7 @@ func TestIntegrationBatchedProposalContinuesAndRepliesToTheQuestion(t *testing.T
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	found := false

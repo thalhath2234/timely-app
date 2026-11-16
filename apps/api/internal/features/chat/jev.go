@@ -15,13 +15,12 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Jev (ADR 0012) answers small typed questions about a run: what kind of
-// request a message is, which earlier chat already covers it, and whether a
-// proposal does what was asked. Its answers only narrow the tools offered,
-// add hints the model may ignore, point at another chat, or add notes to a
-// review (which can only make a review more likely, never skip one). With
-// smart suggestions off, or in a sensitive chat, nothing is asked and runs
-// behave exactly as before.
+// Jev (ADR 0012) answers small typed questions about a run: which language
+// a message is in, which earlier chat already covers it, and whether a
+// proposal does what was asked. Its answers only set the reply language,
+// point at another chat, or add notes to a review (which can only make a
+// review more likely, never skip one). With smart suggestions off, or in a
+// sensitive chat, nothing is asked and runs behave exactly as before.
 
 // Decider asks Jev; *decide.Service implements it.
 type Decider interface {
@@ -62,44 +61,25 @@ type ChatRef struct {
 	Title string `json:"title"`
 }
 
-// Read tools are grouped by the kind of request that needs them. Every run
-// keeps the essentials; a request Jev cannot place gets every tool.
-var (
-	essentialTools = []string{"get_context", "search", "semantic_search", "get_task", "get_project", "get_workspace", "list_workspaces", "list_projects"}
-	areaTools      = map[string][]string{
-		"tasks":         {"list_tasks", "pick_tasks", "list_inbox", "get_today", "what_next", "get_agenda", "get_calendar", "get_free_time", "list_habits", "list_goals", "list_task_views"},
-		"calendar":      {"get_calendar", "list_events", "get_event", "get_free_time", "get_capacity", "get_agenda", "get_today", "get_working_hours", "get_schedule_settings", "auto_schedule_preview", "undo_schedule_preview", "list_tasks"},
-		"docs":          {"list_docs", "get_doc"},
-		"sheets":        {"list_sheets", "get_sheet", "list_sheet_templates", "get_sheet_template"},
-		"projects":      {"list_tasks", "pick_tasks", "list_docs", "list_sheets", "list_task_views"},
-		"notifications": {"list_notifications", "unread_notification_count", "get_notification_settings", "list_tasks"},
-		"bots":          {"list_bots", "get_bot", "list_bot_findings", "preview_bot", "ask_bot"},
-	}
-	latinLanguages = []decide.Option{
-		{Name: "en", Description: "English"}, {Name: "es", Description: "Spanish"}, {Name: "fr", Description: "French"},
-		{Name: "de", Description: "German"}, {Name: "pt", Description: "Portuguese"}, {Name: "it", Description: "Italian"},
-		{Name: "other", Description: "Another language"},
-	}
-)
+var latinLanguages = []decide.Option{
+	{Name: "en", Description: "English"}, {Name: "es", Description: "Spanish"}, {Name: "fr", Description: "French"},
+	{Name: "de", Description: "German"}, {Name: "pt", Description: "Portuguese"}, {Name: "it", Description: "Italian"},
+	{Name: "other", Description: "Another language"},
+}
 
-// triage is what Jev made of the person's latest message. Empty fields mean
-// Jev was unsure or not asked.
+// triage is what Jev made of the person's latest message: its language and
+// an earlier chat that asks the same. Empty fields mean Jev was unsure or not
+// asked.
 type triage struct {
-	area     string // a key of areaTools
-	change   *bool  // asks for a change rather than only a question
-	web      bool   // needs public information from the web
-	unclear  bool   // too ambiguous to act on without asking first
-	scope    string // one, future or all occurrences of a repeating item
-	meeting  string // prepare, add or remind, for a message about a meeting
 	language string
 	similar  *ChatRef
 }
 
 // fresh reports whether the run starts on a new message from the person, the
-// only time triage runs: a resumed lease or an automatic next batch keeps
-// whatever the run already had.
+// only time triage runs: an automatic next batch keeps whatever the run
+// already had.
 func fresh(c *Conversation) bool {
-	if len(c.Transcript) > 0 || len(c.Messages) == 0 || c.Sensitive || c.ImageReview != nil {
+	if len(c.Messages) == 0 || c.Sensitive || c.ImageReview != nil {
 		return false
 	}
 	// A run resumed with "answer here" still starts on the person's message.
@@ -155,33 +135,7 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 		}
 		state["attached"] = attached
 	}
-	questions := map[string]decide.Question{
-		"area": decide.Choice("What part of a planning app does this message to the app's assistant need?",
-			decide.Option{Name: "tasks", Description: "Work, reminders, the Inbox, focus or what to do next."},
-			decide.Option{Name: "calendar", Description: "Events, the calendar, scheduling, free time or working hours."},
-			decide.Option{Name: "docs", Description: "Writing, reading or organising docs and notes."},
-			decide.Option{Name: "sheets", Description: "Spreadsheets, budgets, tables, templates or receipts."},
-			decide.Option{Name: "projects", Description: "Organising projects, workspaces, labels or stages."},
-			decide.Option{Name: "notifications", Description: "Notifications the app already sent."},
-			decide.Option{Name: "bots", Description: "Bots that watch web pages, feeds or prices and send alerts."},
-			decide.Option{Name: "mixed", Description: "Several of these, or something else."}).Twice(),
-		"change": decide.YesNo("Does the message ask the assistant to create, change, move or delete something?",
-			"It asks for a change to the person's tasks, events, docs, sheets, projects or bots.", "It only asks a question or for information."),
-		"web": decide.YesNo("Does answering need public information from the web rather than the person's own data?",
-			"It needs facts from the web, such as opening hours, prices or news.", "The person's own data, or general knowledge, is enough."),
-		"unclear": decide.YesNo("Is the message too unclear to act on without asking the person a question first?",
-			"It is too vague: it is unclear what should change or which item it means.", "It is clear enough to act on or answer."),
-		"scope": decide.Choice("If the message changes a repeating event or task, which occurrences does it mean?",
-			decide.Option{Name: "none", Description: "It does not change a repeating item, or it does not say."},
-			decide.Option{Name: "one", Description: "Only one occurrence."},
-			decide.Option{Name: "future", Description: "This occurrence and the ones after it."},
-			decide.Option{Name: "all", Description: "Every occurrence, past ones included."}),
-		"meeting": decide.Choice("If the message is about a meeting, appointment or other event, what does the person want done about it?",
-			decide.Option{Name: "none", Description: "It is not about an event, or it does not say."},
-			decide.Option{Name: "prepare", Description: "Block time before it to prepare."},
-			decide.Option{Name: "add", Description: "Put the event itself on the calendar."},
-			decide.Option{Name: "remind", Description: "Be reminded shortly before it."}),
-	}
+	questions := map[string]decide.Question{}
 	// Scripts other than Latin are recognised without Jev (detectLanguage).
 	if detectLanguage(latest) == "latin" {
 		questions["language"] = decide.Choice("Which language is the message written in?", latinLanguages...)
@@ -201,30 +155,14 @@ func (s *Service) triage(ctx context.Context, c *Conversation) (triage, bool) {
 				"Yes, an earlier chat is about the same request", "No, this is a new request")
 		}
 	}
+	if len(questions) == 0 {
+		return triage{}, false
+	}
 	a, err := s.decisions.Ask(ctx, c.UserID, decide.Request{Feature: "chat_triage", State: state, Questions: questions})
 	if err != nil {
 		return triage{}, false
 	}
 	var t triage
-	// An area that was not offered would narrow the tools to the essentials.
-	if area, ok := a.Choice("area", decide.Route); ok && areaTools[area] != nil {
-		t.area = area
-	}
-	if yes, ok := a.Yes("change", decide.Route); ok {
-		t.change = &yes
-	}
-	if yes, ok := a.Yes("web", decide.Route); ok && yes {
-		t.web = true
-	}
-	if yes, ok := a.Yes("unclear", decide.Route); ok && yes {
-		t.unclear = true
-	}
-	if scope, ok := a.Choice("scope", decide.Route); ok && scope != "none" {
-		t.scope = scope
-	}
-	if meeting, ok := a.Choice("meeting", decide.Route); ok && meeting != "none" {
-		t.meeting = meeting
-	}
 	if lang, ok := a.Choice("language", decide.Route); ok {
 		t.language = supportedLanguage(lang)
 	}
@@ -268,63 +206,6 @@ func (s *Service) recentChats(ctx context.Context, c *Conversation) map[string]C
 		out[name] = ChatRef{ID: row.ID, Title: row.Title}
 	}
 	return out
-}
-
-// hint is the triage as a notice the model reads before the conversation. It
-// is advice from a small classifier, not the person's words.
-func (t triage) hint(webSearch bool) string {
-	parts := []string{}
-	if t.change != nil && !*t.change {
-		parts = append(parts, "it reads as a question: answer it, and propose changes only if the person asks for them")
-	}
-	if t.unclear {
-		parts = append(parts, "it may be too unclear to act on: if it is, ask one short question before proposing anything")
-	}
-	if t.web && !webSearch {
-		parts = append(parts, "it may need public information from the web, and web search is off: if Timely data cannot answer it, say that turning on web search would help")
-	} else if t.web {
-		parts = append(parts, "it may need public information from the web, and web search is on: look it up with web_search and answer with the sources, even when it is not about Timely")
-	}
-	switch t.scope {
-	case "one":
-		parts = append(parts, "if it changes a repeating item, the person most likely means only one occurrence")
-	case "future":
-		parts = append(parts, "if it changes a repeating item, the person most likely means this and future occurrences")
-	case "all":
-		parts = append(parts, "if it changes a repeating item, the person most likely means the whole series")
-	}
-	switch t.meeting {
-	case "prepare":
-		parts = append(parts, "about an event, the person most likely wants time blocked before it to prepare (a task with a time block), not the event added again")
-	case "add":
-		parts = append(parts, "about an event, the person most likely wants the event itself added to the calendar")
-	case "remind":
-		parts = append(parts, "about an event, the person most likely wants a reminder shortly before it, not a time block")
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return "System notice (not written by the user): a quick classifier read the latest message as follows; it can be wrong, so follow the person's own words: " + strings.Join(parts, "; ") + "."
-}
-
-// tools narrows the read tools offered to the ones the request's area needs.
-// The rest stay callable by name: the run offers everything again as soon as
-// the model asks for one that was left out.
-func (t triage) tools(name string) bool {
-	if t.area == "" {
-		return true
-	}
-	for _, tool := range essentialTools {
-		if tool == name {
-			return true
-		}
-	}
-	for _, tool := range areaTools[t.area] {
-		if tool == name {
-			return true
-		}
-	}
-	return false
 }
 
 // reviewNotes asks whether every step was requested and whether something

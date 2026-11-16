@@ -185,9 +185,9 @@ func buyMilk(direct bool) obj {
 // chat queues a chat on the agent engine whose run.start replays fixture.
 func (h *engineHarness) chat(text, permission, fixture string, jsonl []byte) Conversation {
 	h.t.Helper()
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan", Engine: engineAgent,
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan",
 		Permission: permission, Provider: "openrouter", Model: "stub-model", Client: "web", Context: []ContextChip{},
-		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	if h.kit != nil {
 		if jsonl != nil {
 			h.kit.Fixture(fixture, jsonl)
@@ -332,7 +332,7 @@ func TestIntegrationAgentEngineStreamsAReply(t *testing.T) {
 	if m := lastMessage(c); m.Role != "assistant" || m.Content != text {
 		t.Fatalf("reply %+v", m)
 	}
-	if c.RunEngine != engineAgent || c.AgentRunID != "" || c.AgentInstance != "" || c.Activity.Run != "" || c.RunReads.Run != "" {
+	if c.AgentRunID != "" || c.AgentInstance != "" || c.Activity.Run != "" || c.RunReads.Run != "" {
 		t.Fatalf("the run's live state stayed: %+v", c)
 	}
 	starts := h.kit.ReceivedOf("run.start")
@@ -615,8 +615,8 @@ func TestIntegrationAgentEngineStopMidRunAppliesNothing(t *testing.T) {
 	// Both belong to the stopped run, so what it learned shows under them,
 	// never under a later reply (review round 6).
 	for _, m := range c.Messages[len(c.Messages)-2:] {
-		if m.AgentRun != stops[0].Run || m.Engine != engineAgent {
-			t.Fatalf("Stop's message %q: agentRun %q engine %q, want run %s", m.Content, m.AgentRun, m.Engine, stops[0].Run)
+		if m.AgentRun != stops[0].Run {
+			t.Fatalf("Stop's message %q: agentRun %q, want run %s", m.Content, m.AgentRun, stops[0].Run)
 		}
 	}
 	// Retry sends the request again: the cut reply did not end the turn.
@@ -728,20 +728,21 @@ func TestIntegrationAgentEngineLeftoverSteerRunsNext(t *testing.T) {
 	}
 }
 
-// A chat that answered on classic since its last agent turn: the next agent
-// run sends the whole history with reseed, so the session sees the classic
-// turns; its reply is tagged as the agent's, and the next run needs no seed.
-func TestIntegrationAgentEngineReseedsAfterClassicTurns(t *testing.T) {
+// A chat whose latest reply no agent run wrote (an extraction reply, a
+// reply from before this engine): the next run sends the whole history with
+// reseed, so the session sees it; its reply carries its run, and the next
+// run needs no seed.
+func TestIntegrationAgentEngineReseedsAfterARepliesNoRunWrote(t *testing.T) {
 	h := newEngineHarness(t)
 	agentReply := message("assistant", "Here is your week")
-	agentReply.Engine = engineAgent
+	agentReply.AgentRun = "run_earlier"
 	h.kit.Fixture("reseed", lines(reply("Friday is free", 0)))
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan", Engine: engineAgent,
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan",
 		Permission: "supervised", Provider: "openrouter", Model: "stub-model", Client: "web", Context: []ContextChip{},
 		Messages: []Message{message("user", "Plan my week"), agentReply,
-			message("user", "And Friday?"), message("assistant", "Friday is free on classic"),
+			message("user", "And Friday?"), message("assistant", "Friday is free, Timely wrote"),
 			message("user", "Back on the agent")},
-		Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Plan: []Step{}, Snapshots: []Snapshot{}}
 	h.kit.ForConversation(c.ID, "reseed")
 	if err := h.db.Create(&c).Error; err != nil {
 		t.Fatal(err)
@@ -755,10 +756,10 @@ func TestIntegrationAgentEngineReseedsAfterClassicTurns(t *testing.T) {
 	if err := h.kit.ReceivedOf("run.start")[0].Decode(&first); err != nil {
 		t.Fatal(err)
 	}
-	if !first.Reseed || len(first.History) != 4 || first.History[3]["content"] != "Friday is free on classic" {
-		t.Fatalf("run.start after classic turns: reseed %v history %v", first.Reseed, first.History)
+	if !first.Reseed || len(first.History) != 4 || first.History[3]["content"] != "Friday is free, Timely wrote" {
+		t.Fatalf("run.start after a reply no run wrote: reseed %v history %v", first.Reseed, first.History)
 	}
-	if last := lastMessage(c); last.Content != "Friday is free" || last.Engine != engineAgent {
+	if last := lastMessage(c); last.Content != "Friday is free" || last.AgentRun == "" {
 		t.Fatalf("agent reply %+v", last)
 	}
 	if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"Thanks"}`); code != 200 {
@@ -957,7 +958,7 @@ func TestIntegrationAgentEngineRetryAfterAFailureReseeds(t *testing.T) {
 	// The failed run leaves a notice that carries it (review round 7): what
 	// it learned shows under the notice, not under the retried reply.
 	failedRun := h.runStart(c.ID).Run
-	if last := lastMessage(c); last.Kind != "notice" || last.Content != tr("", txtRunFailed) || last.AgentRun != failedRun || last.Engine != engineAgent {
+	if last := lastMessage(c); last.Kind != "notice" || last.Content != tr("", txtRunFailed) || last.AgentRun != failedRun {
 		t.Fatalf("failed run's last message %+v, want the failed notice of %s", last, failedRun)
 	}
 	h.kit.Fixture("ok", lines(reply("Here is your week.", 0)))
@@ -1149,14 +1150,14 @@ func TestIntegrationAgentEngineRecordedFixtures(t *testing.T) {
 		if w.taint != (len(c.TaintedSources) == 1 && c.TaintedSources[0] == TaintSource{Kind: "timely", Tool: "ask_bot"}) {
 			t.Errorf("%s: tainted_sources %+v", name, c.TaintedSources)
 		}
-		if c.AgentRunID != "" || c.Activity.Run != "" || c.RunEngine != engineAgent {
-			t.Errorf("%s: live state left: run %q activity %+v engine %q", name, c.AgentRunID, c.Activity, c.RunEngine)
+		if c.AgentRunID != "" || c.Activity.Run != "" {
+			t.Errorf("%s: live state left: run %q activity %+v", name, c.AgentRunID, c.Activity)
 		}
 		if w.status == "stopped" {
 			// The worker ended the run interrupted with no Stop from the
 			// person (WorkerEngine.stopped): its notice carries the run, so
 			// what it learned stays under it.
-			if last := lastMessage(c); last.AgentRun == "" || last.AgentRun != h.runStart(c.ID).Run || last.Engine != engineAgent {
+			if last := lastMessage(c); last.AgentRun == "" || last.AgentRun != h.runStart(c.ID).Run {
 				t.Errorf("%s: Stopped notice %+v does not carry run %s", name, last, h.runStart(c.ID).Run)
 			}
 		}
@@ -1176,10 +1177,10 @@ func TestIntegrationAgentEngineRecordedFixtures(t *testing.T) {
 func TestIntegrationAgentEngineLostRunOffersTryAgain(t *testing.T) {
 	h := newEngineHarness(t)
 	past := time.Now().UTC().Add(-time.Minute)
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "running", Phase: "plan", Engine: engineAgent, RunEngine: engineAgent,
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "running", Phase: "plan",
 		Permission: "supervised", Lease: "old-lease", LeaseUntil: &past, AgentRunID: "run_gone", AgentInstance: "1:1",
 		Activity: ChatActivity{Run: "run_gone", Draft: "Half"}, Context: []ContextChip{}, Messages: []Message{message("user", "Hi")},
-		Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Plan: []Step{}, Snapshots: []Snapshot{}}
 	if err := h.db.Create(&c).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -1189,10 +1190,10 @@ func TestIntegrationAgentEngineLostRunOffersTryAgain(t *testing.T) {
 	}
 }
 
-// Without a runtime the engine is unavailable: a chat set to it fails with
-// "Use classic for this chat" and the reason (never a silent switch), and
-// Settings says why.
-func TestIntegrationAgentEngineUnavailableOffersClassic(t *testing.T) {
+// Without a runtime chat cannot run: a chat fails with "agent runtime
+// missing" and Try again (nothing falls back, ADR 0029), and Settings says
+// why.
+func TestIntegrationAgentEngineRuntimeMissingFailsTheChat(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, engineCatalog, nil)
 	e := NewWorkerEngine(s, WorkerEngineOptions{Model: testModel, Logf: newGuardedLog(t).logf})
@@ -1205,17 +1206,17 @@ func TestIntegrationAgentEngineUnavailableOffersClassic(t *testing.T) {
 	go func() { defer close(done); s.work(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
 	h := &engineHarness{t: t, db: db, s: s, e: e}
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan", Engine: engineAgent, Permission: "supervised",
-		Context: []ContextChip{}, Messages: []Message{message("user", "Hi")}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan", Permission: "supervised",
+		Context: []ContextChip{}, Messages: []Message{message("user", "Hi")}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	if err := db.Create(&c).Error; err != nil {
 		t.Fatal(err)
 	}
 	c = h.wait(c.ID, "failed", statusIs("failed"))
-	if c.ErrorAction != ActionUseClassic || !strings.Contains(c.Error, "runtime is not installed") {
+	if c.ErrorAction != ActionRetry || !strings.Contains(c.Error, "agent runtime missing") || strings.Contains(strings.ToLower(c.Error), "classic") {
 		t.Fatalf("failure %q %q", c.Error, c.ErrorAction)
 	}
 	code, body := serve(t, s, "GET", "/agent/chat-settings", "")
-	if code != 200 || !strings.Contains(string(body), `"engineAvailable":false`) || !strings.Contains(string(body), "runtime is not installed") {
+	if code != 200 || !strings.Contains(string(body), `"engineAvailable":false`) || !strings.Contains(string(body), "agent runtime missing") || strings.Contains(string(body), `"engine"`) {
 		t.Fatalf("settings: %d %s", code, body)
 	}
 }

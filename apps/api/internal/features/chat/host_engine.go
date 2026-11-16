@@ -515,7 +515,7 @@ func (e *WorkerEngine) parkRun(r *agentRun, d runDone) {
 		reply := func() {
 			if final != "" {
 				row.Messages = append(row.Messages, message("assistant", final))
-				markEngine(&row, len(row.Messages)-1, r.id)
+				markRun(&row, len(row.Messages)-1, r.id)
 			}
 		}
 		switch {
@@ -802,7 +802,7 @@ func (e *WorkerEngine) settleRan(r *agentRun, ev workerEvent) {
 		m.Kind = "host"
 		m.Host = &ClosedHost{ToolCallID: clip(p.ToolCallID, 200), Tool: clip(p.Tool, 200), Card: &card, Outcome: hostRan, Auto: true,
 			Checkpoint: clip(p.Checkpoint, 200), CheckpointDir: clip(p.CheckpointDir, 2000)}
-		m.Engine, m.AgentRun = engineAgent, r.id
+		m.AgentRun = r.id
 		row.Messages = append(row.Messages, m)
 		return nil
 	})

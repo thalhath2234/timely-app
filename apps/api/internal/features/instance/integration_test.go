@@ -221,13 +221,11 @@ func TestIntegrationPhase5MigrationsUpAndDown(t *testing.T) {
 	if !columnExists(t, db, "agent_mcp_servers", "refused_hash") {
 		t.Error("agent_mcp_servers has no refused_hash")
 	}
-	// Down, one migration at a time, back to where phase 4 ended (phase 6's
-	// agent_bots migration and the refused_hash column of review round 4 are
+	// Down, one migration at a time, back to where phase 4 ended (the later
+	// phases' migrations and the refused_hash column of review round 4 are
 	// the first to go).
-	for i := 0; i < 8; i++ {
-		if err := goose.Down(db, "."); err != nil {
-			t.Fatalf("down %d: %v", i+1, err)
-		}
+	if err := goose.DownTo(db, ".", beforePhase5); err != nil {
+		t.Fatalf("down to %d: %v", int64(beforePhase5), err)
 	}
 	for _, name := range phase5Tables {
 		if tableExists(t, db, name) {

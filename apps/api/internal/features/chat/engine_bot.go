@@ -296,11 +296,8 @@ func (a *BotAgent) spec(ctx context.Context, uid string, in bots.RunInput) (botS
 		skills = []string{}
 	}
 	fields := map[string]any{
-		"bot_id": b.ID,
-		"prompt": prompt,
-		// The Bot's own skill, bot-<slug>, made on its first tick with the
-		// taught seed as "What you taught me" (PROTOCOL.md 14.1).
-		"skill_slug":  in.SkillSlug,
+		"bot_id":      b.ID,
+		"prompt":      prompt,
 		"taught_seed": in.TaughtSeed,
 		"data":        botData(in, addrs),
 		"skills":      skills,
@@ -313,6 +310,12 @@ func (a *BotAgent) spec(ctx context.Context, uid string, in bots.RunInput) (botS
 		// record for the Bot, which bots do not have yet, so it runs as Auto.
 		"permission": string(agent.BotMode(permission, false)),
 		"deadline_s": seconds,
+	}
+	if in.SkillSlug != "" {
+		// The Bot's own skill, bot-<slug>, made on its first tick with the
+		// taught seed as "What you taught me" (PROTOCOL.md 14.1). A Bot
+		// without a slug has none; the worker refuses an empty one.
+		fields["skill_slug"] = in.SkillSlug
 	}
 	if zone := strings.TrimSpace(b.Timezone); zone != "" {
 		if _, err := time.LoadLocation(zone); err == nil && zone != "Local" {
@@ -1224,8 +1227,7 @@ func (s *Service) botThread(ctx context.Context, uid, botID string) (string, err
 	}
 	bid := botID
 	row := Conversation{ID: id("chat_"), UserID: uid, Title: clip(title, 200), Status: "idle", Phase: "plan", Kind: KindBotThread, BotID: &bid,
-		Permission: string(agent.Supervised), Context: []ContextChip{}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{},
-		Transcript: []WireMessage{}, HostGrants: HostGrants{}}
+		Permission: string(agent.Supervised), Context: []ContextChip{}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{}, HostGrants: HostGrants{}}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if res.Error != nil || res.RowsAffected == 0 {
@@ -1424,7 +1426,7 @@ func (s *Service) finishBotCard(ctx context.Context, uid, cid string, h HostRequ
 			row.Activity = ChatActivity{}
 			if reply = strings.TrimSpace(reply); reply != "" {
 				m := message("assistant", reply)
-				m.Engine, m.AgentRun = engineAgent, runID
+				m.AgentRun = runID
 				row.Messages = append(row.Messages, m)
 			}
 			changed = true

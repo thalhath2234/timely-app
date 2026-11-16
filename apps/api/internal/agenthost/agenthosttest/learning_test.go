@@ -139,3 +139,35 @@ func TestEmitWithAnotherAccountIsAProtocolViolation(t *testing.T) {
 		}
 	}
 }
+
+// bot.review and bot.forget (PROTOCOL.md section 14) are answered with
+// learning.result: a review that staged nothing and a forget that removed
+// the skill, unless the script says otherwise.
+func TestBotReviewAndForgetAreAnswered(t *testing.T) {
+	r := newRig(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	w := r.workerFor("acct-1")
+	reply, err := w.Request(ctx, "bot.review", map[string]any{"bot_id": "bot_1", "skill_slug": "bot-kettle", "focus": "too noisy"})
+	var res learningResult
+	if err != nil || reply.Type != agenthost.TypeLearningResult || reply.Decode(&res) != nil || !res.OK || res.Data["pending_ids"] == nil || res.Data["events"] == nil {
+		t.Fatalf("bot.review: %v %s %+v", err, reply.Type, res)
+	}
+	reply, err = w.Request(ctx, "bot.forget", map[string]any{"skill_slug": "bot-kettle"})
+	res = learningResult{}
+	if err != nil || reply.Decode(&res) != nil || !res.OK || res.Data["removed"] != true {
+		t.Fatalf("bot.forget: %v %+v", err, res)
+	}
+	r.kit.LearningReply("bot.review", map[string]any{"pending_ids": []string{"ev-9"}, "events": []any{}})
+	reply, err = w.Request(ctx, "bot.review", map[string]any{"bot_id": "bot_1"})
+	res = learningResult{}
+	if err != nil || reply.Decode(&res) != nil || !res.OK || len(res.Data["pending_ids"].([]any)) != 1 {
+		t.Fatalf("a scripted bot.review: %v %+v", err, res)
+	}
+	r.kit.LearningError("", "bot.forget", "failed", "the skill could not be removed")
+	_, err = w.Request(ctx, "bot.forget", map[string]any{"skill_slug": "bot-kettle"})
+	var re *agenthost.ReplyError
+	if !errors.As(err, &re) || re.Code != "failed" {
+		t.Fatalf("a scripted bot.forget error: %v", err)
+	}
+}

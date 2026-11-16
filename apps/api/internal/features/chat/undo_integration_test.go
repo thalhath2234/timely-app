@@ -72,7 +72,7 @@ func TestIntegrationUndoAnAutoAppliedCreate(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, undoCatalog, &scripted{responses: []WireMessage{proposeCreate(true)}})
 	c := autoFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil || c.Status != "queued" {
+	if err := playTurn(context.Background(), s, &c); err != nil || c.Status != "queued" {
 		t.Fatalf("Auto did not apply at once: %s %v", c.Status, err)
 	}
 	claimed(t, db, &c)
@@ -114,7 +114,7 @@ func TestIntegrationUndoRefusals(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, undoCatalog, &scripted{responses: []WireMessage{proposeCreate(true)}})
 	c := autoFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	claimed(t, db, &c)
@@ -132,7 +132,7 @@ func TestIntegrationUndoRefusals(t *testing.T) {
 
 	s = New(db, undoCatalog, &scripted{responses: []WireMessage{proposeCreate(true)}})
 	held := planFixture(t, db)
-	if err := s.plan(context.Background(), &held); err != nil || held.Status != "approval" {
+	if err := playTurn(context.Background(), s, &held); err != nil || held.Status != "approval" {
 		t.Fatalf("Supervised: %s %v", held.Status, err)
 	}
 	db.Model(&Conversation{}).Where("id = ?", held.ID).Update("status", "idle")
@@ -192,7 +192,7 @@ func TestIntegrationUndoAHabitGuardsLaterCheckIns(t *testing.T) {
 		"steps": []any{map[string]any{"tool": "add_habit", "summary": "Add Walk", "arguments": map[string]any{"name": "Walk"}}}})
 	s := New(db, habitCatalog, &scripted{responses: []WireMessage{add}})
 	c := autoFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil || c.Status != "queued" {
+	if err := playTurn(context.Background(), s, &c); err != nil || c.Status != "queued" {
 		t.Fatalf("Auto did not apply at once: %s %v", c.Status, err)
 	}
 	claimed(t, db, &c)

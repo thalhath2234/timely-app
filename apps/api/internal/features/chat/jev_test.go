@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -95,71 +94,57 @@ func has(list []string, name string) bool {
 	return false
 }
 
-func TestIntegrationTriageNarrowsToolsAndHints(t *testing.T) {
+// Triage sets the reply language before the turn; the turn's reads run as
+// the model asks for them.
+func TestIntegrationTriageSetsTheLanguage(t *testing.T) {
 	db := integrationDB(t)
-	jev, _ := fakeJev(t, map[string]any{
-		"area": choice("calendar", 0.95), "change": yesNo(0.03), "web": yesNo(0.1), "unclear": yesNo(0.1),
-		"scope": choice("none", 0.9), "language": choice("es", 0.92),
-	})
-	model := &toolsModel{scripted: scripted{responses: []WireMessage{
-		call("get_context", map[string]any{}),
+	jev, _ := fakeJev(t, map[string]any{"language": choice("es", 0.92)})
+	model := &scripted{responses: []WireMessage{
+		call("get_calendar", map[string]any{}),
 		call("get_doc", map[string]string{"docId": "doc_1"}),
 		{Role: "assistant", Content: "Mañana tienes dos eventos."},
-	}}}
+	}}
 	s := New(db, readCatalog, model)
 	s.SetDecisions(jev)
 	c := planFixture(t, db)
 	c.Messages = []Message{message("user", "¿Qué tengo en el calendario mañana?")}
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
-	if !has(model.tools[0], "get_calendar") || !has(model.tools[0], "get_context") || has(model.tools[0], "get_doc") {
-		t.Fatalf("first call should offer calendar tools only: %v", model.tools[0])
-	}
-	if !has(model.tools[2], "get_doc") {
-		t.Fatalf("calling a left-out tool must offer everything again: %v", model.tools[2])
-	}
-	if model.seen[1][len(model.seen[1])-1].Role != "tool" || strings.Contains(model.seen[2][len(model.seen[2])-1].Content, "error") {
-		t.Fatalf("the left-out tool must still run: %+v", model.seen[2][len(model.seen[2])-1])
-	}
-	prompt := ""
-	for _, m := range model.seen[0] {
-		prompt += m.Content + "\n"
-	}
-	if !strings.Contains(prompt, "reads as a question") || !strings.Contains(prompt, "also work when called by name: get_doc, list_docs") {
-		t.Fatalf("hints missing from the prompt: %s", prompt[len(prompt)-600:])
+	if results := lastToolResults(model.seen[len(model.seen)-1]); len(results) != 2 || strings.Contains(strings.Join(results, ""), "error") {
+		t.Fatalf("tool results %v", results)
 	}
 	if c.Language != "es" || c.Status != "idle" {
 		t.Fatalf("language %q status %q", c.Language, c.Status)
 	}
 }
 
+// With Jev off or unsure the turn runs as it would without it: no language
+// is set and the model reads no classifier hint.
 func TestIntegrationTriageOffOrUnsureChangesNothing(t *testing.T) {
 	db := integrationDB(t)
 	for name, jev := range map[string]Decider{
 		"no keys": decide.New(nil, func(context.Context, string) (decide.Keys, error) { return decide.Keys{Enabled: true}, nil }, decide.NewClient(nil)),
 		"unsure": func() Decider {
-			d, _ := fakeJev(t, map[string]any{"area": choice("calendar", 0.5), "change": yesNo(0.4)})
+			d, _ := fakeJev(t, map[string]any{"language": choice("es", 0.5)})
 			return d
 		}(),
 	} {
-		model := &toolsModel{scripted: scripted{responses: []WireMessage{{Role: "assistant", Content: "Hi."}}}}
+		model := &scripted{responses: []WireMessage{{Role: "assistant", Content: "Hi."}}}
 		s := New(db, readCatalog, model)
 		s.SetDecisions(jev)
 		c := planFixture(t, db)
-		if err := s.plan(context.Background(), &c); err != nil {
+		c.Messages = []Message{message("user", "Hola, what is next")}
+		db.Save(&c)
+		if err := playTurn(context.Background(), s, &c); err != nil {
 			t.Fatal(err)
 		}
-		offered := len(model.tools[0])
-		if has(model.tools[0], targetTool) {
-			offered-- // offered whenever Jev has keys, sure or not
-		}
-		if offered != 5 { // four read tools and propose_changes
-			t.Fatalf("%s: every tool must be offered: %v", name, model.tools[0])
+		if c.Language != "" || c.Status != "idle" {
+			t.Fatalf("%s: language %q status %q", name, c.Language, c.Status)
 		}
 		for _, m := range model.seen[0] {
-			if strings.Contains(m.Content, "classifier") || strings.Contains(m.Content, "called by name") {
+			if strings.Contains(m.Content, "classifier") {
 				t.Fatalf("%s: no hint expected, got %q", name, m.Content)
 			}
 		}
@@ -189,13 +174,13 @@ func TestIntegrationSimilarChatWaitsForAChoice(t *testing.T) {
 		return w.Code, row
 	}
 	newChat := func() (Conversation, Conversation) {
-		earlier := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Plan the Lisbon trip", Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", "Plan the Lisbon trip")}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		earlier := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Plan the Lisbon trip", Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", "Plan the Lisbon trip")}, Plan: []Step{}, Snapshots: []Snapshot{}}
 		db.Create(&earlier)
 		c := planFixture(t, db)
 		c.Messages = []Message{message("user", "Help me plan the Lisbon trip")}
 		db.Save(&c)
 		model.responses = nil
-		if err := s.plan(context.Background(), &c); err != nil {
+		if err := playTurn(context.Background(), s, &c); err != nil {
 			t.Fatal(err)
 		}
 		return earlier, c
@@ -220,7 +205,7 @@ func TestIntegrationSimilarChatWaitsForAChoice(t *testing.T) {
 	row.Status, row.Lease = "running", "test-lease"
 	db.Save(&row)
 	model.responses = []WireMessage{{Role: "assistant", Content: "Sure."}}
-	if err := s.plan(context.Background(), &row); err != nil || row.Status != "idle" {
+	if err := playTurn(context.Background(), s, &row); err != nil || row.Status != "idle" {
 		t.Fatalf("the run did not continue: %v %s", err, row.Status)
 	}
 	for _, m := range model.seen[0] {
@@ -270,7 +255,7 @@ func TestIntegrationReviewNotesForceReview(t *testing.T) {
 	}, plain)
 	base.SetDecisions(quiet)
 	first := autoFixture(t, db)
-	if err := base.plan(context.Background(), &first); err != nil || first.Status != "queued" {
+	if err := playTurn(context.Background(), base, &first); err != nil || first.Status != "queued" {
 		t.Fatalf("a requested direct change should apply: %s %v", first.Status, err)
 	}
 	// One direct create would apply without review; the notes make it reviewed.
@@ -288,7 +273,7 @@ func TestIntegrationReviewNotesForceReview(t *testing.T) {
 	}, model)
 	s.SetDecisions(jev)
 	c := autoFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	var summary Message
@@ -312,7 +297,7 @@ func TestIntegrationSensitiveChatsAreNeverSent(t *testing.T) {
 	c := planFixture(t, db)
 	c.Sensitive = true
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if len(*asked) != 0 {
@@ -357,28 +342,13 @@ func TestTriageKeepsFirstPickWhenSureThereIsAMatch(t *testing.T) {
 	s := New(db, readCatalog, &scripted{})
 	s.SetDecisions(jev)
 	for _, title := range []string{"Plan the Porto weekend", "Porto weekend food list"} {
-		db.Create(&Conversation{ID: id("chat_"), UserID: "user-a", Title: title, Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", title)}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}})
+		db.Create(&Conversation{ID: id("chat_"), UserID: "user-a", Title: title, Status: "idle", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", title)}, Plan: []Step{}, Snapshots: []Snapshot{}})
 	}
 	c := planFixture(t, db)
 	c.Messages = []Message{message("user", "Help me plan my Porto weekend")}
 	tri, ok := s.triage(context.Background(), &c)
 	if !ok || tri.similar == nil || tri.similar.Title != "Plan the Porto weekend" {
 		t.Fatalf("expected the first pick, got %+v (ok %v)", tri.similar, ok)
-	}
-}
-
-func TestTriageHintMeetingIntent(t *testing.T) {
-	for meeting, want := range map[string]string{
-		"prepare": "time blocked before it to prepare",
-		"add":     "the event itself added",
-		"remind":  "a reminder shortly before it",
-	} {
-		if hint := (triage{meeting: meeting}).hint(true); !strings.Contains(hint, want) {
-			t.Errorf("%s: %q", meeting, hint)
-		}
-	}
-	if hint := (triage{}).hint(true); hint != "" {
-		t.Errorf("no triage, no hint: %q", hint)
 	}
 }
 
@@ -418,49 +388,5 @@ func TestReviewStateFitsLargeProposals(t *testing.T) {
 	fitReview(small, small["changes"].([]map[string]string), q, decide.MaxStateBytes)
 	if _, ok := q["draft1"]; !ok {
 		t.Fatal("a small review lost its doc check")
-	}
-}
-
-// Triage knows bots: the area is offered, a bots triage offers the bot
-// reads, and a change to a bot counts as a change. The live chat test runs
-// with Jev off, so only this covers it.
-func TestTriageBots(t *testing.T) {
-	var body string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		body = string(b)
-		_ = json.NewEncoder(w).Encode(map[string]any{"answers": map[string]any{"area": choice("bots", 0.95), "area__2": choice("bots", 0.95), "change": yesNo(0.9)}})
-	}))
-	defer srv.Close()
-	client := decide.NewClient(nil)
-	client.TypeSafeURL = srv.URL
-	s := New(nil, nil, nil)
-	s.SetDecisions(decide.New(nil, func(context.Context, string) (decide.Keys, error) {
-		return decide.Keys{Enabled: true, TypeSafe: "ts-test-key"}, nil
-	}, client))
-	// Two messages, so no earlier chats are looked up.
-	c := &Conversation{UserID: "u", Messages: []Message{message("user", "Hi"), message("user", "Tell me when the Go blog posts something new")}}
-	tri, ok := s.triage(context.Background(), c)
-	if !ok || tri.area != "bots" || tri.change == nil || !*tri.change {
-		t.Fatalf("triage %+v %v; request %s", tri, ok, body)
-	}
-	for _, text := range []string{`Bots that watch web pages, feeds or prices and send alerts.`, `projects or bots.`} {
-		if !strings.Contains(body, text) {
-			t.Errorf("the request misses %q: %s", text, body)
-		}
-	}
-	want := []string{"list_bots", "get_bot", "list_bot_findings", "preview_bot", "ask_bot"}
-	if !reflect.DeepEqual(areaTools["bots"], want) {
-		t.Errorf("areaTools[bots] = %v", areaTools["bots"])
-	}
-	for _, name := range append(want, essentialTools...) {
-		if !tri.tools(name) {
-			t.Errorf("a bots triage leaves out %s", name)
-		}
-	}
-	for _, name := range []string{"list_docs", "get_calendar", "list_sheets"} {
-		if tri.tools(name) {
-			t.Errorf("a bots triage offers %s", name)
-		}
 	}
 }

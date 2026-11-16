@@ -12,16 +12,14 @@ import (
 )
 
 // One model tool call, the proposal that ends a turn and the input a turn
-// starts from: the parts of a chat run both engines share (plan 5.2, 5.8).
-// The classic loop in plan() calls them for each call its model makes; the
-// agent engine calls them for each tool.call and run.done its worker sends.
-// Whatever either engine's model calls, Timely data changes only through a
-// proposal and the model-free apply (ADR 0007).
+// starts from (plan 5.2, 5.8): the agent engine calls them for each
+// tool.call and run.done its worker sends. Whatever the model calls, Timely
+// data changes only through a proposal and the model-free apply (ADR 0007).
 
 // toolRun is what one run has done with its tools so far: the reads a
 // proposal is checked against, the bot reads it made, resolve_target picks
-// and web searches. Classic keeps it in memory for the run; the agent
-// engine's run lives outside Go, so it saves it in run_reads (load, save).
+// and web searches. The run lives outside Go, so it is saved in run_reads
+// (load, save).
 type toolRun struct {
 	catalog agent.Catalog
 	loc     *time.Location
@@ -29,26 +27,19 @@ type toolRun struct {
 	// tags any, and every tool outside answerTools is refused.
 	tags       []string
 	answerOnly bool
-	// searchOn offers the runner's web_search (classic only), targets
-	// resolve_target (when Jev answers for the account).
-	searchOn bool
-	targets  bool
-	// offered are the reads classic's triage offered; a call to another read
-	// sets widen, and the loop offers every read from then on. Nil offers
-	// every read.
-	offered map[string]bool
-	widen   bool
+	// targets offers resolve_target (when Jev answers for the account).
+	targets bool
 	bots    botRun
 	// reads is the hash of each object as the model last read it (see
 	// prepareProposal).
 	reads   map[string]string
 	picks   []*targetPick
 	lookups targetLookups
-	// searches and searchFailures count the runner's web searches.
+	// searches and searchFailures count the run's web searches (web.go).
 	searches, searchFailures int
 	// web is the agent engine's timely web backend in this run (web.go).
 	web webRun
-	// agentRun is the agent run these tools serve ("" on classic).
+	// agentRun is the agent run these tools serve.
 	agentRun string
 	// contRequest is the request id of the parked card whose approved call
 	// this run continues ("" for any other run). keepCards is set by a run
@@ -112,12 +103,10 @@ func (r *toolRun) save(row *Conversation, runID string) {
 }
 
 // toolCall answers one Read tool call of a run: what the model gets back,
-// and whether it carries third-party text (outside). batch is how many calls
-// the model's message made and siblings their names; reads do not depend on
-// them. err is set only when the run must end (its context ended); every
-// other failure is an {"error": ...} result for the model.
-func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, name string, args json.RawMessage, batch int, siblings []string) (json.RawMessage, bool, error) {
-	_, _ = batch, siblings
+// and whether it carries third-party text (outside). err is set only when
+// the run must end (its context ended); every other failure is an
+// {"error": ...} result for the model.
+func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, name string, args json.RawMessage) (json.RawMessage, bool, error) {
 	if run.answerOnly && !answerTools[name] {
 		// Whatever the model calls, or a page it read asks for.
 		return raw(map[string]any{"error": answerOnlyRefusal}), false, nil
@@ -133,28 +122,6 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 		result, outside, err = s.webSearch(ctx, run, args)
 	} else if web {
 		result, outside, err = s.webExtract(ctx, run, args)
-	} else if name == "web_search" && run.searchOn {
-		var in struct {
-			Query string `json:"query"`
-		}
-		err = json.Unmarshal(args, &in)
-		query := strings.TrimSpace(in.Query)
-		if err == nil && len(query) > 0 && len(query) < 2000 {
-			var answer WireMessage
-			// A failed search leaves the tool listed: some providers refuse
-			// a transcript with calls to a tool that is gone.
-			answer, err = s.runSearch(ctx, run, query)
-			result = map[string]any{"answer": answer.Content, "sources": answer.Annotations}
-			if err == nil {
-				// Search text is outside text, as on the agent engine: the
-				// chat's tainted_sources keep it for a later agent turn
-				// (ADR 0028), which reloads this reply into its session.
-				outside = true
-				run.web.taint = append(run.web.taint, TaintSource{Kind: "web", Tool: "web_search"})
-			}
-		} else {
-			err = fmt.Errorf("Invalid search query: write the words to search for")
-		}
 	} else if name == targetTool && run.targets {
 		var pick *targetPick
 		result, pick, err = run.lookups.resolve(args, func() (any, *targetPick, error) {
@@ -168,9 +135,6 @@ func (s *Service) toolCall(ctx context.Context, c *Conversation, run *toolRun, n
 	} else if name == "ask_bot" && run.bots.asks >= maxAsks {
 		err = fmt.Errorf("That is as many bots as one request may ask (%d). Answer from what they said above", maxAsks)
 	} else if isReadTool(name) && run.catalog[name].Call != nil {
-		if !run.answerOnly && run.offered != nil && !run.offered[name] {
-			run.widen = true // triage guessed wrong: offer everything from now on
-		}
 		result, err = run.catalog[name].Call(ctx, c.UserID, args)
 		if err == nil {
 			recordRead(ctx, run.catalog, c.UserID, name, args, result, run.reads)
@@ -229,7 +193,7 @@ func (s *Service) prepareAgentProposal(ctx context.Context, c *Conversation, run
 	return &pendingProposal{proposal: p, snapshots: snapshots, notes: notes}, nil
 }
 
-// finishTurn is the one checkpoint that ends a turn, on either engine: the
+// finishTurn is the one checkpoint that ends a turn: the
 // reply, or the proposal with its reply, held for review or queued to apply
 // as the chat's permission mode decides (proposalStatus). reply is the
 // model's closing text; with a proposal it follows the proposal's own reply
@@ -243,9 +207,8 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 			m := message("assistant", reply)
 			m.BotAnswers = run.bots.answers.list(run.tags)
 			row.Messages = append(row.Messages, m)
-			markEngine(row, len(row.Messages)-1, run.agentRun)
+			markRun(row, len(row.Messages)-1, run.agentRun)
 			row.Status = "idle"
-			row.Transcript = []WireMessage{}
 			return notify(tx, row, tr(row.Language, txtPushReply))
 		})
 	}
@@ -259,10 +222,9 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 		row.Plan = p.Steps
 		row.Snapshots = pending.snapshots
 		row.Phase = "apply"
-		row.Transcript = []WireMessage{}
 		// A review note only ever adds a review.
 		row.Status = proposalStatus(row, row.Plan, p.Direct, pending.notes)
-		defer markEngine(row, len(row.Messages), run.agentRun)
+		defer markRun(row, len(row.Messages), run.agentRun)
 		summary := message("assistant", p.Summary)
 		summary.Proposal = true
 		summary.Remaining = strings.TrimSpace(p.Remaining)
@@ -286,38 +248,26 @@ func (s *Service) finishTurn(ctx context.Context, c *Conversation, reply string,
 	})
 }
 
-// markEngine tags the messages from index from on with the engine of the
-// run that wrote them, when that is the agent engine, and with its run id.
-func markEngine(row *Conversation, from int, agentRun string) {
-	if row.RunEngine != engineAgent {
-		return
-	}
-	for i := from; i < len(row.Messages); i++ {
-		row.Messages[i].Engine = engineAgent
-		row.Messages[i].AgentRun = agentRun
-	}
-}
-
-// markStopped tags the messages a Stop of an agent run wrote (the cut
-// reply and the notice, from index from on) with that run, so its
-// learning chip and Keep / Discard card show under them rather than at the
-// end of the chat, where a later reply would seem to have learned it.
-func markStopped(row *Conversation, from int, agentRun string) {
+// markRun tags the messages from index from on with the agent run that
+// wrote them; the apps attach that run's learning events to them. A Stop
+// marks the cut reply and its notice too, so the run's learning chip and
+// Keep / Discard card show under them rather than at the end of the chat.
+func markRun(row *Conversation, from int, agentRun string) {
 	if agentRun == "" {
 		return
 	}
 	for i := from; i < len(row.Messages); i++ {
-		row.Messages[i].Engine = engineAgent
 		row.Messages[i].AgentRun = agentRun
 	}
 }
 
-// classicSinceAgent reports a chat whose latest finished turn came from the
-// classic engine: the agent engine's session has not seen it.
-func classicSinceAgent(messages []Message) bool {
+// replyNotFromRun reports a chat whose latest finished reply no agent run
+// wrote (an extraction reply, a reply written before this engine): the
+// agent's session has not seen it.
+func replyNotFromRun(messages []Message) bool {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if m := messages[i]; m.Role == "assistant" && m.Kind == "" && !m.Cut {
-			return m.Engine != engineAgent
+			return m.AgentRun == ""
 		}
 	}
 	return false
@@ -333,8 +283,7 @@ func endRun(row *Conversation, run *toolRun) {
 		settleHostCards(row, run.agentRun, run.contRequest)
 	}
 	mergeTaint(row, run.bots.taint())
-	// The agent engine hands web taint over call by call; classic's
-	// searches arrive here.
+	// Web taint is handed over call by call; whatever is left arrives here.
 	mergeTaint(row, run.web.takeTaint())
 	// A question card still open when the run ends closes unanswered (the
 	// worker's clarify.closed normally came first).
@@ -373,8 +322,8 @@ func imageNotice(review *ImageReview) string {
 
 // turnInput is the agent engine's user message for a turn (plan 5.3): what
 // the person wrote since the last turn and the notices Timely added, then
-// the per-turn context classic sends after the stored conversation (the
-// clock, attached context, the current get_context result, a tag notice).
+// the per-turn context (the clock, attached context, the current
+// get_context result, a tag notice).
 // The stable Timely block is the system part; this is everything that
 // changes from one message to the next.
 func (s *Service) turnInput(ctx context.Context, c *Conversation) string {
@@ -399,7 +348,7 @@ func (s *Service) turnInput(ctx context.Context, c *Conversation) string {
 const cutNotice = "System notice (not written by the user): your reply was stopped before it finished. It had said: "
 
 // sinceLastTurn renders the messages after the model's last reply or
-// proposal, as classic reads them: the person's words as written, Timely's
+// proposal: the person's words as written, Timely's
 // notices and change records as data. Steers before the last reply reached
 // the run they steered; one after it belongs to a run that ended without a
 // reply (failed, lost), so Retry sends it again.
@@ -435,7 +384,7 @@ func sinceLastTurn(messages []Message) []string {
 }
 
 // proposeDescription and proposeParameters are propose_changes as the model
-// sees it, on both engines.
+// sees it.
 const proposeDescription = "Submit the entire ordered plan. Arguments are JSON objects matching the write schemas."
 
 func proposeParameters() map[string]any {
@@ -443,15 +392,4 @@ func proposeParameters() map[string]any {
 		"reply":     map[string]any{"type": "string", "description": "Answer to any question in the person's message that is not about the changes (e.g. what weekday tomorrow is); empty string when there is none. Shown as its own message next to the summary."},
 		"remaining": map[string]any{"type": "string", "description": "When the request needs more than 30 changes: exactly what is left after this batch (Timely continues with it automatically once this batch is applied). Empty string when this proposal completes the request."},
 		"language":  map[string]any{"type": "string", "description": "BCP 47 tag of the language the person writes in, e.g. en, ja, es."}, "steps": map[string]any{"type": "array", "minItems": 1, "maxItems": 30, "items": map[string]any{"type": "object", "properties": map[string]any{"tool": map[string]any{"type": "string"}, "summary": map[string]any{"type": "string"}, "arguments": map[string]any{"type": "object"}}, "required": []string{"tool", "summary", "arguments"}}}}, "required": []string{"summary", "steps", "direct", "reply", "remaining", "language"}}
-}
-
-// siblingNames are the names of the other calls in a model message.
-func siblingNames(calls []ToolCall, index int) []string {
-	out := []string{}
-	for i, call := range calls {
-		if i != index {
-			out = append(out, call.Function.Name)
-		}
-	}
-	return out
 }

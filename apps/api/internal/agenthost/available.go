@@ -32,10 +32,10 @@ func (s *Supervisor) Available() error {
 	closed := s.closed
 	s.mu.Unlock()
 	if closed {
-		return &UnavailableError{Reason: "Timely is shutting down, so the new engine cannot start a run.", Err: ErrClosed}
+		return &UnavailableError{Reason: "Timely is shutting down, so the agent cannot start a run.", Err: ErrClosed}
 	}
 	if s.cfg.Runtime.Program == "" || !isFile(s.cfg.Runtime.Program) {
-		reason := "The new engine's runtime is not installed on this server"
+		reason := "agent runtime missing: the runtime is not installed on this server"
 		if detail := errDetail(s.cfg.RuntimeErr); detail != "" {
 			reason += " (" + detail + ")"
 		} else if s.cfg.Runtime.Program != "" {
@@ -45,7 +45,7 @@ func (s *Supervisor) Available() error {
 	}
 	if s.cfg.Worktree != "" && (s.cfg.DBSchema == "" || s.cfg.DBSchema == "public") {
 		return &UnavailableError{
-			Reason: "This API runs in a git worktree without its own DB_SCHEMA, so it would share chats with the main checkout. Set DB_SCHEMA for this API to use the new engine.",
+			Reason: "This API runs in a git worktree without its own DB_SCHEMA, so it would share chats with the main checkout. Set DB_SCHEMA for this API to run chats.",
 			Err:    ErrWorktreeShared,
 		}
 	}

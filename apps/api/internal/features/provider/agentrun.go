@@ -15,9 +15,10 @@ import (
 // account's own decrypted key. There is no fallback to another provider.
 
 // ErrAgentEngineUnsupported means the run's provider cannot drive the agent
-// engine, so the chat stays on the classic engine: Claude Code and Codex when
-// the loopback model gateway (gateway.go) is not running.
-var ErrAgentEngineUnsupported = errors.New("The model gateway is not running, so Claude Code and Codex use the classic engine")
+// engine, so the chat cannot run with it (ADR 0029: nothing falls back):
+// Claude Code and Codex when the loopback model gateway (gateway.go) is not
+// running.
+var ErrAgentEngineUnsupported = errors.New("The model gateway is not running, so Claude Code and Codex cannot run chats. Restart Timely or pick another provider")
 
 // errSignInToken is a Claude Code sign-in token pasted where an Anthropic API
 // key goes (Q-4.1). Hermes would take it down its Claude Code OAuth path
@@ -70,12 +71,15 @@ var agentProviderIDs = map[string]bool{
 // AgentRunOptions are what a run asks of its model beyond provider and model.
 type AgentRunOptions struct {
 	// Sensitive sends every model call through the loopback gateway, whatever
-	// the provider, so the classic Completer makes it with Sensitive
+	// the provider, so the account's Completer makes it with Sensitive
 	// messages and no web search: zero data retention on OpenRouter, the
-	// CLIs' Sensitive arguments (plan 5.6, phase 4 decision 11). Like classic
-	// Sensitive and CLI runs, such a run does not stream and reports no
-	// tokens.
+	// CLIs' Sensitive arguments (plan 5.6, phase 4 decision 11). Like CLI
+	// runs, such a run does not stream and reports no tokens.
 	Sensitive bool
+	// SupportsVision is Go's answer to "can this model read photos"
+	// (chat.readsImages), sent as model.supports_vision with a turn's
+	// photos (PROTOCOL.md 15.1).
+	SupportsVision bool
 }
 
 // unsupportedError is ErrAgentEngineUnsupported with a reason of its own.
@@ -94,8 +98,11 @@ type AgentModel struct {
 	APIMode  string `json:"api_mode"` // chat_completions, codex_responses or anthropic_messages
 	// Reasoning is Hermes' reasoning_config ({"enabled": false} or
 	// {"enabled": true, "effort": "low"}, hermes:hermes_constants.py:1076-1100),
-	// set where the classic engine sets one; nil leaves the provider's default.
+	// set where Timely's own model calls set one; nil leaves the provider's default.
 	Reasoning map[string]any `json:"reasoning,omitempty"`
+	// SupportsVision says the model reads photos; a run.start with images
+	// needs it true (PROTOCOL.md 15.1).
+	SupportsVision bool `json:"supports_vision,omitempty"`
 }
 
 // String describes the model without its key, so a logged AgentModel never
@@ -188,8 +195,9 @@ func (s *Service) AgentModelFor(ctx context.Context, userID, provider, model str
 	if !agentProviderIDs[m.Provider] {
 		// A second line behind hermesProvider: never hand the worker a
 		// provider Hermes could sign in to by itself (Q-4.1).
-		return AgentModel{}, unsupportedError{fmt.Sprintf("%s cannot run on the new engine", provider)}
+		return AgentModel{}, unsupportedError{fmt.Sprintf("%s cannot run chats", provider)}
 	}
+	m.SupportsVision = opts.SupportsVision
 	return m, nil
 }
 
@@ -225,13 +233,13 @@ func (s *Service) agentModel(ctx context.Context, userID, provider, model string
 // gatewayAgentModel sends a run through the loopback gateway: Hermes calls
 // it as a custom OpenAI-compatible endpoint with a secret for this account,
 // provider, model and Sensitive flag, and the gateway answers with the
-// account's classic Completer. Claude Code and Codex always come here; other
-// providers only on a Sensitive run. Without a gateway the chat stays
-// classic.
+// account's Completer. Claude Code and Codex always come here; other
+// providers only on a Sensitive run. Without a gateway such a chat cannot
+// run.
 func (s *Service) gatewayAgentModel(ctx context.Context, userID, provider, model string, sensitive bool) (AgentModel, error) {
 	if s.gateway == nil {
 		if sensitive && provider != ClaudeCLI && provider != CodexCLI {
-			return AgentModel{}, unsupportedError{"The model gateway is not running, so Sensitive chats use the classic engine"}
+			return AgentModel{}, unsupportedError{"The model gateway is not running, so Sensitive chats cannot run. Restart Timely"}
 		}
 		return AgentModel{}, ErrAgentEngineUnsupported
 	}
@@ -256,7 +264,7 @@ func (s *Service) gatewayAgentModel(ctx context.Context, userID, provider, model
 		}
 		model = s.chatModel(row, provider)
 	}
-	// The same checks the classic engine makes: CLI on, found, connected;
+	// The same checks the Completer makes: CLI on, found, connected;
 	// key set and readable, model chosen.
 	if _, err := s.gateway.completer(ctx, userID, provider, model); err != nil {
 		return AgentModel{}, err
@@ -266,8 +274,8 @@ func (s *Service) gatewayAgentModel(ctx context.Context, userID, provider, model
 }
 
 // openRouterAgentModel is OpenRouter direct: the account's key, the chat
-// completions endpoint's base, and the low reasoning effort the classic
-// engine asks for (chat.OpenRouter).
+// completions endpoint's base, and the low reasoning effort Timely's own
+// OpenRouter calls ask for (chat.OpenRouter).
 func (s *Service) openRouterAgentModel(row Settings, model string) (AgentModel, error) {
 	key, err := s.openRouterKey(row)
 	if err != nil {
@@ -290,7 +298,7 @@ func (s *Service) openRouterAgentModel(row Settings, model string) (AgentModel, 
 }
 
 // apiAgentModel is one direct API provider (registry.go), checked the way
-// buildAPI checks it for the classic engine.
+// buildAPI checks it for the account's Completer.
 func (s *Service) apiAgentModel(spec *apiProvider, row APIKey, model string) (AgentModel, error) {
 	key, err := s.apiKey(row)
 	if err != nil {
@@ -318,10 +326,10 @@ func (s *Service) apiAgentModel(spec *apiProvider, row APIKey, model string) (Ag
 		return AgentModel{}, fmt.Errorf("%s serves %s through a protocol Timely does not support. Choose another model", spec.Label, model)
 	}
 	if route == routeOllama && s.typedBase(spec, base) && !s.privateOllama {
-		// The classic engine reaches a typed address only through
+		// Timely's own Ollama client reaches a typed address only through
 		// publicTransport while sign-ups are open; the worker's HTTP client has
-		// no such guard, so such a chat stays classic.
-		return AgentModel{}, unsupportedError{"An Ollama address you typed uses the classic engine on a server open to sign-ups"}
+		// no such guard, so such a chat cannot run.
+		return AgentModel{}, unsupportedError{"An Ollama address you typed cannot run chats on a server open to sign-ups. Use a local Ollama or another provider"}
 	}
 	agentBase := strings.TrimRight(base, "/")
 	switch route {
@@ -334,7 +342,7 @@ func (s *Service) apiAgentModel(spec *apiProvider, row APIKey, model string) (Ag
 		}
 	case routeOllama:
 		// Ollama's OpenAI-compatible endpoint, as Hermes' own Ollama Cloud row
-		// (hermes:hermes_cli/auth_constants.py:85). Timely's classic Ollama
+		// (hermes:hermes_cli/auth_constants.py:85). Timely's own Ollama
 		// client uses the native /api/chat instead.
 		agentBase += "/v1"
 	}
@@ -344,7 +352,7 @@ func (s *Service) apiAgentModel(spec *apiProvider, row APIKey, model string) (Ag
 	m := AgentModel{Provider: hermesProvider(spec.ID, base), Model: model, BaseURL: agentBase, APIKey: key, APIMode: mode}
 	switch {
 	case spec.Anthropic:
-		// The classic engine asks Anthropic models that accept it for low
+		// Timely's own calls ask Anthropic models that accept it for low
 		// effort and leaves thinking off otherwise.
 		if s.effortFor(spec, base, key, model) {
 			m.Reasoning = map[string]any{"enabled": true, "effort": "low"}
@@ -352,7 +360,7 @@ func (s *Service) apiAgentModel(spec *apiProvider, row APIKey, model string) (Ag
 			m.Reasoning = map[string]any{"enabled": false}
 		}
 	case spec.ID == "deepseek":
-		// The classic engine turns DeepSeek's thinking off (registry.go).
+		// Timely's own calls turn DeepSeek's thinking off (registry.go).
 		m.Reasoning = map[string]any{"enabled": false}
 	}
 	return m, nil

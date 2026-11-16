@@ -22,7 +22,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// The worker gets every Read tool classic offers, propose_changes and
+// The worker gets every chat Read tool, propose_changes and
 // resolve_target, never a Write tool; the version follows the specs.
 func TestAgentToolSpecs(t *testing.T) {
 	catalog := agent.Catalog{
@@ -129,7 +129,7 @@ func (f *fakeEngine) startedIDs() []string {
 // queuedChat stores a queued plan turn for user-a.
 func queuedChat(t *testing.T, db *gorm.DB, edit func(*Conversation)) Conversation {
 	t.Helper()
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Test", Status: "queued", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", "Add Buy milk")}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Test", Status: "queued", Phase: "plan", Context: []ContextChip{}, Messages: []Message{message("user", "Add Buy milk")}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	if edit != nil {
 		edit(&c)
 	}
@@ -166,50 +166,38 @@ func settled(db *gorm.DB, statuses []string, ids ...string) func() bool {
 	}
 }
 
-// The lane picks the engine at claim: the chat's choice, else the
-// account's; Sensitive chats and other phases run classic; an agent turn
-// goes to Start and holds no lane; an engine that cannot run fails the chat
-// with "Use classic for this chat", never switching on its own.
-func TestIntegrationEngineChosenAtClaim(t *testing.T) {
+// Every plan turn goes to the agent engine, the only chat engine (ADR
+// 0029): a Sensitive or photo chat too, as a no-persist run, and an agent
+// turn holds no lane. An engine that cannot run a chat fails it with the
+// reason and Try again, never offering another engine; without an engine
+// the chat fails with "agent runtime missing".
+func TestIntegrationEveryPlanTurnStartsTheAgentEngine(t *testing.T) {
 	db := integrationDB(t)
-	if err := db.Create(&AgentChatSettings{UserID: "user-a", Engine: engineAgent, ChatPermission: "supervised", BotPermission: "auto", FullAccessAllowedOn: "desktop"}).Error; err != nil {
-		t.Fatal(err)
-	}
-	model := &scripted{responses: []WireMessage{{Role: "assistant", Content: "Classic answered."}, {Role: "assistant", Content: "Classic answered."}}}
 	engine := &fakeEngine{}
-	s := New(db, createCatalog, model)
+	s := New(db, createCatalog, &scripted{})
 	s.SetAgentEngine(engine)
-	agentTurn := queuedChat(t, db, nil)
+	plain := queuedChat(t, db, nil)
 	sensitive := queuedChat(t, db, func(c *Conversation) { c.Sensitive = true })
-	pinned := queuedChat(t, db, func(c *Conversation) { c.Engine = engineClassic })
-	runLanes(t, s, func() bool {
-		return len(engine.startedIDs()) > 0 && settled(db, []string{"idle", "failed"}, sensitive.ID, pinned.ID)()
+	photo := queuedChat(t, db, func(c *Conversation) {
+		c.Sensitive = true
+		c.Messages[0].ImageIDs = []string{"img_1"}
+		c.ImageReview = &ImageReview{ImageIDs: []string{"img_1"}, Status: "review"}
 	})
-
-	if got := engine.startedIDs(); len(got) != 1 || got[0] != agentTurn.ID {
-		t.Fatalf("started %v, want only %s", got, agentTurn.ID)
-	}
+	runLanes(t, s, func() bool { return len(engine.startedIDs()) == 3 })
 	var rows []Conversation
-	db.Where("id IN ?", []string{agentTurn.ID, sensitive.ID, pinned.ID}).Find(&rows)
+	db.Where("id IN ?", []string{plain.ID, sensitive.ID, photo.ID}).Find(&rows)
 	for _, row := range rows {
-		switch row.ID {
-		case agentTurn.ID:
-			if row.RunEngine != engineAgent || row.Status != "running" {
-				t.Errorf("agent turn: %s %s", row.RunEngine, row.Status)
-			}
-		default:
-			if row.RunEngine != engineClassic || row.Status != "idle" {
-				t.Errorf("%s: %s %s (classic expected)", row.ID, row.RunEngine, row.Status)
-			}
+		if row.Status != "running" {
+			t.Errorf("%s: %s, want running on the agent engine", row.ID, row.Status)
 		}
 	}
 
 	// An engine that cannot run this chat fails it with the reason.
-	engine.unavailable = errors.New("the agent runtime is not installed")
+	engine.unavailable = errors.New("agent runtime missing: the runtime is not installed on this server")
 	broken := queuedChat(t, db, nil)
 	runLanes(t, s, settled(db, []string{"failed"}, broken.ID))
 	db.First(&broken, "id = ?", broken.ID)
-	if broken.Status != "failed" || broken.ErrorAction != ActionUseClassic || !strings.Contains(broken.Error, "the agent runtime is not installed") {
+	if broken.Status != "failed" || broken.ErrorAction != ActionRetry || !strings.Contains(broken.Error, "agent runtime missing") {
 		t.Fatalf("unavailable engine: %s %q %q", broken.Status, broken.ErrorAction, broken.Error)
 	}
 	// Without any engine the same chat says so too.
@@ -217,11 +205,13 @@ func TestIntegrationEngineChosenAtClaim(t *testing.T) {
 	none := queuedChat(t, db, nil)
 	runLanes(t, s, settled(db, []string{"failed"}, none.ID))
 	db.First(&none, "id = ?", none.ID)
-	if none.Status != "failed" || none.ErrorAction != ActionUseClassic || !strings.Contains(none.Error, "not available") {
+	if none.Status != "failed" || none.ErrorAction != ActionRetry || !strings.Contains(none.Error, "agent runtime missing") {
 		t.Fatalf("no engine: %s %q %q", none.Status, none.ErrorAction, none.Error)
 	}
-	if !strings.Contains(string(raw(none)), `"errorAction":"use_classic"`) {
-		t.Fatal("the apps read errorAction use_classic")
+	for _, c := range []Conversation{broken, none} {
+		if body := strings.ToLower(string(raw(c))); strings.Contains(body, "classic") || strings.Contains(body, `"engine"`) || strings.Contains(body, `"runengine"`) {
+			t.Fatalf("a failed chat still speaks of engines: %s", body)
+		}
 	}
 }
 
@@ -234,7 +224,7 @@ func TestIntegrationLostAgentRun(t *testing.T) {
 	s.SetAgentEngine(engine)
 	expired := time.Now().UTC().Add(-time.Minute)
 	c := queuedChat(t, db, func(c *Conversation) {
-		c.Status, c.Lease, c.LeaseUntil, c.RunEngine, c.AgentRunID, c.AgentInstance = "running", "old", &expired, engineAgent, "run-1", "42:1"
+		c.Status, c.Lease, c.LeaseUntil, c.AgentRunID, c.AgentInstance = "running", "old", &expired, "run-1", "42:1"
 	})
 	runLanes(t, s, settled(db, []string{"failed"}, c.ID))
 	db.First(&c, "id = ?", c.ID)
@@ -255,7 +245,7 @@ func TestIntegrationAgentRunHooks(t *testing.T) {
 	live := func() Conversation {
 		future := time.Now().UTC().Add(time.Minute)
 		return queuedChat(t, db, func(c *Conversation) {
-			c.Status, c.Lease, c.LeaseUntil, c.RunEngine, c.AgentRunID = "running", "l", &future, engineAgent, "run-7"
+			c.Status, c.Lease, c.LeaseUntil, c.AgentRunID = "running", "l", &future, "run-7"
 		})
 	}
 	c := live()
@@ -302,23 +292,23 @@ func TestIntegrationChatSettings(t *testing.T) {
 	code, body := serve(t, s, "GET", "/agent/chat-settings", ``)
 	var got map[string]any
 	_ = json.Unmarshal(body, &got)
-	if code != 200 || got["engine"] != "classic" || got["chatPermission"] != "supervised" || got["botPermission"] != "auto" ||
-		got["fullAccessAllowedOn"] != "desktop" || got["engineAvailable"] != false || got["engineReason"] != "not available" {
+	if _, has := got["engine"]; code != 200 || has || got["chatPermission"] != "supervised" || got["botPermission"] != "auto" ||
+		got["fullAccessAllowedOn"] != "desktop" || got["engineAvailable"] != false || got["engineReason"] != "agent runtime missing" {
 		t.Fatalf("defaults: %d %s", code, body)
 	}
-	for _, bad := range []string{`{"engine":"turbo"}`, `{"chatPermission":"reckless"}`, `{"botPermission":""}`, `{"fullAccessAllowedOn":"phone"}`} {
+	for _, bad := range []string{`{"chatPermission":"reckless"}`, `{"botPermission":""}`, `{"fullAccessAllowedOn":"phone"}`} {
 		if code, _ := serve(t, s, "PATCH", "/agent/chat-settings", bad); code != 400 {
 			t.Errorf("%s: %d", bad, code)
 		}
 	}
-	if code, body := serve(t, s, "PATCH", "/agent/chat-settings", `{"engine":"agent","chatPermission":"Auto"}`); code != 200 || !strings.Contains(string(body), `"chatPermission":"auto"`) {
+	if code, body := serve(t, s, "PATCH", "/agent/chat-settings", `{"chatPermission":"Auto"}`); code != 200 || !strings.Contains(string(body), `"chatPermission":"auto"`) {
 		t.Fatalf("patch: %d %s", code, body)
 	}
 	s.SetAgentEngine(&fakeEngine{})
 	code, body = serve(t, s, "GET", "/agent/chat-settings", ``)
 	got = nil
 	_ = json.Unmarshal(body, &got)
-	if code != 200 || got["engine"] != "agent" || got["chatPermission"] != "auto" || got["botPermission"] != "auto" || got["engineAvailable"] != true {
+	if code != 200 || got["chatPermission"] != "auto" || got["botPermission"] != "auto" || got["engineAvailable"] != true {
 		t.Fatalf("after patch: %d %s", code, body)
 	}
 
@@ -383,17 +373,14 @@ func TestIntegrationAgentEngineMigrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	var row struct {
-		Engine, RunEngine, Permission, AgentRunID, AgentInstance, Activity, RunReads, TaintedSources string
+		Permission, AgentRunID, AgentInstance, Activity, RunReads, TaintedSources string
 	}
-	db.Raw("SELECT engine, run_engine, permission, agent_run_id, agent_instance, activity::text AS activity, run_reads::text AS run_reads, tainted_sources::text AS tainted_sources FROM agent_conversations WHERE id = 'chat_old'").Scan(&row)
-	if row.Engine != "" || row.RunEngine != "" || row.Permission != "supervised" || row.AgentRunID != "" || row.AgentInstance != "" || row.Activity != "{}" || row.RunReads != "{}" || row.TaintedSources != "[]" {
+	db.Raw("SELECT permission, agent_run_id, agent_instance, activity::text AS activity, run_reads::text AS run_reads, tainted_sources::text AS tainted_sources FROM agent_conversations WHERE id = 'chat_old'").Scan(&row)
+	if row.Permission != "supervised" || row.AgentRunID != "" || row.AgentInstance != "" || row.Activity != "{}" || row.RunReads != "{}" || row.TaintedSources != "[]" {
 		t.Fatalf("defaults %+v", row)
 	}
 	if db.Exec("UPDATE agent_conversations SET permission = 'reckless' WHERE id = 'chat_old'").Error == nil {
 		t.Fatal("an unknown permission was stored")
-	}
-	if db.Exec("UPDATE agent_conversations SET engine = 'turbo' WHERE id = 'chat_old'").Error == nil {
-		t.Fatal("an unknown engine was stored")
 	}
 	// The model reads and writes the new columns.
 	var c Conversation
@@ -462,15 +449,44 @@ func TestIntegrationAgentEngineMigrations(t *testing.T) {
 	if question != "{}" {
 		t.Fatalf("question after down and up %q", question)
 	}
+	// Phase 8 (ADR 0029): the classic transcript and the engine columns are
+	// gone; the down step brings them back empty, and up drops them again.
+	classicColumns := func() int64 {
+		var n int64
+		db.Raw(`SELECT count(*) FROM information_schema.columns WHERE table_schema = ? AND (
+			(table_name = 'agent_conversations' AND column_name IN ('transcript', 'engine', 'run_engine')) OR
+			(table_name = 'agent_chat_settings' AND column_name = 'engine'))`, schema).Scan(&n)
+		return n
+	}
+	if n := classicColumns(); n != 0 {
+		t.Fatalf("%d classic columns after the migrations", n)
+	}
+	if err = goose.DownTo(sqlDB, ".", 20261117035959); err != nil {
+		t.Fatal(err)
+	}
+	if n := classicColumns(); n != 4 {
+		t.Fatalf("%d classic columns after the down step, want 4", n)
+	}
+	var transcript string
+	db.Raw("SELECT transcript::text FROM agent_conversations WHERE id = 'chat_old'").Scan(&transcript)
+	if transcript != "[]" {
+		t.Fatalf("transcript after the down step %q", transcript)
+	}
+	if err = goose.Up(sqlDB, "."); err != nil {
+		t.Fatal(err)
+	}
+	if n := classicColumns(); n != 0 {
+		t.Fatalf("%d classic columns after down and up", n)
+	}
 
 	if err = db.Exec("INSERT INTO agent_chat_settings (user_id) VALUES ('usr_migrate')").Error; err != nil {
 		t.Fatal(err)
 	}
 	prefs, err := chatSettings(db, "usr_migrate")
-	if err != nil || prefs.Engine != "classic" || prefs.ChatPermission != "supervised" || prefs.BotPermission != "auto" || prefs.FullAccessAllowedOn != "desktop" {
+	if err != nil || prefs.ChatPermission != "supervised" || prefs.BotPermission != "auto" || prefs.FullAccessAllowedOn != "desktop" {
 		t.Fatalf("settings defaults %+v %v", prefs, err)
 	}
-	if db.Exec("UPDATE agent_chat_settings SET engine = 'turbo'").Error == nil || db.Exec("UPDATE agent_chat_settings SET full_access_allowed_on = 'phone'").Error == nil {
+	if db.Exec("UPDATE agent_chat_settings SET full_access_allowed_on = 'phone'").Error == nil {
 		t.Fatal("agent_chat_settings accepted an unknown value")
 	}
 	if err = db.Exec("DELETE FROM users WHERE id = 'usr_migrate'").Error; err != nil {

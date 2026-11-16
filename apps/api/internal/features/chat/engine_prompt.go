@@ -25,7 +25,7 @@ var chatToolsets = []string{"timely", "todo", "skills"}
 
 // timelyBlock is the conversation's Timely block: the instruction (without
 // the scope line for the host-allowed account, Q-2.1), the client note, the
-// reply-card kit, resolve_target's hint when it is offered, classic's web
+// reply-card kit, resolve_target's hint when it is offered, the web
 // search line when the run has the web (flags.web) and the write tool
 // schemas. The write schemas are listed in answer-only
 // turns too, so the block does not change when a message tags a Bot; the

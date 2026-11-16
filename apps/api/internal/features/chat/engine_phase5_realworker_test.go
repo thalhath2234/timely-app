@@ -537,9 +537,9 @@ func newHostWorld(t *testing.T, o hostOpts) *hostWorld {
 // hostChat queues a Supervised (unless said) agent-engine chat of uid.
 func (w *hostWorld) hostChat(uid, text, permission string) Conversation {
 	w.t.Helper()
-	c := Conversation{ID: id("chat_"), UserID: uid, Title: "Agent", Status: "queued", Phase: "plan", Engine: engineAgent,
+	c := Conversation{ID: id("chat_"), UserID: uid, Title: "Agent", Status: "queued", Phase: "plan",
 		Permission: permission, Provider: "openrouter", Model: "stub-model", Client: "web", Context: []ContextChip{},
-		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	if err := w.db.Create(&c).Error; err != nil {
 		w.t.Fatal(err)
 	}

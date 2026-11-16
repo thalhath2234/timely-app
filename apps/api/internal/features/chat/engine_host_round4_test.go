@@ -62,7 +62,7 @@ func TestIntegrationAgentEngineHostCrashBeforeTheContinuationIsNamedKeepsTheAppr
 		}
 		closeHostCardAs(&row, hostApproved, nil, hostOnce)
 		past := time.Now().UTC().Add(-time.Minute)
-		row.Status, row.Phase, row.RunEngine = "running", "plan", engineAgent
+		row.Status, row.Phase = "running", "plan"
 		row.Lease, row.LeaseUntil = "lease_dead", &past
 		row.AgentRunID, row.AgentInstance = "", ""
 		row.Continuation = continuationFor(parked)

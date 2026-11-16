@@ -35,9 +35,6 @@ type Message struct {
 	// does not end the turn: Retry and the next message still carry the
 	// person's request.
 	Cut bool `json:"cut,omitempty"`
-	// Engine is "agent" on a turn's reply or proposal the agent engine
-	// wrote; empty for classic's.
-	Engine string `json:"engine,omitempty"`
 	// AgentRun is the agent run that wrote a turn's reply or proposal; the
 	// apps attach that run's learning events (which carry the same run id)
 	// to it.
@@ -125,7 +122,6 @@ type Conversation struct {
 	Messages       []Message         `gorm:"serializer:json;type:jsonb" json:"messages"`
 	Plan           []Step            `gorm:"serializer:json;type:jsonb" json:"plan"`
 	Snapshots      []Snapshot        `gorm:"serializer:json;type:jsonb" json:"-"`
-	Transcript     []WireMessage     `gorm:"serializer:json;type:jsonb" json:"-"`
 	Revision       int               `json:"revision"`
 	Unread         bool              `json:"unread"`
 	Error          string            `json:"error"`
@@ -133,11 +129,6 @@ type Conversation struct {
 	ErrorAction string     `json:"errorAction,omitempty"`
 	Lease       string     `json:"-"`
 	LeaseUntil  *time.Time `json:"-"`
-	// Engine is the chat's own engine choice ("" follows the account's
-	// Settings → Agent → Engine, else "classic" or "agent"), RunEngine the
-	// engine of the current or latest run, fixed when a lane claims it.
-	Engine    string `gorm:"not null;default:''" json:"engine"`
-	RunEngine string `gorm:"not null;default:''" json:"runEngine"`
 	// Permission is how much the agent may change without asking:
 	// "supervised", "auto" or "full" (permission_mode.go).
 	Permission string `gorm:"not null;default:'supervised'" json:"permission"`
@@ -180,23 +171,17 @@ type Conversation struct {
 	// set only on a bot_thread (one per Bot). FromBotID names the Bot whose
 	// alert "Do this in chat" started this chat; its TaintedSources then hold
 	// {kind: "bot", botId}.
-	Kind      string            `gorm:"not null;default:chat" json:"kind"`
-	BotID     *string           `json:"botId,omitempty"`
-	FromBotID *string           `json:"fromBotId,omitempty"`
-	CreatedAt time.Time         `json:"createdAt"`
-	UpdatedAt time.Time         `json:"updatedAt"`
+	Kind      string    `gorm:"not null;default:chat" json:"kind"`
+	BotID     *string   `json:"botId,omitempty"`
+	FromBotID *string   `json:"fromBotId,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // The conversation kinds.
 const (
 	KindChat      = "chat"
 	KindBotThread = "bot_thread"
-)
-
-// The engines a chat run can use.
-const (
-	engineClassic = "classic"
-	engineAgent   = "agent"
 )
 
 // ActivityLine is one line of a live agent run's activity: a tool it runs
