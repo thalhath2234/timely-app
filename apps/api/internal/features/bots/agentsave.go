@@ -52,6 +52,7 @@ const (
 	endUnreachable
 	endRateLimited
 	endStrike
+	endStopped
 )
 
 // agentEnd is how a tick ended, worked out from its run.
@@ -77,20 +78,22 @@ func endOf(run agentRun) agentEnd {
 	case run.skip == SkipUnchanged:
 		e.kind, e.outcome, e.gateSkipped, e.skip = endUnchanged, outUnchanged, true, SkipUnchanged
 	case run.skip == SkipBrowserBusy || run.class == ClassBrowserBusy:
-		e.kind, e.outcome, e.skip, e.consume = endBusy, outSkipped, SkipBrowserBusy, false
+		e.kind, e.outcome, e.skip, e.consume = endBusy, outBrowserBusy, SkipBrowserBusy, false
 	case run.class == classNoAI:
 		e.kind, e.outcome, e.skip = endNoAI, outNoAI, SkipNoAI
 	case run.capped:
 		e.kind, e.outcome, e.consume = endCapped, outSkipped, false
 	case run.class == ClassUnreachable:
 		e.kind, e.outcome, e.errKind, e.consume = endUnreachable, outOffline, ClassUnreachable, false
+	case run.class == ClassStopped:
+		e.kind, e.outcome, e.consume = endStopped, outSkipped, false
 	case run.class == ClassRateLimited:
 		e.kind, e.outcome, e.errKind, e.consume = endRateLimited, outRateLimited, ClassRateLimited, false
 		e.retryAfter = run.res.RetryAfter
 	case run.class != "":
 		e.kind, e.outcome, e.errKind, e.consume = endStrike, outFailed, run.class, false
 	}
-	if run.class != "" && run.class != classNoAI && run.class != ClassBrowserBusy {
+	if run.class != "" && run.class != classNoAI && run.class != ClassBrowserBusy && run.class != ClassStopped {
 		text := run.res.Response
 		if run.err != nil {
 			text = run.err.Error()
@@ -126,9 +129,11 @@ var strikeLine = map[string]string{
 
 // cleanReports is the alerts a finished run asks for, cleaned: a silent run
 // has none; a run that answered with text and no report gets one from its
-// first line (plan 7.3 step 5). At most maxTickReports are kept.
+// first line (plan 7.3 step 5). At most maxTickReports are kept. A run whose
+// only failure is that a chat took the browser mid-tick keeps what it had
+// already reported.
 func cleanReports(run agentRun) []Report {
-	if !run.ran || run.class != "" || run.res.Silent {
+	if !run.ran || (run.class != "" && run.class != ClassBrowserBusy) || run.res.Silent {
 		return nil
 	}
 	reports := run.res.Reports
@@ -541,6 +546,13 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 			return err
 		}
 		end := endOf(run)
+		// A Bot paused (or Pause all turned on) while its tick ran tells
+		// nobody: the Check is recorded, its reports raise no alert.
+		paused, err := accountPaused(tx, b.UserID)
+		if err != nil {
+			return err
+		}
+		quiet := paused || b.Status != StatusActive
 		cws, moved, closed, read, err := saveAgentReads(tx, c, cur, end.consume, done)
 		if err != nil {
 			return err
@@ -560,7 +572,10 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 		if err := tx.Create(&check).Error; err != nil {
 			return err
 		}
-		if end.kind == endOK {
+		// A chat that took the browser mid-tick ends it browser_busy, but what
+		// the run had already reported is kept: its alerts go out as usual and
+		// the Check stays browser_busy.
+		if !quiet && (end.kind == endOK || (end.kind == endBusy && run.ran)) {
 			res, err := s.saveReports(tx, reportSave{
 				bot: b, checkID: c.checkID, chainID: c.chainID, depth: c.depth, now: done,
 				away: awayLineOf(check.AwaySecs, check.AwayReason),
@@ -571,6 +586,8 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 			posts = res.posts
 			outcome, skip := outSilent, ""
 			switch {
+			case end.kind == endBusy:
+				outcome, skip = end.outcome, end.skip
 			case res.raised > 0:
 				outcome = outAlerted
 			case res.duplicates > 0:
@@ -634,6 +651,8 @@ func (s *Service) finishAgentBot(tx *gorm.DB, c checkRun, b Bot, cur []Watch, en
 		// Nothing was lost: the floor its claim took is given back so the
 		// retry is not turned away by it.
 		set["check_started_at"] = c.prevStarted
+	case endStopped:
+		// The person stopped it: the Bot's strikes and health stay as they were.
 	case endRateLimited:
 		// Never a strike. The provider's Retry-After holds the Bot, no shorter
 		// than the source floor and no longer than a day; without one, rateHold.
@@ -771,7 +790,7 @@ func (s *Service) savePassAgent(ctx context.Context, pc *passCheck, c checkRun, 
 		end := endOf(run)
 		state := passQuiet
 		switch end.kind {
-		case endBusy, endCapped:
+		case endBusy, endCapped, endStopped:
 			state = passFolded
 		case endNoAI, endUnreachable, endRateLimited, endStrike:
 			state = passFailed

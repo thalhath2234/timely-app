@@ -337,6 +337,10 @@ func (s *Service) writeAgentBrief(ctx context.Context, c checkRun, d briefDigest
 	res, rerr := s.agent.Run(rctx, b.UserID, in)
 	cancel()
 	run := agentRun{res: res, err: rerr, class: runClass(res, rerr), model: in.Model}
+	if res.Model.Provider != "" {
+		// A brief on the account default names no model of its own.
+		run.model = res.Model
+	}
 	run.ran = run.class != classNoAI
 	s.markAI(callID, run.class == "", run.ran)
 	w.run = runRecordOf(run)

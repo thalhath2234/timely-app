@@ -77,8 +77,9 @@ type BotAgent struct {
 	notes BotNotes
 	lease *BrowserLease
 	// SaveContinuation keeps what a Run once continuation found on the Check
-	// whose card it ran (its reports become that Check's alerts); nil keeps
-	// only the Bot thread's line.
+	// whose card it ran: its reports become that Check's alerts, notified and
+	// posted into the Bot thread (bots.Service.SaveContinuation, wired in
+	// cmd). nil keeps only the Bot thread's "Reported" line.
 	SaveContinuation func(ctx context.Context, userID, botID, checkID string, res bots.AgentResult) error
 
 	mu sync.Mutex
@@ -121,9 +122,13 @@ func (a *BotAgent) StopBot(userID, botID string) {
 	}
 	a.e.mu.Unlock()
 	for _, t := range ticks {
-		a.e.stopTick(t, "bot stopped")
+		a.e.stopTick(t, botStopReason)
 	}
 }
+
+// botStopReason is the run.stop reason of a tick whose Bot was paused or
+// deleted (StopBot): the tick ends bots.ClassStopped, never a failure.
+const botStopReason = "bot stopped"
 
 // botTick is one bot.run this process follows: a tick or a continuation.
 type botTick struct {
@@ -226,7 +231,7 @@ func (a *BotAgent) spec(ctx context.Context, uid string, in bots.RunInput) (botS
 	}
 	sites := nonNilStrings(in.Tools.BrowserSites)
 	egress := nonNilStrings(in.Tools.Egress)
-	readHosts := a.readHosts(ctx, uid, b.ID)
+	readHosts, addrs := a.reads(ctx, uid, b.ID)
 	deadline := in.Deadline
 	if deadline.IsZero() {
 		deadline = time.Now().Add(botDeadline)
@@ -245,7 +250,7 @@ func (a *BotAgent) spec(ctx context.Context, uid string, in bots.RunInput) (botS
 		"bot_id":     b.ID,
 		"prompt":     prompt,
 		"lessons":    lessons,
-		"data":       botData(in),
+		"data":       botData(in, addrs),
 		"skills":     skills,
 		"name":       b.Name,
 		"now":        time.Now().UTC().Format(time.RFC3339),
@@ -274,31 +279,41 @@ func nonNilStrings(in []string) []string {
 	return in
 }
 
-// readHosts are the hosts of the Bot's Reads (its Watches' pages): bot hosts
-// the tick may fetch.
-func (a *BotAgent) readHosts(ctx context.Context, uid, botID string) []string {
-	out := []string{}
+// readAddr is where one of the Bot's Reads reads: its page, or for a price
+// Read with no page its price source and symbol.
+type readAddr struct {
+	url, source, symbol string
+}
+
+// reads are the hosts of the Bot's Reads (its Watches' pages), bot hosts the
+// tick may fetch, and each Read's address by watch id.
+func (a *BotAgent) reads(ctx context.Context, uid, botID string) ([]string, map[string]readAddr) {
+	out, addrs := []string{}, map[string]readAddr{}
 	if a.e.s == nil || a.e.s.db == nil {
-		return out
+		return out, addrs
 	}
-	var urls []string
-	if err := a.e.s.db.WithContext(ctx).Model(&bots.Watch{}).Where("bot_id = ? AND user_id = ?", botID, uid).Pluck("url", &urls).Error; err != nil {
+	var ws []bots.Watch
+	if err := a.e.s.db.WithContext(ctx).Select("id", "url", "source", "symbol").Where("bot_id = ? AND user_id = ?", botID, uid).
+		Find(&ws).Error; err != nil {
 		a.e.opts.Logf("agent engine: bot %s reads: %v", botID, err)
-		return out
+		return out, addrs
 	}
 	seen := map[string]bool{}
-	for _, u := range urls {
-		if h := agent.BotHost(u); h != "" && !seen[h] {
+	for _, w := range ws {
+		addrs[w.ID] = readAddr{url: w.URL, source: w.Source, symbol: w.Symbol}
+		if h := agent.BotHost(w.URL); h != "" && !seen[h] {
 			seen[h] = true
 			out = append(out, h)
 		}
 	}
-	return out
+	return out, addrs
 }
 
 // botData is bot.run's data: the notes, readings, diff, passed notes, last
-// alert and knowledge the tick read (each absent when empty).
-func botData(in bots.RunInput) map[string]any {
+// alert and knowledge the tick read (each absent when empty). Each reading
+// carries the url of its Read (PROTOCOL.md 13.1), or a price Read's source and
+// ticker when it has no page; addrs are the Reads by watch id.
+func botData(in bots.RunInput, addrs map[string]readAddr) map[string]any {
 	data := map[string]any{}
 	if len(in.Notes) > 0 {
 		data["notes"] = in.Notes
@@ -307,6 +322,13 @@ func botData(in bots.RunInput) map[string]any {
 		var list []map[string]any
 		for watch, r := range in.Readings {
 			item := map[string]any{"watch_id": watch, "kind": r.Kind}
+			switch addr := addrs[watch]; {
+			case addr.url != "":
+				item["url"] = addr.url
+			case addr.symbol != "":
+				// "symbol" is the reading's currency below, so the ticker has its own key.
+				item["source"], item["ticker"] = addr.source, addr.symbol
+			}
 			if r.Title != "" {
 				item["title"] = r.Title
 			}
@@ -400,7 +422,7 @@ func (a *BotAgent) run(ctx context.Context, uid string, spec botSpec) (bots.Agen
 	w, err := e.sup.Ensure(ensureCtx, uid)
 	cancelEnsure()
 	if err != nil {
-		return bots.AgentResult{}, fmt.Errorf("no agent worker: %s", workerReason(err))
+		return bots.AgentResult{Model: choice}, fmt.Errorf("no agent worker: %s", workerReason(err))
 	}
 	// The gateway's grant lasts as long as its worker: resolve again for this one.
 	if again, _, err := a.model(ctx, uid, choice); err == nil {
@@ -419,13 +441,13 @@ func (a *BotAgent) run(ctx context.Context, uid string, spec botSpec) (bots.Agen
 		if errors.Is(err, errBotJoined) {
 			return a.joined(ctx, spec.wireCheck)
 		}
-		return bots.AgentResult{}, err
+		return bots.AgentResult{Model: choice}, err
 	}
 	defer a.forget(t)
 
 	if spec.fence != nil && (!spec.fence() || t.stopReason() != "") {
 		t.err = errBotFenced
-		return bots.AgentResult{}, errBotFenced
+		return bots.AgentResult{Model: choice}, errBotFenced
 	}
 	fields := make(map[string]any, len(spec.fields)+4)
 	for k, v := range spec.fields {
@@ -434,7 +456,7 @@ func (a *BotAgent) run(ctx context.Context, uid string, spec botSpec) (bots.Agen
 	fields["run_id"], fields["check_id"], fields["model"] = t.id, t.wireCheck, model
 	if err := w.Send(agenthost.TypeBotRun, fields); err != nil {
 		t.err = err
-		return bots.AgentResult{}, err
+		return bots.AgentResult{Model: choice}, err
 	}
 	t.mu.Lock()
 	t.sent = true
@@ -446,6 +468,7 @@ func (a *BotAgent) run(ctx context.Context, uid string, spec botSpec) (bots.Agen
 		e.sendStop(t, why)
 	}
 	res, err := a.follow(ctx, t, spec)
+	res.Model = choice
 	t.res, t.err = res, err
 	return res, err
 }
@@ -604,7 +627,11 @@ func (a *BotAgent) follow(ctx context.Context, t *botTick, spec botSpec) (bots.A
 			if ctxErr != nil {
 				return bots.AgentResult{}, ctxErr
 			}
-			return bots.AgentResult{ErrorClass: bots.ClassTimeout, Trace: []bots.ToolTrace{}}, nil
+			class := bots.ClassTimeout
+			if !timedOut && t.stopReason() == botStopReason {
+				class = bots.ClassStopped
+			}
+			return bots.AgentResult{ErrorClass: class, Trace: []bots.ToolTrace{}}, nil
 		}
 	}
 }
@@ -658,6 +685,10 @@ type botDone struct {
 		Urgency  string          `json:"urgency"`
 		Proposal json.RawMessage `json:"proposal"`
 	} `json:"reports"`
+	// Usage is the worker's run_bot.usage_of. On the Claude Code CLI provider
+	// (and Codex) the tokens are 0: the loopback gateway (provider/gateway.go)
+	// answers every model call with usage 0, as its Completer's reply carries no
+	// counts, so nothing on either side knows them.
 	Usage struct {
 		Input      int `json:"input_tokens"`
 		Output     int `json:"output_tokens"`
@@ -710,6 +741,10 @@ func (d botDone) result(t *botTick, timedOut bool) bots.AgentResult {
 	}
 	res.Silent = d.Silent && len(res.Reports) == 0
 	res.ErrorClass = botClass(d.ErrorClass, timedOut)
+	if d.ErrorClass == "stopped" && !timedOut && t.stopReason() == botStopReason {
+		// The person paused or deleted the Bot: not a failure of the run.
+		res.ErrorClass = bots.ClassStopped
+	}
 	if res.ErrorClass == bots.ClassRateLimited && d.RetryAfterSeconds > 0 {
 		// Go clamps the hold (bots.rateHoldFor); this only converts the unit,
 		// and caps it so a huge number cannot overflow the Duration.
@@ -745,8 +780,9 @@ func botClass(class string, timedOut bool) string {
 		if timedOut {
 			return bots.ClassTimeout
 		}
-		// Stopped by Go for another reason (the Bot paused, Delete): no
-		// strike, it runs again on its schedule.
+		// Stopped by Go for another reason (ctx cancelled, the thread row
+		// fenced): no strike, it runs again on its schedule. A stop for a
+		// paused or deleted Bot is bots.ClassStopped (botDone.result).
 		return bots.ClassUnreachable
 	}
 	return bots.ClassCrash
@@ -1166,7 +1202,9 @@ func (e *WorkerEngine) ContinueBot(uid, cid string, h HostRequest, lease string)
 // pre_approved call is exactly the card's (tool and arguments hash), run
 // once. Its bot.run goes out only while the thread row still runs under the
 // answer's lease, and the lease is renewed while it runs, so a Stop or
-// Delete ends it. What it found is saved on the card's Check.
+// Delete ends it. A browser call takes the browser lease first and does not
+// run while a chat holds it. Its reports are saved as alerts on the card's
+// Check through SaveContinuation, when it is set.
 func (a *BotAgent) continueCard(ctx context.Context, uid, cid string, h HostRequest, lease string) {
 	s := a.e.s
 	runID := botContinuationRun(h)
@@ -1204,6 +1242,19 @@ func (a *BotAgent) continueCard(ctx context.Context, uid, cid string, h HostRequ
 	spec.fields["pre_approved"] = map[string]any{"tool": h.Tool, "args_hash": h.ArgsHash}
 	spec.fence = func() bool { return s.botRowHolds(ctx, uid, cid, runID, lease) }
 	spec.renew = func() bool { return s.renewLease(ctx, uid, cid, lease) }
+	// The approved call runs without a gate.ask, so a browser call takes the
+	// browser lease here, as a tick's does at its gate. A chat holding it
+	// wins, as it does over a tick: the step does not run and the card reads
+	// Not run with "browser busy" (no strike; the next check may ask again).
+	if browserClass(h.Tool) {
+		if !a.lease.TryAcquireBot(uid, spec.wireCheck) {
+			finish(false, continuationBusy)
+			return
+		}
+		// forget lets it go once the run registered; this covers a run that
+		// never did (no worker, a fence).
+		defer a.lease.Release(uid, BotHolder(spec.wireCheck))
+	}
 	rctx, cancel := context.WithTimeout(ctx, botDeadline+botGrace)
 	res, err := a.run(rctx, uid, spec)
 	cancel()
@@ -1220,6 +1271,10 @@ func (a *BotAgent) continueCard(ctx context.Context, uid, cid string, h HostRequ
 		}
 	}
 }
+
+// continuationBusy is the Bot thread's line for a browser step that did not
+// run because a chat held the browser.
+const continuationBusy = "Browser busy: a chat is using the browser, so this step did not run. The bot can ask again on its next check."
 
 // continuationPrompt is what a continuation asks: exactly the approved call,
 // then a report or [SILENT].

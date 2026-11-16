@@ -116,6 +116,9 @@ type AgentResult struct {
 	// ErrorClass is "" for a run that finished, else one of the Class*
 	// constants.
 	ErrorClass string
+	// Model is the model that actually ran: the Bot's own, or the account
+	// default it followed. Zero when unknown (the run never reached a model).
+	Model ModelChoice
 	// RetryAfter is how long the provider asked Timely to wait when the run
 	// ended ClassRateLimited (a 429's Retry-After). Zero when it said nothing;
 	// the tick then holds the next check for rateHold. Ignored for any other
@@ -203,6 +206,9 @@ const (
 	// ClassBrowserBusy: a chat took the browser during the tick, so the
 	// Bot's next browser call was refused.
 	ClassBrowserBusy = "browser_busy"
+	// ClassStopped: the person paused or deleted the Bot (or turned on Pause
+	// all) and Go stopped its tick. Not a failure: no strike, no health change.
+	ClassStopped = "stopped"
 )
 
 // Why a tick did not run (bot_checks.skip_reason); "" when it ran.

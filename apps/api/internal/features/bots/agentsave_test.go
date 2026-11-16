@@ -128,8 +128,8 @@ func TestEndOf(t *testing.T) {
 		consume bool
 	}{
 		{"unchanged", agentRun{skip: SkipUnchanged}, endUnchanged, outUnchanged, true},
-		{"busy before", agentRun{skip: SkipBrowserBusy, class: ClassBrowserBusy}, endBusy, outSkipped, false},
-		{"busy during", agentRun{ran: true, class: ClassBrowserBusy}, endBusy, outSkipped, false},
+		{"busy before", agentRun{skip: SkipBrowserBusy, class: ClassBrowserBusy}, endBusy, outBrowserBusy, false},
+		{"busy during", agentRun{ran: true, class: ClassBrowserBusy}, endBusy, outBrowserBusy, false},
 		{"no AI", agentRun{skip: SkipNoAI, class: classNoAI}, endNoAI, outNoAI, true},
 		{"capped", agentRun{capped: true}, endCapped, outSkipped, false},
 		{"unreachable", agentRun{ran: true, class: ClassUnreachable}, endUnreachable, outOffline, false},

@@ -155,7 +155,11 @@ func wireBotThreads(db *gorm.DB, chatService *chat.Service, botService *bots.Ser
 	botService.SetThreadPoster(chatService)
 	botService.CheckSlots = bots.AgentCheckSlots
 	if engine != nil {
-		botService.SetAgent(chat.NewBotAgent(engine, bots.NewNotesStore(db), nil))
+		agent := chat.NewBotAgent(engine, bots.NewNotesStore(db), nil)
+		agent.SaveContinuation = botService.SaveContinuation
+		botService.SetAgent(agent)
+		// Pause, Delete and Pause all stop the Bot's live ticks in the worker.
+		botService.SetStopper(agent.StopBot)
 	}
 }
 
