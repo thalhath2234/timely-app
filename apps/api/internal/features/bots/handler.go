@@ -3,7 +3,9 @@ package bots
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,7 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/bots", s.create)
 	g.GET("/bots/findings", s.findings) // before /bots/:id
 	g.POST("/bots/preview", s.preview)
+	g.POST("/bots/try", s.try) // a dry tick of a draft agent Bot
 	g.GET("/bots/watch", s.watch)
 	g.GET("/bots/icons", s.icons)
 	g.GET("/bots/defaults", s.alertDefaults)
@@ -34,6 +37,11 @@ func (s *Service) Routes(g *echo.Group) {
 	g.POST("/bots/:id/resume", s.resume)
 	g.POST("/bots/:id/snooze", s.snooze)
 	g.POST("/bots/:id/run", s.run)
+	g.POST("/bots/:id/try", s.tryBot) // a dry tick: nothing is saved
+	g.GET("/bots/:id/notes", s.notes)
+	g.DELETE("/bots/:id/notes/:key", s.deleteNote)
+	g.GET("/bots/:id/convert", s.convertPreview)
+	g.POST("/bots/:id/convert", s.convert) // approves this one Bot; there is no bulk route
 	g.POST("/bots/:id/alerts/:alertId/feedback", s.rateAlert)
 	g.DELETE("/bots/:id/lessons/:lessonId", s.forgetLesson)
 	g.POST("/bots/:id/suggestion", s.applySuggestion)
@@ -53,6 +61,8 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusBadRequest, input.Message)
 	case errors.Is(err, ErrNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Bot not found")
+	case errors.Is(err, ErrNoNote):
+		return echo.NewHTTPError(http.StatusNotFound, "Note not found")
 	case errors.Is(err, ErrAlertNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Alert not found")
 	case errors.Is(err, ErrLessonNotFound):
@@ -113,6 +123,81 @@ func (s *Service) preview(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.JSON(http.StatusOK, res)
+}
+
+// try serves POST /bots/try: a draft agent Bot's Reads and fields, run once
+// and never saved.
+func (s *Service) try(c *echo.Context) error {
+	var in TryInput
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+		return badRequest()
+	}
+	in.BotID = ""
+	res, err := s.Try(c.Request().Context(), user(c), in)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, res)
+}
+
+// tryBot serves POST /bots/:id/try: one dry tick of the saved Bot, with the
+// agent fields in the body (if any) tried instead of its own. An empty body
+// tries the Bot as it is.
+func (s *Service) tryBot(c *echo.Context) error {
+	var in TryInput
+	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		return badRequest()
+	}
+	in.BotID = c.Param("id")
+	res, err := s.Try(c.Request().Context(), user(c), in)
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, res)
+}
+
+// notes serves GET /bots/:id/notes: the Bot's notepad, by key.
+func (s *Service) notes(c *echo.Context) error {
+	items, err := s.Notes(c.Request().Context(), user(c), c.Param("id"))
+	if err != nil {
+		return httpError(err)
+	}
+	if items == nil {
+		items = []Note{}
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": items})
+}
+
+// deleteNote serves DELETE /bots/:id/notes/:key.
+func (s *Service) deleteNote(c *echo.Context) error {
+	key := c.Param("key")
+	if unescaped, err := url.PathUnescape(key); err == nil {
+		key = unescaped
+	}
+	if err := s.DeleteNote(c.Request().Context(), user(c), c.Param("id"), key); err != nil {
+		return httpError(err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// convertPreview serves GET /bots/:id/convert: what switching the Bot to an
+// agent would make, as text, nothing stored.
+func (s *Service) convertPreview(c *echo.Context) error {
+	v, err := s.ConvertPreview(c.Request().Context(), user(c), c.Param("id"))
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, v)
+}
+
+// convert serves POST /bots/:id/convert: the person approves this one Bot's
+// switch to an agent. It answers the Bot.
+func (s *Service) convert(c *echo.Context) error {
+	v, err := s.Convert(c.Request().Context(), user(c), c.Param("id"))
+	if err != nil {
+		return httpError(err)
+	}
+	return c.JSON(http.StatusOK, v)
 }
 
 func (s *Service) get(c *echo.Context) error {

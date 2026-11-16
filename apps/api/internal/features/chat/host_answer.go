@@ -131,12 +131,119 @@ func (s *Service) hostApproval(c *echo.Context) error {
 			return errDesktopOnly
 		}
 	}
+	if row, ok, err := s.answerBotCard(c.Request().Context(), uid, c.Param("id"), in.RequestID, in.Choice, dev); ok {
+		// A Bot's parked step on its Bot thread (engine_bot.go).
+		if err != nil {
+			return err
+		}
+		s.fillImages(&row)
+		return c.JSON(200, row)
+	}
 	row, err := s.answerHost(c.Request().Context(), uid, c.Param("id"), in.RequestID, in.Choice, dev, "")
 	if err != nil {
 		return err
 	}
 	s.fillImages(&row)
 	return c.JSON(200, row)
+}
+
+// botContinuer is an engine that runs a Bot card's approved call
+// (WorkerEngine.ContinueBot).
+type botContinuer interface {
+	ContinueBot(uid, cid string, h HostRequest, lease string)
+}
+
+// errNotBotCard rolls back answerBotCard's look at a row whose card is a
+// chat's: answerHost takes it.
+var errNotBotCard = errors.New("not a bot card")
+
+// answerBotCard is the fenced answer to a Bot's parked card on its Bot thread
+// (Q-B2, plan 7.5): ok is false when the row's card is not one. It commits
+// only while the row waits on this card, so a card resolves once. Deny closes
+// it. Run once closes it approved and runs the thread under a fresh lease
+// for the continuation (ContinueBot), a bot.run that runs exactly that call
+// once; the continuation is fenced on that lease, so a Stop or Delete that
+// commits first means it never runs. A card is never granted for the whole
+// chat, and one past its time closes expired.
+func (s *Service) answerBotCard(ctx context.Context, uid, cid, requestID, choice string, dev *HostDevice) (Conversation, bool, error) {
+	var row Conversation
+	var asked HostRequest
+	var lease string
+	var expired bool
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.find(tx.Clauses(clause.Locking{Strength: "UPDATE"}), uid, cid, &row); err != nil {
+			return err
+		}
+		h := row.HostRequest
+		if row.Kind != KindBotThread || (h.pending() && !isBotCard(row, h)) {
+			return errNotBotCard
+		}
+		if row.Status != statusHostApproval || !h.pending() {
+			return errHostAnswered
+		}
+		if h.RequestID != requestID {
+			return errHostStale
+		}
+		if choice == hostChat {
+			return errNotGrantable
+		}
+		if choice != hostDeny && h.ExpiresAt != nil && time.Now().After(*h.ExpiresAt) {
+			expired = true
+			ev := hostEvent(uid, cid, h.Run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, eventExpired, "", "answered after the card's time", nil, nil)
+			if err := tx.Create(&ev).Error; err != nil {
+				return err
+			}
+			closeHostCard(&row, hostExpired, nil)
+			row.Messages = append(row.Messages, notRun(&row, h.Card, h.Tool))
+			row.Status, row.Revision = "idle", row.Revision+1
+			return tx.Save(&row).Error
+		}
+		kind := eventApproved
+		if choice == hostDeny {
+			kind = eventDenied
+		}
+		ev := hostEvent(uid, cid, h.Run, h.ToolCallID, h.RequestID, h.Tool, h.ArgsHash, kind, choice, h.Phase, dev, nil)
+		if err := tx.Create(&ev).Error; err != nil {
+			return err
+		}
+		row.Error, row.ErrorAction = "", ""
+		if choice == hostDeny {
+			closeHostCard(&row, hostDenied, dev)
+			row.Status = "idle"
+		} else {
+			closeHostCardAs(&row, hostApproved, dev, hostOnce)
+			// The continuation runs under this lease; Stop and Delete end it.
+			lease = id("lease_")
+			until := time.Now().UTC().Add(3 * time.Minute)
+			row.Status, row.Lease, row.LeaseUntil = "running", lease, &until
+			row.AgentRunID, row.AgentInstance = botContinuationRun(h), ""
+			row.Activity = ChatActivity{}
+		}
+		asked = h
+		row.Revision++
+		return tx.Save(&row).Error
+	})
+	if errors.Is(err, errNotBotCard) {
+		return row, false, nil
+	}
+	if err != nil {
+		return row, true, err
+	}
+	if expired {
+		return row, true, errHostExpired
+	}
+	if choice != hostDeny {
+		if bc, ok := s.engine.(botContinuer); ok {
+			bc.ContinueBot(uid, cid, asked, lease)
+		} else {
+			s.finishBotCard(context.WithoutCancel(ctx), uid, cid, asked, botContinuationRun(asked), lease, false, "")
+		}
+	}
+	var latest Conversation
+	if err := s.find(s.db, uid, cid, &latest); err == nil {
+		row = latest
+	}
+	return row, true, nil
 }
 
 // answerHost is the fenced answer (decision 3; a non-empty why is the reason a

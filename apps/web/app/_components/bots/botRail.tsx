@@ -16,6 +16,7 @@ import {
   clockLabel,
   fixAction,
   fixCopy,
+  checkOutcomeWords,
   isPriceReading,
   limitRows,
   previewCard,
@@ -100,7 +101,11 @@ function PriceSection({
   const model = priceHistory(detail, picked)!;
   return (
     <RailSection title="Price" meta="Last 30 days">
-      <WatchPicker watches={watches} value={model.watchId} onChange={setPicked} />
+      <WatchPicker
+        watches={watches}
+        value={model.watchId}
+        onChange={setPicked}
+      />
       <PriceSummary model={model} />
     </RailSection>
   );
@@ -248,8 +253,16 @@ type Item = { at: number; alert?: AlertView; rearm?: Rearm };
  */
 function AlertItem({ detail, alert }: { detail: BotDetail; alert: AlertView }) {
   // Held by the judge, or folded into another bot's alert on the same thing.
-  const eyebrow = alert.held === "judged" ? "Held back by AI" : null;
-  const quiet = alert.held === "judged" || alert.held === "shared";
+  const eyebrow =
+    alert.held === "judged"
+      ? "Held back by AI"
+      : alert.held === "duplicate"
+        ? checkOutcomeWords("duplicate")
+        : null;
+  const quiet =
+    alert.held === "judged" ||
+    alert.held === "shared" ||
+    alert.held === "duplicate";
   return (
     <li className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 first:pt-0">
       {eyebrow ? (

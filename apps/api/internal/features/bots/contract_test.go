@@ -119,7 +119,7 @@ func TestContractWords(t *testing.T) {
 	}{
 		{"ReadMode", union("ReadMode"), []string{ReadText, ReadSelector, ReadProductPrice, ReadSelectorPrice}},
 		{"WatchKind", union("WatchKind"), []string{WatchPage, WatchFeed, WatchPrice}},
-		{"PauseReason", union("PauseReason"), []string{PausePerson, PauseStrikes, PauseMCP}},
+		{"PauseReason", union("PauseReason"), []string{PausePerson, PauseStrikes, PauseMCP, PauseInjection}},
 		{"CheckTrigger", union("CheckTrigger"), []string{TriggerSchedule, TriggerWake, TriggerRunNow, TriggerAsk, TriggerPass}},
 		{"AnswerFresh", union("AnswerFresh"), []string{FreshCheckedNow, FreshRecent, FreshWaiting, FreshPaused, FreshLimited, FreshFloor}},
 		{"Feedback", union("Feedback"), []string{FeedbackUseful, FeedbackNotUseful}},
@@ -132,11 +132,11 @@ func TestContractWords(t *testing.T) {
 		{"AiState", union("AiState"), []string{"", aiJudged, aiUnchecked, aiRejudged}},
 		{"Urgency", union("Urgency"), []string{UrgencyLow, UrgencyNormal, UrgencyHigh}},
 		{"AlertKind", union("AlertKind"), []string{alertKindAlert, alertKindMore, alertKindPaused, alertKindBrief}},
-		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared}},
+		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared, heldDuplicate}},
 		{"AwayReason", union("AwayReason"), []string{AwayClosed, AwayAsleep, AwayAllPaused}},
 		{"RuleKind", union("RuleKind"), []string{RuleAnyChange, RuleAbove, RuleBelow, RuleMovePct, RuleWordsAppear, RuleWordsDisappear, RuleNewItem, RuleInStock}},
 		{"Availability", union("Availability"), []string{extract.AvailInStock, extract.AvailOutOfStock, extract.AvailPreorder, extract.AvailBackorder, extract.AvailLimited, extract.AvailDiscontinued, extract.AvailUnknown}},
-		{"CheckOutcome", union("CheckOutcome"), []string{outBaseline, outUnchanged, outNotModified, outChanged, outFired, outOffline, outRateLimited, outSiteBusy, outRobots, outStrike, outSuperseded, outJudgedQuiet, outPassed, outHeldStock}},
+		{"CheckOutcome", union("CheckOutcome"), []string{outBaseline, outUnchanged, outNotModified, outChanged, outFired, outOffline, outRateLimited, outSiteBusy, outRobots, outStrike, outSuperseded, outJudgedQuiet, outPassed, outHeldStock, outSilent, outAlerted, outSkipped, outFailed, outBrowserBusy, outNoAI, outDuplicate}},
 	}
 	for _, c := range cases {
 		if strings.Join(c.got, ",") != strings.Join(c.want, ",") {

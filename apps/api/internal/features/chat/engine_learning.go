@@ -72,7 +72,11 @@ func (e *WorkerEngine) runSetup(ctx context.Context, c *Conversation, tools *too
 		e.opts.Logf("agent engine: chats with outside text: %v", err)
 		out.searchHistory = false
 	}
-	if err := e.s.db.WithContext(ctx).Model(&Conversation{}).Where("user_id = ? AND NOT no_learning AND NOT sensitive", c.UserID).
+	// Bot threads and new-Bot drafts carry alert and page text without the
+	// taint "Do this in chat" adds, so past-chat search never returns them.
+	if err := e.s.db.WithContext(ctx).Model(&Conversation{}).
+		Where("user_id = ? AND NOT no_learning AND NOT sensitive AND kind = ? AND NOT COALESCE(context @> ?::jsonb, false)",
+			c.UserID, KindChat, `[{"kind":"bot_draft"}]`).
 		Order("updated_at DESC").Limit(5000).Pluck("id", &out.searchAllow).Error; err != nil {
 		e.opts.Logf("agent engine: chats past-chat search may return: %v", err)
 		out.searchHistory = false
@@ -173,14 +177,24 @@ func (s *Service) withRunCompleter(ctx context.Context, c *Conversation) context
 	return WithCompleter(ctx, completer)
 }
 
-// gate answers a gate.ask: web_search and web_extract run when the run has
-// the web (flags.web); host and MCP calls get Go's host verdict (phase 5,
-// host_policy.go); every other tool keeps phase 2's block.
+// gate answers a gate.ask: in a chat, web_search and web_extract run when the
+// run has the web (flags.web), host and MCP calls get Go's host verdict
+// (phase 5, host_policy.go) and every other tool keeps phase 2's block. In an
+// agent Bot's tick (r.bot) every tool, web tools included, goes to the bot
+// gate first (bot_policy.go): the Bot's own sites, egress and taint decide,
+// not a chat's web toggle.
 func (e *WorkerEngine) gate(r *agentRun, m agenthost.Message) {
 	var ask gateAsk
 	_ = m.Decode(&ask)
 	r.noteTaint(ask.Tainted)
-	if !webTools[ask.Tool] && e.gateHost(r, m, ask) {
+	if r.bot != nil {
+		ask.RunKind = "bot"
+		if ask.mcpServer() != "" {
+			e.gateBotMCP(r, m, ask)
+			return
+		}
+	}
+	if (r.bot != nil || !webTools[ask.Tool]) && e.gateHost(r, m, ask) {
 		return
 	}
 	verdict, message := gateVerdict(r.tools, ask.Tool)

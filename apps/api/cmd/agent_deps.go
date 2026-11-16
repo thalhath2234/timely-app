@@ -11,6 +11,7 @@ import (
 	"timely-api/internal/features/bots"
 	"timely-api/internal/features/bots/fetch"
 	"timely-api/internal/features/calendar"
+	"timely-api/internal/features/chat"
 	"timely-api/internal/features/doc"
 	"timely-api/internal/features/embed"
 	"timely-api/internal/features/event"
@@ -140,6 +141,26 @@ func catalogWith(db *gorm.DB, live *realtime.Hub, creds embed.Credentials, liveB
 		LiveBlock: liveBlock,
 		Bots:      botTools,
 	})
+}
+
+// wireBotThreads joins the Bots service and the chat service for agent Bots
+// (phase 6): a Bot thread changes its Bot through the Bots service, the Bots
+// service posts each alert it sends into the thread, agent ticks run in the
+// bot_check lane with its slots lowered to bots.AgentCheckSlots, and, given
+// the agent engine, each tick is a bot.run on it (chat.BotAgent, with the
+// Bots' notepad). main calls it once the services and the engine exist, before
+// the job worker starts; a nil engine leaves agent Bots without a runner.
+func wireBotThreads(db *gorm.DB, chatService *chat.Service, botService *bots.Service, engine *chat.WorkerEngine) {
+	chatService.SetBotThreads(botService)
+	botService.SetThreadPoster(chatService)
+	botService.CheckSlots = bots.AgentCheckSlots
+	if engine != nil {
+		agent := chat.NewBotAgent(engine, bots.NewNotesStore(db), nil)
+		agent.SaveContinuation = botService.SaveContinuation
+		botService.SetAgent(agent)
+		// Pause, Delete and Pause all stop the Bot's live ticks in the worker.
+		botService.SetStopper(agent.StopBot)
+	}
 }
 
 // boardData loads what the apps' dashboards read for one account, as their

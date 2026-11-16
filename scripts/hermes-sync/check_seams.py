@@ -273,6 +273,9 @@ TIMELY_SEAMS = [
     ("MCP token file names", "tools/mcp_oauth.py", "_safe_filename"),
     ("MCP token storage files", "tools/mcp_oauth.py", "HermesTokenStorage"),
     ("MCP tool name prefix", "tools/mcp_tool_schema.py", "module:MCP_TOOL_NAME_PREFIX"),
+    # Phase 6 bots: provider Retry-After on a 429 (run_bot.watch_retry_after)
+    ("bot Retry-After: API error context", "agent/agent_runtime_helpers.py", "extract_api_error_context"),
+    ("bot Retry-After: API error caller", "agent/turn_api_error.py", "handle_api_error"),
 ]
 
 SEAMS = REPORT_SEAMS + TIMELY_SEAMS

@@ -1,19 +1,22 @@
-import { useEffect } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAssistant } from "../../components/chat/AssistantProvider";
+import { Redirect, useLocalSearchParams, type Href } from "expo-router";
+import { ASSISTANT_ROUTE, assistantTabRoute, legacyAssistantRoute } from "../../lib/notificationRoute";
+
 /**
- * Notification links (with a chatId) and the Ask shortcut or widget button
- * (without one, for a fresh chat) resolve into the global overlay after
- * restoring the underlying screen.
+ * Old assistant links land in the Assistant tab: a notification or widget
+ * with a chat (`?chatId=<id>` or `?chat=<id>`) opens that chat there, a Bot
+ * link keeps its Bot, and the Ask shortcut or widget button (no chat) asks
+ * the tab for a fresh chat.
  */
 export default function AssistantLink() {
-  const { chatId } = useLocalSearchParams<{ chatId?: string }>();
-  const { open, hydrated } = useAssistant();
-  const router = useRouter();
-  useEffect(() => {
-    if (!hydrated) return;
-    if (router.canGoBack()) router.back(); else router.replace("/(app)/(tabs)/home");
-    open(typeof chatId === "string" ? chatId : undefined);
-  }, [chatId, hydrated]);
-  return null;
+  const params = useLocalSearchParams<{ chatId?: string; chat?: string; id?: string; bot?: string; thread?: string; new?: string; starter?: string }>();
+  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+  const chat = text(params.chatId) ?? text(params.chat) ?? text(params.id);
+  if (chat) return <Redirect href={(legacyAssistantRoute("/chat", new URLSearchParams({ id: chat }).toString()) ?? ASSISTANT_ROUTE) as Href} />;
+  const search = new URLSearchParams();
+  for (const key of ["bot", "thread", "new", "starter"] as const) {
+    const value = text(params[key]);
+    if (value) search.set(key, value);
+  }
+  if (search.size) return <Redirect href={(legacyAssistantRoute("/bots", search.toString()) ?? ASSISTANT_ROUTE) as Href} />;
+  return <Redirect href={assistantTabRoute("/assistant?ask=1") as Href} />;
 }

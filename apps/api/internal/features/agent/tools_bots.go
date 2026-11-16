@@ -68,8 +68,10 @@ const stockRules = "On a page read as product_price, price rules stay quiet whil
 // chatCreateMore and chatUpdateMore end the chat descriptions of create_bot
 // and update_bot: what only chat can propose.
 const (
-	chatCreateMore = "A bot can let AI judge what its rules spot (judgeMode ai: one short call on the person's own AI provider per change, up to 20 a day), read one of the person's docs or sheets as knowledge for that judge (knowledge: kind doc or sheet and its id), pass what it finds to other bots so they check it first (passesTo, with filter words), or be a brief (kind brief, sources: 1 to 8 bots, briefTime HH:MM, briefAi) that sums up those bots once a day and has no watches (watches [])."
-	chatUpdateMore = "passesTo and sources, when given, are full lists."
+	chatCreateMore = chatAgentMore + " A rules bot can let AI judge what its rules spot (judgeMode ai: one short call on the person's own AI provider per change, up to 20 a day), read one of the person's docs or sheets as knowledge for that judge (knowledge: kind doc or sheet and its id), pass what it finds to other bots so they check it first (passesTo, with filter words), or be a brief (kind brief, sources: 1 to 8 bots, briefTime HH:MM, briefAi) that sums up those bots once a day and has no watches (watches [])."
+	chatUpdateMore = "passesTo and sources, when given, are full lists. " + chatAgentMore
+	// chatAgentMore says what an agent bot is: a scheduled run of the agent with a prompt instead of rules.
+	chatAgentMore = "An agent bot is a scheduled run of the agent: give a prompt (what to do each run, up to 4000 characters) and a schedule (\"every 6h\", \"weekdays at 9am\", a five-field cron, or {everyMinutes}, {dailyAt, weekdays}, {cron}) and it runs on the New engine instead of rules. watches may then be [] or Reads the run is woken by (gate changed wakes it only when a read changed; always runs every time). tools: browserSites (signed-in sites it may read), egress (extra hosts), useMemory (off by default), mcp (server to use, ask or off). permission is supervised, auto (the default) or full; model is provider and model together or neither for the account default."
 )
 
 // botOrigin is who a bot tool acts for: chat (the person approved the
@@ -380,10 +382,55 @@ type createBotChatIn struct {
 	BriefTime string          `json:"briefTime,omitempty" jsonschema:"brief: when it sends, HH:MM in the person's time, default 08:00"`
 	BriefAI   *bool           `json:"briefAi,omitempty" jsonschema:"brief: Write it with AI (one call a day)"`
 	BriefOnly *bool           `json:"briefOnly,omitempty" jsonschema:"a bot in a brief: alert only through the brief"`
+	botAgentIn
+}
+
+// botToolsIn is an agent bot's reach as chat proposes it.
+type botToolsIn struct {
+	BrowserSites *[]string         `json:"browserSites,omitempty" jsonschema:"signed-in sites the bot may read, like shop.example (up to 10)"`
+	Egress       *[]string         `json:"egress,omitempty" jsonschema:"extra hosts its outbound URL tools may reach (up to 20)"`
+	UseMemory    *bool             `json:"useMemory,omitempty" jsonschema:"memory and About you; off unless the person asks"`
+	MCP          map[string]string `json:"mcp,omitempty" jsonschema:"tool server name to use, ask or off (the full map)"`
+}
+
+// botAgentIn is what makes a bot an agent bot (bots.AgentInput) as chat
+// proposes it. Schedule is text or an object, so it is typed any.
+type botAgentIn struct {
+	Prompt        *string     `json:"prompt,omitempty" jsonschema:"agent bot: what the bot does on each run"`
+	Schedule      any         `json:"schedule,omitempty" jsonschema:"agent bot: when it runs, like every 6h, weekdays at 9am, or an object"`
+	Timezone      *string     `json:"timezone,omitempty" jsonschema:"agent bot: the IANA zone its schedule reads in, like Asia/Kolkata"`
+	Skills        *[]string   `json:"skills,omitempty" jsonschema:"agent bot: skill names the run may load"`
+	Tools         *botToolsIn `json:"tools,omitempty" jsonschema:"agent bot: what it may reach"`
+	Permission    *string     `json:"permission,omitempty" jsonschema:"agent bot: supervised, auto (default) or full"`
+	Gate          *string     `json:"gate,omitempty" jsonschema:"agent bot with reads: changed (wake only when a read changed, default) or always"`
+	MarketHours   *bool       `json:"marketHours,omitempty" jsonschema:"agent bot: run only in market hours"`
+	ModelProvider *string     `json:"modelProvider,omitempty" jsonschema:"agent bot: the AI provider id; give it with model"`
+	Model         *string     `json:"model,omitempty" jsonschema:"agent bot: the model name; give it with modelProvider"`
+}
+
+// agentInput is the bots.AgentInput these fields make; zero when none is set.
+func (a botAgentIn) agentInput() (bots.AgentInput, error) {
+	out := bots.AgentInput{Prompt: a.Prompt, Timezone: a.Timezone, Skills: a.Skills, Permission: a.Permission, Gate: a.Gate,
+		MarketHours: a.MarketHours, ModelProvider: a.ModelProvider, Model: a.Model}
+	if a.Schedule != nil {
+		raw, err := json.Marshal(a.Schedule)
+		if err != nil {
+			return bots.AgentInput{}, errors.New("give the schedule as text like every 6h, or as an object")
+		}
+		out.Schedule = raw
+	}
+	if t := a.Tools; t != nil {
+		out.Tools = &bots.ToolsInput{BrowserSites: t.BrowserSites, Egress: t.Egress, UseMemory: t.UseMemory, MCP: t.MCP}
+	}
+	return out, nil
 }
 
 func (s *Server) createBotChat(ctx context.Context, req *mcp.CallToolRequest, in createBotChatIn) (*mcp.CallToolResult, any, error) {
 	b := in.input()
+	var err error
+	if b.AgentInput, err = in.botAgentIn.agentInput(); err != nil {
+		return fail(err)
+	}
 	b.Kind, b.JudgeMode, b.BriefAI, b.BriefOnly = in.Kind, in.JudgeMode, in.BriefAI, in.BriefOnly
 	if in.Knowledge != nil {
 		b.Knowledge = &bots.KnowledgeInput{Kind: in.Knowledge.Kind, ID: in.Knowledge.ID}
@@ -454,14 +501,15 @@ func (s *Server) saveBotEdit(ctx context.Context, req *mcp.CallToolRequest, in u
 // knowledge null clears it (clearKnowledge, read by UnmarshalJSON).
 type updateBotChatIn struct {
 	updateBotIn
-	Kind           *string         `json:"kind,omitempty" jsonschema:"cannot change; leave it out"`
-	JudgeMode      *string         `json:"judgeMode,omitempty" jsonschema:"rules or ai: AI judges what the rules spot; only when the person asks for it"`
-	Knowledge      *botKnowledgeIn `json:"knowledge,omitempty" jsonschema:"ai only: a doc or sheet the person named, read by the judge as data; null removes it"`
-	PassesTo       *[]botLinkIn    `json:"passesTo,omitempty" jsonschema:"the full list of bots that check what this one finds before the person is told (up to 4); [] removes them all"`
-	Sources        *[]string       `json:"sources,omitempty" jsonschema:"brief: the full list of 1 to 8 bots (ids or names) it sums up"`
-	BriefTime      *string         `json:"briefTime,omitempty" jsonschema:"brief: when it sends, HH:MM in the person's time"`
-	BriefAI        *bool           `json:"briefAi,omitempty" jsonschema:"brief: Write it with AI (one call a day)"`
-	BriefOnly      *bool           `json:"briefOnly,omitempty" jsonschema:"a bot in a brief: alert only through the brief"`
+	Kind      *string         `json:"kind,omitempty" jsonschema:"cannot change; leave it out"`
+	JudgeMode *string         `json:"judgeMode,omitempty" jsonschema:"rules or ai: AI judges what the rules spot; only when the person asks for it"`
+	Knowledge *botKnowledgeIn `json:"knowledge,omitempty" jsonschema:"ai only: a doc or sheet the person named, read by the judge as data; null removes it"`
+	PassesTo  *[]botLinkIn    `json:"passesTo,omitempty" jsonschema:"the full list of bots that check what this one finds before the person is told (up to 4); [] removes them all"`
+	Sources   *[]string       `json:"sources,omitempty" jsonschema:"brief: the full list of 1 to 8 bots (ids or names) it sums up"`
+	BriefTime *string         `json:"briefTime,omitempty" jsonschema:"brief: when it sends, HH:MM in the person's time"`
+	BriefAI   *bool           `json:"briefAi,omitempty" jsonschema:"brief: Write it with AI (one call a day)"`
+	BriefOnly *bool           `json:"briefOnly,omitempty" jsonschema:"a bot in a brief: alert only through the brief"`
+	botAgentIn
 	clearKnowledge bool
 }
 
@@ -487,6 +535,10 @@ func (in *updateBotChatIn) UnmarshalJSON(raw []byte) error {
 func (s *Server) updateBotChat(ctx context.Context, req *mcp.CallToolRequest, in updateBotChatIn) (*mcp.CallToolResult, any, error) {
 	p := bots.Patch{Kind: in.Kind, JudgeMode: in.JudgeMode, Sources: in.Sources, BriefTime: in.BriefTime, BriefAI: in.BriefAI,
 		BriefOnly: in.BriefOnly, ClearKnowledge: in.clearKnowledge}
+	var err error
+	if p.AgentInput, err = in.botAgentIn.agentInput(); err != nil {
+		return fail(err)
+	}
 	if in.Knowledge != nil {
 		p.Knowledge = &bots.KnowledgeInput{Kind: in.Knowledge.Kind, ID: in.Knowledge.ID}
 	}

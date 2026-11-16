@@ -7,8 +7,17 @@ import type {
 } from "@timely/contract/agentChat";
 import {
   chatRequest,
+  createBotFromDraft,
+  doAlertInChat,
+  getBotThread,
   isChatGone,
+  listBotThreads,
   deleteChat,
+  newBotDraft,
+  resolveBotPending,
+  reviewBotAlert,
+  sendBotThread,
+  undoBotChange,
   getChatSettings,
   patchChatSettings,
   renameChat,
@@ -198,5 +207,125 @@ export function usePatchChatSettings() {
       if (context?.before) cache.setQueryData(chatSettingsKey, context.before);
     },
     onSuccess: (next) => cache.setQueryData(chatSettingsKey, next),
+  });
+}
+
+// ── Bot threads ──
+
+export const botThreadKey = (id: string) => ["bot-thread", id] as const;
+export const botThreadsKey = ["bot-threads"] as const;
+
+/** Every Bot thread and new-Bot draft with why each needs the person (the inbox's Needs you counts). */
+export function useBotThreads() {
+  return useQuery({
+    queryKey: botThreadsKey,
+    queryFn: listBotThreads,
+    refetchInterval: IDLE_POLL,
+    refetchOnWindowFocus: true,
+    staleTime: 5000,
+  });
+}
+
+/**
+ * A Bot's thread, or a draft's, by the Bot's id or the thread's own id.
+ * While the thread's turn runs it is read every 1.5 s; otherwise it follows
+ * invalidations from the bots and chat streams, with a slow poll behind.
+ */
+export function useBotThread(id?: string | null) {
+  return useQuery({
+    queryKey: botThreadKey(id || ""),
+    queryFn: () => getBotThread(id || ""),
+    enabled: !!id,
+    retry: (count, error) => !isChatGone(error) && count < 3,
+    refetchInterval: (q) =>
+      isBusy(q.state.data?.thread.status) ? 1500 : IDLE_POLL,
+    refetchOnWindowFocus: true,
+    staleTime: 3000,
+  });
+}
+
+function refreshThread(cache: ReturnType<typeof useQueryClient>) {
+  void cache.invalidateQueries({ queryKey: ["bot-thread"] });
+  void cache.invalidateQueries({ queryKey: botThreadsKey });
+  void cache.invalidateQueries({ queryKey: chatsKey });
+  void cache.invalidateQueries({ queryKey: ["bots"] });
+  void cache.invalidateQueries({ queryKey: ["bot"] });
+}
+
+/** A message to a Bot thread: it changes the Bot at once and the reply says so. */
+export function useSendBotThread() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string }) =>
+      sendBotThread(id, content),
+    onSettled: () => refreshThread(cache),
+  });
+}
+
+/** The Undo on a "Changed: X -> Y" reply. */
+export function useUndoBotChange() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, undoToken }: { id: string; undoToken: string }) =>
+      undoBotChange(id, undoToken),
+    onSettled: () => refreshThread(cache),
+  });
+}
+
+/** Approve or Discard a change that waits for one tap. */
+export function useResolveBotPending() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      itemId,
+      action,
+    }: {
+      id: string;
+      itemId: string;
+      action: "approve" | "discard";
+    }) => resolveBotPending(id, itemId, action),
+    onSettled: () => refreshThread(cache),
+  });
+}
+
+/** A new Bot starts as its thread. */
+export function useNewBotDraft() {
+  return useMutation({
+    mutationFn: (content?: string) => newBotDraft(content),
+  });
+}
+
+/** Create: makes the Bot the draft thread shows, once. */
+export function useCreateBotFromDraft() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: (threadId: string) => createBotFromDraft(threadId),
+    onSuccess: () => refreshThread(cache),
+  });
+}
+
+/** "Do this in chat" on an alert: a new agent chat seeded with its request. */
+export function useDoAlertInChat() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: ({ alertId, request }: { alertId: string; request?: string }) =>
+      doAlertInChat(alertId, request),
+    onSuccess: () => void cache.invalidateQueries({ queryKey: chatsKey }),
+  });
+}
+
+/** Approve or Discard the Review card of an alert's proposed write. */
+export function useReviewBotAlert() {
+  const cache = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      alertId,
+      action,
+    }: {
+      alertId: string;
+      action: "approve" | "discard";
+    }) => reviewBotAlert(alertId, action),
+    onSettled: () => refreshThread(cache),
   });
 }

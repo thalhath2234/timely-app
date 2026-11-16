@@ -16,6 +16,7 @@ import type {
   PermissionMode,
 } from "@timely/contract/agentChat";
 import { newChatAccess } from "@timely/contract/agentChat";
+import type { AgentBotFields } from "@/app/_types/types";
 import { apiFetch } from "./client";
 import { browserTimezone } from "./schedule";
 import { desktopShell } from "./instance";
@@ -462,3 +463,155 @@ export async function uploadChatImage(file: File): Promise<ChatImage> {
   }
   return res.json();
 }
+
+// ── Bot threads: where a Bot is changed by talking to it ──
+
+/** The Review card an alert carries when its run proposed a Timely write. */
+export type BotReviewCard = {
+  state: string;
+  summary: string;
+  steps: string[];
+  conversationId?: string;
+  messageId?: string;
+};
+
+/** One line of a Bot thread (GET /chat/bot-threads/:id). */
+export type BotThreadLine = {
+  kind: "alert" | "change" | "pending_change" | "answer" | "draft_setup";
+  id: string;
+  at: string;
+  alertId?: string;
+  title?: string;
+  body?: string;
+  url?: string;
+  review?: BotReviewCard;
+  before?: string;
+  after?: string;
+  undoToken?: string;
+  undone?: boolean;
+  /** pending_change: browser_site, memory, permission, egress or mcp. */
+  reason?: string;
+  /** pending_change: pending, approved or discarded. */
+  state?: string;
+  text?: string;
+  name?: string;
+  fields?: AgentBotFields;
+};
+
+/** Why a thread needs the person, as counts. */
+export type BotThreadSummary = {
+  id: string;
+  kind: "bot_thread";
+  botId?: string;
+  draft?: boolean;
+  title: string;
+  status: string;
+  unread: boolean;
+  updatedAt: string;
+  parkedSteps: number;
+  pendingChanges: number;
+  reviewCards: number;
+  needsYou: boolean;
+};
+
+export type BotThreadView = {
+  thread: Chat;
+  summary: BotThreadSummary;
+  items: BotThreadLine[];
+};
+
+async function threadRequest<T>(
+  path: string,
+  method = "GET",
+  body?: unknown,
+): Promise<T> {
+  const res = await apiFetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw Object.assign(
+      new Error(error.message || "Couldn't update this Bot thread. Try again."),
+      { status: res.status },
+    );
+  }
+  return res.status === 204 ? (undefined as T) : res.json();
+}
+
+const threadPath = (id: string) =>
+  `/chat/bot-threads/${encodeURIComponent(id)}`;
+
+function newRequestId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+export const listBotThreads = () =>
+  threadRequest<{ threads: BotThreadSummary[] }>("/chat/bot-threads").then(
+    (body) => body.threads ?? [],
+  );
+
+/** A Bot's thread (made when it has none), or a draft thread by its own id. */
+export const getBotThread = (id: string) =>
+  threadRequest<BotThreadView>(threadPath(id));
+
+/** A new Bot starts as its thread; `content` is its first message. */
+export const newBotDraft = (content?: string) =>
+  threadRequest<BotThreadView>("/chat/bot-threads", "POST", {
+    content: content ?? "",
+    timezone: browserTimezone(),
+  });
+
+/** A message to a Bot thread; its reply arrives on the thread. */
+export const sendBotThread = (conversationId: string, content: string) =>
+  chatRequest<Chat>(`/${encodeURIComponent(conversationId)}/messages`, "POST", {
+    content,
+    requestId: newRequestId(),
+  });
+
+/** Undo one "Changed: X -> Y"; the person's own tap may put back reach they had. */
+export const undoBotChange = (threadId: string, undoToken: string) =>
+  threadRequest<{ line: string }>(`${threadPath(threadId)}/undo`, "POST", {
+    undoToken,
+  });
+
+/** One tap on a change that widens the Bot (a new site, memory on, a looser mode). */
+export const resolveBotPending = (
+  threadId: string,
+  itemId: string,
+  action: "approve" | "discard",
+) =>
+  threadRequest<BotThreadView>(
+    `${threadPath(threadId)}/pending/${encodeURIComponent(itemId)}`,
+    "POST",
+    { action },
+  );
+
+/** Create the Bot a draft thread shows, once. */
+export const createBotFromDraft = (threadId: string) =>
+  threadRequest<{ botId: string; thread: BotThreadView }>(
+    `${threadPath(threadId)}/create`,
+    "POST",
+  );
+
+/** "Do this in chat": a separate agent chat seeded with the alert's request. */
+export const doAlertInChat = (alertId: string, request?: string) =>
+  threadRequest<{ conversationId: string }>(
+    `/chat/bot-alerts/${encodeURIComponent(alertId)}/do-in-chat`,
+    "POST",
+    { request: request ?? "", requestId: newRequestId() },
+  );
+
+/** Approve or Discard the Review card of an alert's proposed write. */
+export const reviewBotAlert = (
+  alertId: string,
+  action: "approve" | "discard",
+) =>
+  threadRequest<unknown>(
+    `/chat/bot-alerts/${encodeURIComponent(alertId)}/review`,
+    "POST",
+    { action },
+  );

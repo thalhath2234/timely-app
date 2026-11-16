@@ -66,6 +66,8 @@ type Input struct {
 	// name the person gave its API key. It is kept only for OriginMCP and
 	// never read from a request body.
 	OriginClient string `json:"-"`
+	// AgentInput holds an agent Bot's fields; see CleanAgent.
+	AgentInput
 }
 
 // Patch is an edit; nil fields are left as they are. Watches, when set, is
@@ -92,6 +94,8 @@ type Patch struct {
 	BriefTime *string   `json:"briefTime"`
 	BriefAI   *bool     `json:"briefAi"`
 	BriefOnly *bool     `json:"briefOnly"`
+	// AgentInput holds an agent Bot's fields; see CleanAgent.
+	AgentInput
 }
 
 // LinkInput is one Pass to link as a client sends it: the Bot to pass to
@@ -502,6 +506,336 @@ func pageCurrency(sent, pageURL string, old *Watch) string {
 		return c
 	}
 	return prev
+}
+
+// Bounds on an agent Bot's fields.
+const (
+	MaxPromptLen     = 4000
+	MaxSkills        = 10
+	MaxBrowserSites  = 10
+	MaxEgressHosts   = 20
+	MaxMCPServers    = 30
+	maxModelNameLen  = 128
+	maxProviderIDLen = 64
+)
+
+// AgentInput is an agent Bot's fields as a client sends them. Nil leaves a
+// field as it is (on a new Bot, at its default). Schedule is a string
+// ("every 6h", "weekdays at 9am", "0 9 * * *") or an object
+// ({everyMinutes}, {dailyAt, weekdays} or {cron}).
+type AgentInput struct {
+	Prompt        *string         `json:"prompt"`
+	Schedule      json.RawMessage `json:"schedule"`
+	Timezone      *string         `json:"timezone"`
+	Skills        *[]string       `json:"skills"`
+	Tools         *ToolsInput     `json:"tools"`
+	Permission    *string         `json:"permission"`
+	Gate          *string         `json:"gate"`
+	MarketHours   *bool           `json:"marketHours"`
+	ModelProvider *string         `json:"modelProvider"`
+	Model         *string         `json:"model"`
+}
+
+// ToolsInput is a Bot's reach as a client sends it; nil leaves a part as it
+// is. MCP, when set, is the full map of server to mode (use, ask or off).
+type ToolsInput struct {
+	BrowserSites *[]string         `json:"browserSites"`
+	Egress       *[]string         `json:"egress"`
+	UseMemory    *bool             `json:"useMemory"`
+	MCP          map[string]string `json:"mcp"`
+}
+
+// Set reports whether any agent field is sent.
+func (a AgentInput) Set() bool {
+	return a.Prompt != nil || len(a.Schedule) > 0 || a.Timezone != nil || a.Skills != nil || a.Tools != nil ||
+		a.Permission != nil || a.Gate != nil || a.MarketHours != nil || a.ModelProvider != nil || a.Model != nil
+}
+
+// errMCPAgent refuses what widens or points an agent Bot: an outside app
+// cannot give one tools, browser sites, extra hosts, memory, skills, a looser
+// permission or a model.
+var errMCPAgent = invalid("Tools, browser sites, extra hosts, memory, skills, permission and model are set in Timely")
+
+// errMCPPrompt refuses an outside app's edit of an active Bot's prompt: the
+// prompt is the person's instruction to it.
+var errMCPPrompt = invalid("Change an active bot's prompt in Timely. Pause it first to edit it from outside")
+
+// AgentFields are an agent Bot's fields once checked, ready to store.
+type AgentFields struct {
+	Prompt        string
+	Schedule      Schedule
+	Timezone      string
+	Skills        []string
+	Tools         AgentTools
+	Permission    string
+	Gate          string
+	MarketHours   bool
+	ModelProvider string
+	Model         string
+	// IntervalSeconds is bots.interval_seconds derived from the schedule and
+	// the Bot's Reads (AgentInterval).
+	IntervalSeconds int
+}
+
+// Apply writes the fields onto b and makes it an agent Bot. It leaves status
+// and next_check_at to the caller.
+func (f AgentFields) Apply(b *Bot) {
+	b.Engine = EngineAgent
+	b.Prompt = f.Prompt
+	b.Schedule = f.Schedule.Map()
+	b.Timezone = f.Timezone
+	b.Skills = jsonList[string](f.Skills)
+	b.Tools = f.Tools
+	b.Egress = jsonList[string](f.Tools.Egress)
+	b.UseMemory = f.Tools.UseMemory
+	b.Permission = f.Permission
+	b.Gate = f.Gate
+	b.MarketHours = f.MarketHours
+	b.ModelProvider = f.ModelProvider
+	b.Model = f.Model
+	b.IntervalSeconds = f.IntervalSeconds
+}
+
+// CleanAgent checks an agent Bot's fields. cur is the Bot being edited, nil
+// for a new one, which needs a prompt and a schedule; ws are its Reads
+// (floors and the changed gate depend on them). Over MCP (o) the tools,
+// skills, permission and model are refused, and so is a new prompt on an
+// active Bot. A Bot that is not an agent Bot takes none of it: it is
+// converted first (Q-B4).
+func CleanAgent(in AgentInput, cur *Bot, ws []Watch, o Origin) (AgentFields, error) {
+	if cur != nil && cur.Engine != EngineAgent {
+		return AgentFields{}, invalid("This bot has rules. Switch it to an agent first")
+	}
+	if o == OriginMCP {
+		if in.Tools != nil || in.Skills != nil || in.Permission != nil || in.ModelProvider != nil || in.Model != nil {
+			return AgentFields{}, errMCPAgent
+		}
+		if cur != nil && in.Prompt != nil && cur.Status == StatusActive && strings.TrimSpace(*in.Prompt) != cur.Prompt {
+			return AgentFields{}, errMCPPrompt
+		}
+	}
+	f := AgentFields{Permission: PermissionAuto, Gate: GateChanged, Tools: AgentTools{BrowserSites: []string{}, Egress: []string{}, MCP: map[string]string{}}, Skills: []string{}}
+	var sched Schedule
+	if cur != nil {
+		var err error
+		if sched, err = ScheduleFromMap(cur.Schedule); err != nil {
+			sched = Schedule{}
+		}
+		f.Prompt, f.Timezone, f.Skills = cur.Prompt, cur.Timezone, append([]string{}, cur.Skills...)
+		f.Tools = cur.Tools
+		f.Tools.BrowserSites = nonNil(cur.Tools.BrowserSites)
+		f.Tools.Egress = nonNil(cur.Tools.Egress)
+		if f.Tools.MCP == nil {
+			f.Tools.MCP = map[string]string{}
+		}
+		f.Tools.UseMemory = cur.UseMemory
+		f.Permission, f.Gate, f.MarketHours = cur.Permission, cur.Gate, cur.MarketHours
+		f.ModelProvider, f.Model = cur.ModelProvider, cur.Model
+	}
+	if in.Prompt != nil {
+		p := strings.TrimSpace(strings.ReplaceAll(*in.Prompt, "\x00", ""))
+		if utf8.RuneCountInString(p) > MaxPromptLen {
+			return AgentFields{}, invalid("Keep the prompt under %d characters", MaxPromptLen)
+		}
+		f.Prompt = p
+	}
+	if f.Prompt == "" {
+		return AgentFields{}, invalid("Say what the bot should do")
+	}
+	if len(in.Schedule) > 0 && string(in.Schedule) != "null" {
+		s, err := cleanScheduleInput(in.Schedule)
+		if err != nil {
+			return AgentFields{}, err
+		}
+		sched = s
+	}
+	if sched.Kind() == "" {
+		return AgentFields{}, invalid("Say when it runs, like every 6h, weekdays at 9am or 0 9 * * *")
+	}
+	f.Schedule = ClampSchedule(sched, ws)
+	if in.Timezone != nil {
+		tz := strings.TrimSpace(*in.Timezone)
+		if tz != "" {
+			if _, err := time.LoadLocation(tz); err != nil || tz == "Local" {
+				return AgentFields{}, invalid("%q is not a time zone. Use a name like Asia/Kolkata", clipKey(tz))
+			}
+		}
+		f.Timezone = tz
+	}
+	if in.Skills != nil {
+		skills, err := cleanSkills(*in.Skills)
+		if err != nil {
+			return AgentFields{}, err
+		}
+		f.Skills = skills
+	}
+	if in.Tools != nil {
+		if err := cleanToolsInto(&f.Tools, *in.Tools); err != nil {
+			return AgentFields{}, err
+		}
+	}
+	if in.Permission != nil {
+		switch p := strings.TrimSpace(*in.Permission); p {
+		case PermissionSupervised, PermissionAuto, PermissionFull:
+			f.Permission = p
+		default:
+			return AgentFields{}, invalid("Pick supervised, auto or full for permission")
+		}
+	}
+	if in.Gate != nil {
+		switch g := strings.TrimSpace(*in.Gate); g {
+		case GateChanged, GateAlways:
+			f.Gate = g
+		default:
+			return AgentFields{}, invalid("Pick changed or always for when it wakes")
+		}
+	}
+	// With nothing to compare there is nothing to wake on: it runs on its
+	// schedule.
+	if len(ws) == 0 {
+		f.Gate = GateAlways
+	}
+	if in.MarketHours != nil {
+		f.MarketHours = *in.MarketHours
+	}
+	if in.ModelProvider != nil || in.Model != nil {
+		prov, model := f.ModelProvider, f.Model
+		if in.ModelProvider != nil {
+			prov = strings.TrimSpace(*in.ModelProvider)
+		}
+		if in.Model != nil {
+			model = strings.TrimSpace(*in.Model)
+		}
+		if (prov == "") != (model == "") {
+			return AgentFields{}, invalid("Name the model's provider and the model together, or neither to follow the default")
+		}
+		if utf8.RuneCountInString(prov) > maxProviderIDLen || utf8.RuneCountInString(model) > maxModelNameLen {
+			return AgentFields{}, invalid("That provider or model name is too long")
+		}
+		f.ModelProvider, f.Model = prov, model
+	}
+	f.IntervalSeconds = int(AgentInterval(f.Schedule, ws) / time.Second)
+	return f, nil
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return append([]string{}, s...)
+}
+
+// cleanScheduleInput reads a schedule sent as a string or as an object.
+func cleanScheduleInput(raw json.RawMessage) (Schedule, error) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return ParseSchedule(text)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return Schedule{}, invalid("Give the schedule as text like every 6h, or as an object")
+	}
+	return ScheduleFromMap(m)
+}
+
+var skillNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+func cleanSkills(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if !skillNameRe.MatchString(s) {
+			return nil, invalid("%q is not a skill name", clipKey(s))
+		}
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	if len(out) > MaxSkills {
+		return nil, invalid("A bot loads up to %d skills", MaxSkills)
+	}
+	return out, nil
+}
+
+var hostRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
+
+// cleanHost reads a site as a public host name: "flipkart.com", or a web
+// address whose host is kept. Addresses, one-word names and localhost are
+// refused.
+func cleanHost(raw string) (string, error) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if strings.Contains(s, "://") {
+		u, err := url.Parse(s)
+		if err != nil {
+			return "", invalid("%q is not a site", clipKey(raw))
+		}
+		s = u.Hostname()
+	}
+	s = strings.TrimSuffix(s, ".")
+	if _, err := netip.ParseAddr(s); err == nil || len(s) > 253 || !hostRe.MatchString(s) || strings.HasSuffix(s, ".localhost") {
+		return "", invalid("%q is not a public site. Use a name like flipkart.com", clipKey(raw))
+	}
+	return s, nil
+}
+
+func cleanHosts(in []string, limit int, what string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, h := range in {
+		host, err := cleanHost(h)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[host] {
+			seen[host] = true
+			out = append(out, host)
+		}
+	}
+	if len(out) > limit {
+		return nil, invalid("A bot has up to %d %s", limit, what)
+	}
+	return out, nil
+}
+
+// cleanToolsInto applies a ToolsInput onto t, checking what it sets.
+func cleanToolsInto(t *AgentTools, in ToolsInput) error {
+	if in.BrowserSites != nil {
+		sites, err := cleanHosts(*in.BrowserSites, MaxBrowserSites, "signed-in browser sites")
+		if err != nil {
+			return err
+		}
+		t.BrowserSites = sites
+	}
+	if in.Egress != nil {
+		hosts, err := cleanHosts(*in.Egress, MaxEgressHosts, "extra hosts")
+		if err != nil {
+			return err
+		}
+		t.Egress = hosts
+	}
+	if in.UseMemory != nil {
+		t.UseMemory = *in.UseMemory
+	}
+	if in.MCP != nil {
+		if len(in.MCP) > MaxMCPServers {
+			return invalid("A bot has up to %d tool servers", MaxMCPServers)
+		}
+		mcp := make(map[string]string, len(in.MCP))
+		for name, mode := range in.MCP {
+			name = strings.TrimSpace(name)
+			if name == "" || utf8.RuneCountInString(name) > 64 {
+				return invalid("Name each tool server in 1 to 64 characters")
+			}
+			if mode != "use" && mode != "ask" && mode != "off" {
+				return invalid("Set %q to use, ask or off", clipKey(name))
+			}
+			mcp[name] = mode
+		}
+		t.MCP = mcp
+	}
+	return nil
 }
 
 // sentence capitalises a lower-case error from another package.

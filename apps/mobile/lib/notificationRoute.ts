@@ -1,5 +1,8 @@
+import { legacyToAssistant, notificationToAssistant } from "@timely/contract/assistant";
+
 // Same as fileHref in ./fileRoutes. Inlined because this module stays free of
-// runtime imports so `make test-mobile-assistant` can load it with plain Node.
+// runtime imports (the contract's pure Assistant routes aside) so
+// `make test-mobile-assistant` can load it with plain Node.
 function filePath(id: string) {
   return `/(app)/files/${encodeURIComponent(id)}`;
 }
@@ -10,26 +13,41 @@ function dataString(data: Record<string, unknown>, key: string) {
 }
 
 export const NOTIFICATIONS_ROUTE = "/(app)/notifications";
+/** The Assistant tab: chats and Bots in one inbox. */
+export const ASSISTANT_ROUTE = "/(app)/(tabs)/assistant";
+/** The old Bots tab; it redirects into the Assistant tab. */
 export const BOTS_ROUTE = "/(app)/(tabs)/bots";
 
+/**
+ * An Assistant link from the contract (`/assistant?chat=..`) as the phone's
+ * route to the tab. `thread` adds `thread=1` so a Bot opens on its own thread.
+ */
+export function assistantTabRoute(href: string, opts: { thread?: boolean } = {}): string {
+  const query = href.includes("?") ? href.slice(href.indexOf("?")) : "";
+  const params = new URLSearchParams(query);
+  if (opts.thread && params.get("bot") && !params.get("thread")) params.set("thread", "1");
+  const text = params.toString();
+  return text ? `${ASSISTANT_ROUTE}?${text}` : ASSISTANT_ROUTE;
+}
+
+/** Where the old /chat or /bots screens now land on the phone, or null for any other path. */
+export function legacyAssistantRoute(pathname: string, search = ""): string | null {
+  const href = legacyToAssistant(pathname, search);
+  return href === null ? null : assistantTabRoute(href);
+}
+
 export function routeForNotification(data: Record<string, unknown>): string {
-  const chatId =
-    dataString(data, "chatId") ??
-    (dataString(data, "entityType") === "chat"
-      ? dataString(data, "entityId")
-      : null);
-  if (chatId) return `/(app)/assistant?chatId=${encodeURIComponent(chatId)}`;
-  // A Bot alert opens its bot's sheet on the Bots tab (the board when it names no bot).
-  if (dataString(data, "category") === "bot") {
-    const botId =
-      dataString(data, "botId") ??
-      (dataString(data, "entityType") === "bot"
-        ? dataString(data, "entityId")
-        : null);
-    return botId
-      ? `${BOTS_ROUTE}?bot=${encodeURIComponent(botId)}`
-      : BOTS_ROUTE;
-  }
+  // A chat notification opens its chat; a Bot alert opens that Bot's thread
+  // (the Assistant when it names no Bot).
+  const target = notificationToAssistant({
+    category: dataString(data, "category") ?? undefined,
+    entityType: dataString(data, "entityType") ?? undefined,
+    entityId: dataString(data, "entityId") ?? undefined,
+    chatId: dataString(data, "chatId") ?? undefined,
+    botId: dataString(data, "botId") ?? undefined,
+    data,
+  });
+  if (target) return assistantTabRoute(target, { thread: true });
   // A smart alert about waiting Inbox items opens the Inbox, not one item.
   if (dataString(data, "category") === "suggestion" && dataString(data, "kind") === "inbox") return "/(app)/inbox";
   const taskId = dataString(data, "taskId");

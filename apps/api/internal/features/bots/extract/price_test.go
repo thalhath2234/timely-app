@@ -457,15 +457,11 @@ func TestProductPriceLongChainsStayLinear(t *testing.T) {
 		b.WriteString(`]},{"@type":"Product","name":"Main","offers":{"@type":"Offer","price":"19.00","priceCurrency":"USD","availability":"https://schema.org/InStock"}}]}`)
 		return b.String()
 	}
-	t.Run("16,000 offers each starting a price specification chain", func(t *testing.T) {
-		page := []byte(`<html><head><script type="application/ld+json">` + offerChain(16000) + `</script></head><body></body></html>`)
-		start := time.Now()
-		if _, err := ProductPrice(page, "text/html"); err != nil && !errors.Is(err, ErrEmpty) {
-			t.Fatal(err)
+	t.Run("offers each starting a price specification chain", func(t *testing.T) {
+		wrap := func(n int) []byte {
+			return []byte(`<html><head><script type="application/ld+json">` + offerChain(n) + `</script></head><body></body></html>`)
 		}
-		if d := time.Since(start); d > time.Second {
-			t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
-		}
+		assertScalesLinearly(t, wrap(2000), wrap(16000), 8)
 	})
 	t.Run("6,000 related items linked by nextItem before the Product", func(t *testing.T) {
 		page := []byte(`<html><head><script type="application/ld+json">` + listChain(6000) + `</script></head><body></body></html>`)
@@ -482,10 +478,10 @@ func TestProductPriceLongChainsStayLinear(t *testing.T) {
 func TestProductPriceLongCurrencyTextStaysFast(t *testing.T) {
 	cur := strings.Repeat("1 ", 127)
 	price := strings.Repeat("1.", 31) + "x"
-	fill := func(head, item, tail string) string {
+	fill := func(size int, head, item, tail string) string {
 		var b strings.Builder
 		b.WriteString(head)
-		for i := 0; b.Len() < 4_800_000; i++ {
+		for i := 0; b.Len() < size; i++ {
 			if i > 0 {
 				b.WriteString(",")
 			}
@@ -494,23 +490,50 @@ func TestProductPriceLongCurrencyTextStaysFast(t *testing.T) {
 		b.WriteString(tail)
 		return b.String()
 	}
-	cases := map[string]string{
-		"an aggregate's offers": fill(`{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":1,"offers":[`,
-			`{"n":%d,"price":"`+price+`","priceCurrency":"`+cur+`"}`, `]}}`),
-		"a plain offers list": fill(`{"@type":"Product","offers":[{"price":1},`,
-			`{"n":%d,"price":1,"priceCurrency":"`+cur+`"}`, `]}`),
+	cases := map[string]func(size int) string{
+		"an aggregate's offers": func(size int) string {
+			return fill(size, `{"@type":"Product","offers":{"@type":"AggregateOffer","lowPrice":1,"offers":[`,
+				`{"n":%d,"price":"`+price+`","priceCurrency":"`+cur+`"}`, `]}}`)
+		},
+		"a plain offers list": func(size int) string {
+			return fill(size, `{"@type":"Product","offers":[{"price":1},`,
+				`{"n":%d,"price":1,"priceCurrency":"`+cur+`"}`, `]}`)
+		},
 	}
 	for name, ld := range cases {
 		t.Run(name, func(t *testing.T) {
-			page := []byte(`<html><head><script type="application/ld+json">` + ld + `</script></head><body></body></html>`)
+			wrap := func(size int) []byte {
+				return []byte(`<html><head><script type="application/ld+json">` + ld(size) + `</script></head><body></body></html>`)
+			}
+			assertScalesLinearly(t, wrap(600_000), wrap(4_800_000), 8)
+		})
+	}
+}
+
+// assertScalesLinearly times ProductPrice on a page and on one k times larger,
+// each as the best of a few runs so CPU load does not skew it. The larger page
+// may cost at most 4k times the smaller (quadratic parsing would cost about
+// k*k), and a 10 s ceiling still fails a real hang.
+func assertScalesLinearly(t *testing.T, small, large []byte, k int) {
+	t.Helper()
+	best := func(page []byte) time.Duration {
+		best := time.Duration(1<<63 - 1)
+		for range 5 {
 			start := time.Now()
 			if _, err := ProductPrice(page, "text/html"); err != nil && !errors.Is(err, ErrEmpty) {
 				t.Fatal(err)
 			}
-			if d := time.Since(start); d > time.Second {
-				t.Fatalf("took %v for a %d KB page", d, len(page)/1024)
-			}
-		})
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
+	ds, dl := best(small), best(large)
+	if dl > 10*time.Second {
+		t.Fatalf("took %v for a %d KB page", dl, len(large)/1024)
+	}
+	// A floor keeps a near-instant small run from inflating the ratio.
+	if floor := time.Millisecond; dl > time.Duration(4*k)*max(ds, floor) {
+		t.Fatalf("%d KB took %v but %d KB took %v: more than %dx for %dx the input", len(small)/1024, ds, len(large)/1024, dl, 4*k, k)
 	}
 }
 

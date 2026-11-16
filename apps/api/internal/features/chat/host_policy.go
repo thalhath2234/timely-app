@@ -130,6 +130,10 @@ type hostState struct {
 	noPersist    bool
 	mcp          MCPRules
 	uid          string
+	// bot is set for an agent Bot's tick: its host calls follow botHostDecision
+	// (bot_policy.go), not a chat's rules. Nil for a chat; a bot run without it
+	// keeps the old block (hostBotBlocked).
+	bot *BotRunCtx
 }
 
 // hostDecision is Go's answer to one host call.
@@ -145,12 +149,25 @@ type hostDecision struct {
 	// answers Hermes' own second prompt only for a call a person or Full
 	// Access stands behind.
 	by string
+	// browserBusy is set on a bot's block that is the browser lease refusing
+	// the call (a chat holds the browser): the Check records "browser busy".
+	browserBusy bool
 }
 
 // decideHost is decision 5 for one call. ok is false for a tool that is
 // neither a host tool nor an MCP tool.
 func decideHost(ctx context.Context, ask gateAsk, st hostState) (hostDecision, bool) {
 	server := ask.mcpServer()
+	if ask.RunKind == "bot" && st.bot != nil && server == "" {
+		// An agent Bot's tick: every tool is judged by the bot gate, which
+		// knows the web and browser tools too (plan 7.5). Taint the run or the
+		// ask reports counts, like a chat's.
+		b := *st.bot
+		b.Tainted = b.Tainted || st.tainted || len(ask.Tainted) > 0
+		args := map[string]any{}
+		_ = json.Unmarshal(ask.Args, &args)
+		return botHostDecision(b, ask.Tool, args), true
+	}
 	isMCP := server != ""
 	if !isMCP && !hostTools[ask.Tool] {
 		return hostDecision{}, false

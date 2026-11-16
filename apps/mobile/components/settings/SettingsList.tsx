@@ -26,6 +26,7 @@ export function ListGroup({ children, style, testID }: { children: ReactNode; st
 export function ListRow({
   title,
   meta,
+  metaTone = "default",
   leading,
   trailing,
   onPress,
@@ -40,6 +41,8 @@ export function ListRow({
   title: string;
   /** Second line under the title. */
   meta?: string;
+  /** "warn" draws the second line in the warning tone (a caveat on the value, like a Bot's Full Access note). */
+  metaTone?: "default" | "warn";
   leading?: ReactNode;
   /** Shown before the chevron (a value, a count, row buttons). */
   trailing?: ReactNode;
@@ -71,7 +74,7 @@ export function ListRow({
           {title}
         </Text>
         {meta ? (
-          <Text numberOfLines={2} style={styles.meta}>
+          <Text numberOfLines={2} style={[styles.meta, metaTone === "warn" && styles.metaWarn]}>
             {meta}
           </Text>
         ) : null}
@@ -276,6 +279,7 @@ const styles = createThemedStyleSheet((colors) => ({
   title: { fontSize: 15, fontWeight: "500" },
   titleStrong: { fontWeight: "600" },
   meta: { color: colors.mutedForeground, fontSize: 12, marginTop: 2, lineHeight: 16 },
+  metaWarn: { color: colors.warningText },
   value: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500", maxWidth: 150 },
   subLabel: { height: 32, justifyContent: "center", paddingHorizontal: 14 },
   subLabelText: { color: colors.mutedForeground, fontSize: 12, fontWeight: "500" },

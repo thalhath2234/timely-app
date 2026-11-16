@@ -48,11 +48,12 @@ const (
 	asking  = "apps/api/internal/features/chat/question.go"
 	hostEng = "apps/api/internal/features/chat/host_engine.go"
 	hostAns = "apps/api/internal/features/chat/host_answer.go"
+	botEng  = "apps/api/internal/features/chat/engine_bot.go"
 )
 
 // coveredFiles lists every file a covered function or anchor lives in;
 // run.sh --resync refuses while one has uncommitted changes (-files).
-var coveredFiles = []string{runner, service, receipt, deps, mainGo, engine, worker, turn, modes, asking, hostEng, hostAns}
+var coveredFiles = []string{runner, service, receipt, deps, mainGo, engine, worker, turn, modes, asking, hostEng, hostAns, botEng}
 
 // covered lists the functions the model describes. Any change to one of
 // them (outside comments and formatting) is drift.
@@ -117,6 +118,18 @@ var covered = []struct{ File, Func string }{
 	{hostEng, "parkCard"},
 	{hostAns, "(*Service).answerHost"},
 	{hostAns, "(*Service).hostAnswerNotTaken"},
+	// Phase 6: a Bot's parked cards (BotRunPark.tla).
+	{hostAns, "(*Service).hostApproval"},
+	{hostAns, "(*Service).answerBotCard"},
+	{botEng, "(*Service).parkBotCard"},
+	{botEng, "(*Service).finishBotCard"},
+	{botEng, "(*Service).botRowHolds"},
+	{botEng, "(*BotAgent).run"},
+	{botEng, "(*BotAgent).follow"},
+	{botEng, "(*BotAgent).continueCard"},
+	{botEng, "(*WorkerEngine).stopBotRun"},
+	{botEng, "(*WorkerEngine).stopTick"},
+	{botEng, "threadFree"},
 }
 
 // An anchor is code text that must appear in a function (whitespace is
@@ -204,6 +217,29 @@ var anchors = []anchor{
 	{"StopDeniesHost", worker, "(*WorkerEngine).Stop",
 		`if waiting != "" { if err := e.sendHostAnswer(r, waiting, hostDeny); err != nil {`,
 		"the engine denies a live card before it sends run.stop"},
+
+	// Phase 6 guards: each sets one constant in BotRunPark.cfg.
+	{"BotAnswerFenced", hostAns, "(*Service).answerBotCard",
+		`if row.Status != statusHostApproval || !h.pending() { return errHostAnswered } if h.RequestID != requestID { return errHostStale }`,
+		"an answer is for the Bot card the thread still waits on (409 once it closed or another card replaced it)"},
+	{"BotContFenced", botEng, "(*BotAgent).run",
+		`if spec.fence != nil && (!spec.fence() || t.stopReason() != "") { t.err = errBotFenced return bots.AgentResult{Model: choice}, errBotFenced }`,
+		"a continuation's bot.run is not sent unless the fence holds"},
+	{"BotContFenced", botEng, "(*BotAgent).continueCard",
+		`spec.fence = func() bool { return s.botRowHolds(ctx, uid, cid, runID, lease) }`,
+		"the continuation's fence is the thread row running it under the answer's lease"},
+	{"BotContFenced", botEng, "(*Service).botRowHolds",
+		`Where("id = ? AND user_id = ? AND status = 'running' AND agent_run_id = ? AND lease = ?", cid, uid, runID, lease)`,
+		"the fence reads the row's status, run and lease"},
+	{"BotStopReaches", worker, "(*WorkerEngine).Stop",
+		`if e.stopBotRun(uid, cid, runID) { return }`,
+		"Stop and Delete on a Bot thread reach its continuation"},
+	{"BotStopReaches", botEng, "(*WorkerEngine).stopBotRun",
+		`if t.uid == uid && t.thread != "" && t.thread == cid { e.stopTick(t, "user") }`,
+		"the continuation of that thread gets run.stop"},
+	{"BotStopReaches", botEng, "(*BotAgent).follow",
+		`if !spec.renew() { e.stopTick(t, "fenced") }`,
+		"a continuation whose lease renewal fails (Delete) gets run.stop"},
 
 	// Assumptions: the model is built on these; no switch.
 	{"", runner, "(*Service).work",
@@ -458,6 +494,47 @@ var anchors = []anchor{
 	{"", service, "busy",
 		`return c.Status == "queued" || c.Status == "running"`,
 		"queued and running are the busy statuses"},
+
+	// Phase 6 assumptions (BotRunPark.tla).
+	{"", hostAns, "(*Service).hostApproval",
+		`if row, ok, err := s.answerBotCard(c.Request().Context(), uid, c.Param("id"), in.RequestID, in.Choice, dev); ok {`,
+		"a Bot card is answered by answerBotCard, never by answerHost"},
+	{"", hostAns, "(*Service).answerBotCard",
+		`closeHostCardAs(&row, hostApproved, dev, hostOnce) lease = id("lease_")`,
+		"AnswerOnce: the card closes approved and a fresh lease is minted in the answer's transaction"},
+	{"", hostAns, "(*Service).answerBotCard",
+		`row.Status, row.Lease, row.LeaseUntil = "running", lease, &until row.AgentRunID, row.AgentInstance = botContinuationRun(h), ""`,
+		"AnswerOnce: the thread runs the continuation under that lease"},
+	{"", hostAns, "(*Service).answerBotCard",
+		`closeHostCard(&row, hostDenied, dev) row.Status = "idle"`,
+		"AnswerDeny: the card closes denied, the thread goes idle"},
+	{"", hostAns, "(*Service).answerBotCard",
+		`if choice != hostDeny { if bc, ok := s.engine.(botContinuer); ok { bc.ContinueBot(uid, cid, asked, lease) }`,
+		"AnswerOnce: the continuation starts only after the answer committed"},
+	{"", botEng, "(*Service).parkBotCard",
+		`if !threadFree(row.Status) || h.pending() {`,
+		"ParkCard: a card is written only on a free thread with no card waiting"},
+	{"", botEng, "(*Service).parkBotCard",
+		`row.Status = statusHostApproval row.HostRequest = HostRequest{RequestID: requestID, Run: in.run, Phase: hostParked,`,
+		"ParkCard: the card waits parked on the thread in its own status"},
+	{"", botEng, "threadFree",
+		`case "", "idle", "stopped", "failed": return true`,
+		"ParkCard: free statuses"},
+	{"", botEng, "(*Service).finishBotCard",
+		`if row.Status == "running" && row.AgentRunID == runID && lease != "" && row.Lease == lease {`,
+		"ContDone: the continuation ends the row only while it holds it under its lease"},
+	{"", botEng, "(*BotAgent).continueCard",
+		`spec.fields["pre_approved"] = map[string]any{"tool": h.Tool, "args_hash": h.ArgsHash}`,
+		"ContSend: the continuation carries exactly the card's call as pre_approved"},
+	{"", botEng, "(*BotAgent).run",
+		`t.mu.Lock() t.sent = true why := t.stopped t.mu.Unlock() if why != "" { e.sendStop(t, why) }`,
+		"a stop asked while bot.run was being sent follows it on the same pipe (modelled with the commit)"},
+	{"", botEng, "(*WorkerEngine).stopTick",
+		`t.stopped = why sent := t.sent t.mu.Unlock() if !sent { return } e.sendStop(t, why)`,
+		"run.stop goes out once, after bot.run"},
+	{"", hostEng, "(*WorkerEngine).sweepHost",
+		`case !isBotCard(row, h) && (`,
+		"the sweep's host-access deny skips Bot cards; expiry (ExpireHost) still applies"},
 	{"", receipt, "(*Service).discardReview",
 		`row.Status = "idle" row.Phase = "plan" row.Lease = ""`,
 		"discarding a receipt review ends the run and clears the lease"},

@@ -214,7 +214,7 @@ typecheck-web: ## tsc --noEmit for web
 typecheck-mobile: ## tsc --noEmit for mobile
 	@pnpm --filter @timely/mobile typecheck
 
-test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent test-agent-chat test-agent-mcp test-agent-learning test-stage-agent ## Run all tests
+test: test-api test-markdown-parity test-change-review test-doc-checklist test-sheet-formulas test-work-status test-help-me-write test-block-turn test-inbox test-starter-labels test-view-search test-smart-search test-view-language test-dashboard test-genui test-mobile-live-block test-mobile-clearable test-mobile-plain-text test-mobile-next-free-slot test-mobile-picker-seed test-design-tokens test-mobile-doc-jev test-mobile-file-templates test-mobile-sheet-freeze test-mobile-dashboard-reorder test-mobile-task-views test-mobile-assistant test-mobile-offline test-mobile-server-config test-mobile-keyboard-taps test-mobile-scrollbars test-mobile-live-activity test-mobile-push test-mobile-widgets test-electron-guards test-electron-supervisor test-desktop-instance test-web-api-proxy test-chat-stream test-project-delete test-bulk-edit test-autosave test-client-calls test-mobile-event-occurrence test-calendar-occurrence-done test-mobile-meeting-url test-mobile-back-fallback test-bots test-agent test-agent-chat test-agent-mcp test-agent-learning test-stage-agent test-bots-agent ## Run all tests
 
 test-api: ## go test the API
 	@cd $(API) && go test ./...
@@ -272,6 +272,13 @@ test-providers-live: ## Call real agent provider APIs (tool round trip + image) 
 .PHONY: test-bots-ai-live
 test-bots-ai-live: ## Run bots' AI judge, lesson, knowledge, brief, pass and shared-alert cases against Anthropic's small model (TIMELY_LIVE_KEY_ANTHROPIC exported or in .env; TIMELY_LIVE_BOTS_LOG=<file> also appends the answers there)
 	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" TIMELY_LIVE_BOTS=1 go test ./cmd -run TestLiveBotAI -count=1 -v
+
+.PHONY: test-bots-agent
+test-bots-agent: ## Test agent Bots: the Go suites (bots, chat Bot threads and engine, cmd wiring; PostgreSQL schema per test) and the worker's Pixel scenarios (bot.run contract and unit tests, stub model)
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/bots/... -count=1 -timeout 20m
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./internal/features/chat -run 'Bot' -count=1 -timeout 20m
+	@cd $(API) && CHAT_TEST_ENV="$(CURDIR)/.env" go test ./cmd -run 'Bot' -count=1 -timeout 20m
+	@if [ -x "$(AGENT_PY)" ]; then mkdir -p "$(AGENT_TEST_TMP)" && cd $(AGENT_DIR) && TMPDIR="$(AGENT_TEST_TMP)" "$(AGENT_PY)" -I -m pytest -q tests/test_bot_units.py tests/contract/test_bots_run.py; else echo "test-bots-agent: Pixel scenarios skipped, the agent runtime is not built (make agent-install)"; fi
 
 .PHONY: test-chat-integration lint-chat
 test-chat-integration: ## Test agent transactions and approvals in an isolated temporary PostgreSQL schema

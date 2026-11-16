@@ -10,11 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v5"
 	"gorm.io/gorm"
+	"timely-api/internal/features/agent"
+	"timely-api/internal/features/bots"
 	"timely-api/internal/features/chat"
 	"timely-api/internal/features/decide"
 	"timely-api/internal/features/provider"
 	"timely-api/internal/features/suggest"
+	"timely-api/internal/jobs"
 	"timely-api/internal/models"
 )
 
@@ -280,5 +285,216 @@ func TestIntegrationProposedLiveBlockIsWrittenOnce(t *testing.T) {
 	got := call("get_doc", map[string]any{"docId": plan["id"]})["markdown"].(string)
 	if len(asked) != 1 || !strings.Contains(got, "Panel(\"Open work\"") || strings.Contains(got, "Live block") {
 		t.Fatalf("the apply writes the block once, with the AI's program: %q\n%s", asked, got)
+	}
+}
+
+// threadStack is the chat service with Bot threads on the real Bots service,
+// serving its routes as uid, and a stub model it asks.
+type threadStack struct {
+	t     *testing.T
+	db    *gorm.DB
+	uid   string
+	svc   *bots.Service
+	cs    *chat.Service
+	model *botChatModel
+	e     *echo.Echo
+}
+
+func newThreadStack(t *testing.T) *threadStack {
+	t.Helper()
+	db, uid := agentToolsDB(t)
+	svc := bots.New(db, jobs.NewQueue(db))
+	model := &botChatModel{}
+	cs := chat.New(db, func(tx *gorm.DB) agent.Catalog { return chatCatalog(tx, nil, nil, svc) }, model)
+	wireBotThreads(db, cs, svc, nil)
+	if svc.Slots() != bots.AgentCheckSlots {
+		t.Fatalf("agent ticks run %d at once, want %d", svc.Slots(), bots.AgentCheckSlots)
+	}
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error { c.Set("userID", uid); return next(c) }
+	})
+	cs.Routes(e.Group(""))
+	t.Cleanup(cs.Wait)
+	return &threadStack{t: t, db: db, uid: uid, svc: svc, cs: cs, model: model, e: e}
+}
+
+func (s *threadStack) do(method, path string, body any) (int, []byte) {
+	s.t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(method, path, strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.e.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.Bytes()
+}
+
+func (s *threadStack) view(id string) chat.ThreadView {
+	s.t.Helper()
+	code, body := s.do("GET", "/chat/bot-threads/"+id, nil)
+	var view chat.ThreadView
+	if code != 200 || json.Unmarshal(body, &view) != nil {
+		s.t.Fatalf("thread %d %s", code, body)
+	}
+	return view
+}
+
+// say sends a message to a thread and waits for its turn to end.
+func (s *threadStack) say(cid, text string) {
+	s.t.Helper()
+	if code, body := s.do("POST", "/chats/"+cid+"/messages", map[string]any{"content": text, "requestId": uuid.NewString()}); code != 200 {
+		s.t.Fatalf("send %d %s", code, body)
+	}
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
+		if len(s.view(cid).Thread.Activity.Lines) == 0 {
+			return
+		}
+	}
+	s.t.Fatal("the turn did not finish")
+}
+
+func threadLines(v chat.ThreadView, kind string) []chat.ThreadItem {
+	var out []chat.ThreadItem
+	for _, it := range v.Items {
+		if it.Kind == kind {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// On the real Bots service: "only alert under 85000" changes the Bot at once
+// with "Changed: X -> Y" and a working Undo, "also check <site> in my browser"
+// waits for one tap, a history question reads and writes nothing, and a new
+// Bot is drafted, shown whole and made by one Create.
+func TestIntegrationBotThreadOnTheRealBots(t *testing.T) {
+	s := newThreadStack(t)
+	ctx := context.Background()
+	prompt, every := "Alert me when the Pixel is under 90000", json.RawMessage(`"every 6h"`)
+	made, err := s.svc.Create(ctx, s.uid, bots.Input{Name: "Pixel", AgentInput: bots.AgentInput{Prompt: &prompt, Schedule: every}}, bots.OriginChat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread := s.view(made.ID)
+	cid := thread.Thread.ID
+	if thread.Thread.Kind != chat.KindBotThread || thread.Thread.BotID == nil || *thread.Thread.BotID != made.ID {
+		t.Fatalf("thread %+v", thread.Thread.Kind)
+	}
+	promptNow := func() string {
+		d, err := s.svc.Get(ctx, s.uid, made.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d.Prompt
+	}
+
+	// 1. Changed at once, with Undo.
+	s.model.script(
+		toolCall("change_bot", map[string]any{"patch": map[string]any{"prompt": "Alert me when the Pixel is under 85000"}, "from": "alert under 90000", "to": "85000"}),
+		chat.WireMessage{Role: "assistant", Content: "Done."})
+	s.say(cid, "only alert under 85000")
+	if promptNow() != "Alert me when the Pixel is under 85000" {
+		t.Fatalf("prompt %q", promptNow())
+	}
+	v := s.view(cid)
+	changes := threadLines(v, "change")
+	if len(changes) != 1 || changes[0].Before != "alert under 90000" || changes[0].After != "85000" {
+		t.Fatalf("changes %+v", changes)
+	}
+	var reply string
+	for _, m := range v.Thread.Messages {
+		if m.Kind == "bot_change" {
+			reply = m.Content
+		}
+	}
+	if reply != "Changed: alert under 90000 -> 85000" {
+		t.Fatalf("reply %q", reply)
+	}
+	if code, body := s.do("POST", "/chat/bot-threads/"+cid+"/undo", map[string]any{"undoToken": changes[0].UndoToken}); code != 200 || promptNow() != prompt {
+		t.Fatalf("undo %d %s, prompt %q", code, body, promptNow())
+	}
+	// Without the model's own words, the line shows the words that moved.
+	s.model.script(
+		toolCall("change_bot", map[string]any{"patch": map[string]any{"prompt": "Alert me when the Pixel is under 80000"}}),
+		chat.WireMessage{Role: "assistant", Content: "Done."})
+	s.say(cid, "make it 80000")
+	if got := threadLines(s.view(cid), "change"); len(got) != 2 || got[1].Before != `prompt "...Pixel is under 90000"` || got[1].After != `prompt "...Pixel is under 80000"` {
+		t.Fatalf("changes %+v", got)
+	}
+
+	// 2. A new signed-in site waits for one tap.
+	s.model.script(
+		toolCall("change_bot", map[string]any{"patch": map[string]any{"tools": map[string]any{"browserSites": []string{"flipkart.com"}}}}),
+		chat.WireMessage{Role: "assistant", Content: "Tap to allow it."})
+	s.say(cid, "also check flipkart.com in my browser")
+	sites := func() []string {
+		d, _ := s.svc.Get(ctx, s.uid, made.ID)
+		return d.Tools.BrowserSites
+	}
+	pending := threadLines(s.view(cid), "pending_change")
+	if len(pending) != 1 || pending[0].Reason != bots.WidenBrowserSite || len(sites()) != 0 {
+		t.Fatalf("pending %+v, sites %v", pending, sites())
+	}
+	if code, body := s.do("POST", "/chat/bot-threads/"+cid+"/pending/"+pending[0].ID, map[string]any{"action": "approve"}); code != 200 {
+		t.Fatalf("tap %d %s", code, body)
+	}
+	if got := sites(); len(got) != 1 || got[0] != "flipkart.com" {
+		t.Fatalf("the site was not granted: %v", got)
+	}
+
+	// 3. A history question reads and writes nothing; every call the model
+	// makes beyond the thread's tools is refused.
+	from := s.model.script(
+		toolCall("bot_history", map[string]any{"kind": "all"}),
+		toolCall("create_task", map[string]any{"name": "x"}),
+		chat.WireMessage{Role: "assistant", Content: "It has not alerted yet."})
+	s.say(cid, "why did you alert yesterday?")
+	_, offered := s.model.calls(from)
+	for _, names := range offered {
+		if strings.Join(names, ",") != strings.Join(chat.BotThreadToolNames(false), ",") {
+			t.Fatalf("offered %v", names)
+		}
+	}
+	var n int64
+	s.db.Raw("SELECT count(*) FROM tasks WHERE user_id = ?", s.uid).Scan(&n)
+	if n != 0 {
+		t.Fatalf("a write happened: %d tasks", n)
+	}
+
+	// 4. A new Bot is drafted, shown whole, and made by one Create.
+	code, body := s.do("POST", "/chat/bot-threads", map[string]any{})
+	var draft chat.ThreadView
+	if code != 201 || json.Unmarshal(body, &draft) != nil {
+		t.Fatalf("draft %d %s", code, body)
+	}
+	s.model.script(
+		toolCall("create_bot_draft", map[string]any{"setup": map[string]any{
+			"name": "Pixel price", "prompt": "Tell me when the Pixel is under 85000", "schedule": "every 6h",
+			"watches": []any{map[string]any{"kind": "page", "url": "https://shop.example/pixel", "read": "product_price"}},
+		}}),
+		chat.WireMessage{Role: "assistant", Content: "Read it over and tap Create."})
+	s.say(draft.Thread.ID, "make it check every 6 hours")
+	if got := threadLines(s.view(draft.Thread.ID), "draft_setup"); len(got) != 1 {
+		t.Fatalf("the draft shows no setup: %+v", got)
+	}
+	code, body = s.do("POST", "/chat/bot-threads/"+draft.Thread.ID+"/create", map[string]any{})
+	var created struct {
+		BotID string `json:"botId"`
+	}
+	if code != 201 || json.Unmarshal(body, &created) != nil || created.BotID == "" {
+		t.Fatalf("create %d %s", code, body)
+	}
+	d, err := s.svc.Get(ctx, s.uid, created.BotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Engine != bots.EngineAgent || d.Permission != bots.PermissionAuto || d.Gate != bots.GateChanged || d.ThreadID != draft.Thread.ID || len(d.Watches) != 1 {
+		t.Fatalf("the new Bot: engine %s permission %s gate %s thread %s reads %d", d.Engine, d.Permission, d.Gate, d.ThreadID, len(d.Watches))
+	}
+	if code, _ := s.do("POST", "/chat/bot-threads/"+draft.Thread.ID+"/create", map[string]any{}); code != 201 {
+		t.Fatalf("a second Create gave %d", code)
+	}
+	if list, err := s.svc.List(ctx, s.uid); err != nil || len(list.Bots) != 2 {
+		t.Fatalf("a second Create must not make a third Bot: %v", err)
 	}
 }

@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// heldDuplicate: an alert whose fingerprint repeated one sent in the last 7 days.
+const heldDuplicate = "duplicate"
+
 // Bot is one person's Bot (table bots). next_check_at is its only schedule:
 // set while active, NULL while paused.
 type Bot struct {
@@ -62,6 +65,67 @@ type Bot struct {
 	AwayReason *string    `gorm:"type:text" json:"-"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	UpdatedAt  time.Time  `json:"updatedAt"`
+	// Engine is "rules" (watches and rules) or "agent" (a scheduled agent
+	// run on the New engine); the fields below belong to an agent Bot and
+	// are empty on a rules Bot. It flips to "agent" only when the person
+	// approves a converted Bot (Q-B4).
+	Engine string `gorm:"type:text;not null;default:rules" json:"engine"`
+	// Prompt is what the agent is asked on each tick.
+	Prompt string `gorm:"type:text;not null" json:"prompt"`
+	// Schedule is {everyMinutes}, {dailyAt, weekdays} or {cron} (contract
+	// BotSchedule); Timezone is the IANA zone it reads in.
+	Schedule jsonMap[string, any] `gorm:"type:jsonb;not null;default:'{}'" json:"schedule"`
+	Timezone string               `gorm:"type:text;not null" json:"timezone"`
+	// Skills are the skill names a run may load.
+	Skills jsonList[string] `gorm:"type:jsonb;not null" json:"skills"`
+	// Tools is the Bot's reach: browser sites, egress hosts, memory and MCP
+	// modes (AgentTools).
+	Tools AgentTools `gorm:"serializer:json;type:jsonb;not null;default:'{}'" json:"tools"`
+	// ModelProvider and Model pick the model; empty follows the account's
+	// default AI provider.
+	ModelProvider string `gorm:"type:text;not null" json:"modelProvider"`
+	Model         string `gorm:"type:text;not null" json:"model"`
+	// Gate is "changed" (Go fetches the Watches first and wakes the agent
+	// only when content, price or availability moved; Q-B1) or "always".
+	Gate string `gorm:"type:text;not null;default:changed" json:"gate"`
+	// Egress lists extra hosts outbound URL tools may reach (plan 7.5).
+	Egress jsonList[string] `gorm:"type:jsonb;not null" json:"egress"`
+	// MarketHours limits ticks to market hours.
+	MarketHours bool `gorm:"not null" json:"marketHours"`
+	// Permission is the Bot's mode: "supervised", "auto" (the default) or
+	// "full"; in Supervised and Auto a step that needs approval parks a card.
+	Permission string `gorm:"type:text;not null;default:auto" json:"permission"`
+	// UseMemory turns memory and About you on for this Bot's runs (Q-B10);
+	// off by default.
+	UseMemory bool `gorm:"not null" json:"useMemory"`
+	// ThreadID is the Bot's thread: an agent conversation with kind
+	// "bot_thread" and bot_id set to this Bot. Empty until it is made.
+	ThreadID *string `gorm:"type:text" json:"threadId"`
+}
+
+// The Bot engines.
+const (
+	EngineRules = "rules"
+	EngineAgent = "agent"
+)
+
+// The Bot permission modes and gates.
+const (
+	PermissionSupervised = "supervised"
+	PermissionAuto       = "auto"
+	PermissionFull       = "full"
+	GateChanged          = "changed"
+	GateAlways           = "always"
+)
+
+// AgentTools is a Bot's reach (contract AgentBotTools): the sites it may
+// read on the signed-in browser profile, hosts outbound URL tools may reach,
+// whether memory is on, and a mode per MCP server ("use", "ask" or "off").
+type AgentTools struct {
+	BrowserSites []string          `json:"browserSites"`
+	Egress       []string          `json:"egress"`
+	UseMemory    bool              `json:"useMemory"`
+	MCP          map[string]string `json:"mcp"`
 }
 
 func (Bot) TableName() string { return "bots" }
@@ -167,6 +231,13 @@ type Check struct {
 	Fired      jsonList[FiredRule]  `gorm:"type:jsonb;not null" json:"fired"`
 	Rearmed    jsonList[Rearm]      `gorm:"type:jsonb;not null" json:"rearmed"`
 	AlertID    *string              `gorm:"type:text" json:"alertId"`
+	// Run is an agent tick's own record (RunRecord); nil for a rules check.
+	// GateSkipped is true when the changed gate kept the agent from waking,
+	// and SkipReason says why a tick did not run: browser_busy, no_ai,
+	// unchanged or duplicate, "" otherwise.
+	Run         *RunRecord `gorm:"serializer:json;type:jsonb" json:"run,omitempty"`
+	GateSkipped bool       `gorm:"not null" json:"gateSkipped"`
+	SkipReason  string     `gorm:"type:text;not null" json:"skipReason"`
 	// AwaySecs and AwayReason are the gap this check caught up on, when it
 	// was the first to run after one.
 	AwaySecs   *int      `json:"-"`
@@ -185,7 +256,7 @@ type Alert struct {
 	CheckID        *string              `gorm:"type:text" json:"checkId"`
 	NotificationID *string              `gorm:"type:text" json:"notificationId"`
 	Kind           string               `gorm:"type:text;not null" json:"kind"` // alert|more|paused|brief
-	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged|shared
+	Held           string               `gorm:"type:text;not null" json:"held"` // ""|snoozed|cap|judged|shared|duplicate
 	LocalDay       time.Time            `gorm:"type:date;not null" json:"-"`
 	Title          string               `gorm:"type:text;not null" json:"title"`
 	Body           string               `gorm:"type:text;not null" json:"body"`
@@ -208,6 +279,14 @@ type Alert struct {
 	AIWhy   string          `gorm:"column:ai_why;type:text;not null" json:"aiWhy"`
 	AIInput json.RawMessage `gorm:"column:ai_input;type:jsonb" json:"-"`
 	Urgency string          `gorm:"type:text;not null;default:normal" json:"urgency"`
+	// Proposal is the Timely write an agent run proposed with this alert, a
+	// Review card nothing applies until the person approves it (Q-B5);
+	// ProposalState is "" for none, then one of the proposal* states.
+	// Fingerprint identifies the alert's content: one repeated within 7
+	// days is held as a duplicate.
+	Proposal      json.RawMessage `gorm:"type:jsonb" json:"proposal,omitempty"`
+	ProposalState string          `gorm:"type:text;not null" json:"proposalState"`
+	Fingerprint   string          `gorm:"type:text;not null" json:"-"`
 	// One alert per thing: Things are what a sent alert told of, so another
 	// Bot's alert on the same thing the same day joins it; AlsoSeenBy lists
 	// the Bots that did. A held 'shared' alert names the one it joined.
@@ -350,8 +429,20 @@ type Pass struct {
 
 func (Pass) TableName() string { return "bot_passes" }
 
+// Note is one thing an agent Bot keeps for itself between runs (table
+// bot_notes), one value per key.
+type Note struct {
+	BotID     string    `gorm:"type:text;primaryKey" json:"botId"`
+	UserID    string    `gorm:"type:text;not null" json:"-"`
+	Key       string    `gorm:"type:text;primaryKey" json:"key"`
+	Value     string    `gorm:"type:text;not null" json:"value"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (Note) TableName() string { return "bot_notes" }
+
 // Models lists the account tables, for tests and tools that walk them.
-var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Lesson{}, &Link{}}
+var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Lesson{}, &Link{}, &Note{}}
 
 // jsonList is a NOT NULL jsonb array column: nil is stored as [].
 type jsonList[T any] []T
