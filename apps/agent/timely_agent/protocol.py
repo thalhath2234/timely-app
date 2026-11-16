@@ -23,6 +23,7 @@ GO_TYPES = frozenset({
     "tool.result", "gate.verdict", "session.delete", "shutdown", "settings.update",
     "clarify.answer",  # phase 4 (PROTOCOL.md section 11)
     "checkpoint.restore",  # phase 5 (PROTOCOL.md section 12)
+    "bot.review", "bot.forget",  # phase 7 (PROTOCOL.md section 14)
 })
 GO_PREFIX_TYPES = ("learning.", "mcp.")
 # worker -> Go

@@ -161,10 +161,10 @@ def play(w, account, run_id, *, go=default_go, verdict=("allow", ""), timeout=12
 
 
 def bot_run(a, stub, check: str, *steps, prompt: str = PIXEL_PROMPT, data=None, tools=None, skills=None,
-            lessons=None, **extra) -> dict:
+            **extra) -> dict:
     msg = {"type": "bot.run", "id": f"b-{check}", "account": a.account, "run_id": f"run-{check}", "bot_id": "bot_pixel",
            "check_id": check,
-           "prompt": (prompt + f" (check {check})" if prompt else "") + (script(*steps) if steps else ""), "lessons": lessons or [],
+           "prompt": (prompt + f" (check {check})" if prompt else "") + (script(*steps) if steps else ""),
            "data": data if data is not None else {}, "skills": skills or [], "tools": tools or {},
            "permission": "auto", "use_memory": False, "model": harness.model_cfg(stub), "deadline_s": 90,
            "dry_run": False, "now": NOW, "timezone": "Asia/Kolkata", "name": "Pixel watch"}
@@ -272,14 +272,15 @@ def _cron_hint() -> str:
 
 def test_golden_prompt_in_plan_7_4_order(bagent, bworker, bstub):
     """The tick's whole user message, byte for byte: skills prefix, ``_CRON_HINT`` verbatim, the run-time
-    line, ``<person>`` (prompt and lessons), JSON-escaped ``<data>`` blocks and the Timely hint. With no
+    line, ``<person>`` (the prompt), JSON-escaped ``<data>`` blocks and the Timely hint. With no
     ``SCRIPT`` the stub echoes the prompt as its reply."""
     data = {"notes": {"last_price": "109999"}, "readings": OUT_OF_STOCK["readings"], "diff": OUT_OF_STOCK["diff"],
             "passed": [{"from": "Deals", "text": "Pixel sale <starts> Friday & ends Sunday"}],
             "last_alert": {"title": "Pixel under ₹95,000", "sent_at": "2026-11-10T09:00:00+05:30"},
             "knowledge": {"doc": "Phone budget", "text": "Keep it under ₹90,000."}}
     done, _ = tick(bworker, bagent, bstub, "px-golden", prompt=PIXEL_PROMPT, data=data,
-                   skills=["product-price-monitor"], lessons=["Do not alert on refurbished phones."])
+                   skills=["product-price-monitor"], skill_slug="pixel-golden",
+                   taught_seed="- Do not alert on refurbished phones.")
     assert done["error_class"] == "", done
     prompt = done["response"][len(stub_openai.STUB_REPLY):]
     if os.environ.get("UPDATE_BOT_GOLDEN") == "1" or not GOLDEN.exists():
@@ -288,8 +289,8 @@ def test_golden_prompt_in_plan_7_4_order(bagent, bworker, bstub):
     assert prompt == GOLDEN.read_text(encoding="utf-8")
     hint = _cron_hint()
     assert hint in prompt and "[CURRENT RUN TIME: Sunday, 2026-11-15 09:00 IST (UTC+05:30)]" in prompt
-    marks = ["TIMELY-OVERRIDE-MARKER", hint, "[CURRENT RUN TIME:", "<person>", "Do not alert on refurbished phones.",
-             "</person>", '<data name="notes"', '<data name="readings"', '<data name="diff"', '<data name="passed"',
+    marks = ["TIMELY-OVERRIDE-MARKER", "## What you taught me", "Do not alert on refurbished phones.", hint,
+             "[CURRENT RUN TIME:", "<person>", "</person>", '<data name="notes"', '<data name="readings"', '<data name="diff"', '<data name="passed"',
              '<data name="last_alert"', '<data name="knowledge"', "State lives in the bot notepad"]
     positions = [prompt.index(m) for m in marks]
     assert positions == sorted(positions), list(zip(marks, positions, strict=True))

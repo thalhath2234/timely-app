@@ -98,7 +98,7 @@ def bot_run(a, stub, check: str, steps: list, **extra) -> dict:
     prompt = (f"Buy the Pixel 10 Pro on amazon.in when it is in stock (check {check})."
               f"\nSCRIPT {json.dumps(steps)}")
     msg = {"type": "bot.run", "id": f"b-{check}", "account": a.account, "run_id": f"run-{check}",
-           "bot_id": "bot_pixel", "check_id": check, "prompt": prompt, "lessons": [], "data": {}, "skills": [],
+           "bot_id": "bot_pixel", "check_id": check, "prompt": prompt, "data": {}, "skills": [],
            "tools": {"browser_sites": ["amazon.in"]}, "permission": "auto", "use_memory": False,
            "model": harness.model_cfg(stub), "deadline_s": 90, "dry_run": False, "now": "2026-11-15T09:00:00+05:30",
            "timezone": "Asia/Kolkata", "name": "Pixel buyer"}

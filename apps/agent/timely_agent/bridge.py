@@ -89,6 +89,13 @@ class SessionState:
     # The chats past-chat search may return (anything else is dropped).
     search_allow: Optional[list[str]] = None
     run_id: str = ""
+    # A bot tick or feedback review (kind ``bot``/``bot_review``): the bot whose writes these are
+    # (staged events carry it), and for a review the one skill it may change (``bot-<slug>``).
+    bot_id: str = ""
+    skill_scope: str = ""
+    # The learning events timely_learning sent for this session (staged and blocked), so a
+    # ``bot.review`` can answer with its own.
+    learning_events: list[dict[str, Any]] = field(default_factory=list)
     # The run whose learning pass is still running (``run_chat``): the pass's writes carry that
     # run's chip, though a later run of the chat may have started meanwhile.
     review_run_id: str = ""
@@ -142,7 +149,7 @@ def session_state(session_id: str | None) -> Optional[SessionState]:
 def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = None,
                  tainted_sources: list | None = None,
                  tainted_conversations: Any = None, search_exclude: Any = None, run_id: str = "",
-                 search_allow: Any = None) -> SessionState:
+                 search_allow: Any = None, bot_id: str = "", skill_scope: str = "") -> SessionState:
     """Create or refresh the state at a run's start: the run's flags and lists replace the
     previous ones, the taint only grows (``tainted_sources`` from ``run.start`` merged in)."""
     with _sessions_lock:
@@ -157,6 +164,8 @@ def bind_session(session_id: str, *, kind: str = "chat", flags: dict | None = No
     # No list (an older Go) allows no hit: a session Go does not know (restored, deleted) is dropped.
     state.search_allow = _str_list(search_allow)
     state.run_id = run_id
+    state.bot_id = str(bot_id or "")
+    state.skill_scope = str(skill_scope or "")
     state.add_taint([s for s in (tainted_sources or []) if isinstance(s, (dict, str))])
     return state
 
