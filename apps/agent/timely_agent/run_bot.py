@@ -28,11 +28,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Optional
 
 from timely_agent import bridge, config_render, policy
@@ -62,6 +64,9 @@ E_DEADLINE, E_INACTIVE, E_STOPPED = "deadline", "inactive", "stopped"
 E_BLOCKED, E_FAILURE, E_UNREACHABLE = "prompt_blocked", "agent_failure", "unreachable"
 E_RATE, E_ERROR = "rate_limited", "error"
 _RATE = re.compile(r"\b429\b|rate.?limit|quota|too many requests", re.IGNORECASE)
+
+
+MAX_RETRY_AFTER_S = 7 * 24 * 3600  # Go clamps the hold itself (at most a day); this only keeps the number sane
 
 
 class PromptBlocked(Exception):
@@ -324,6 +329,76 @@ def error_class_for(error: str, api_calls: int) -> str:
     return E_RATE if _RATE.search(error) else E_ERROR
 
 
+def _retry_seconds(value: Any) -> Optional[float]:
+    """Seconds from a ``Retry-After`` value (delta-seconds or an HTTP date); None when absent, unparseable or not positive."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+    else:
+        text = str(value).strip()
+        try:
+            seconds = float(text)
+        except ValueError:
+            try:
+                when = parsedate_to_datetime(text)
+            except (TypeError, ValueError):
+                return None
+            if when is None:
+                return None
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            seconds = (when - datetime.now(timezone.utc)).total_seconds()
+    return seconds if math.isfinite(seconds) and seconds > 0 else None
+
+
+def retry_after_of(error: Any) -> Optional[float]:
+    """The cooldown a provider error declares, in seconds: the ``Retry-After`` header of its response (either
+    casing), else a ``retry_after`` attribute or body field. None when it says nothing usable."""
+    headers = getattr(getattr(error, "response", None), "headers", None)
+    getter = getattr(headers, "get", None)
+    if callable(getter):
+        for name in ("Retry-After", "retry-after"):
+            try:
+                found = _retry_seconds(getter(name))
+            except Exception:  # noqa: BLE001 - an odd headers object is just "no hint"
+                found = None
+            if found is not None:
+                return found
+    found = _retry_seconds(getattr(error, "retry_after", None))
+    if found is None:
+        body = getattr(error, "body", None)
+        if isinstance(body, dict):
+            nested = body.get("error")
+            found = _retry_seconds((nested if isinstance(nested, dict) else body).get("retry_after"))
+    return found
+
+
+def watch_retry_after(agent: Any, trace: "Trace") -> None:
+    """Remember the Retry-After of the latest provider error the agent handles (Hermes calls
+    ``_extract_api_error_context`` on every API error; its result is left alone). Kept on ``trace`` for
+    ``bot.done.retry_after_seconds``; a later error with no hint clears an earlier one."""
+    original = getattr(agent, "_extract_api_error_context", None)
+    if not callable(original):
+        return
+
+    def spy(api_error: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            trace.retry_after = retry_after_of(api_error)
+        except Exception:  # noqa: BLE001 - never let the hint break Hermes' error handling
+            trace.retry_after = None
+        return original(api_error, *args, **kwargs)
+
+    agent._extract_api_error_context = spy
+
+
+def retry_after_field(error_class: str, seconds: Optional[float]) -> dict[str, int]:
+    """``{"retry_after_seconds": n}`` for a rate-limited tick whose provider named a wait, else ``{}``."""
+    if error_class != E_RATE or not seconds or seconds <= 0:
+        return {}
+    return {"retry_after_seconds": min(math.ceil(seconds), MAX_RETRY_AFTER_S)}
+
+
 # ---------------------------------------------------------------- the tick
 
 class Trace:
@@ -334,6 +409,7 @@ class Trace:
         self._open: dict[str, tuple[str, float, str]] = {}
         self.items: list[dict[str, Any]] = []
         self.last_activity = time.monotonic()
+        self.retry_after: Optional[float] = None  # the provider's Retry-After on the latest API error
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
@@ -391,7 +467,7 @@ def build_agent(msg: dict[str, Any], session_id: str, trace: Trace):
     def tool_complete(call_id=None, name=None, args=None, result=None, *_, **__):
         trace.complete(str(call_id or ""), str(name or ""), result)
 
-    return AIAgent(
+    agent = AIAgent(
         base_url=model.get("base_url") or None, api_key=model.get("api_key") or None,
         provider=model.get("provider") or None, api_mode=model.get("api_mode") or None,
         model=model.get("model") or "", max_iterations=policy.BOT_ITERATIONS,
@@ -405,6 +481,8 @@ def build_agent(msg: dict[str, Any], session_id: str, trace: Trace):
         stream_delta_callback=touch, tool_start_callback=tool_start, tool_complete_callback=tool_complete,
         reasoning_callback=touch, status_callback=touch,
     )
+    watch_retry_after(agent, trace)
+    return agent
 
 
 def watchdog(run: Run, trace: Trace, deadline_s: float, finished: threading.Event,
@@ -488,6 +566,7 @@ def run_tick(run: Run, emit: Callable[[str, dict], None], hermes: Any = None) ->
             done["error_class"] = E_STOPPED
         elif error:
             done.update(error_class=error_class_for(error, api_calls), error=error[:1000])
+            done.update(retry_after_field(done["error_class"], trace.retry_after))
         else:
             silent, response_silent, failure = classify_response(response, hermes, bot.reports)
             done.update(silent=silent, response_silent=response_silent)

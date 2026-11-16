@@ -672,7 +672,10 @@ type botDone struct {
 	} `json:"trace"`
 	ErrorClass string `json:"error_class"`
 	Error      string `json:"error"`
-	Replayed   bool   `json:"replayed"`
+	// RetryAfterSeconds is the provider's Retry-After on a rate_limited tick
+	// (PROTOCOL.md 13.2); absent or not positive means it said nothing.
+	RetryAfterSeconds float64 `json:"retry_after_seconds"`
+	Replayed          bool    `json:"replayed"`
 }
 
 // result is the AgentResult of a bot.done.
@@ -707,12 +710,21 @@ func (d botDone) result(t *botTick, timedOut bool) bots.AgentResult {
 	}
 	res.Silent = d.Silent && len(res.Reports) == 0
 	res.ErrorClass = botClass(d.ErrorClass, timedOut)
+	if res.ErrorClass == bots.ClassRateLimited && d.RetryAfterSeconds > 0 {
+		// Go clamps the hold (bots.rateHoldFor); this only converts the unit,
+		// and caps it so a huge number cannot overflow the Duration.
+		res.RetryAfter = time.Duration(min(d.RetryAfterSeconds, maxRetryAfterSeconds) * float64(time.Second))
+	}
 	if t.browserBusy && res.ErrorClass == "" {
 		// A chat had the browser: the Check records "browser busy".
 		res.ErrorClass = bots.ClassBrowserBusy
 	}
 	return res
 }
+
+// maxRetryAfterSeconds bounds a worker's retry_after_seconds before it becomes
+// a Duration (a week; bots clamps the hold to a day).
+const maxRetryAfterSeconds = 7 * 24 * 3600
 
 // botClass maps bot.done's error_class to the tick's (bots.Class*).
 func botClass(class string, timedOut bool) string {
