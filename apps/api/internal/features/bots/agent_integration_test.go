@@ -178,7 +178,7 @@ func TestIntegrationAgentBrowserBusy(t *testing.T) {
 	agent.busy = true
 	must(t, e.run(b.ID))
 	c, got := e.lastCheck(b.ID), e.bot(b.ID)
-	if c.Outcome != outSkipped || c.SkipReason != SkipBrowserBusy || c.Run != nil || agent.asked != 0 {
+	if c.Outcome != outBrowserBusy || c.SkipReason != SkipBrowserBusy || c.Run != nil || agent.asked != 0 {
 		t.Fatalf("held by a chat: %+v, %d asks", c, agent.asked)
 	}
 	if got.Strikes != 0 || got.Health != healthWorking || got.NextCheckAt == nil || got.NextCheckAt.Before(e.now.Add(14*time.Minute)) || got.NextCheckAt.After(e.now.Add(18*time.Minute)) {
@@ -189,7 +189,7 @@ func TestIntegrationAgentBrowserBusy(t *testing.T) {
 	agent.script = func(RunInput) (AgentResult, error) { return AgentResult{ErrorClass: ClassBrowserBusy}, nil }
 	e.again(b.ID)
 	c, got = e.lastCheck(b.ID), e.bot(b.ID)
-	if c.Outcome != outSkipped || c.SkipReason != SkipBrowserBusy || c.Run == nil || c.Run.ErrorClass != ClassBrowserBusy || agent.asked != 1 {
+	if c.Outcome != outBrowserBusy || c.SkipReason != SkipBrowserBusy || c.Run == nil || c.Run.ErrorClass != ClassBrowserBusy || agent.asked != 1 {
 		t.Fatalf("taken mid-tick: %+v", c)
 	}
 	if got.Strikes != 0 || got.NextCheckAt == nil || got.NextCheckAt.After(e.now.Add(18*time.Minute)) {

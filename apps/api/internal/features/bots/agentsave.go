@@ -77,7 +77,7 @@ func endOf(run agentRun) agentEnd {
 	case run.skip == SkipUnchanged:
 		e.kind, e.outcome, e.gateSkipped, e.skip = endUnchanged, outUnchanged, true, SkipUnchanged
 	case run.skip == SkipBrowserBusy || run.class == ClassBrowserBusy:
-		e.kind, e.outcome, e.skip, e.consume = endBusy, outSkipped, SkipBrowserBusy, false
+		e.kind, e.outcome, e.skip, e.consume = endBusy, outBrowserBusy, SkipBrowserBusy, false
 	case run.class == classNoAI:
 		e.kind, e.outcome, e.skip = endNoAI, outNoAI, SkipNoAI
 	case run.capped:
@@ -126,9 +126,11 @@ var strikeLine = map[string]string{
 
 // cleanReports is the alerts a finished run asks for, cleaned: a silent run
 // has none; a run that answered with text and no report gets one from its
-// first line (plan 7.3 step 5). At most maxTickReports are kept.
+// first line (plan 7.3 step 5). At most maxTickReports are kept. A run whose
+// only failure is that a chat took the browser mid-tick keeps what it had
+// already reported.
 func cleanReports(run agentRun) []Report {
-	if !run.ran || run.class != "" || run.res.Silent {
+	if !run.ran || (run.class != "" && run.class != ClassBrowserBusy) || run.res.Silent {
 		return nil
 	}
 	reports := run.res.Reports
@@ -560,7 +562,10 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 		if err := tx.Create(&check).Error; err != nil {
 			return err
 		}
-		if end.kind == endOK {
+		// A chat that took the browser mid-tick ends it browser_busy, but what
+		// the run had already reported is kept: its alerts go out as usual and
+		// the Check stays browser_busy.
+		if end.kind == endOK || (end.kind == endBusy && run.ran) {
 			res, err := s.saveReports(tx, reportSave{
 				bot: b, checkID: c.checkID, chainID: c.chainID, depth: c.depth, now: done,
 				away: awayLineOf(check.AwaySecs, check.AwayReason),
@@ -571,6 +576,8 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 			posts = res.posts
 			outcome, skip := outSilent, ""
 			switch {
+			case end.kind == endBusy:
+				outcome, skip = end.outcome, end.skip
 			case res.raised > 0:
 				outcome = outAlerted
 			case res.duplicates > 0:
