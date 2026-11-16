@@ -179,6 +179,7 @@ export function AgentBotPage({
             <ListRow
               title="Permission"
               meta={botPermissionNote(detail.permission) || undefined}
+              metaTone="warn"
               trailing={permissionWords(detail.permission)}
               onPress={() => setPage("permission")}
             />

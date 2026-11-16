@@ -1,6 +1,6 @@
 import { Linking, Text, View } from "react-native";
 import { ArrowUpRight, Bell, MessageSquare, ShieldAlert, Undo2 } from "lucide-react-native";
-import { changedLine, hostOf } from "@timely/contract/bots";
+import { botPermissionNote, changedLine, hostOf } from "@timely/contract/bots";
 import AnimatedPressable from "../ui/AnimatedPressable";
 import { Button } from "../ui/primitives";
 import { ListGroup, ListRow } from "../settings/SettingsList";
@@ -221,7 +221,13 @@ export function DraftSetupCard({
         <ListRow title="When" trailing={gateWords(f.gate)} chevron={false} />
         <ListRow title="Tools" meta={toolsSummary(f.tools)} chevron={false} />
         <ListRow title="Skills" trailing={skillsSummary(f.skills)} chevron={false} />
-        <ListRow title="Permission" trailing={permissionWords(f.permission)} chevron={false} />
+        <ListRow
+          title="Permission"
+          meta={botPermissionNote(f.permission) || undefined}
+          metaTone="warn"
+          trailing={permissionWords(f.permission)}
+          chevron={false}
+        />
         <ListRow title="Memory and About you" trailing={f.tools?.useMemory ? "On" : "Off"} chevron={false} />
       </ListGroup>
       <Text style={styles.note}>Say what to change, or create it as it is.</Text>

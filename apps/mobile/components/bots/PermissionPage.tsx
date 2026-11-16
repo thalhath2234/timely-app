@@ -35,6 +35,7 @@ export function PermissionPage({
               key={id}
               title={PERMISSION_COPY[id].name}
               meta={id === "full" && mode === "full" ? botPermissionNote(id) : PERMISSION_COPY[id].line}
+              metaTone={id === "full" && mode === "full" ? "warn" : "default"}
               chevron={false}
               disabled={!offered}
               onPress={offered ? () => setMode(id) : undefined}
