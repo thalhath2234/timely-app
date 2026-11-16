@@ -187,11 +187,11 @@ export function PendingCard({
       <Text style={styles.body}>{changedLine(item.before, item.after)}</Text>
       {waiting ? (
         <View style={styles.actions}>
-          <Button label="Allow" size="sm" disabled={busy} onPress={() => onResolve("approve")} />
+          <Button label="Approve" size="sm" disabled={busy} onPress={() => onResolve("approve")} />
           <Button label="Not now" variant="outline" size="sm" disabled={busy} onPress={() => onResolve("discard")} />
         </View>
       ) : (
-        <Text style={styles.note}>{item.state === "done" || item.state === "approved" ? "Allowed" : "Not now"}</Text>
+        <Text style={styles.note}>{item.state === "done" || item.state === "approved" ? "Approved" : "Not now"}</Text>
       )}
     </View>
   );

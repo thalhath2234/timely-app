@@ -2025,6 +2025,9 @@ import {
 } from "../apps/mobile/components/bots/agentBot.ts";
 import { ASSISTANT_ROUTE, assistantTabRoute, legacyAssistantRoute } from "../apps/mobile/lib/notificationRoute.ts";
 import { AGENT_STARTERS } from "../packages/contract/src/bots.ts";
+import "../apps/mobile/components/assistant/threadRows.test.ts";
+import "../apps/mobile/components/assistant/inbox.test.ts";
+import "../apps/web/app/_components/assistant/inbox.test.ts";
 
 const p6Read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const P6_NOW = new Date("2026-11-16T12:00:00Z");
@@ -2142,7 +2145,7 @@ test("the agent Bot rows say its schedule, reach and checks in words", () => {
   assert.equal(scheduleWords({ dailyAt: "09:00", weekdays: [1, 2, 3, 4, 5] }), "Weekdays at 9:00 AM");
   assert.equal(scheduleWords({ dailyAt: "20:30", weekdays: [0, 1, 2, 3, 4, 5, 6] }), "Every day at 8:30 PM");
   assert.equal(scheduleWords({ dailyAt: "18:00", weekdays: [0] }), "Sundays at 6:00 PM");
-  assert.match(scheduleWords({ cron: "0 */6 * * *" }), /schedule/);
+  assert.equal(scheduleWords({ cron: "0 */6 * * *" }), "Every 6 hours");
   assert.equal(permissionWords("full"), "Full Access");
   assert.equal(gateWords("changed"), "Only when something changed");
   assert.equal(gateWords("always"), "Every time");
@@ -2231,7 +2234,8 @@ test("the Bot thread answers a change with Undo, holds a widening change for a t
   assert.match(cards, /changedLine\(item\.before, item\.after\)/);
   assert.match(cards, /label="Undo"/);
   assert.match(cards, /Do this in chat/);
-  assert.match(cards, /label="Allow"/);
+  assert.match(cards, /label="Not now"/);
+  assert.doesNotMatch(cards, /label="Allow"|"Allowed"/);
   assert.match(cards, /label="Approve"/);
   const threadSrc = p6Read("../apps/mobile/components/assistant/BotThread.tsx");
   assert.match(threadSrc, /undoBotChange\(threadId/);
