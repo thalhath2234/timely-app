@@ -17,19 +17,15 @@ import {
   DEFAULT_BOT_SETTINGS,
   DEFAULT_BRIEF_TIME,
   defaultMinutes,
-  defaultRules,
   filterLine,
   floorMinutes,
   hostOf,
-  HOW_SMART,
   intervalLabel,
-  ruleLine,
   watchTitle,
   type BotInput,
   type BotSettings,
   type PreviewResult,
   type ReadMode,
-  type Rule,
   type WatchInput,
   type WatchKind,
 } from "./bots";
@@ -139,14 +135,11 @@ export type ReviewTaskRow = {
 export type ReviewEventRow = { step: number; title: string; when: string; meta: string[]; changes: ReviewField[] };
 
 /**
- * A row of a proposed bot: "Watches", "Checks every", "Tells me when" (one
- * per rule), "How smart", "Alerts on". `before` is the value an edit
- * replaces; `watch` names the watch a rule belongs to when the bot has two or
- * more (drawn as a sub-label, numbered when two watches share a title), and
- * `watchIndex` is that watch's place, which the apps group rules by; `site`
- * and `kind` draw a watch's logo.
+ * A row of a proposed bot: "Watches" ("Watch 1", "Watch 2" with two or
+ * more), "Checks every", "What to do" (its prompt), "Alerts on". `before` is
+ * the value an edit replaces; `site` and `kind` draw a watch's logo.
  */
-export type ReviewBotRow = { label: string; value: string; before?: string; watch?: string; watchIndex?: number; site?: string; kind?: WatchKind };
+export type ReviewBotRow = { label: string; value: string; before?: string; site?: string; kind?: WatchKind };
 
 type GroupBase = {
   key: string;
@@ -960,20 +953,6 @@ function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function ruleOf(value: unknown): Rule | null {
-  const r = obj(value);
-  const kind = str(r?.kind);
-  if (!r || !kind) return null;
-  const out: Rule = { kind: kind as Rule["kind"] };
-  if (num(r.threshold) != null) out.threshold = num(r.threshold);
-  if (num(r.percent) != null) out.percent = num(r.percent);
-  if (str(r.direction)) out.direction = str(r.direction) as Rule["direction"];
-  if (num(r.stepPercent)) out.stepPercent = num(r.stepPercent);
-  if (num(r.resetPercent)) out.resetPercent = num(r.resetPercent);
-  if (Array.isArray(r.words)) out.words = r.words.map(str).filter(Boolean);
-  return out;
-}
-
 /** A watch from a tool's arguments or a get_bot read; null for anything else. */
 function watchOf(value: unknown): WatchInput | null {
   const w = obj(value);
@@ -987,8 +966,6 @@ function watchOf(value: unknown): WatchInput | null {
   if (str(w.source)) out.source = str(w.source);
   if (str(w.symbol)) out.symbol = str(w.symbol);
   if (str(w.currency)) out.currency = str(w.currency);
-  // Left out (not an empty list) on an edit: the watch keeps its rules.
-  if (Array.isArray(w.rules)) out.rules = w.rules.map(ruleOf).filter((r): r is Rule => !!r);
   return out;
 }
 
@@ -1047,10 +1024,10 @@ const sameBot = (ref: string, id: string, name: string) => ref === id || (!!name
 
 /**
  * A create_bot or update_bot step as the bot card: the bot as it will be
- * (watches with their rules, defaults filled in as the server fills them),
- * and the rows the review draws, each with what it was for an edit. A brief
- * shows the bots it sums up, when it sends and who writes it instead of
- * watches, an interval and rules.
+ * (its watches, defaults filled in as the server fills them), and the rows
+ * the review draws, each with what it was for an edit. A brief shows the bots
+ * it sums up, when it sends and who writes it instead of watches and an
+ * interval.
  */
 function botGroup(key: string, index: number, steps: ReviewStep[], names: ReviewNames): ReviewGroup {
   const step = steps[index];
@@ -1067,8 +1044,7 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
   const watches: WatchInput[] = (given ?? was).map((w, i) => {
     const old = w.id ? was.find((x) => x.id === w.id) : undefined;
     const read = reads.find((p) => p.index === i);
-    const rules = w.rules?.length ? w.rules : !w.rules && old?.rules?.length ? old.rules : defaultRules(w);
-    return { ...w, currency: w.currency || (read?.ok ? read.currency : "") || old?.currency || undefined, rules };
+    return { ...w, currency: w.currency || (read?.ok ? read.currency : "") || old?.currency || undefined };
   });
   const siteOf = (w: WatchInput, i: number) => (w.kind === "price" ? "" : reads.find((p) => p.index === i)?.site || hostOf(w.url));
   const name = str(args.name) || (update ? botName(args, before, names) : "New bot");
@@ -1151,34 +1127,17 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
     if (update && wasEvery && wasEvery !== every) everyRow.before = intervalLabel(wasEvery);
     rows.push(everyRow);
   }
-  const titles = watches.map((w, i) => titleWith(w, siteOf(w, i)));
-  watches.forEach((w, i) => {
-    const old = w.id ? was.find((x) => x.id === w.id) : undefined;
-    const lines = (w.rules ?? []).map((rule) => ruleLine(rule, { currency: w.currency ?? "" }));
-    const prior = (old?.rules ?? []).map((rule) => ruleLine(rule, { currency: old?.currency ?? w.currency ?? "" }));
-    const changed = update && !!old && prior.join("\n") !== lines.join("\n");
-    lines.forEach((line, j) => {
-      const row: ReviewBotRow = { label: "Tells me when", value: line };
-      if (several) {
-        row.watch = titles.indexOf(titles[i]) === titles.lastIndexOf(titles[i]) ? titles[i] : `Watch ${i + 1} · ${titles[i]}`;
-        row.watchIndex = i;
-      }
-      if (changed && j === 0) row.before = prior.join("; ") || "Nothing";
-      rows.push(row);
-    });
-  });
 
-  // How smart: what the step sets, else what the bot has. A brief has no judge.
-  const smartLabel = (id: string) => HOW_SMART.find((h) => h.id === id)?.label ?? HOW_SMART[0].label;
-  const mode = str(args.judgeMode) || str(before?.judgeMode) || "rules";
-  if (!brief) {
-    const smart: ReviewBotRow = { label: "How smart", value: smartLabel(mode) };
-    const wasMode = str(before?.judgeMode) || "rules";
-    if (update && before && str(args.judgeMode) && wasMode !== mode) smart.before = smartLabel(wasMode);
-    rows.push(smart);
+  // What to do: the bot's prompt, as the step sets it or the bot has it.
+  const prompt = typeof args.prompt === "string" ? args.prompt.trim() : str(before?.prompt);
+  if (prompt) {
+    const row: ReviewBotRow = { label: "What to do", value: prompt };
+    const wasPrompt = str(before?.prompt);
+    if (update && before && typeof args.prompt === "string" && wasPrompt !== prompt) row.before = wasPrompt || "Nothing";
+    rows.push(row);
   }
 
-  // Knowledge: the doc or sheet the judge reads, by its title, never its id.
+  // Knowledge: the doc or sheet the bot reads, by its title, never its id.
   const had = knowledgeOf(before?.knowledge);
   const set = args.knowledge === undefined ? undefined : knowledgeOf(args.knowledge);
   const knowledge = set === undefined ? had : set;
@@ -1244,7 +1203,6 @@ function botGroup(key: string, index: number, steps: ReviewStep[], names: Review
       urgent: alerts.urgent,
       watches,
       kind: brief ? "brief" : "watch",
-      judgeMode: mode === "ai" ? "ai" : "rules",
       knowledge: knowledge ? { kind: knowledge.kind, id: knowledge.id } : null,
       passesTo: links.map((l) => ({ botId: l.ref, filter: l.filter })),
       sources: brief ? sources : [],

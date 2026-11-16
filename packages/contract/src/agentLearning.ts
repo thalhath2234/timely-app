@@ -431,6 +431,7 @@ export function pendingCard(
  * suggestion (quiet hours apply), and tapping it opens that bot's page.
  */
 export const BOT_LEARNED_CATEGORY = "bot_learned";
+export type BotLearnedCategory = typeof BOT_LEARNED_CATEGORY;
 
 /** The push title of a bot's staged suggestion: "Deals feed learned something - Keep?". */
 export function botLearnedPush(botName: string): string {

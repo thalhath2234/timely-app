@@ -4,7 +4,10 @@
  * Pure, so scripts/bots.test.mjs runs it under Node.
  */
 
-import { BOT_LEARNED_CATEGORY } from "./agentLearning";
+import type { BotLearnedCategory } from "./agentLearning";
+
+/** agentLearning's BOT_LEARNED_CATEGORY; the type keeps the two the same with no runtime import. */
+const BOT_LEARNED: BotLearnedCategory = "bot_learned";
 
 export type AssistantTarget = { chat?: string; bot?: string; thread?: string };
 
@@ -64,7 +67,7 @@ export function notificationToAssistant(payload: AssistantNotification): string 
     str(payload.chatId) ?? str(d.chatId) ?? (payload.entityType === "chat" ? str(payload.entityId) : undefined);
   if (chat) return assistantHref({ chat });
   const category = payload.category ?? str(d.category);
-  if (category === "bot" || category === BOT_LEARNED_CATEGORY) {
+  if (category === "bot" || category === BOT_LEARNED) {
     const bot = str(payload.botId) ?? str(d.botId) ?? (payload.entityType === "bot" ? str(payload.entityId) : undefined);
     return assistantHref({ bot });
   }

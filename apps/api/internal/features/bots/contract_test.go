@@ -78,10 +78,10 @@ func TestContractLimits(t *testing.T) {
 }
 
 // TestContractWords checks that the words the clients switch on (read modes,
-// check triggers and outcomes, rule kinds, availability, answer freshness, the Not useful reasons, judging, bot and
-// link kinds, AI states, urgency, alert kinds and holds) are the ones the API
-// writes. An empty string in a union counts as a word, so AiState's "" (rules
-// only) and AlertHeld's "" (sent) are checked too.
+// check triggers and outcomes, availability, answer freshness, the Not useful reasons, bot and
+// link kinds, urgency, alert kinds and holds) are the ones the API writes. An
+// empty string in a union counts as a word, so AlertHeld's "" (sent) is
+// checked too.
 func TestContractWords(t *testing.T) {
 	src, err := os.ReadFile("../../../../../packages/contract/src/bots.ts")
 	if err != nil {
@@ -124,17 +124,14 @@ func TestContractWords(t *testing.T) {
 		{"FEEDBACK_REASONS", reasons, FeedbackReasons},
 		{"PASS_FEEDBACK.id", []string{string(pass[1])}, []string{PassFeedbackReason}},
 		{"FeedbackReason", union("FeedbackReason"), append(append([]string{""}, FeedbackReasons...), PassFeedbackReason)},
-		{"JudgeMode", union("JudgeMode"), []string{JudgeRules, JudgeAI}},
 		{"BotKind", union("BotKind"), []string{KindWatch, KindBrief}},
 		{"LinkKind", union("LinkKind"), []string{LinkPass, LinkBrief}},
-		{"AiState", union("AiState"), []string{"", aiJudged, aiUnchecked, aiRejudged}},
 		{"Urgency", union("Urgency"), []string{UrgencyLow, UrgencyNormal, UrgencyHigh}},
 		{"AlertKind", union("AlertKind"), []string{alertKindAlert, alertKindMore, alertKindPaused, alertKindBrief}},
-		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldJudged, heldShared, heldDuplicate}},
+		{"AlertHeld", union("AlertHeld"), []string{"", heldSnoozed, heldCap, heldShared, heldDuplicate}},
 		{"AwayReason", union("AwayReason"), []string{AwayClosed, AwayAsleep, AwayAllPaused}},
-		{"RuleKind", union("RuleKind"), []string{RuleAnyChange, RuleAbove, RuleBelow, RuleMovePct, RuleWordsAppear, RuleWordsDisappear, RuleNewItem, RuleInStock}},
 		{"Availability", union("Availability"), []string{extract.AvailInStock, extract.AvailOutOfStock, extract.AvailPreorder, extract.AvailBackorder, extract.AvailLimited, extract.AvailDiscontinued, extract.AvailUnknown}},
-		{"CheckOutcome", union("CheckOutcome"), []string{outBaseline, outUnchanged, outNotModified, outChanged, outFired, outOffline, outRateLimited, outSiteBusy, outRobots, outStrike, outSuperseded, outJudgedQuiet, outPassed, outHeldStock, outSilent, outAlerted, outSkipped, outFailed, outBrowserBusy, outNoAI, outDuplicate}},
+		{"CheckOutcome", union("CheckOutcome"), []string{outBaseline, outUnchanged, outNotModified, outChanged, outOffline, outRateLimited, outSiteBusy, outRobots, outStrike, outSuperseded, outPassed, outSilent, outAlerted, outSkipped, outFailed, outBrowserBusy, outNoAI, outDuplicate}},
 	}
 	for _, c := range cases {
 		if strings.Join(c.got, ",") != strings.Join(c.want, ",") {
