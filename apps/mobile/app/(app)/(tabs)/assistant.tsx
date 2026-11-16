@@ -148,13 +148,6 @@ export default function AssistantTab() {
             action={<Button label="New Bot" icon={<Bot size={16} color={colors.primaryForeground} />} onPress={() => setPicking(true)} />}
           />
         ) : null}
-        <AssistantInbox
-          inbox={filtered}
-          now={now}
-          onOpenChat={(id) => assistant.open(id)}
-          onOpenBot={openBot}
-          onOpenDraft={(id) => setFresh({ id })}
-        />
         {botCount > 0 && !search ? (
           <ListGroup>
             <SwitchRow
@@ -165,6 +158,13 @@ export default function AssistantTab() {
             />
           </ListGroup>
         ) : null}
+        <AssistantInbox
+          inbox={filtered}
+          now={now}
+          onOpenChat={(id) => assistant.open(id)}
+          onOpenBot={openBot}
+          onOpenDraft={(id) => setFresh({ id })}
+        />
       </ScrollView>
       <AnimatedPressable
         accessibilityRole="button"
