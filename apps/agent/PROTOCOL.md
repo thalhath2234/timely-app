@@ -79,7 +79,7 @@ Other unknown names are logged as warnings. `HERMES_EXEC_ASK` is allowed when th
 | --- | --- | --- |
 | `hello` | `id`, `protocol` (1), `home` (the account's `HERMES_HOME`), `settings_hash` (the `config_sha256` from `render-account`), `catalog_version`, `timely_skills_dir`, `managed_sha256`, `browser_executable` and `skills_default_off` (from `prepare`'s answer), optional `settings` (section 6), optional `timely_tools` (phase 2, section 9) | `ready` or `error` |
 | `ping` | `id` | `pong` |
-| `run.start` | `id` (Go's `Send` gives each start an id starting `start-`), `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text` (the Timely block, section 9.2), `model` `{provider, model, base_url, api_key, api_mode, reasoning}` (for Claude Code and Codex: `provider: "custom"`, the Go loopback gateway's `base_url` and a gateway secret for this account, provider and model as `api_key`; plan 5.7), `toolsets` (explicit list, required, may be empty; chat in phase 2: `["timely", "todo", "skills"]`), `flags` `{sensitive, answer_only, web, rich_ui, from_bot, learning_writes}`, `budgets` `{max_iterations}` (`{}` for chat: Hermes' own limit, section 9.3), `permission` (`supervised`, `auto` or `full`; default `supervised`), `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash, tool_call_id?, cwd?}` or null, `history` (a seed for a session `state.db` lacks, section 9.6), `reseed` (bool: replace the session's stored messages with `history`, section 9.6) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
+| `run.start` | `id` (Go's `Send` gives each start an id starting `start-`), `run`, `conversation_id`, `session_key` (`timely:<uid>:<conversation>`), `user_message`, `system_hash`, `system_text` (the Timely block, section 9.2), `model` `{provider, model, base_url, api_key, api_mode, reasoning}` (for Claude Code and Codex: `provider: "custom"`, the Go loopback gateway's `base_url` and a gateway secret for this account, provider and model as `api_key`; plan 5.7), `toolsets` (explicit list, required, may be empty; chat in phase 2: `["timely", "todo", "skills"]`), `flags` `{sensitive, answer_only, web, rich_ui, from_bot, learning_writes}`, `budgets` `{max_iterations}` (`{}` for chat: Hermes' own limit, section 9.3), `permission` (`supervised`, `auto` or `full`; default `supervised`), `tainted_sources` `[{kind, tool, host?, session?}]`, `pre_approved` `{tool, args_hash, tool_call_id?, cwd?}` or null, `history` (a seed for a session `state.db` lacks, section 9.6), `reseed` (bool: replace the session's stored messages with `history`, section 9.6), `images` `[{mime, data_b64}]` and `no_persist` (bool) (phase 8, section 15) | `event`s, then `run.done` with the same `id`; or `error` with the same `id` and `run` |
 | `run.stop` | `id`, `run`, `reason` | the run's `run.done` with `interrupted: true`; `error` (`unknown_run`) if no such run. A stop that arrives as the turn is finishing acts on that run only: it never carries over to the conversation's next turn |
 | `run.steer` | `id`, `run`, `text` | `ack` |
 | `approval.answer` | `id`, `run`, `request_id`, `choice` (`once` or `deny`) | `ack` (`ok: false` when that request is no longer pending); `error` (`bad_message`) when `request_id` is missing or empty: the worker resolves only the request it names, never the session's oldest |
@@ -339,7 +339,7 @@ Version stays 1; every field is additive and optional for an older peer. `docs/p
 | --- | --- | --- |
 | `toolsets` | `[string]` | may now include `clarify` (chat runs that are not answer-only, not `from_bot`, not no-persist) and `delegation` (the same runs) |
 | `clarify_timeout_s` | number | how long a question card may wait, 1 to 86,400 seconds (Go sends 600; default 600). Anything else is `bad_message` |
-| `flags.no_persist` | bool | section 11.4. Test-only on the Go side (off by default, decision 10) |
+| `flags.no_persist` | bool | section 11.4. Phase 8: also `run.start.no_persist`, and implied by `flags.sensitive` (section 15.2) |
 | `model.provider` | string | required; one of `custom`, `openrouter`, `anthropic`, `gemini`, `deepseek`, `xai`, `zai`, `nvidia`, `opencode-zen`, `opencode-go`, `ollama-cloud`, `openai-api`, `kimi-coding`, `kimi-coding-cn` (every id Go's `hermesProvider` produces). Anything else (a Hermes sign-in provider such as `openai-codex`, `nous`, `copilot`), a missing `model` or provider, or an `anthropic` key that is a Claude Code sign-in token (`sk-ant-oat…`) is `bad_message` (Q-4.1, section 11.5) |
 
 ### 11.2 Clarify: a question card the run waits on (Q-4.3)
@@ -364,7 +364,7 @@ With the `delegation` toolset the model can hand work to sub-tasks (children). T
 
 - **Where:** only a `chat` run that is not `from_bot` and not no-persist ("sub-tasks are not available here").
 - **Caps:** at most 3 children per run in total, across every `delegate_task` call (a call that would pass 3 is refused whole: "this reply already used its 3 sub-tasks"); `background` is refused; every child of the run shares a pool of 60 tool calls, and a child's call past it is blocked ("The sub-task budget for this reply is used up. Finish with what you have.").
-- **No images:** `delegate_task` is refused when the call carries `images`, at the top level or in any `tasks[]` entry ("sub-tasks cannot be given images in Timely"): Hermes would read a local file into the child's first message and hand a URL to the provider, outside content with no taint source and a way past the chat's web setting. Photo chats stay on Classic.
+- **No images:** `delegate_task` is refused when the call carries `images`, at the top level or in any `tasks[]` entry ("sub-tasks cannot be given images in Timely"): Hermes would read a local file into the child's first message and hand a URL to the provider, outside content with no taint source and a way past the chat's web setting. A photo chat's photos reach only the run's own turn (section 15.1).
 - **Children read, never propose:** in a child, `propose_changes`, `session_search`, `skill_manage`, `memory`, `clarify` and `delegate_task` are blocked; Timely read tools and `web` (when the run has it) go on as for the run itself. A child's Timely call reaches Go as `tool.call` under the parent's `run`, with `subagent` set to the child's session id.
 - **Taint:** each outside source a child adds (a `web_extract` host, a Timely `outside: true` result, any `TAINT_SOURCES` tool) is added to the parent's run with `via: "subagent"` and `child` (the child's session id), and sent as `taint` at once; `run.done.tainted_sources` lists them, and the parent's learning stages after them. `delegate_task` itself is no taint source: a child that read nothing outside adds none.
 - **Events:** `event subagent {phase: "start", subagent_id, child_session_id, goal}` when Hermes builds the child (goal cut to 200 characters), and `{phase: "stop", subagent_id, child_session_id, goal, status (completed, interrupted, failed, error), tool_calls}` when the call has its results.
@@ -373,7 +373,7 @@ Children are Hermes sessions of their own (`parent_session_id` = the conversatio
 
 ### 11.4 No-persist runs (`flags.no_persist`, Q-4.2)
 
-Groundwork for Sensitive chats on the new engine; Sensitive and photo chats stay on classic, and Go sends the flag only when its test-only switch is on. The worker then:
+Every Sensitive chat runs this way from phase 8 (section 15.2); phase 4 built it behind a test-only Go switch, which phase 8 retires. A run is no-persist when `flags.no_persist`, `run.start.no_persist` or `flags.sensitive` is true. The worker then:
 
 - takes only the toolsets `timely` and `todo` (anything else is `bad_message`);
 - builds a fresh agent for the turn, never cached and closed afterwards, with `session_db=None` (no `state.db` row or message), `skip_memory` (About you and Notes neither read nor written), no learning pass, no review counters, no learning feed diff and no request dump of a refused provider call (`sessions/request_dump_*`);
@@ -580,3 +580,32 @@ Answer: `learning.result {id, ok, data: {pending_ids: [string], events: [Learnin
 ### 14.5 Testing
 
 `tests/test_bot_learning_units.py` (no Hermes: the skill file, the message shapes, the replay, the review's scope and staging, a tick's write reaching the stage rule) and `tests/contract/test_c09_learning.py::test_c09_bot_skill_and_feedback_review_stage_only_the_bot_skill` (a real worker and the stub model: a new slug creates and loads the skill, a review stages only the bot skill with the bot id while another skill and memory are blocked, `bot.forget` deletes it).
+
+## 15. Phase 8: photos and Sensitive chats on the agent engine (Q7)
+
+Version stays 1; both fields are additive. The agent engine is the only engine (ADR 0029): photo and Sensitive chats run here. Receipt extraction phases and their apply stay Go's lane work.
+
+### 15.1 `run.start.images`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `images` | `[{mime, data_b64}]` | the photos of this turn's user message: at most 4, each at most 5 MB decoded, `mime` one of `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `data_b64` standard base64 (no `data:` prefix). Anything else is `bad_message` naming `images` |
+| `model.supports_vision` | bool | Go's answer (`chat.readsImages`) to "can this model read photos". Required to be `true` when `images` is non-empty |
+
+- The worker passes the user message to Hermes as OpenAI content parts: `{"type": "text", "text": user_message}` (left out when the text is empty), then one `{"type": "image_url", "image_url": {"url": "data:<mime>;base64,<data_b64>"}}` per photo, in order. Hermes' transports turn them into each provider's own image format.
+- `images` non-empty and `model.supports_vision` not `true`: the run fails before any model call, `run.done {completed: false, error: "This model can't read photos. Pick a model that reads images for this chat, or send the message without photos.", error_kind: "no_vision"}`. Hermes' own fallback for a model without vision (describe the photo with `vision_analyze` on an auxiliary model, through a temp file) is never taken; with `supports_vision: true` the worker tells the turn's agent its model reads images, so Hermes sends them natively even when its catalog does not know the model (the gateway's `custom` provider).
+- Photos are this turn's only: `history` stays text, and a persisting run stores only the text in `state.db` (`persist_user_message`). Go resends a photo with a later turn when the model must see it again.
+- `delegate_task` never takes images (section 11.3).
+- A full line stays under the 32 MiB cap: 4 photos of 5 MB are about 27 MiB of base64.
+
+### 15.2 Sensitive chats are always no-persist
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `no_persist` | bool | the run must leave nothing in the account home (section 11.4); same as `flags.no_persist`. Go sets it for every Sensitive chat. A non-bool is `bad_message` |
+
+`flags.sensitive: true` makes the run no-persist whatever `no_persist` says: no `state.db` rows, no memory read or write, no learning pass or feed, no skill writes, no past-chat search (`session_search` is not one of the no-persist toolsets), no request dumps and no log lines. So a Sensitive `run.start` may list only the toolsets `timely` and `todo` (anything else is `bad_message`) and must carry the whole conversation as `history`. The worker writes `flags.no_persist: true` into the run's flags, so the gate, the log filter and sub-task policy read one answer.
+
+### 15.3 Testing
+
+`tests/contract/test_c_photos.py` (a photo reaches the stub model as an `image_url` part; two Sensitive turns with photos, `flags.sensitive` alone, leave a warm home unchanged; a model without `supports_vision` fails with `no_vision` and makes no model call; malformed `images` are refused) and `tests/test_photos_units.py` (shapes, content parts, the vision check, the Sensitive rule; no Hermes import).

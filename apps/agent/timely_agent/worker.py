@@ -149,7 +149,13 @@ def run_start_problem(msg: dict[str, Any], account_host_allowed: bool = False) -
     if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
                                 or not 0 < timeout <= policy.CLARIFY_TIMEOUT_MAX_S):
         return f"clarify_timeout_s must be a number of seconds from 1 to {policy.CLARIFY_TIMEOUT_MAX_S}"
-    if flags.get("no_persist") is True:
+    if msg.get("no_persist") is not None and not isinstance(msg.get("no_persist"), bool):
+        return "no_persist must be a bool"
+    from timely_agent import images, no_persist
+    bad_images = images.problem(msg.get("images"))
+    if bad_images:
+        return bad_images
+    if no_persist.wanted(msg):  # flags.no_persist, run.start.no_persist, or any Sensitive chat (Q7)
         extra = [t for t in msg.get("toolsets") or [] if t not in P.NO_PERSIST_TOOLSETS]
         if extra:
             return f"a no-persist run takes only the toolsets {list(P.NO_PERSIST_TOOLSETS)}, not {extra}"
@@ -632,6 +638,8 @@ class Worker:
         if problem:
             # answers the start's own id, so Go ends the run (PROTOCOL.md "Errors")
             raise P.ProtocolError(P.E_BAD_MESSAGE, f"run.start {problem}", mid)
+        from timely_agent import no_persist
+        no_persist.mark(msg)  # a Sensitive chat is always no-persist (Q7), whatever Go sent
         with self.runs_lock:
             if run_id in self.runs:
                 raise P.ProtocolError(P.E_DUPLICATE_RUN, f"run {run_id} is already running", mid)
