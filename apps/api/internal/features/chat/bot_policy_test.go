@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"timely-api/internal/features/agent"
@@ -405,5 +406,54 @@ func TestGateBotBrowserUsesTheLease(t *testing.T) {
 	l3 := NewBrowserLease()
 	if d := gateBotBrowser(l3, "u", "c", "browser_exec", script); d.verdict != "allow" || !l3.Busy("u") {
 		t.Fatalf("full script: %+v", d)
+	}
+}
+
+// The bot's gate-only script tools (Q-B2) park in every mode, Full Access
+// after the step-up and a tainted tick included: Go never allows one, so the
+// worker runs it only as a continuation's pre_approved call. The card shows
+// the script or the dialog answer, and a parked call never takes the lease.
+func TestBotScriptToolsAlwaysPark(t *testing.T) {
+	calls := []struct {
+		tool, show string
+		args       map[string]any
+	}{
+		{"bot_browser_exec", "click('#buy')", map[string]any{"code": "new_tab('https://shop.example.com/cart')\nclick('#buy')"}},
+		{"bot_browser_dialog", "accept", map[string]any{"action": "accept"}},
+	}
+	for _, mode := range botModes {
+		for _, full := range []bool{false, true} {
+			for _, tainted := range []bool{false, true} {
+				b := botCtx(mode)
+				b.FullAccessOK, b.Tainted = full, tainted
+				for _, c := range calls {
+					d := botHostDecision(b, c.tool, c.args)
+					if d.verdict != agent.BotApprove || d.by != "" {
+						t.Fatalf("%s mode=%s full=%v tainted=%v: %+v, want approve", c.tool, mode, full, tainted, d)
+					}
+					if d.card.Kind != cardBrowser || !strings.Contains(d.card.Command, c.show) || d.card.Reason == "" {
+						t.Fatalf("%s card %+v", c.tool, d.card)
+					}
+				}
+			}
+		}
+	}
+	exec := botHostDecision(botCtx("auto"), "bot_browser_exec", calls[0].args)
+	if exec.card.URL != "https://shop.example.com/cart" {
+		t.Fatalf("the card names no site: %+v", exec.card)
+	}
+	if !browserClass("bot_browser_exec") || !browserClass("bot_browser_dialog") {
+		t.Fatal("the script tools are browser tools")
+	}
+	l := NewBrowserLease()
+	if d := gateBotBrowser(l, "u", "c", "bot_browser_exec", exec); d.verdict != agent.BotApprove || l.Busy("u") {
+		t.Fatalf("a parked script took the lease: %+v", d)
+	}
+	// Through decideHost too, as a tick's gate.ask reaches it.
+	fb := botCtx("full")
+	fb.FullAccessOK = true
+	ask := gateAsk{Tool: "bot_browser_exec", RunKind: "bot", Args: []byte(`{"code":"click('#buy')"}`)}
+	if d, ok := decideHost(context.Background(), ask, hostState{uid: "u", bot: &fb}); !ok || d.verdict != agent.BotApprove {
+		t.Fatalf("decideHost: %+v %v", d, ok)
 	}
 }

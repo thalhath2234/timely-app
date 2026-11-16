@@ -100,6 +100,9 @@ class BotRun:
     trace: list[dict[str, Any]] = field(default_factory=list)
     hosts_used: list[str] = field(default_factory=list)
     overlay: dict[str, Optional[str]] = field(default_factory=dict)  # dry run: note writes stay here
+    # (tool, args_hash) of the gate-only script calls a continuation's pre_approved names (``script.py``):
+    # the only ones their handlers run, each once.
+    scripts: set[tuple[str, str]] = field(default_factory=set)
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     @property
@@ -143,6 +146,18 @@ class BotRun:
             with self.lock:
                 if host not in self.hosts_used:
                     self.hosts_used.append(host)
+
+    def allow_script(self, tool: str, args_hash: str) -> None:
+        with self.lock:
+            self.scripts.add((tool, args_hash))
+
+    def take_script(self, tool: str, args_hash: str) -> bool:
+        """Whether this script call was the continuation's approved one; it can be taken once."""
+        with self.lock:
+            if (tool, args_hash) not in self.scripts:
+                return False
+            self.scripts.discard((tool, args_hash))
+            return True
 
     def mcp_allowed(self, server: str, tool: str) -> bool:
         if server not in self.mcp:
