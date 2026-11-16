@@ -38,6 +38,22 @@ const sizes = [
   { width: 390, height: 1900 },
 ];
 
+// A fresh account is sent to /onboarding from every private route, so no old link can
+// land. Walk the real onboarding UI once (skip the uses, name the workspace, skip the tour).
+async function finishOnboarding(page) {
+  if (!new URL(page.url()).pathname.startsWith("/onboarding")) return;
+  const quick = { timeout: 8_000 };
+  await page.getByRole("button", { name: "Skip for now" }).click(quick).catch(() => {});
+  const name = page.getByLabel("Workspace name");
+  if (await name.isVisible().catch(() => false)) {
+    await name.fill("Home");
+    await page.getByRole("button", { name: "Create workspace" }).click(quick).catch(() => {});
+  }
+  const tour = page.getByRole("dialog", { name: "A short tour of Timely" });
+  await tour.getByRole("button", { name: "Skip", exact: true }).click({ timeout: 20_000 }).catch(() => {});
+  await page.waitForURL((u) => !u.pathname.startsWith("/onboarding"), { timeout: 30_000 });
+}
+
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 const results = [];
@@ -48,17 +64,20 @@ try {
       const ctx = await browser.newContext({ viewport: size, colorScheme: theme });
       const page = await ctx.newPage();
       await page.goto(`${web}/login`);
-      await page.getByLabel("Email").fill(email);
-      await page.getByLabel("Password").fill(password);
+      await page.getByLabel("Email", { exact: true }).fill(email);
+      await page.getByLabel("Password", { exact: true }).fill(password);
       await page.getByRole("button", { name: "Sign in" }).click();
       await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30_000 });
+      await finishOnboarding(page);
       for (const c of cases) {
         await page.goto(web + c.from);
         const want = new URL(web + c.to);
         await page
           .waitForURL((u) => u.pathname === want.pathname && u.search === want.search, { timeout: 15_000 })
           .catch(() => {});
-        await page.waitForLoadState("networkidle").catch(() => {});
+        // The app holds an SSE stream open, so the network never goes fully idle: cap the wait.
+        await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => {});
+        await page.waitForTimeout(1_000);
         const at = new URL(page.url());
         const landed = at.pathname + at.search;
         const ok = landed === want.pathname + want.search;
