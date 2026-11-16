@@ -1285,7 +1285,7 @@ export function needsReason(bot: BotView, now: Date): NeedsReason | null {
   if (bot.strikes > 0 && STRIKES.has(bot.health.code)) return "broken";
   const a = bot.latestAlert;
   const at = ms(a?.createdAt);
-  if (a && a.feedback === null && a.held !== "snoozed" && at !== null && now.getTime() - at < NEW_ALERT_FOR) {
+  if (a && a.feedback === null && !a.held && at !== null && now.getTime() - at < NEW_ALERT_FOR) {
     return "new_alert";
   }
   if (bot.suggestion) return "suggestion";
@@ -2033,6 +2033,9 @@ export function lessonsHint(bot: { kind?: BotKind }): string {
   return "The AI judge reads these each time it decides. Rules-only bots keep them for when you turn AI on. Remove one to forget it.";
 }
 
+/** A held `duplicate` alert: the same finding was told within 7 days. */
+export const HELD_DUPLICATE_LINE = "Already told you";
+
 export type AlertAi = {
   /** "Not checked by AI" on an alert the judge did not reach. */
   pill: "Not checked by AI" | null;
@@ -2062,6 +2065,7 @@ const UNCHECKED_SHORT: [RegExp, string][] = [
  */
 export function alertAi(alert: Pick<AlertBrief, "aiState" | "aiWhy" | "held"> & Partial<Pick<AlertBrief, "kind">>): AlertAi {
   const why = (alert.aiWhy ?? "").trim();
+  if (alert.held === "duplicate") return { pill: null, line: HELD_DUPLICATE_LINE, short: HELD_DUPLICATE_LINE, tone: "muted" };
   switch (alert.aiState) {
     case "judged": {
       if (alert.held === "judged") {
