@@ -1723,6 +1723,22 @@
       "signature": "MCP_TOOL_NAME_PREFIX = \"mcp__\"",
       "sha256": "7004461be9744926e128061f1f58c1e8c5d40c5d7cff506351749ced005c7b76"
     },
+    "bot Retry-After: API error context": {
+      "file": "agent/agent_runtime_helpers.py",
+      "qualname": "extract_api_error_context",
+      "line": 3623,
+      "end_line": 3659,
+      "signature": "def extract_api_error_context(error: Exception) -> dict[str, Any]",
+      "sha256": "e4771eccb3254091e6ec1e66c01fdd46fed6ad41d3c98cf77b579ee3363a3aa3"
+    },
+    "bot Retry-After: API error caller": {
+      "file": "agent/turn_api_error.py",
+      "qualname": "handle_api_error",
+      "line": 52,
+      "end_line": 234,
+      "signature": "def handle_api_error(agent: Any, *, api_error: Any, _retry: Any, thinking_spinner: Any, messages: Any, api_messages: Any, api_kwargs: Any, system_message: Any, active_system_prompt: Any, conversation_history: Any, approx_tokens: Any, retry_count: Any, max_retries: Any, compression_attempts: Any, max_compression_attempts: Any, api_call_count: Any, api_request_id: Any, api_start_time: Any, effective_task_id: Any, turn_id: Any, current_turn_user_idx: Any=None) -> ApiErrorVerdict",
+      "sha256": "f8da2b1a4e415edc1f286b0a7cf159680108d00dc1ca35cec83226d65c747187"
+    },
     "_iters_since_skill reset sites": {
       "file": "",
       "qualname": "",
