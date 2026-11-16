@@ -39,6 +39,10 @@ const (
 	// another. They share one lane.
 	JobBotJudge = "bot_judge"
 	JobBotPass  = "bot_pass"
+	// JobBotReview runs one feedback review of a rated Bot alert (plan 9b.3,
+	// Q2): the Bot's agent worker replays the tick and stages what it would
+	// change in the Bot's skill. It runs on its own lane.
+	JobBotReview = "bot_review"
 
 	NotifyReminder = "reminder"
 	NotifyDigest   = "digest"
@@ -51,6 +55,9 @@ const (
 	NotifySuggestion = "suggestion"
 	// NotifyBot is a Bot alert (ADR 0021).
 	NotifyBot = "bot"
+	// NotifyBotLearned is a staged suggestion for a Bot's skill: "<bot>
+	// learned something - Keep?" (plan 9b.3, Q5), data {botId}.
+	NotifyBotLearned = "bot_learned"
 )
 
 type JobPayload map[string]any

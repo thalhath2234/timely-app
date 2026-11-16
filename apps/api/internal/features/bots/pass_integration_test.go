@@ -201,13 +201,12 @@ func TestIntegrationBotPassTo(t *testing.T) {
 		t.Fatalf("B's page %+v", d)
 	}
 
-	// "Shouldn't have been passed on" is for a passed alert only, and
-	// teaches B.
+	// "Shouldn't have been passed on" is for a passed alert only.
 	notUseful := FeedbackNotUseful
 	res, err := e.s.RateAlert(ctx, e.user, pp.b.ID, alert.ID, Rating{Feedback: &notUseful, Reason: PassFeedbackReason})
 	must(t, err)
-	if res.FeedbackReason != PassFeedbackReason || res.Lesson == nil || res.Lesson.Text != "Not worth passing on: ““NVMe” appeared”" {
-		t.Fatalf("rating %+v / %+v", res.AlertView, res.Lesson)
+	if res.FeedbackReason != PassFeedbackReason {
+		t.Fatalf("rating %+v", res)
 	}
 	plain := e.create(pageInput("Plain page", "https://plain.example.net/"))
 	e.net.serve("https://plain.example.net/", 200, "text/html", "<p>one</p>")

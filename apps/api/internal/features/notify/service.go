@@ -985,6 +985,18 @@ func (s *Service) HandlePush(ctx context.Context, job *models.Job) error {
 			return err
 		}
 	}
+	if ntf.Category == models.NotifyBotLearned {
+		// A Bot's staged suggestion already read, or kept or discarded on
+		// the Bot page, sends nothing; quiet hours hold it (BotLearned).
+		if ntf.ReadAt != nil || ntf.DismissedAt != nil {
+			return s.repo.MarkDelivered(ntf.ID)
+		}
+		now := time.Now().In(settings.Location(s.repo.WorkingHoursTimezone(job.UserID)))
+		if settings.InQuietHours(now) {
+			_, err := s.queue.Enqueue(jobs.Enqueue{UserID: ntf.UserID, Kind: models.JobSendPush, DedupeKey: fmt.Sprintf("push:%s:quiet:%d", ntf.ID, settings.QuietEnd(now).Unix()), RunAt: settings.QuietEnd(now), Payload: models.JobPayload{"notificationId": ntf.ID}})
+			return err
+		}
+	}
 	if ntf.Category == models.NotifyBot {
 		// A Bot alert that is read or kept off the phone sends nothing; an
 		// urgent one ignores quiet hours (WriteAlert).
@@ -1149,6 +1161,13 @@ func notificationPushMessage(ntf *models.Notification, token string, settings mo
 			bot["url"] = ntf.Data.String("url")
 		}
 		maps.Copy(data, bot)
+	case models.NotifyBotLearned:
+		channel = "bots"
+		data = map[string]any{"notificationId": ntf.ID, "category": ntf.Category, "botId": ntf.Data.String("botId"),
+			"entityType": ntf.EntityType, "entityId": ntf.EntityID}
+		if settings.HidePushText {
+			title, body = HiddenPushTitle, HiddenPushBody
+		}
 	case models.NotifyDigest, models.NotifyPlanning:
 		if settings.HidePushText {
 			if cut := strings.Index(body, digestBotsMark); cut >= 0 {

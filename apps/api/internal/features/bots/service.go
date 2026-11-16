@@ -77,6 +77,15 @@ type Service struct {
 	lastPrune     time.Time  // under mu
 	wakeTail      time.Time  // under mu: the last wake slot handed out (wakeSlot)
 
+	// reviewer runs feedback reviews and deletes Bot skills (SetReviewer);
+	// teacher reads what a Bot was taught (SetTeacher). nil: neither.
+	reviewer Reviewer
+	teacher  Teacher
+	// bg are the background skill deletes of deleted Bots (Wait); root is
+	// the database outside any transaction WithDB joined.
+	bg   *sync.WaitGroup
+	root *gorm.DB
+
 	beforeCommit  func(tx *gorm.DB) error // test seam; nil in production
 	knowledgeRead func(b Bot)             // test seam, told of each knowledge read; nil in production
 }
@@ -90,7 +99,7 @@ func New(db *gorm.DB, queue *jobs.Queue) *Service {
 		store: store, db: db, queue: queue,
 		fetch:   fetch.New(fetch.Config{Spacer: store, Robots: store}),
 		now:     func() time.Time { return time.Now().UTC() },
-		askPoll: askPoll, askWait: askWait, sleep: sleepCtx,
+		askPoll: askPoll, askWait: askWait, sleep: sleepCtx, bg: &sync.WaitGroup{},
 		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
@@ -110,11 +119,20 @@ func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
 		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
 		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep, judge: s.judge,
 		agent: s.agent, threads: s.threads, stopper: s.stopper, CheckSlots: s.CheckSlots,
+		reviewer: s.reviewer, teacher: s.teacher, root: s.rootDB(), bg: s.bg,
 		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
 
 func (s *Service) Store() *Store { return s.store }
+
+// rootDB is the database outside any transaction a WithDB copy joined.
+func (s *Service) rootDB() *gorm.DB {
+	if s.root != nil {
+		return s.root
+	}
+	return s.db
+}
 
 // SetKeys gives the checks the people's saved price source keys, and the
 // key routes somewhere to save them.
@@ -177,6 +195,7 @@ func (s *Service) Register(w *jobs.Worker) {
 	w.Handle(models.JobBotIcon, s.HandleIcon)
 	w.Handle(models.JobBotJudge, s.HandleRejudge)
 	w.Handle(models.JobBotPass, s.HandlePass)
+	w.Handle(models.JobBotReview, s.HandleReview)
 }
 
 // Create saves a Bot, and asks for the logos of sites new to Timely, so
@@ -227,6 +246,8 @@ func (s *Service) Delete(ctx context.Context, userID, id string) error {
 		return err
 	}
 	s.stopTicks(userID, b.ID)
+	// Deleting a Bot deletes its skill (Q1) and its staged suggestions.
+	s.forget(userID, b.ID, b.SkillSlug)
 	return nil
 }
 
@@ -241,8 +262,12 @@ func (s *Service) Names(ctx context.Context, userID string) ([]BotName, error) {
 
 func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, error) {
 	d, err := s.store.Get(ctx, userID, idOrName, s.now())
-	if err != nil || d.Engine != EngineAgent {
+	if err != nil {
 		return d, err
+	}
+	d.Taught = s.Taught(ctx, userID, d.ID)
+	if d.Engine != EngineAgent {
+		return d, nil
 	}
 	// An agent Bot's checks carry their run, gate and skip reason.
 	ids := make([]string, len(d.Checks))
@@ -255,13 +280,13 @@ func (s *Service) Get(ctx context.Context, userID, idOrName string) (Detail, err
 	}
 	for i, c := range d.Checks {
 		if r, ok := rows[c.ID]; ok {
-			d.Checks[i].Run, d.Checks[i].GateSkipped, d.Checks[i].SkipReason = r.Run, r.GateSkipped, r.SkipReason
+			d.Checks[i].Run, d.Checks[i].GateSkipped, d.Checks[i].SkipReason = publicRun(r.Run), r.GateSkipped, r.SkipReason
 		}
 	}
 	return d, nil
 }
 
-// RateAlert records a rating and the lesson it teaches (Store.RateAlert).
+// RateAlert records a rating, queueing its feedback review (Store.RateAlert).
 func (s *Service) RateAlert(ctx context.Context, userID, botID, alertID string, r Rating) (RateResult, error) {
 	ready := s.judge != nil && s.AIStatus(ctx, userID).Ready
 	return s.store.RateAlert(ctx, userID, botID, alertID, r, s.now(), ready)
@@ -280,10 +305,6 @@ func (s *Service) DismissSuggestion(ctx context.Context, userID, botID string) e
 // SetLink switches a Pass to link on or off (Store.SetLink).
 func (s *Service) SetLink(ctx context.Context, userID, linkID string, enabled bool) (LinkView, error) {
 	return s.store.SetLink(ctx, userID, linkID, enabled, s.now())
-}
-
-func (s *Service) ForgetLesson(ctx context.Context, userID, botID, lessonID string) error {
-	return s.store.ForgetLesson(ctx, userID, botID, lessonID)
 }
 
 func (s *Service) AlertDefaults(ctx context.Context, userID string) (models.BotAlertDefaults, error) {

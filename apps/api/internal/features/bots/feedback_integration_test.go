@@ -2,12 +2,15 @@ package bots
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"timely-api/internal/features/learning"
 	"timely-api/internal/models"
 )
 
@@ -47,8 +50,9 @@ func TestIntegrationBotAlertFeedback(t *testing.T) {
 	}
 
 	// Useful.
-	code, body := rate(e.user, v.ID, alert.ID, map[string]any{"feedback": "useful", "reason": "too_small", "note": "ignored"})
-	if code != 200 || body["id"] != alert.ID || body["feedback"] != "useful" || body["feedbackReason"] != "" || body["feedbackNote"] != "" || body["feedbackAt"] == nil {
+	// Useful keeps a note (it starts a feedback review), never a reason.
+	code, body := rate(e.user, v.ID, alert.ID, map[string]any{"feedback": "useful", "reason": "too_small", "note": "kept"})
+	if code != 200 || body["id"] != alert.ID || body["feedback"] != "useful" || body["feedbackReason"] != "" || body["feedbackNote"] != "kept" || body["feedbackAt"] == nil {
 		t.Fatalf("useful %d %v", code, body)
 	}
 	if a := row(); a.Feedback == nil || *a.Feedback != FeedbackUseful || a.FeedbackAt == nil || !a.FeedbackAt.Equal(e.now) {
@@ -139,42 +143,23 @@ func TestIntegrationBotAlertFeedback(t *testing.T) {
 	}
 }
 
-// Forget a lesson: only the Bot's own, only the account's own.
-func TestIntegrationBotForgetLesson(t *testing.T) {
+// The lessons route is gone: what a Bot was taught lives in its skill.
+func TestIntegrationBotLessonsRouteGone(t *testing.T) {
 	db := migratedDB(t)
-	me, stranger := addUser(t, db), addUser(t, db)
+	me := addUser(t, db)
 	s := testService(db)
 	_, a := call(t, s, me, http.MethodPost, "/bots", pageBot("One"))
-	_, b := call(t, s, me, http.MethodPost, "/bots", pageBot("Two"))
-	one, two := fmt.Sprint(a["id"]), fmt.Sprint(b["id"])
-	for _, l := range []Lesson{
-		{ID: "bls_1", BotID: one, UserID: me, Text: "Only big drops", CreatedAt: botNow},
-		{ID: "bls_2", BotID: one, UserID: me, Text: "Not on weekends", CreatedAt: botNow.Add(time.Minute)},
-	} {
-		must(t, db.Create(&l).Error)
-	}
-	for _, c := range []struct {
-		uid, bot, lesson string
-		want             string
-	}{
-		{me, two, "bls_1", "Lesson not found"},
-		{me, one, "bls_missing", "Lesson not found"},
-		{stranger, one, "bls_1", "Bot not found"},
-		{me, "bot_missing", "bls_1", "Bot not found"},
-	} {
-		if code, body := call(t, s, c.uid, http.MethodDelete, "/bots/"+c.bot+"/lessons/"+c.lesson, nil); code != 404 || body["message"] != c.want {
-			t.Errorf("%s %s: %d %v", c.bot, c.lesson, code, body)
-		}
-	}
-	if code, _ := call(t, s, me, http.MethodDelete, "/bots/"+one+"/lessons/bls_1", nil); code != http.StatusNoContent {
-		t.Fatalf("forget %d", code)
-	}
-	if code, body := call(t, s, me, http.MethodDelete, "/bots/"+one+"/lessons/bls_1", nil); code != 404 || body["message"] != "Lesson not found" {
-		t.Fatalf("forget twice %d %v", code, body)
+	one := fmt.Sprint(a["id"])
+	if code, _ := call(t, s, me, http.MethodDelete, "/bots/"+one+"/lessons/bls_1", nil); code != http.StatusNotFound && code != http.StatusMethodNotAllowed {
+		t.Fatalf("forget lesson answered %d", code)
 	}
 	_, d := call(t, s, me, http.MethodGet, "/bots/"+one, nil)
-	if lessons, _ := d["lessons"].([]any); len(lessons) != 1 || lessons[0].(map[string]any)["id"] != "bls_2" {
-		t.Fatalf("lessons after forget %v", d["lessons"])
+	if _, ok := d["lessons"]; ok {
+		t.Fatalf("detail still has lessons: %v", d["lessons"])
+	}
+	taught, _ := d["taught"].(map[string]any)
+	if taught == nil || taught["text"] != "" || taught["staged"] == nil || len(taught["staged"].([]any)) != 0 {
+		t.Fatalf("taught %v", d["taught"])
 	}
 }
 
@@ -297,9 +282,9 @@ func TestIntegrationBotRearm(t *testing.T) {
 	}
 }
 
-// Each rating teaches the Bot one lesson, written by code: a re-rate
-// replaces it, undo deletes it, and only the newest MaxLessons are kept.
-func TestIntegrationBotLessons(t *testing.T) {
+// A note, or Not useful, queues one feedback review of the alert (Q2); a
+// plain Useful queues none, and a re-rate while one waits adds none.
+func TestIntegrationBotFeedbackQueuesReview(t *testing.T) {
 	e := newEngine(t)
 	amount := "27499.00"
 	e.coinbase(&amount)
@@ -309,61 +294,84 @@ func TestIntegrationBotLessons(t *testing.T) {
 	e.again(v.ID)
 	var alert Alert
 	must(t, e.db.Where("bot_id = ? AND kind = 'alert'", v.ID).First(&alert).Error)
-	what := strings.TrimPrefix(alert.Title, "BTC dip: ")
 	path := "/bots/" + v.ID + "/alerts/" + alert.ID + "/feedback"
-	lessons := func() []Lesson {
+	reviews := func() int64 {
 		t.Helper()
-		var out []Lesson
-		must(t, e.db.Where("bot_id = ?", v.ID).Order("created_at, id").Find(&out).Error)
-		return out
+		return e.count("jobs", "kind = ? AND dedupe_key = ?", models.JobBotReview, "bot_review:"+alert.ID)
 	}
 
-	code, body := call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "useful"})
-	lesson, _ := body["lesson"].(map[string]any)
-	if code != 200 || body["id"] != alert.ID || lesson == nil || lesson["text"] != "Wanted: “"+what+"”" || lesson["alertId"] != alert.ID {
+	if code, body := call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "useful"}); code != 200 || body["lesson"] != nil {
 		t.Fatalf("useful %d %v", code, body)
 	}
-	got := lessons()
-	if len(got) != 1 || got[0].UserID != e.user || got[0].BotID != v.ID || got[0].AlertID == nil || *got[0].AlertID != alert.ID || got[0].ID != lesson["id"] {
-		t.Fatalf("stored lesson %+v", got)
+	if n := reviews(); n != 0 {
+		t.Fatalf("a plain Useful queued %d reviews", n)
+	}
+	if code, _ := call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "not_useful", "reason": "too_small"}); code != 200 {
+		t.Fatalf("not useful %d", code)
+	}
+	if n := reviews(); n != 1 {
+		t.Fatalf("Not useful queued %d reviews", n)
+	}
+	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "useful", "note": "Only big dips"})
+	if n := reviews(); n != 1 {
+		t.Fatalf("a re-rate while one waits queued %d reviews", n)
+	}
+	var job models.Job
+	must(t, e.db.Where("kind = ? AND dedupe_key = ?", models.JobBotReview, "bot_review:"+alert.ID).First(&job).Error)
+	if job.UserID != e.user || job.Payload.String("botId") != v.ID || job.Payload.String("alertId") != alert.ID {
+		t.Fatalf("job %+v", job)
 	}
 
-	// Rating again replaces it; the note follows the reason.
-	_, body = call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "not_useful", "reason": "too_small", "note": "Only big dips"})
-	got = lessons()
-	if want := "Too small to tell me: “" + what + "”. Only big dips"; len(got) != 1 || got[0].Text != want || body["lesson"].(map[string]any)["text"] != want {
-		t.Fatalf("re-rate %+v %v", got, body["lesson"])
+	// The job runs the review on the rating as it is now: the note is the
+	// focus, the Bot gets its skill slug, and the Check's run messages go.
+	must(t, e.db.Model(&Check{}).Where("id = ?", *alert.CheckID).
+		Update("run", &RunRecord{Messages: []json.RawMessage{json.RawMessage(`{"role":"user","content":"tick"}`)}}).Error)
+	r := &fakeReviewer{}
+	e.s.SetReviewer(r)
+	must(t, e.s.HandleReview(context.Background(), &job))
+	if len(r.reviews) != 1 {
+		t.Fatalf("reviews %+v", r.reviews)
 	}
-	// Undo deletes it.
-	code, body = call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": nil})
-	if code != 200 || body["lesson"] != nil || len(lessons()) != 0 {
-		t.Fatalf("undo %d %v %+v", code, body, lessons())
+	in := r.reviews[0]
+	if in.BotID != v.ID || in.SkillSlug != "btc-dip" || in.Focus != "Only big dips" || in.Feedback != FeedbackUseful ||
+		in.CheckID != *alert.CheckID || len(in.Messages) != 1 || in.BotName != "BTC dip" {
+		t.Fatalf("review %+v", in)
 	}
-	// The Detail lists it.
-	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "not_useful", "reason": "already_knew"})
-	_, d := call(t, e.s, e.user, http.MethodGet, "/bots/"+v.ID, nil)
-	if list, _ := d["lessons"].([]any); len(list) != 1 || list[0].(map[string]any)["text"] != "I already knew: “"+what+"”" {
-		t.Fatalf("detail lessons %v", d["lessons"])
+	// Taken back since: nothing to review.
+	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": nil})
+	must(t, e.s.HandleReview(context.Background(), &job))
+	if len(r.reviews) != 1 {
+		t.Fatalf("a taken-back rating was reviewed: %+v", r.reviews)
 	}
+	// The Detail never shows a run's messages.
+	d, err := e.s.Get(context.Background(), e.user, v.ID)
+	must(t, err)
+	for _, c := range d.Checks {
+		if c.Run != nil && c.Run.Messages != nil {
+			t.Fatalf("check %s shows its messages", c.ID)
+		}
+	}
+}
 
-	// With MaxLessons kept, a new one drops the oldest.
-	must(t, e.db.Where("bot_id = ?", v.ID).Delete(&Lesson{}).Error)
-	for i := range MaxLessons {
-		must(t, e.db.Create(&Lesson{ID: fmt.Sprintf("bls_%02d", i), BotID: v.ID, UserID: e.user, Text: "Old lesson",
-			CreatedAt: e.now.Add(-time.Duration(MaxLessons-i) * time.Minute)}).Error)
-	}
-	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "useful"})
-	got = lessons()
-	if len(got) != MaxLessons || got[0].ID != "bls_01" || got[len(got)-1].AlertID == nil || *got[len(got)-1].AlertID != alert.ID {
-		t.Fatalf("after the 21st: %d, first %s", len(got), got[0].ID)
-	}
-	// Another Bot's lessons are its own.
-	other := e.create(btcBot("Other", Rule{Kind: RuleAbove, Threshold: f64(90000)}))
-	must(t, e.db.Create(&Lesson{ID: "bls_other", BotID: other.ID, UserID: e.user, Text: "Mine", CreatedAt: e.now.Add(-time.Hour)}).Error)
-	call(t, e.s, e.user, http.MethodPost, path, map[string]any{"feedback": "not_useful"})
-	if e.count("bot_lessons", "id = 'bls_other'") != 1 || len(lessons()) != MaxLessons {
-		t.Fatal("trimming reached another bot")
-	}
+// fakeReviewer records reviews and skill deletes.
+type fakeReviewer struct {
+	mu      sync.Mutex
+	reviews []ReviewInput
+	forgot  []string
+}
+
+func (f *fakeReviewer) Review(_ context.Context, _ string, in ReviewInput) (ReviewResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reviews = append(f.reviews, in)
+	return ReviewResult{PendingIDs: []string{"p1"}}, nil
+}
+
+func (f *fakeReviewer) Forget(_ context.Context, _, slug string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forgot = append(f.forgot, slug)
+	return nil
 }
 
 // Three Not useful alerts in a row make a rules-only Bot suggest a better
@@ -551,5 +559,100 @@ func TestIntegrationBotSuggestionAI(t *testing.T) {
 	}
 	if b := e.bot(v.ID); b.Suggestion == nil || b.Suggestion.JudgeMode != JudgeAI || b.Suggestion.Button != "Turn on AI judging" || b.Suggestion.Rule != nil {
 		t.Fatalf("AI suggestion %+v", b.Suggestion)
+	}
+}
+
+// fakeTeacher is the learning feature for a Bot page.
+type fakeTeacher struct {
+	mu        sync.Mutex
+	taught    learning.BotTaught
+	asked     []string
+	discarded []string
+}
+
+func (f *fakeTeacher) BotTaught(_ context.Context, _, botID, slug string) (learning.BotTaught, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, botID+"/"+slug)
+	return f.taught, nil
+}
+
+func (f *fakeTeacher) DiscardBot(_ context.Context, _, botID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.discarded = append(f.discarded, botID)
+	return nil
+}
+
+// The Bot page's "What this bot was taught": the seed before the skill is
+// made, then the skill's text and the staged changes; Delete discards them
+// and deletes the skill.
+func TestIntegrationBotTaught(t *testing.T) {
+	db := migratedDB(t)
+	me := addUser(t, db)
+	s := testService(db)
+	_, a := call(t, s, me, http.MethodPost, "/bots", pageBot("Deals"))
+	id := fmt.Sprint(a["id"])
+	must(t, db.Model(&Bot{}).Where("id = ?", id).Update("taught_seed", "Only big deals").Error)
+
+	// No learning feature: the seed.
+	_, d := call(t, s, me, http.MethodGet, "/bots/"+id, nil)
+	if taught := d["taught"].(map[string]any); taught["text"] != "Only big deals" || len(taught["staged"].([]any)) != 0 {
+		t.Fatalf("seed only %v", taught)
+	}
+	slug, err := EnsureSkillSlug(db, me, id)
+	must(t, err)
+	tt := &fakeTeacher{taught: learning.BotTaught{Found: true, Text: "Only big deals\nNot refurbished",
+		Staged: []learning.Event{{ID: "lev_1", PendingID: "pend-1", BotID: id, Status: learning.StatusStaged, Kind: learning.KindSkill}}}}
+	r := &fakeReviewer{}
+	s.SetTeacher(tt)
+	s.SetReviewer(r)
+	_, d = call(t, s, me, http.MethodGet, "/bots/"+id, nil)
+	taught := d["taught"].(map[string]any)
+	staged := taught["staged"].([]any)
+	if taught["text"] != "Only big deals\nNot refurbished" || len(staged) != 1 || staged[0].(map[string]any)["pendingId"] != "pend-1" || d["skillSlug"] != slug {
+		t.Fatalf("taught %v (slug %v)", taught, d["skillSlug"])
+	}
+	if len(tt.asked) != 1 || tt.asked[0] != id+"/"+slug {
+		t.Fatalf("asked %v", tt.asked)
+	}
+	// A skill not made yet: still the seed.
+	tt.taught.Found, tt.taught.Text = false, ""
+	if _, d = call(t, s, me, http.MethodGet, "/bots/"+id, nil); d["taught"].(map[string]any)["text"] != "Only big deals" {
+		t.Fatalf("not found %v", d["taught"])
+	}
+
+	if code, _ := call(t, s, me, http.MethodDelete, "/bots/"+id, nil); code != http.StatusNoContent {
+		t.Fatalf("delete %d", code)
+	}
+	s.Wait()
+	if len(tt.discarded) != 1 || tt.discarded[0] != id || len(r.forgot) != 1 || r.forgot[0] != slug {
+		t.Fatalf("discarded %v, forgot %v", tt.discarded, r.forgot)
+	}
+}
+
+// A delete in a transaction that rolls back (a chat rehearsal) keeps the
+// skill.
+func TestIntegrationBotDeleteRolledBackKeepsSkill(t *testing.T) {
+	db := migratedDB(t)
+	me := addUser(t, db)
+	s := testService(db)
+	_, a := call(t, s, me, http.MethodPost, "/bots", pageBot("Kept"))
+	id := fmt.Sprint(a["id"])
+	slug, err := EnsureSkillSlug(db, me, id)
+	must(t, err)
+	r := &fakeReviewer{}
+	s.SetReviewer(r)
+	oldPoll, oldWait := forgetPoll, forgetWait
+	forgetPoll, forgetWait = 10*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { forgetPoll, forgetWait = oldPoll, oldWait })
+	tx := db.Begin()
+	must(t, s.WithDB(tx, nil).Delete(context.Background(), me, id))
+	tx.Rollback()
+	s.Wait()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.forgot) != 0 {
+		t.Fatalf("a rolled-back delete forgot %v (slug %s)", r.forgot, slug)
 	}
 }

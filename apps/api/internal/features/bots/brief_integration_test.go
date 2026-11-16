@@ -224,11 +224,11 @@ func TestIntegrationBotBriefRuns(t *testing.T) {
 		t.Fatalf("digest %q", lines)
 	}
 
-	// Rating a brief writes a lesson in the template's words.
+	// A brief can be rated.
 	res, err := e.s.RateAlert(ctx, e.user, v.ID, a.ID, Rating{Feedback: strp(FeedbackUseful)})
 	must(t, err)
-	if res.Lesson == nil || res.Lesson.Text != "Wanted: “8 new from 2 bots”" || !slices.Equal(res.Lines, wantLines) {
-		t.Fatalf("brief lesson %+v", res.Lesson)
+	if res.Feedback == nil || *res.Feedback != FeedbackUseful || !slices.Equal(res.Lines, wantLines) {
+		t.Fatalf("brief rating %+v", res)
 	}
 
 	// Nothing new: no alert, the cursor still moves.

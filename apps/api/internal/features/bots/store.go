@@ -7,13 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"timely-api/internal/features/learning"
 	"timely-api/internal/models"
 	"timely-api/internal/utils"
 )
@@ -934,7 +934,7 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 			v.Watches[i].Items = newestItems(w.LastReading.Items, detailItems)
 		}
 	}
-	d := Detail{View: v, Checks: []CheckView{}, Alerts: []AlertView{}, Prices: []PriceDayView{}, Lessons: []Lesson{}, Rearms: []RearmView{}}
+	d := Detail{View: v, Checks: []CheckView{}, Alerts: []AlertView{}, Prices: []PriceDayView{}, Rearms: []RearmView{}, Taught: Taught{Text: b.TaughtSeed, Staged: []learning.Event{}}}
 	if d.Links, err = botLinks(db, userID, b.ID, now); err != nil {
 		return Detail{}, err
 	}
@@ -948,7 +948,7 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 			fired = []FiredRule{}
 		}
 		d.Checks = append(d.Checks, CheckView{ID: c.ID, Trigger: c.Trigger, StartedAt: c.StartedAt, Outcome: c.Outcome, ErrorKind: c.ErrorKind, Error: c.Error, Fired: fired,
-			Away: checkAway(c), Note: checkNote(c), Run: c.Run, GateSkipped: c.GateSkipped, SkipReason: c.SkipReason})
+			Away: checkAway(c), Note: checkNote(c), Run: publicRun(c.Run), GateSkipped: c.GateSkipped, SkipReason: c.SkipReason})
 	}
 	var alerts []Alert
 	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at DESC, id").Limit(detailRows).Find(&alerts).Error; err != nil {
@@ -982,9 +982,6 @@ func (s *Store) Get(ctx context.Context, userID, idOrName string, now time.Time)
 			points = [][2]float64{}
 		}
 		d.Prices = append(d.Prices, PriceDayView{WatchID: p.WatchID, Day: p.Day.Format(dayLayout), Currency: p.Currency, Points: points, Open: p.Open, High: p.High, Low: p.Low, Close: p.Close})
-	}
-	if err := db.Where("bot_id = ? AND user_id = ?", b.ID, userID).Order("created_at, id").Find(&d.Lessons).Error; err != nil {
-		return Detail{}, err
 	}
 	// Alerts the AI held back, or that another Bot's alert already told of
 	// (held shared), are not this Bot's to count: the card says "No alerts
@@ -1061,27 +1058,23 @@ const (
 var FeedbackReasons = []string{"too_small", "not_wanted", "already_knew"}
 
 // Rating is Useful or Not useful on an alert. A nil Feedback takes the
-// rating back. Reason and Note are kept only with not_useful.
+// rating back. Reason is kept only with not_useful; Note with either.
 type Rating struct {
 	Feedback *string
 	Reason   string
 	Note     string
 }
 
-// RateResult answers a rating: the alert, and the lesson it taught the Bot
-// (nil when the rating was taken back).
-type RateResult struct {
-	AlertView
-	Lesson *Lesson `json:"lesson"`
-}
+// RateResult answers a rating: the alert as it is now (contract RateResult).
+type RateResult = AlertView
 
 // RateAlert records the person's rating of one of a Bot's alerts. Only an
 // alert (not a "more" or "paused" notice) can be rated; rating again
-// replaces the last one. In the same transaction the rating becomes the
-// alert's one lesson (replaced on a re-rate, deleted on undo), only the
-// newest MaxLessons of the Bot are kept, and a Not useful that makes three
-// in a row lets a rules-only Bot suggest a better rule. aiReady says the
-// person has an AI provider, so that suggestion may be AI judging.
+// replaces the last one. In the same transaction a note, or Not useful,
+// queues the alert's feedback review (Q2; a plain Useful only records the
+// rating), and a Not useful that makes three in a row lets a rules-only Bot
+// suggest a better rule. aiReady says the person has an AI provider, so that
+// suggestion may be AI judging.
 func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID string, r Rating, now time.Time, aiReady bool) (RateResult, error) {
 	set := map[string]any{"feedback": nil, "feedback_reason": "", "feedback_note": "", "feedback_at": nil}
 	if r.Reason != "" && r.Reason != PassFeedbackReason && !contains(FeedbackReasons, r.Reason) {
@@ -1090,6 +1083,7 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 	if r.Feedback != nil {
 		switch *r.Feedback {
 		case FeedbackUseful:
+			set["feedback_note"] = cleanLine(r.Note, MaxFeedbackNote)
 		case FeedbackNotUseful:
 			set["feedback_reason"], set["feedback_note"] = r.Reason, cleanLine(r.Note, MaxFeedbackNote)
 		default:
@@ -1125,7 +1119,7 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 		if err := tx.Where("id = ? AND bot_id = ? AND user_id = ?", alertID, b.ID, userID).First(&a).Error; err != nil {
 			return err
 		}
-		out.AlertView = alertView(a)
+		out = alertView(a)
 		if a.SharedWith != nil {
 			refs, err := sharedRefs(tx, userID, []string{*a.SharedWith})
 			if err != nil {
@@ -1133,22 +1127,12 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 			}
 			out.SharedWith = refs[*a.SharedWith]
 		}
-		if err := tx.Where("alert_id = ? AND bot_id = ?", alertID, b.ID).Delete(&Lesson{}).Error; err != nil {
-			return err
+		if reviewWanted(a) {
+			if err := queueReview(tx, a, now); err != nil {
+				return err
+			}
 		}
-		if r.Feedback == nil {
-			return nil
-		}
-		l := Lesson{ID: utils.PrefixedUUID("bls"), BotID: b.ID, UserID: userID, AlertID: &a.ID, Text: lessonText(a, b.Name), CreatedAt: now.UTC()}
-		if err := tx.Create(&l).Error; err != nil {
-			return err
-		}
-		out.Lesson = &l
-		if err := tx.Exec(`DELETE FROM bot_lessons WHERE bot_id = ? AND id NOT IN (
-    SELECT id FROM bot_lessons WHERE bot_id = ? ORDER BY created_at DESC, id DESC LIMIT ?)`, b.ID, b.ID, MaxLessons).Error; err != nil {
-			return err
-		}
-		if *r.Feedback != FeedbackNotUseful {
+		if r.Feedback == nil || *r.Feedback != FeedbackNotUseful {
 			return nil
 		}
 		return suggest(tx, b, aiReady, now)
@@ -1157,68 +1141,6 @@ func (s *Store) RateAlert(ctx context.Context, userID, botIDOrName, alertID stri
 		return RateResult{}, err
 	}
 	return out, nil
-}
-
-// quietSuffix is the " (at HH:MM)" withHeldTime adds to a title.
-var quietSuffix = regexp.MustCompile(` \(at \d{2}:\d{2}\)$`)
-
-// lessonText writes the lesson a rated alert teaches its Bot, as the person's
-// words: what the rating was and what the alert told of, then their note. It
-// never uses words a model wrote: what is the alert's rules-made
-// figures.what, or for an alert without it the title without the "<bot>: "
-// prefix and the quiet-hours time (rules wrote those titles), else "this
-// alert". The whole line fits bot_lessons' 200 characters.
-func lessonText(a Alert, botName string) string {
-	what, _ := a.Figures["what"].(string)
-	what = strings.TrimSpace(what)
-	if what == "" {
-		what = quietSuffix.ReplaceAllString(strings.TrimPrefix(a.Title, botName+": "), "")
-		what = strings.TrimSpace(what)
-	}
-	if what == "" {
-		what = "this alert"
-	}
-	quoted := "“" + what + "”"
-	var line string
-	switch {
-	case a.Feedback != nil && *a.Feedback == FeedbackUseful && a.Held == heldJudged:
-		line = "Should have told me: " + quoted
-	case a.Feedback != nil && *a.Feedback == FeedbackUseful:
-		line = "Wanted: " + quoted
-	case a.FeedbackReason == "too_small":
-		line = "Too small to tell me: " + quoted
-	case a.FeedbackReason == "not_wanted":
-		line = "Not what I want: " + quoted
-	case a.FeedbackReason == "already_knew":
-		line = "I already knew: " + quoted
-	case a.FeedbackReason == PassFeedbackReason:
-		// Not the passing Bot's name: an outside app can rename a rules-only
-		// Bot, and a lesson is read as the person's own words.
-		line = "Not worth passing on: " + quoted
-	default:
-		line = "Not useful: " + quoted
-	}
-	if note := strings.TrimSpace(a.FeedbackNote); note != "" {
-		line += ". " + note
-	}
-	return clipRunes(line, MaxLessonLen)
-}
-
-// ForgetLesson removes one thing the person taught a Bot.
-func (s *Store) ForgetLesson(ctx context.Context, userID, botIDOrName, lessonID string) error {
-	db := s.conn(ctx)
-	b, err := findBot(db, userID, botIDOrName, false)
-	if err != nil {
-		return err
-	}
-	res := db.Where("id = ? AND bot_id = ? AND user_id = ?", lessonID, b.ID, userID).Delete(&Lesson{})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return ErrLessonNotFound
-	}
-	return nil
 }
 
 // AlertDefaults is where the person's new Bots alert ("Alerts for new

@@ -43,7 +43,6 @@ func (s *Service) Routes(g *echo.Group) {
 	g.GET("/bots/:id/convert", s.convertPreview)
 	g.POST("/bots/:id/convert", s.convert) // approves this one Bot; there is no bulk route
 	g.POST("/bots/:id/alerts/:alertId/feedback", s.rateAlert)
-	g.DELETE("/bots/:id/lessons/:lessonId", s.forgetLesson)
 	g.POST("/bots/:id/suggestion", s.applySuggestion)
 	g.DELETE("/bots/:id/suggestion", s.dismissSuggestion)
 }
@@ -65,8 +64,6 @@ func httpError(err error) error {
 		return echo.NewHTTPError(http.StatusNotFound, "Note not found")
 	case errors.Is(err, ErrAlertNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Alert not found")
-	case errors.Is(err, ErrLessonNotFound):
-		return echo.NewHTTPError(http.StatusNotFound, "Lesson not found")
 	case errors.Is(err, ErrLinkNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, "Link not found")
 	case errors.Is(err, ErrUnknownSource):
@@ -404,13 +401,6 @@ func (s *Service) setLink(c *echo.Context) error {
 		return httpError(err)
 	}
 	return c.JSON(http.StatusOK, v)
-}
-
-func (s *Service) forgetLesson(c *echo.Context) error {
-	if err := s.ForgetLesson(c.Request().Context(), user(c), c.Param("id"), c.Param("lessonId")); err != nil {
-		return httpError(err)
-	}
-	return c.NoContent(http.StatusNoContent)
 }
 
 // setAllPaused takes {"paused": bool}: "Pause all bots", or on again.

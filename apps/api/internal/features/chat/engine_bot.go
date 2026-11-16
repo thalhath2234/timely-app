@@ -209,7 +209,60 @@ func (a *BotAgent) Run(ctx context.Context, userID string, in bots.RunInput) (bo
 	if err != nil {
 		return bots.AgentResult{}, err
 	}
-	return a.run(ctx, userID, spec)
+	res, err := a.run(ctx, userID, spec)
+	if err == nil && len(res.Messages) == 0 && !in.DryRun {
+		// The tick's record for a feedback review's replay (Q3).
+		res.Messages = botMessages(spec, res)
+	}
+	return res, err
+}
+
+// botMessagesMax caps the record botMessages keeps of a tick.
+const botMessagesMax = 48 << 10
+
+// botMessages is Go's own record of a tick, OpenAI shape, for a feedback
+// review when the worker sent no messages: what the tick was handed (the
+// prompt, and the data it read, outside content), the tools it called, what
+// it reported and its reply.
+func botMessages(spec botSpec, res bots.AgentResult) []json.RawMessage {
+	var user strings.Builder
+	prompt, _ := spec.fields["prompt"].(string)
+	user.WriteString(prompt)
+	if data, ok := spec.fields["data"].(map[string]any); ok && len(data) > 0 {
+		if raw, err := json.Marshal(data); err == nil {
+			user.WriteString("\n\n<data>\n")
+			user.WriteString(clip(string(raw), botMessagesMax/2))
+			user.WriteString("\n</data>")
+		}
+	}
+	var did strings.Builder
+	for _, t := range res.Trace {
+		fmt.Fprintf(&did, "- %s", t.Tool)
+		if t.Host != "" {
+			fmt.Fprintf(&did, " (%s)", t.Host)
+		}
+		fmt.Fprintf(&did, ": %s", t.Outcome)
+		if t.Summary != "" {
+			fmt.Fprintf(&did, ", %s", t.Summary)
+		}
+		did.WriteString("\n")
+	}
+	for _, r := range res.Reports {
+		fmt.Fprintf(&did, "- Reported: %s. %s\n", r.Title, r.Body)
+	}
+	msgs := []map[string]string{{"role": "user", "content": user.String()}}
+	if did.Len() > 0 {
+		msgs = append(msgs, map[string]string{"role": "assistant", "content": clip("What I did:\n"+did.String(), botMessagesMax/4)})
+	}
+	if res.Response != "" {
+		msgs = append(msgs, map[string]string{"role": "assistant", "content": clip(res.Response, botMessagesMax/4)})
+	}
+	out := make([]json.RawMessage, 0, len(msgs))
+	for _, m := range msgs {
+		raw, _ := json.Marshal(m)
+		out = append(out, raw)
+	}
+	return out
 }
 
 // spec builds a tick's bot.run from what the tick handed over.
@@ -238,25 +291,24 @@ func (a *BotAgent) spec(ctx context.Context, uid string, in bots.RunInput) (botS
 	}
 	seconds := int(time.Until(deadline).Round(time.Second) / time.Second)
 	seconds = max(1, min(seconds, int(botMaxDeadline/time.Second)))
-	lessons := in.Lessons
-	if lessons == nil {
-		lessons = []string{}
-	}
 	skills := in.Skills
 	if skills == nil {
 		skills = []string{}
 	}
 	fields := map[string]any{
-		"bot_id":     b.ID,
-		"prompt":     prompt,
-		"lessons":    lessons,
-		"data":       botData(in, addrs),
-		"skills":     skills,
-		"name":       b.Name,
-		"now":        time.Now().UTC().Format(time.RFC3339),
-		"dry_run":    in.DryRun,
-		"tools":      map[string]any{"browser_sites": sites, "egress": egress, "read_hosts": readHosts, "mcp": []string{}},
-		"use_memory": in.UseMemory,
+		"bot_id": b.ID,
+		"prompt": prompt,
+		// The Bot's own skill, bot-<slug>, made on its first tick with the
+		// taught seed as "What you taught me" (PROTOCOL.md 14.1).
+		"skill_slug":  in.SkillSlug,
+		"taught_seed": in.TaughtSeed,
+		"data":        botData(in, addrs),
+		"skills":      skills,
+		"name":        b.Name,
+		"now":         time.Now().UTC().Format(time.RFC3339),
+		"dry_run":     in.DryRun,
+		"tools":       map[string]any{"browser_sites": sites, "egress": egress, "read_hosts": readHosts, "mcp": []string{}},
+		"use_memory":  in.UseMemory,
 		// The worker's egress rule follows this; Full Access needs a step-up
 		// record for the Bot, which bots do not have yet, so it runs as Auto.
 		"permission": string(agent.BotMode(permission, false)),
@@ -707,6 +759,12 @@ type botDone struct {
 	// (PROTOCOL.md 13.2); absent or not positive means it said nothing.
 	RetryAfterSeconds float64 `json:"retry_after_seconds"`
 	Replayed          bool    `json:"replayed"`
+	// SkillCreated: this tick made the Bot's skill with its taught seed
+	// (phase 7), so Go clears the seed.
+	SkillCreated bool `json:"skill_created"`
+	// Messages are the tick's messages, OpenAI shape, when the worker sends
+	// them; otherwise Go keeps its own record of the tick (botMessages).
+	Messages []json.RawMessage `json:"messages"`
 }
 
 // result is the AgentResult of a bot.done.
@@ -740,6 +798,8 @@ func (d botDone) result(t *botTick, timedOut bool) bots.AgentResult {
 			Host: clip(tr.Host, 200), MS: tr.MS})
 	}
 	res.Silent = d.Silent && len(res.Reports) == 0
+	res.SkillCreated = d.SkillCreated
+	res.Messages = d.Messages
 	res.ErrorClass = botClass(d.ErrorClass, timedOut)
 	if d.ErrorClass == "stopped" && !timedOut && t.stopReason() == botStopReason {
 		// The person paused or deleted the Bot: not a failure of the run.

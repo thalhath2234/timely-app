@@ -63,6 +63,8 @@ type Service struct {
 	// back, so their events that arrive later are recorded undone.
 	superseded map[string]time.Time
 	settings   func(ctx context.Context, uid string) (json.RawMessage, error)
+	// botStaged hears of each change staged for a Bot (SetBotStaged).
+	botStaged func(uid, botID, pendingID string)
 }
 
 // NewService returns the learning service. sup may be nil (no agent engine
@@ -161,6 +163,7 @@ func (s *Service) record(ctx context.Context, account string, m agenthost.Messag
 		}
 	}
 	s.publishEvent(account, ev)
+	s.tellBotStaged(account, ev)
 	return &ev, nil
 }
 

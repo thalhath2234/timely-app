@@ -116,6 +116,7 @@ func runRecordOf(run agentRun) *RunRecord {
 	return &RunRecord{
 		Response: utils.ClipUTF8(utils.RedactSecrets(run.res.Response), maxRunResponse), Silent: run.res.Silent,
 		Reports: len(run.res.Reports), Trace: trace, Usage: run.res.Usage, ErrorClass: run.class, Model: run.model,
+		Messages: run.res.Messages,
 	}
 }
 
@@ -570,6 +571,9 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 			}
 		}
 		if err := tx.Create(&check).Error; err != nil {
+			return err
+		}
+		if err := afterTickRecord(tx, b, check.ID, run.res); err != nil {
 			return err
 		}
 		// A chat that took the browser mid-tick ends it browser_busy, but what

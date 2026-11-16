@@ -101,6 +101,14 @@ type Bot struct {
 	// ThreadID is the Bot's thread: an agent conversation with kind
 	// "bot_thread" and bot_id set to this Bot. Empty until it is made.
 	ThreadID *string `gorm:"type:text" json:"threadId"`
+	// SkillSlug names the Bot's own skill, bot-<slug> (plan 9b.3, Q1): made
+	// from its name when first needed, kept on rename, unique within the
+	// account; "" until then.
+	SkillSlug string `gorm:"type:text;not null" json:"skillSlug"`
+	// TaughtSeed is what the person taught the Bot before it had a skill (its
+	// old lessons, one per line, Q6): the tick that makes the skill writes it
+	// as "What you taught me", then Go clears it.
+	TaughtSeed string `gorm:"type:text;not null" json:"-"`
 }
 
 // The Bot engines.
@@ -372,20 +380,6 @@ type PriceDay struct {
 
 func (PriceDay) TableName() string { return "bot_price_days" }
 
-// Lesson is something the person taught a Bot (table bot_lessons): one per
-// rated alert, written by code from the alert's rules-made words and the
-// person's note (lessonText), the newest MaxLessons kept.
-type Lesson struct {
-	ID        string    `gorm:"type:text;primaryKey" json:"id"`
-	BotID     string    `gorm:"type:text;not null" json:"botId"`
-	UserID    string    `gorm:"type:text;not null" json:"-"`
-	AlertID   *string   `gorm:"type:text" json:"alertId"`
-	Text      string    `gorm:"type:text;not null" json:"text"`
-	CreatedAt time.Time `json:"createdAt"`
-}
-
-func (Lesson) TableName() string { return "bot_lessons" }
-
 // Link passes what one Bot finds to another (table bot_links, kind pass):
 // a note holding one of Filter's words, or any note when it has none,
 // starts a check by ToBotID. OffReason is "person" while switched off.
@@ -442,7 +436,7 @@ type Note struct {
 func (Note) TableName() string { return "bot_notes" }
 
 // Models lists the account tables, for tests and tools that walk them.
-var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Lesson{}, &Link{}, &Note{}}
+var Models = []any{&Bot{}, &Watch{}, &Check{}, &Alert{}, &Finding{}, &PriceDay{}, &Link{}, &Note{}}
 
 // jsonList is a NOT NULL jsonb array column: nil is stored as [].
 type jsonList[T any] []T

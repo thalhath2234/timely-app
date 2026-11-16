@@ -39,8 +39,12 @@ type RunInput struct {
 	// Prompt is what the agent is asked: the Bot's own prompt, with the
 	// tick's context already added by the caller.
 	Prompt string
-	// Lessons are what the person taught the Bot, newest first.
-	Lessons []string
+	// SkillSlug names the Bot's own skill, bot-<slug>, loaded into every
+	// tick and made by the worker on the first (plan 9b.3).
+	SkillSlug string
+	// TaughtSeed is what the person taught the Bot before it had a skill;
+	// the tick that makes the skill writes it as "What you taught me".
+	TaughtSeed string
 	// Notes are the Bot's own notes (bot_notes), by key.
 	Notes map[string]string
 	// LastAlert is the Bot's latest alert, so the run can avoid repeating
@@ -124,6 +128,12 @@ type AgentResult struct {
 	// the tick then holds the next check for rateHold. Ignored for any other
 	// class.
 	RetryAfter time.Duration
+	// SkillCreated is true when this tick made the Bot's skill (bot.done
+	// skill_created): its taught seed is written there, so Go clears it.
+	SkillCreated bool
+	// Messages are the tick's messages, OpenAI shape, for a feedback review's
+	// replay (PROTOCOL.md 14.2); kept on the Check's run record.
+	Messages []json.RawMessage
 }
 
 // Report is one thing a run tells the person.
@@ -187,6 +197,10 @@ type RunRecord struct {
 	ErrorClass string `json:"errorClass,omitempty"`
 	// Model is the model that ran it.
 	Model ModelChoice `json:"model"`
+	// Messages are the tick's messages (outside content included), kept so a
+	// feedback review can replay the tick; only the Bot's recent alerts keep
+	// them (pruneRunMessages), and no view shows them.
+	Messages []json.RawMessage `json:"messages,omitempty"`
 }
 
 // The classes a failed run ends in (AgentResult.ErrorClass).

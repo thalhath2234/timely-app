@@ -174,18 +174,15 @@ func TestIntegrationBotJudgeAlerts(t *testing.T) {
 		t.Fatalf("summary %+v", list.Summary)
 	}
 
-	// Rating it teaches the rules' words, never the judge's title, and the
-	// next judge input shows the last alert in the rules' words too.
-	res, err := e.s.RateAlert(context.Background(), e.user, v.ID, a.ID, Rating{Feedback: ptr(FeedbackUseful)})
+	// After a rating the next judge input shows the last alert in the
+	// rules' words, never the judge's title.
+	_, err = e.s.RateAlert(context.Background(), e.user, v.ID, a.ID, Rating{Feedback: ptr(FeedbackUseful)})
 	must(t, err)
-	if res.Lesson == nil || res.Lesson.Text != "Wanted: “up 2.0%”" {
-		t.Fatalf("lesson %+v", res.Lesson)
-	}
 	amount = "104.50"
 	e.again(v.ID)
 	in = fj.calls()[1]
 	if in.LastAlert == nil || in.LastAlert.Title != "BTC moves: up 2.0%" || in.LastAlert.Body != "" || in.LastAlert.Feedback != FeedbackUseful ||
-		len(in.Lessons) != 1 || in.Lessons[0] != "Wanted: “up 2.0%”" {
+		len(in.Lessons) != 0 {
 		t.Fatalf("second judge input %+v", in)
 	}
 }
@@ -236,11 +233,11 @@ func TestIntegrationBotJudgeHoldsBack(t *testing.T) {
 	if d.Week.Alerts != 0 || d.AlertsMonth != 0 {
 		t.Fatalf("a held alert counted as sent: week %+v, month %d", d.Week, d.AlertsMonth)
 	}
-	// Useful on a held alert teaches "should have told me".
+	// A held alert can be rated Useful.
 	res, err := e.s.RateAlert(context.Background(), e.user, v.ID, a.ID, Rating{Feedback: ptr(FeedbackUseful)})
 	must(t, err)
-	if res.Lesson == nil || res.Lesson.Text != "Should have told me: “up 2.0%”" {
-		t.Fatalf("lesson %+v", res.Lesson)
+	if res.Feedback == nil || *res.Feedback != FeedbackUseful {
+		t.Fatalf("rating %+v", res)
 	}
 
 	// Three alerts worth it still go out: the held one used no slot.
