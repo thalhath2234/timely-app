@@ -8,8 +8,8 @@ import (
 	"runtime"
 )
 
-// ErrNoRuntime means no agent runtime was found; Ensure fails with it and the
-// classic engine keeps working.
+// ErrNoRuntime means no agent runtime was found; Ensure fails with it and
+// chat fails with "agent runtime missing" (ADR 0029: nothing falls back).
 var ErrNoRuntime = errors.New("agent runtime not found")
 
 // Runtime is the agent runtime command without its subcommand: the

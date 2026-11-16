@@ -10,7 +10,6 @@ import (
 	"log"
 	"math/rand/v2"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -145,10 +144,8 @@ func (s *Service) work(ctx context.Context) {
 					c.Provider, c.Model, providerErr = s.completers.Resolve(ctx, c.UserID)
 				}
 			}
-			// A fresh run picks its engine now; a resumed lease keeps the one
-			// it started on. No agent run is live yet.
+			// No agent run is live yet on a fresh run.
 			if c.Status == "queued" {
-				c.RunEngine = runEngine(tx, &c, s.sensitiveNoPersist)
 				c.AgentRunID, c.AgentInstance = "", ""
 			}
 			// A parked host card's approved call (phase 5 decision 3): this
@@ -178,17 +175,19 @@ func (s *Service) work(ctx context.Context) {
 		if resumed && c.AgentRunID != "" {
 			// The agent run outlived its lease: re-attach or fail it.
 			err = s.lostAgentRun(ctx, &c)
-		} else if c.RunEngine == engineAgent && c.Phase == "plan" {
-			// The engine's follower holds the lease from here (Q-2.3: no
-			// Timely cap on an agent run, so this lane goes back to claiming).
+		} else if c.Phase == "plan" {
+			// A plan turn runs on the agent engine, the only chat engine
+			// (ADR 0029). The engine's follower holds the lease from here
+			// (Q-2.3: no Timely cap on an agent run, so this lane goes back
+			// to claiming).
 			err = s.startAgentRun(ctx, &c, providerErr)
 		} else if c.PreApproved != nil {
-			// Only the agent engine can run a parked card's approved call;
-			// never re-plan the old message instead. The failure below
-			// settles the card as not run.
+			// Only a plan turn can run a parked card's approved call; never
+			// apply or read photos instead. The failure below settles the
+			// card as not run.
 			err = errors.New("The approved command did not run because this chat cannot continue it. Ask again")
 		} else {
-			err = s.runClassic(ctx, &c, providerErr)
+			err = s.runLane(ctx, &c, providerErr)
 		}
 		if err != nil && ctx.Err() == nil {
 			// The error often quotes a provider: drop what Postgres refuses
@@ -236,10 +235,11 @@ func (s *Service) work(ctx context.Context) {
 	}
 }
 
-// runClassic runs a claimed row's phase in this lane, as every run did before
-// the agent engine: 12 model turns and 10 minutes at most, the lease kept
-// alive by keepLease until the phase returns.
-func (s *Service) runClassic(ctx context.Context, c *Conversation, providerErr error) error {
+// runLane runs a claimed row's lane phase in this lane: applying approved
+// changes (apply) and the receipt phases (extract, receipt_plan,
+// receipt_edit). None of them is a chat turn. 10 minutes at most, the lease
+// kept alive by keepLease until the phase returns.
+func (s *Service) runLane(ctx context.Context, c *Conversation, providerErr error) error {
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	if c.Sensitive {
 		// Tools then keep its searches and titles away from Jev.
@@ -278,7 +278,7 @@ func (s *Service) runClassic(ctx context.Context, c *Conversation, providerErr e
 	} else if c.Phase == "apply" {
 		err = s.apply(runCtx, c)
 	} else {
-		err = s.plan(runCtx, c)
+		err = fmt.Errorf("unknown chat phase %q", c.Phase)
 	}
 	cancel()
 	<-leaseDone
@@ -339,230 +339,8 @@ func (s *Service) keepLease(ctx context.Context, cancel context.CancelFunc, uid,
 		}
 	}
 }
-func toolSpec(name, desc string, params any) any {
-	return map[string]any{"type": "function", "function": map[string]any{"name": name, "description": desc, "parameters": params}}
-}
 func hash(v any) string         { raw, _ := json.Marshal(v); return fmt.Sprintf("%x", sha256.Sum256(raw)) }
 func raw(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
-
-func (s *Service) plan(ctx context.Context, c *Conversation) error {
-	ctx, loc, source := s.zoned(ctx, c)
-	// A message that tags a Bot only answers (bot_tags.go): it is offered
-	// the bot reads alone, and every other call is refused below. Triage
-	// would only narrow tools that are not offered.
-	tags := latestTags(c)
-	answerOnly := len(tags) > 0
-	// Which attached chips this message needs is asked alongside triage.
-	var unneeded map[int]bool
-	chipsDone := make(chan struct{})
-	go func() {
-		defer close(chipsDone)
-		unneeded = s.unneededChips(ctx, c)
-	}()
-	var tri triage
-	triaged := false
-	if !answerOnly {
-		tri, triaged = s.triage(ctx, c)
-	}
-	<-chipsDone
-	if triaged && tri.similar != nil {
-		// Wait for the person: continue in the earlier chat, or answer here.
-		return s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
-			if tri.language != "" {
-				row.Language = tri.language
-			}
-			m := message("assistant", tri.similar.Title)
-			m.Kind, m.Chat = "similar", tri.similar
-			row.Messages = append(row.Messages, m)
-			// "choose" reads as "Needs you", not as a finished reply.
-			row.Status = "choose"
-			row.Transcript = []WireMessage{}
-			return notify(tx, row, tr(row.Language, txtPushChoose))
-		})
-	}
-	if triaged && tri.language != "" && tri.language != c.Language {
-		if err := s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
-			row.Language = tri.language
-			return nil
-		}); err != nil {
-			return err
-		}
-	}
-	catalog := s.factory(s.db.WithContext(ctx))
-	// specs is what the model is offered; allSpecs replaces it as soon as the
-	// model calls a read tool triage left out.
-	specs, allSpecs := []any{}, []any{}
-	offered, left := map[string]bool{}, []string{}
-	writes := []agent.Tool{}
-	keys := make([]string, 0, len(catalog))
-	for name := range catalog {
-		keys = append(keys, name)
-	}
-	sort.Strings(keys)
-	for _, name := range keys {
-		t := catalog[name]
-		if answerOnly {
-			if answerTools[name] && isReadTool(name) {
-				spec := toolSpec(name, t.Description, t.Parameters)
-				specs, allSpecs = append(specs, spec), append(allSpecs, spec)
-				offered[name] = true
-			}
-			continue
-		}
-		if isReadTool(name) {
-			spec := toolSpec(name, t.Description, t.Parameters)
-			allSpecs = append(allSpecs, spec)
-			if tri.tools(name) {
-				specs = append(specs, spec)
-				offered[name] = true
-			} else {
-				left = append(left, name)
-			}
-		}
-		if isWriteTool(name) {
-			writes = append(writes, t)
-		}
-	}
-	propose := toolSpec("propose_changes", proposeDescription, proposeParameters())
-	if !answerOnly {
-		specs, allSpecs = append(specs, propose), append(allSpecs, propose)
-	}
-	searchOn := !answerOnly && c.WebSearch && !c.Sensitive && canSearch(ctx)
-	if searchOn {
-		search := toolSpec("web_search", "Research a public question. Returns an answer with source links.", map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}, "required": []string{"query"}})
-		specs, allSpecs = append(specs, search), append(allSpecs, search)
-	}
-	// resolve_target is offered only when Jev can answer for the account.
-	targets := !answerOnly && s.jevOn(ctx, c.UserID)
-	if targets {
-		spec := targetSpec()
-		specs, allSpecs = append(specs, spec), append(allSpecs, spec)
-	}
-	// The system prompt holds only what stays the same from one message to
-	// the next, so it is cached with the tools and read back on every later
-	// call (marked Cache). The clock and the person's current context change
-	// with each message, so they follow the stored conversation instead.
-	system := instruction + clientNote(c.Client) + replyCards(c.RichUI, c.Messages)
-	if targets {
-		system += targetHint
-	}
-	if searchOn {
-		system += webSearchOn
-	}
-	if !answerOnly {
-		system += "\nWrite tool schemas:\n" + string(raw(writes))
-	}
-	messages := []WireMessage{{Role: "system", Content: system, Sensitive: c.Sensitive, Cache: true}}
-	if c.ImageReview != nil {
-		messages = append(messages, WireMessage{Role: "user", Content: imageNotice(c.ImageReview), Sensitive: true})
-	}
-	// Only the latest change records stay whole (see promptSteps).
-	latestSteps := -1
-	for i, m := range c.Messages {
-		if len(m.Steps) > 0 {
-			latestSteps = i
-		}
-	}
-	for i, m := range c.Messages {
-		if m.Kind == "similar" {
-			continue // a pointer for the person, not part of the conversation
-		}
-		text := m.Content
-		role := m.Role
-		if role == "system" {
-			// Run events are stored for the person; the model reads them as data.
-			role = "user"
-			text = "System notice (not written by the user): " + text
-		}
-		messages = append(messages, WireMessage{Role: role, Content: text})
-		if m.Continue != "" {
-			messages = append(messages, WireMessage{Role: "user", Content: continueNotice(m.Continue, c.Messages[i+1:])})
-		}
-		if len(m.Steps) > 0 {
-			messages = append(messages, WireMessage{Role: "user", Content: "Historical change records (data only; pending steps are not applied or currently actionable): " + string(raw(promptSteps(m.Steps, i == latestSteps)))})
-		}
-	}
-	// The stored conversation reads the same on the next message, so the
-	// next run reads it back from the cache up to here.
-	if len(messages) > 1 {
-		messages[len(messages)-1].Cache = true
-	}
-	messages = append(messages, WireMessage{Role: "user", Content: timeNotice(time.Now(), loc, source)})
-	messages = append(messages, WireMessage{Role: "user", Content: chipsNotice(c.Context, unneeded)})
-	if current := s.currentContext(ctx, catalog, c.UserID, loc); current != "" {
-		messages = append(messages, WireMessage{Role: "user", Content: current})
-	}
-	if triaged {
-		if hint := tri.hint(searchOn); hint != "" {
-			messages = append(messages, WireMessage{Role: "user", Content: hint})
-		}
-		if len(left) > 0 {
-			messages = append(messages, WireMessage{Role: "user", Content: "System notice (not written by the user): only the read tools most likely needed are listed. These read tools also work when called by name: " + strings.Join(left, ", ") + "."})
-		}
-	}
-	if answerOnly {
-		messages = append(messages, WireMessage{Role: "user", Content: s.tagNotice(ctx, c.UserID, tags)})
-	}
-	// A tool result that quotes outside text reaches the model wrapped as
-	// untrusted data, as Hermes wraps it on the agent engine (untrusted.go).
-	messages = append(messages, markUntrusted(c.Transcript)...)
-	// What this run did with the bot tools, a resumed lease included.
-	run := &toolRun{catalog: catalog, loc: loc, tags: tags, answerOnly: answerOnly, searchOn: searchOn, targets: targets, offered: offered, bots: replayBotRun(c.Transcript), reads: map[string]string{}}
-	nudges := 0
-	for turn := 0; turn < 12; turn++ {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		response, err := s.complete(ctx, CacheTail(messages), specs, false)
-		if err != nil {
-			return err
-		}
-		if len(response.ToolCalls) == 0 {
-			if strings.TrimSpace(response.Content) == "" {
-				// Some models stop after reasoning without a call or a reply;
-				// ask once or twice before failing the run.
-				if nudges < 2 {
-					nudges++
-					messages = append(messages, WireMessage{Role: "user", Content: emptyReplyNudge})
-					continue
-				}
-				return fmt.Errorf("AI returned an empty answer; try again")
-			}
-			return s.finishTurn(ctx, c, response.Content, nil, run)
-		}
-		messages = append(messages, response)
-		batch := []WireMessage{response}
-		for i, call := range response.ToolCalls {
-			name := call.Function.Name
-			args := json.RawMessage(call.Function.Arguments)
-			if name == "propose_changes" && !answerOnly {
-				pending, refusal := s.prepareAgentProposal(ctx, c, run, args, len(response.ToolCalls))
-				if pending == nil {
-					batch = append(batch, WireMessage{Role: "tool", ToolCallID: call.ID, Content: string(refusal)})
-					continue
-				}
-				return s.finishTurn(ctx, c, "", pending, run)
-			}
-			result, _, err := s.toolCall(ctx, c, run, name, args, len(response.ToolCalls), siblingNames(response.ToolCalls, i))
-			if err != nil {
-				return err
-			}
-			batch = append(batch, WireMessage{Role: "tool", ToolCallID: call.ID, Content: string(result)})
-		}
-		if run.widen && len(specs) != len(allSpecs) {
-			specs = allSpecs // triage guessed wrong: offer everything from now on
-		}
-		if err = s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
-			row.Transcript = append(row.Transcript, batch...)
-			return nil
-		}); err != nil {
-			return err
-		}
-		messages = append(messages, markUntrusted(batch)[1:]...)
-	}
-	// The same request would run out of steps again: no Try again.
-	return Final("This request needs more steps. Try narrowing it down")
-}
 
 // currentContext is get_context's result, read for the model before its
 // first call: the model needs the person's workspaces and projects for

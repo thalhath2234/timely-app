@@ -76,7 +76,7 @@ func integrationDB(t *testing.T) *gorm.DB {
 }
 func runFixture(t *testing.T, db *gorm.DB, steps []Step) Conversation {
 	t.Helper()
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Test", Status: "running", Phase: "apply", Lease: "test-lease", Plan: steps, Context: []ContextChip{}, Messages: []Message{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Test", Status: "running", Phase: "apply", Lease: "test-lease", Plan: steps, Context: []ContextChip{}, Messages: []Message{}, Snapshots: []Snapshot{}}
 	if err := db.Create(&c).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -67,7 +67,7 @@ func TestPreviewBotCallIsGuarded(t *testing.T) {
 	call := func(link string) string {
 		args, _ := json.Marshal(map[string]any{"watches": []map[string]string{{"kind": "page", "url": link}}})
 		run := &toolRun{catalog: agent.Catalog{"preview_bot": preview}, reads: map[string]string{}}
-		result, _, err := s.toolCall(context.Background(), c, run, "preview_bot", args, 1, nil)
+		result, _, err := s.toolCall(context.Background(), c, run, "preview_bot", args)
 		if err != nil {
 			t.Fatalf("%s: %v", link, err)
 		}

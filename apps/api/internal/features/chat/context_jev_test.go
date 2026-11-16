@@ -65,14 +65,12 @@ func TestUnneededChipsChangesNothingWhenUnsureOrOff(t *testing.T) {
 		t.Fatal("with nothing unneeded the chips must be sent as before")
 	}
 	asked := len(*bodies)
-	// One chip, a sensitive chat, or a resumed run: nothing is asked.
+	// One chip or a sensitive chat: nothing is asked.
 	one := chipChat()
 	one.Context = one.Context[1:2]
 	sensitive := chipChat()
 	sensitive.Sensitive = true
-	resumed := chipChat()
-	resumed.Transcript = []WireMessage{{Role: "assistant", Content: "…"}}
-	for _, c := range []*Conversation{one, sensitive, resumed} {
+	for _, c := range []*Conversation{one, sensitive} {
 		if got := s.unneededChips(context.Background(), c); got != nil {
 			t.Fatalf("asked for %+v", c)
 		}
@@ -106,13 +104,13 @@ func TestIntegrationUnneededChipIsShortenedInThePrompt(t *testing.T) {
 	fixture := chipChat()
 	c.Messages, c.Context = fixture.Messages, fixture.Context
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	attached := ""
 	for _, m := range model.seen[0] {
-		if strings.HasPrefix(m.Content, "Attached context") {
-			attached = m.Content
+		if i := strings.Index(m.Content, "Attached context"); i >= 0 {
+			attached = m.Content[i:]
 		}
 	}
 	if !strings.Contains(attached, "Sheet filter") || !strings.Contains(attached, "probably not needed") ||

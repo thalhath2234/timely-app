@@ -1086,7 +1086,7 @@ func (s *Service) newBotDraft(c *echo.Context) error {
 	_ = c.Bind(&in)
 	row := Conversation{ID: id("chat_"), UserID: uid, Title: "New bot", Status: "idle", Phase: "plan", Kind: KindChat, Permission: string(agent.Supervised),
 		Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), HostGrants: HostGrants{},
-		Context: []ContextChip{{Kind: draftChip, Label: "New bot"}}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Context: []ContextChip{{Kind: draftChip, Label: "New bot"}}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	content := strings.TrimSpace(dropNUL(in.Content))
 	if content != "" {
 		row.Messages = append(row.Messages, message("user", content))

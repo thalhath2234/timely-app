@@ -134,7 +134,7 @@ func TestIntegrationSupervisedHoldsAndAutoApplies(t *testing.T) {
 	if held.Permission != "supervised" {
 		t.Fatalf("a new chat row is %q, want supervised", held.Permission)
 	}
-	if err := s.plan(context.Background(), &held); err != nil || held.Status != "approval" {
+	if err := playTurn(context.Background(), s, &held); err != nil || held.Status != "approval" {
 		t.Fatalf("Supervised: %s %v", held.Status, err)
 	}
 	if latestProposal(held.Messages).AutoApplied {
@@ -142,7 +142,7 @@ func TestIntegrationSupervisedHoldsAndAutoApplies(t *testing.T) {
 	}
 	s = New(db, createCatalog, &scripted{responses: []WireMessage{proposeCreate(true)}})
 	applied := autoFixture(t, db)
-	if err := s.plan(context.Background(), &applied); err != nil || applied.Status != "queued" || applied.Phase != "apply" {
+	if err := playTurn(context.Background(), s, &applied); err != nil || applied.Status != "queued" || applied.Phase != "apply" {
 		t.Fatalf("Auto: %s/%s %v", applied.Status, applied.Phase, err)
 	}
 	if !latestProposal(applied.Messages).AutoApplied {
@@ -156,7 +156,7 @@ func TestIntegrationPermissionSwitches(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, createCatalog, &scripted{responses: []WireMessage{proposeCreate(true)}})
 	c := planFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil || c.Status != "approval" {
+	if err := playTurn(context.Background(), s, &c); err != nil || c.Status != "approval" {
 		t.Fatalf("Supervised: %s %v", c.Status, err)
 	}
 	// Full Access needs the step-up (phase 5 decision 7): the desktop
@@ -185,7 +185,7 @@ func TestIntegrationPermissionSwitches(t *testing.T) {
 	db.First(&auto, "id = ?", auto.ID)
 	auto.Status, auto.Lease = "running", "test-lease"
 	db.Save(&auto)
-	if err := s.plan(context.Background(), &auto); err != nil || auto.Status != "approval" {
+	if err := playTurn(context.Background(), s, &auto); err != nil || auto.Status != "approval" {
 		t.Fatalf("a stricter mode must hold the next proposal: %s %v", auto.Status, err)
 	}
 }
@@ -196,7 +196,7 @@ func TestIntegrationOutsideReadTaintsTheChat(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, createCatalog, &scripted{responses: []WireMessage{call("ask_bot", map[string]string{"bot": "bot_1"}), proposeCreate(true)}})
 	c := autoFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil || c.Status != "approval" {
+	if err := playTurn(context.Background(), s, &c); err != nil || c.Status != "approval" {
 		t.Fatalf("after an outside read: %s %v", c.Status, err)
 	}
 	if len(c.TaintedSources) != 1 || c.TaintedSources[0] != (TaintSource{Kind: "timely", Tool: "ask_bot"}) {
@@ -206,7 +206,7 @@ func TestIntegrationOutsideReadTaintsTheChat(t *testing.T) {
 	db.Model(&Conversation{}).Where("id = ?", c.ID).Updates(map[string]any{"status": "running", "lease": "test-lease", "force_review": false, "phase": "plan"})
 	db.First(&c, "id = ?", c.ID)
 	s = New(db, createCatalog, &scripted{responses: []WireMessage{proposeCreate(true)}})
-	if err := s.plan(context.Background(), &c); err != nil || c.Status != "approval" || len(c.TaintedSources) != 1 {
+	if err := playTurn(context.Background(), s, &c); err != nil || c.Status != "approval" || len(c.TaintedSources) != 1 {
 		t.Fatalf("a tainted chat applied a change: %s %+v %v", c.Status, c.TaintedSources, err)
 	}
 	var stored string

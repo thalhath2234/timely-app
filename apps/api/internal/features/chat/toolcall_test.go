@@ -131,7 +131,7 @@ func goldenRun(t *testing.T, s *Service, db *gorm.DB, first Message, responses [
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	return model, c

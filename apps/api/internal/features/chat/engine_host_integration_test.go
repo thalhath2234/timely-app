@@ -582,7 +582,7 @@ func TestIntegrationAgentEngineHostStepUp(t *testing.T) {
 	if code, body := h.answerCard(c.ID, req, hostOnce, `{"kind":"phone","name":"Pixel"}`); code != 403 || !strings.Contains(body, "Unlock your phone") {
 		t.Fatalf("a locked phone: %d %s", code, body)
 	}
-	if err := h.db.Create(&AgentChatSettings{UserID: "user-a", Engine: engineAgent, ChatPermission: "supervised", BotPermission: "auto",
+	if err := h.db.Create(&AgentChatSettings{UserID: "user-a", ChatPermission: "supervised", BotPermission: "auto",
 		FullAccessAllowedOn: allowedOnDesktop, HostApprovalRule: hostRuleDesktop, HostApprovalTimeoutMinutes: 60}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -682,7 +682,7 @@ func TestIntegrationAgentEngineHostLostWaitsPark(t *testing.T) {
 	}
 	asked := time.Now().UTC().Add(-time.Minute)
 	orphan := h.idleChat(func(r *Conversation) {
-		r.Status, r.AgentRunID, r.Engine, r.Provider, r.Model = statusHostApproval, "run_gone", engineAgent, "openrouter", "stub-model"
+		r.Status, r.AgentRunID, r.Provider, r.Model = statusHostApproval, "run_gone", "openrouter", "stub-model"
 		r.ChosenProvider, r.ChosenModel = "openrouter", "stub-model"
 		r.HostRequest = HostRequest{RequestID: "req-x", Run: "run_gone", Phase: hostLive, Tool: "terminal", AskedAt: &asked,
 			Card: &HostCard{Kind: cardTerminal, Title: "Run this command?", Command: "ls"}}
@@ -719,7 +719,9 @@ func TestIntegrationAgentEngineHostLiveAnswerNotTakenContinues(t *testing.T) {
 	h.wait(c.ID, "the run ended", func(Conversation) bool { return !h.e.Follows("user-a", c.ID, r.id) })
 	// Nothing follows the run now; until its heartbeat on the card goes stale
 	// the answer is retried (another process might still follow it).
-	h.wait(c.ID, "the card is orphaned", func(c Conversation) bool { return h.e.LiveOrphaned(c.HostRequest, time.Now().UTC()) || c.HostRequest.Phase == hostParked })
+	h.wait(c.ID, "the card is orphaned", func(c Conversation) bool {
+		return h.e.LiveOrphaned(c.HostRequest, time.Now().UTC()) || c.HostRequest.Phase == hostParked
+	})
 	h.kit.Fixture("cont", lines(ls("call_1"), reply("continued", 0))).ForConversation(c.ID, "cont")
 	if code, body := h.answerCard(c.ID, c.HostRequest.RequestID, hostOnce, ""); code != 200 {
 		t.Fatalf("answer %d %s", code, body)
@@ -965,7 +967,7 @@ func TestIntegrationAgentEngineHostContinuationWithoutTheCallIsNotRun(t *testing
 			cid := id("chat_")
 			h.kit.Fixture("no-call", lines(reply("I will not run it.", 0))).ForConversation(cid, "no-call")
 			c := h.idleChat(func(c *Conversation) {
-				c.ID, c.Status, c.Phase, c.Permission, c.Engine = cid, "queued", "plan", "supervised", engineAgent
+				c.ID, c.Status, c.Phase, c.Permission = cid, "queued", "plan", "supervised"
 				c.Provider, c.Model, c.Client = "openrouter", "stub-model", "web"
 				c.Messages = append(c.Messages, approved)
 				c.Continuation = HostContinuation{Tool: "terminal", ArgsHash: strings.Repeat("a", 64), ToolCallID: "call_ls", RequestID: "req-old", Text: "run it"}

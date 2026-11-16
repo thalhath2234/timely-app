@@ -290,7 +290,7 @@ func closeHostCardAs(row *Conversation, outcome string, device *HostDevice, choi
 	m.Host = &ClosedHost{RequestID: h.RequestID, ToolCallID: h.ToolCallID, Tool: h.Tool, Card: h.Card, Outcome: outcome, Device: device,
 		Choice: choice, ArgsHash: h.ArgsHash}
 	if h.Run != "" {
-		m.Engine, m.AgentRun = engineAgent, h.Run
+		m.AgentRun = h.Run
 	}
 	row.Messages = append(row.Messages, m)
 	row.HostRequest = HostRequest{}

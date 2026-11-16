@@ -40,10 +40,6 @@ type Service struct {
 	// stopLearning tells the worker a chat no longer learns, or with
 	// searchOnly no longer searches past chats (SetStopLearning).
 	stopLearning func(uid, cid string, searchOnly bool)
-	// sensitiveNoPersist lets Sensitive plan turns follow the chat's engine
-	// choice, as no-persist runs on the agent engine (phase 4 decision 10).
-	// Test-only: cmd sets it only when DB_SCHEMA is set (Q-4.2).
-	sensitiveNoPersist bool
 	// threadBots is the Bots service a Bot thread changes its Bot through
 	// (SetBotThreads); threadRuns holds the threads whose turn is running.
 	threadBots ThreadBots
@@ -53,11 +49,6 @@ type Service struct {
 
 // The Bot thread's alert post is the bots service's ThreadPoster.
 var _ bots.ThreadPoster = (*Service)(nil)
-
-// SetSensitiveNoPersist lets Sensitive chats run on the agent engine as
-// no-persist runs (flags.no_persist, phase 4 decision 10). Off, the default,
-// they always run classic (Q-4.2); photo chats run classic either way.
-func (s *Service) SetSensitiveNoPersist(on bool) { s.sensitiveNoPersist = on }
 
 // SetRehearsal supplies a catalog without live side effects (no realtime
 // broadcasts) for rehearsing proposals in a rolled-back transaction.
@@ -129,7 +120,7 @@ func (s *Service) list(c *echo.Context) error {
 	rows := []Conversation{}
 	// A Bot thread and a new Bot's draft are not chats: they are served by the
 	// Bot thread endpoints and the Assistant's inbox.
-	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "engine", "run_engine", "question", "host_request", "host_grants", "full_access", "created_at", "updated_at").
+	err := s.db.Select("id", "title", "status", "phase", "web_search", "no_learning", "revision", "unread", "error", "permission", "question", "host_request", "host_grants", "full_access", "created_at", "updated_at").
 		Where("user_id = ? AND kind = ? AND NOT (context @> ?::jsonb)", user(c), KindChat, `[{"kind":"bot_draft"}]`).Order("updated_at DESC").Limit(200).Find(&rows).Error
 	if err != nil {
 		return err
@@ -319,7 +310,7 @@ func (s *Service) create(c *echo.Context) error {
 	firstMessage := message("user", in.Content)
 	firstMessage.RequestID = in.RequestID
 	firstMessage.BotTags = tags
-	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Permission: permission, FullAccess: fullAccess, HostGrants: HostGrants{}, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	row := Conversation{ID: cid, UserID: user(c), Title: string(title), Status: "queued", Phase: "plan", WebSearch: in.WebSearch, ChosenProvider: in.Provider, ChosenModel: in.Model, Timezone: validTimezone(in.Timezone), Client: agent.NormalizeClient(in.Client), RichUI: in.UI == genuiCapability, Permission: permission, FullAccess: fullAccess, HostGrants: HostGrants{}, Context: in.Context, Messages: []Message{firstMessage}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	noteLanguage(&row, in.Content)
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row)
@@ -397,7 +388,6 @@ func archivePlanAs(c *Conversation, title, pendingStatus string) {
 	}
 	c.Plan = []Step{}
 	c.Snapshots = []Snapshot{}
-	c.Transcript = []WireMessage{}
 }
 func (s *Service) send(c *echo.Context) error {
 	var in sendInput
@@ -625,7 +615,7 @@ func (s *Service) stop(c *echo.Context) error {
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
 			// The cut reply and the notice belong to the stopped run, so what
 			// it learned shows under them, not under a later reply.
-			markStopped(row, from, runID)
+			markRun(row, from, runID)
 		}
 		return nil
 	})
@@ -836,7 +826,6 @@ func (s *Service) retry(c *echo.Context) error {
 			} else {
 				row.Phase = "plan"
 			}
-			row.Transcript = []WireMessage{}
 		}
 		return nil
 	})
@@ -870,10 +859,8 @@ func (s *Service) configure(c *echo.Context) error {
 		Context   *[]ContextChip `json:"context"`
 		Provider  *string        `json:"provider"`
 		Model     *string        `json:"model"`
-		// Permission and Engine are the chat's own permission mode and
-		// engine ("" follows the account).
+		// Permission is the chat's own permission mode.
 		Permission *string `json:"permission"`
-		Engine     *string `json:"engine"`
 		// NoLearning is "Don't learn from this chat"; it applies from the
 		// chat's next run.
 		NoLearning *bool `json:"noLearning"`
@@ -890,9 +877,6 @@ func (s *Service) configure(c *echo.Context) error {
 			return echo.NewHTTPError(400, "Permission must be supervised, auto or full")
 		}
 		*in.Permission = string(mode)
-	}
-	if in.Engine != nil && *in.Engine != "" && *in.Engine != engineClassic && *in.Engine != engineAgent {
-		return echo.NewHTTPError(400, "Engine must be classic, agent or empty")
 	}
 	if in.Provider != nil {
 		model := ""
@@ -933,12 +917,6 @@ func (s *Service) configure(c *echo.Context) error {
 	err := s.save(c, func(tx *gorm.DB, row *Conversation) error {
 		if (in.Context != nil || in.WebSearch != nil) && busy(row) {
 			return echo.NewHTTPError(409, "Wait or stop before changing context")
-		}
-		if in.Engine != nil && *in.Engine != row.Engine && busy(row) {
-			return echo.NewHTTPError(409, "Wait or stop before changing the engine")
-		}
-		if in.Engine != nil {
-			row.Engine = *in.Engine
 		}
 		if in.Permission != nil {
 			// Any time: a looser mode approves nothing already waiting, and

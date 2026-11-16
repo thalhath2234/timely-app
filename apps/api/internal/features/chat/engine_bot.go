@@ -1224,8 +1224,7 @@ func (s *Service) botThread(ctx context.Context, uid, botID string) (string, err
 	}
 	bid := botID
 	row := Conversation{ID: id("chat_"), UserID: uid, Title: clip(title, 200), Status: "idle", Phase: "plan", Kind: KindBotThread, BotID: &bid,
-		Permission: string(agent.Supervised), Context: []ContextChip{}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{},
-		Transcript: []WireMessage{}, HostGrants: HostGrants{}}
+		Permission: string(agent.Supervised), Context: []ContextChip{}, Messages: []Message{}, Plan: []Step{}, Snapshots: []Snapshot{}, HostGrants: HostGrants{}}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 		if res.Error != nil || res.RowsAffected == 0 {
@@ -1424,7 +1423,7 @@ func (s *Service) finishBotCard(ctx context.Context, uid, cid string, h HostRequ
 			row.Activity = ChatActivity{}
 			if reply = strings.TrimSpace(reply); reply != "" {
 				m := message("assistant", reply)
-				m.Engine, m.AgentRun = engineAgent, runID
+				m.AgentRun = runID
 				row.Messages = append(row.Messages, m)
 			}
 			changed = true

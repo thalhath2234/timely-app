@@ -286,7 +286,7 @@ func TestIntegrationWebSearchSkipsBlankQueriesAndStopsAfterFailures(t *testing.T
 	c := planFixture(t, db)
 	c.WebSearch = true
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil || c.Status != "idle" {
+	if err := playTurn(context.Background(), s, &c); err != nil || c.Status != "idle" {
 		t.Fatalf("the run must end with an answer: %v %s", err, c.Status)
 	}
 	if len(model.searches) != maxSearchFailures || strings.HasPrefix(model.searches[0], " ") {
@@ -315,7 +315,7 @@ func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T
 		}}}
 	}, model)
 	c := planFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if c.Status != "idle" || c.Messages[len(c.Messages)-1].Content != "Proposed." {
@@ -377,7 +377,7 @@ func TestIntegrationDeviceTimezoneReachesTools(t *testing.T) {
 	c := planFixture(t, db)
 	c.Timezone = "Asia/Tokyo"
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if seen != "Asia/Tokyo" {
@@ -500,7 +500,7 @@ func TestIntegrationBatchedProposalContinuesAndRepliesToTheQuestion(t *testing.T
 		}}}
 	}, model)
 	c := planFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if c.Language != "ja" || c.Messages[len(c.Messages)-1].Content != "Tomorrow is Saturday, October 3." {
@@ -522,7 +522,7 @@ func TestIntegrationBatchedProposalContinuesAndRepliesToTheQuestion(t *testing.T
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	found := false

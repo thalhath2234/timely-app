@@ -281,7 +281,7 @@ func (s *Service) applyProposal(ctx context.Context, a bots.Alert) (ReviewResult
 	row := Conversation{ID: cid, UserID: a.UserID, Title: clip("Review: "+a.Title, 200), Status: "running", Phase: "apply", Lease: lease, LeaseUntil: &until,
 		Kind: KindChat, FromBotID: &botID, TaintedSources: TaintSources{{Kind: "bot", BotID: a.BotID}}, ForceReview: true,
 		Permission: "supervised", HostGrants: HostGrants{}, Context: []ContextChip{}, Messages: []Message{from, summary},
-		Plan: p.Steps, Snapshots: snapshots, Transcript: []WireMessage{}}
+		Plan: p.Steps, Snapshots: snapshots}
 	res := s.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 	if res.Error != nil {
 		return ReviewResult{}, res.Error

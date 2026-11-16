@@ -190,9 +190,9 @@ func realHarness(t *testing.T, rt, stubRuntime agenthost.Runtime) (*engineHarnes
 // realChat queues an agent-engine chat of user-a with the row edited.
 func (h *engineHarness) realChat(text, permission string, edit func(*Conversation)) Conversation {
 	h.t.Helper()
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan", Engine: engineAgent,
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan",
 		Permission: permission, Provider: "openrouter", Model: "stub-model", Client: "web", Context: []ContextChip{},
-		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	if edit != nil {
 		edit(&c)
 	}
@@ -578,14 +578,10 @@ func TestIntegrationAgentEngineRealWorkerSensitiveNoPersist(t *testing.T) {
 		t.Fatal("the warm-up chat never reached the model")
 	}
 
-	h.s.SetSensitiveNoPersist(true)
 	todo := obj{"todos": []obj{{"id": "1", "content": secret + " list", "status": "in_progress"}}}
 	first := stubScript("tag-np-first", stubCalls("todo_list", todo), obj{"text": "Listed."})
 	c := h.realChat(first, "supervised", func(c *Conversation) { c.Sensitive = true })
 	c = h.waitLong(c.ID, "replied", statusIs("idle"))
-	if c.RunEngine != engineAgent {
-		t.Fatalf("run engine %q with the switch on", c.RunEngine)
-	}
 	second := stubScript("tag-np-second", stubCalls("get_task", obj{"taskId": "tsk_real", "note": secret}))
 	if code, body := h.post("/chats/"+c.ID+"/messages", fmt.Sprintf(`{"content":%q}`, second)); code != 200 {
 		t.Fatalf("send: %d %s", code, body)
@@ -628,26 +624,6 @@ func TestIntegrationAgentEngineRealWorkerSensitiveNoPersist(t *testing.T) {
 	if !saw {
 		t.Fatal("the second turn's model never saw the first turn")
 	}
-
-	// The switch off (the default): a Sensitive chat runs classic and its
-	// text never reaches the worker or the model endpoint.
-	h.s.SetSensitiveNoPersist(false)
-	n := len(rec.completions())
-	off := h.realChat(first, "supervised", func(c *Conversation) { c.Sensitive = true })
-	off = h.waitLong(off.ID, "claimed", func(c Conversation) bool { return c.RunEngine != "" })
-	if off.RunEngine != engineClassic {
-		t.Fatalf("run engine %q with the switch off", off.RunEngine)
-	}
-	if err := h.e.Available(context.Background(), "user-a", &off); err == nil || err.Error() != "Sensitive chats use the classic engine" {
-		t.Fatalf("Available with the switch off: %v", err)
-	}
-	h.wait(off.ID, "ended", ended)
-	if got := len(rec.completions()); got != n {
-		t.Fatalf("%d model calls from a classic Sensitive chat through the worker's endpoint", got-n)
-	}
-	if diff := changedPaths(before, homeSnapshot(t, home)); len(diff) != 0 {
-		t.Fatalf("the classic Sensitive chat changed the home: %v", diff)
-	}
 }
 
 // endpointMetadata is what Hermes writes about a model endpoint it has not
@@ -680,14 +656,10 @@ func TestIntegrationAgentEngineRealWorkerSensitiveNoPersistColdEndpoint(t *testi
 	before := homeSnapshot(t, home)
 	plain := len(rec.completions())
 
-	h.s.SetSensitiveNoPersist(true)
 	todo := obj{"todos": []obj{{"id": "1", "content": secret + " list", "status": "in_progress"}}}
 	script := stubScript("tag-cold", stubCalls("todo_list", todo), obj{"text": "Listed."})
 	c := h.realChat(script, "supervised", func(c *Conversation) { c.Sensitive = true })
 	c = h.waitLong(c.ID, "replied", statusIs("idle"))
-	if c.RunEngine != engineAgent {
-		t.Fatalf("run engine %q with the switch on", c.RunEngine)
-	}
 	time.Sleep(time.Second)
 	for _, call := range rec.completions()[plain:] {
 		if call.Auth != "Bearer "+grantSensitive {

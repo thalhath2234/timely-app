@@ -29,7 +29,7 @@ func TestIntegrationUnstorableProviderErrorStillFailsTheRun(t *testing.T) {
 	s := New(db, nil, nil)
 	completers := &brokenErrorCompleters{calls: make(chan struct{}, 4)}
 	s.SetCompleters(completers)
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Test", Status: "queued", Phase: "plan", Context: []ContextChip{}, Messages: []Message{{Role: "user", Content: "hi"}}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Test", Status: "queued", Phase: "plan", Context: []ContextChip{}, Messages: []Message{{Role: "user", Content: "hi"}}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	if err := db.Create(&c).Error; err != nil {
 		t.Fatal(err)
 	}

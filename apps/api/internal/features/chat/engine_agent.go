@@ -101,8 +101,8 @@ type WorkerEngineOptions struct {
 	Model func(ctx context.Context, uid, provider, model string, opts RunModelOptions) (any, error)
 	// Unsupported reports a Model error meaning the provider cannot drive
 	// the agent engine (provider.ErrAgentEngineUnsupported: Claude Code or
-	// Codex without the loopback gateway); the run then fails with "Use
-	// classic for this chat".
+	// Codex without the loopback gateway); the run then fails with that
+	// reason.
 	Unsupported func(error) bool
 	// HostAllowed reports whether the host allows the account on its
 	// computer (instance.Store.IsHostAllowed: Settings → Server united with
@@ -154,6 +154,9 @@ type RunModelOptions struct {
 	// Sensitive: a no-persist run of a Sensitive chat, whose model calls go
 	// through the gateway's Sensitive grant (provider.AgentRunOptions).
 	Sensitive bool
+	// SupportsVision: the run's model reads photos (readsImages), sent as
+	// model.supports_vision with the turn's photos (PROTOCOL.md 15.1).
+	SupportsVision bool
 }
 
 // LearningPrefs are the account's learning switches a run reads.
@@ -372,12 +375,6 @@ func (e *WorkerEngine) Available(ctx context.Context, uid string, c *Conversatio
 	if c == nil {
 		return nil
 	}
-	if c.Sensitive && !e.s.sensitiveNoPersist {
-		return errors.New("Sensitive chats use the classic engine")
-	}
-	if c.Phase != "plan" || holdsPhotos(c) {
-		return errors.New("Photos and receipts use the classic engine")
-	}
 	if c.Provider != "" && e.opts.Model != nil {
 		if _, err := e.opts.Model(ctx, uid, c.Provider, c.Model, RunModelOptions{Sensitive: c.Sensitive}); err != nil && e.opts.Unsupported(err) {
 			return err
@@ -386,10 +383,8 @@ func (e *WorkerEngine) Available(ctx context.Context, uid string, c *Conversatio
 	return nil
 }
 
-// unavailable is a failure that offers "Use classic for this chat".
-func unavailable(c *Conversation, reason string) error {
-	return UseClassic(fmt.Sprintf(tr(c.Language, txtAgentUnavailable), strings.TrimRight(reason, ".")))
-}
+// unavailable is the failure of a turn the engine could not start.
+func unavailable(c *Conversation, reason string) error { return agentUnavailable(c, reason) }
 
 // Start implements AgentEngine: it builds the turn (plan 3.4 steps 3-5),
 // records the run on the row, and sends run.start.
@@ -400,23 +395,33 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	// The claim's continuation (a parked card's approved call): every
 	// checkpoint below reloads c from the row, which never stores it.
 	pre := c.PreApproved
-	// A Sensitive chat reaches Start only as a no-persist run (runEngine,
-	// the test-only switch): nothing of it is stored in the worker's home,
-	// and its tools keep its searches and titles away from Jev, as classic.
+	// A Sensitive chat (a photo chat is one) always runs no-persist
+	// (ADR 0029, PROTOCOL.md 15.2): nothing of it is stored in the worker's
+	// home, and its tools keep its searches and titles away from Jev.
 	noPersist := c.Sensitive
 	if noPersist {
 		ctx = decide.WithSensitive(ctx)
 	}
-	model, err := e.opts.Model(ctx, c.UserID, c.Provider, c.Model, RunModelOptions{Sensitive: c.Sensitive})
+	// The turn's photos go with run.start (PROTOCOL.md 15.1), with Go's
+	// answer to whether the model reads them; the worker refuses photos
+	// for a model that does not.
+	images, err := e.s.turnImages(ctx, c)
+	if err != nil {
+		return err
+	}
+	modelOpts := RunModelOptions{Sensitive: c.Sensitive}
+	if len(images) > 0 {
+		modelOpts.SupportsVision = readsImages(e.s.withRunCompleter(ctx, c))
+	}
+	model, err := e.opts.Model(ctx, c.UserID, c.Provider, c.Model, modelOpts)
 	if err != nil {
 		if e.opts.Unsupported(err) {
 			return unavailable(c, err.Error())
 		}
 		return NeedsSettings(err.Error())
 	}
-	// Jev's similar-chat pointer and language run before the turn, as on
-	// classic (plan 5.6); its tool narrowing does not: toolsets are fixed
-	// per conversation.
+	// Jev's similar-chat pointer and language run before the turn (plan
+	// 5.6); toolsets are fixed per conversation.
 	language := ""
 	if len(latestTags(c)) == 0 {
 		if tri, ok := e.s.triage(ctx, c); ok {
@@ -429,7 +434,6 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 					m.Kind, m.Chat = "similar", tri.similar
 					row.Messages = append(row.Messages, m)
 					row.Status = "choose"
-					row.Transcript = []WireMessage{}
 					return notify(tx, row, tr(row.Language, txtPushChoose))
 				})
 			}
@@ -463,7 +467,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	// The gateway's grant lasts as long as the worker it was made for
 	// (phase 5 decision 18): a worker that exited since the model was
 	// resolved took its grant with it, so resolve it again for this one.
-	if again, err := e.opts.Model(ctx, c.UserID, c.Provider, c.Model, RunModelOptions{Sensitive: c.Sensitive}); err == nil {
+	if again, err := e.opts.Model(ctx, c.UserID, c.Provider, c.Model, modelOpts); err == nil {
 		model = again
 	}
 
@@ -560,6 +564,10 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		"tainted_conversations": setup.taintedConversations,
 		"search_exclude":        setup.searchExclude,
 		"search_allow":          setup.searchAllow,
+		"no_persist":            noPersist,
+	}
+	if len(images) > 0 {
+		fields["images"] = images
 	}
 	if pre != nil && pre.pending() {
 		fields["pre_approved"] = map[string]any{"tool": pre.Tool, "args_hash": pre.ArgsHash, "tool_call_id": pre.ToolCallID, "cwd": pre.Cwd}
@@ -571,9 +579,10 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	delete(e.unsettled, c.ID)
 	e.mu.Unlock()
 	// state.db may lack the session (a new machine): the worker keeps a seed
-	// only when it has no messages for it. After classic turns, a run whose
-	// turn was not saved, or a restore (whose state.db holds the backup's
-	// transcript, not the turns since), the seed replaces what it has.
+	// only when it has no messages for it. After a reply Timely wrote itself
+	// (not an agent run), a run whose turn was not saved, or a restore (whose
+	// state.db holds the backup's transcript, not the turns since), the seed
+	// replaces what it has.
 	seed := historySeed(c.Messages)
 	if noPersist {
 		// The worker keeps nothing of a no-persist run: the whole
@@ -582,7 +591,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 			seed = []map[string]string{}
 		}
 		fields["history"] = seed
-	} else if reseed := unsettled || restored || classicSinceAgent(c.Messages); reseed {
+	} else if reseed := unsettled || restored || replyNotFromRun(c.Messages); reseed {
 		if seed == nil {
 			seed = []map[string]string{}
 		}
@@ -1516,7 +1525,7 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 		} else if body.Code == "busy" {
 			e.refused(r, engineBusy, ActionRetry)
 		} else {
-			e.refused(r, fmt.Sprintf(tr(r.conv.Language, txtAgentUnavailable), strings.TrimRight(body.Message, ".")), ActionUseClassic)
+			e.refused(r, fmt.Sprintf(tr(r.conv.Language, txtAgentUnavailable), strings.TrimRight(body.Message, ".")), ActionRetry)
 		}
 		return true
 	}
@@ -1528,11 +1537,10 @@ func (e *WorkerEngine) step(r *agentRun, it runItem) bool {
 // the turn (end_turn, Q-2.4).
 func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 	var call struct {
-		Name     string          `json:"name"`
-		Args     json.RawMessage `json:"args"`
-		Batch    int             `json:"batch_size"`
-		Siblings []string        `json:"sibling_tools"`
-		Tainted  []TaintSource   `json:"tainted_sources"`
+		Name    string          `json:"name"`
+		Args    json.RawMessage `json:"args"`
+		Batch   int             `json:"batch_size"`
+		Tainted []TaintSource   `json:"tainted_sources"`
 		// Subagent is the sub-task's session id when a child of the run
 		// made the call (delegate_task, phase 4).
 		Subagent string `json:"subagent"`
@@ -1577,7 +1585,7 @@ func (e *WorkerEngine) toolCall(r *agentRun, m agenthost.Message) {
 		budget = slowToolBudget
 	}
 	ctx, cancel := context.WithTimeout(r.ctx, budget)
-	result, outside, err := e.s.toolCall(ctx, &c, r.tools, call.Name, args, call.Batch, call.Siblings)
+	result, outside, err := e.s.toolCall(ctx, &c, r.tools, call.Name, args)
 	cancel()
 	if err != nil {
 		result, outside = raw(map[string]string{"error": toolTimedOut}), false
@@ -1715,7 +1723,7 @@ func (e *WorkerEngine) stopped(r *agentRun) {
 		endRun(row, r.tools)
 		row.Status = "stopped"
 		row.Messages = append(row.Messages, notice(tr(row.Language, txtStopped)))
-		markStopped(row, len(row.Messages)-1, r.id)
+		markRun(row, len(row.Messages)-1, r.id)
 		return nil
 	})
 }
@@ -1767,7 +1775,7 @@ func (e *WorkerEngine) failWith(r *agentRun, text, action string, ran bool) {
 		row.ErrorAction = action
 		if ran {
 			row.Messages = append(row.Messages, notice(tr(row.Language, txtRunFailed)))
-			markStopped(row, len(row.Messages)-1, r.id)
+			markRun(row, len(row.Messages)-1, r.id)
 		}
 		return notify(tx, row, tr(row.Language, txtPushAttention))
 	})

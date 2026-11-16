@@ -151,7 +151,7 @@ func TestAgentModelRefusesWhatClassicRefuses(t *testing.T) {
 	if err != nil || got.APIKey != keylessPlaceholder {
 		t.Errorf("keyless Ollama = %+v, %v", got, err)
 	}
-	// A typed Ollama address stays classic while sign-ups are open: the
+	// A typed Ollama address cannot run chats while sign-ups are open: the
 	// worker has no public-address guard.
 	typed := APIKey{Model: "llama4", BaseURL: "http://192.168.1.20:11434"}
 	if _, err := s.apiAgentModel(apiProviderByID("ollama"), typed, ""); !errors.Is(err, ErrAgentEngineUnsupported) || !strings.Contains(err.Error(), "Ollama address") {
@@ -195,7 +195,7 @@ func TestAgentModelLeavesCLIProvidersOnClassic(t *testing.T) {
 	s := agentTestService(t) // no database: these answers come before any read
 	for _, p := range []string{ClaudeCLI, CodexCLI} {
 		_, err := s.AgentModel(context.Background(), "u", p, "")
-		if !errors.Is(err, ErrAgentEngineUnsupported) || err.Error() != "The model gateway is not running, so Claude Code and Codex use the classic engine" {
+		if !errors.Is(err, ErrAgentEngineUnsupported) || err.Error() != ErrAgentEngineUnsupported.Error() {
 			t.Errorf("%s: %v", p, err)
 		}
 	}

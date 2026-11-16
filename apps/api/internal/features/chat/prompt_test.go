@@ -43,15 +43,6 @@ func TestOlderChangeRecordsShrinkInThePrompt(t *testing.T) {
 	}
 }
 
-func TestTriageHintPointsAtWebSearchWhenItIsOn(t *testing.T) {
-	if hint := (triage{web: true}).hint(true); !strings.Contains(hint, "web search is on") || !strings.Contains(hint, "web_search") {
-		t.Fatalf("hint = %q", hint)
-	}
-	if hint := (triage{web: true}).hint(false); !strings.Contains(hint, "web search is off") {
-		t.Fatalf("hint = %q", hint)
-	}
-}
-
 func TestCacheTailMarksACopy(t *testing.T) {
 	messages := []WireMessage{{Role: "system", Content: "rules"}, {Role: "user", Content: "hi"}}
 	sent := CacheTail(messages)
@@ -90,7 +81,7 @@ func TestIntegrationPromptKeepsAStablePrefixAndReadsContextUpFront(t *testing.T)
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.seen) != 1 || contextReads != 1 || c.Messages[len(c.Messages)-1].Content != "You have two projects." {
@@ -130,7 +121,7 @@ func TestIntegrationPromptKeepsAStablePrefixAndReadsContextUpFront(t *testing.T)
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.seen) != 3 || model.seen[1][0].Content != system.Content || model.seen[2][0].Content != system.Content {

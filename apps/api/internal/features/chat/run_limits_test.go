@@ -1,31 +1,11 @@
 package chat
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 )
-
-// Triage only narrows tools to an area it offered (GC11).
-func TestTriageIgnoresAnAreaThatWasNotOffered(t *testing.T) {
-	// "change" is answered too: an answer naming only options that were never
-	// offered is no answer at all, and the whole triage is skipped.
-	jev, _ := fakeJev(t, map[string]any{"area": choice("finance", 0.95), "change": yesNo(0.1)})
-	s := &Service{}
-	s.SetDecisions(jev)
-	c := Conversation{UserID: "user-a", Messages: []Message{message("user", "hello"), message("assistant", "hi"), message("user", "what is on my calendar tomorrow?")}}
-	tri, ok := s.triage(context.Background(), &c)
-	if !ok || tri.area != "" || !tri.tools("get_calendar") {
-		t.Fatalf("unknown area narrowed the tools: area %q", tri.area)
-	}
-	jev, _ = fakeJev(t, map[string]any{"area": choice("calendar", 0.95), "change": yesNo(0.1)})
-	s.SetDecisions(jev)
-	if tri, _ = s.triage(context.Background(), &c); tri.area != "calendar" {
-		t.Fatalf("offered area dropped: %q", tri.area)
-	}
-}
 
 // resolve_target looks a name up once per run and stops after a few
 // lookups, so one message cannot fan out into many paid calls (GC16).

@@ -176,24 +176,6 @@ func TestBotAnswers(t *testing.T) {
 	}
 }
 
-func TestReplayBotRun(t *testing.T) {
-	ask := call("ask_bot", map[string]string{"bot": "bot_a"})
-	ask.ToolCalls[0].ID = "c1"
-	other := call("list_docs", map[string]any{})
-	other.ToolCalls[0].ID = "c2"
-	run := replayBotRun([]WireMessage{
-		ask, {Role: "tool", ToolCallID: "c1", Content: `{"outsideData":"m","bot":{"id":"bot_a"}}`},
-		other, {Role: "tool", ToolCallID: "c2", Content: `{"items":[]}`},
-	})
-	if run.asks != 1 || !run.outside || len(run.answers.list(nil)) != 1 {
-		t.Fatalf("replayed %+v", run)
-	}
-	failed := replayBotRun([]WireMessage{ask, {Role: "tool", ToolCallID: "c1", Content: `{"error":"down"}`}})
-	if failed.asks != 1 || failed.outside || failed.answers.list(nil) != nil {
-		t.Fatalf("a failed ask still counts, but carries nothing: %+v", failed)
-	}
-}
-
 // botCatalog has the bot reads, one other read and one write, each
 // recording its calls.
 func botCatalog(called *[]string) func(*gorm.DB) agent.Catalog {
@@ -258,7 +240,7 @@ func TestIntegrationTaggedMessageOnlyAnswers(t *testing.T) {
 	c.Messages = []Message{tagged}
 	c.WebSearch = true
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	for i, tools := range model.tools {
@@ -307,7 +289,7 @@ func TestIntegrationTaggedMessageOnlyAnswers(t *testing.T) {
 	c.Messages = append(c.Messages, message("user", "Now make me a task"))
 	c.Status = "running"
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if !has(model.tools[0], "propose_changes") || !has(model.tools[0], "web_search") {
@@ -332,7 +314,7 @@ func TestIntegrationAskBotCap(t *testing.T) {
 	}}
 	s := New(db, botCatalog(&called), model)
 	c := planFixture(t, db)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	asks := 0
@@ -368,7 +350,7 @@ func TestIntegrationBotReadForcesReview(t *testing.T) {
 		}
 		s := New(db, botCatalog(&called), &scripted{responses: responses})
 		c := autoFixture(t, db)
-		if err := s.plan(context.Background(), &c); err != nil {
+		if err := playTurn(context.Background(), s, &c); err != nil {
 			t.Fatal(err)
 		}
 		var force bool
@@ -418,7 +400,7 @@ func TestIntegrationProposalPreview(t *testing.T) {
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if c.Status != "approval" || len(c.Plan) != 4 || len(previews) != 2 {

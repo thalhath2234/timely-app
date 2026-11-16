@@ -521,7 +521,7 @@ func (s *Service) RaiseServerCard(ctx context.Context, uid, name, command string
 		AskedAt: &now, ExpiresAt: &expires}
 	row := Conversation{ID: id("chat_"), UserID: uid, Title: "Add " + clip(name, 60) + "?", Status: statusHostApproval, Phase: "plan", Permission: string(agent.Supervised),
 		Context: []ContextChip{}, Messages: []Message{notice("You asked to add the MCP server " + clip(name, 200) + ". It runs a command on this computer, so it needs your OK.")},
-		Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}, HostRequest: req, HostGrants: HostGrants{}}
+		Plan: []Step{}, Snapshots: []Snapshot{}, HostRequest: req, HostGrants: HostGrants{}}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {
 			return err

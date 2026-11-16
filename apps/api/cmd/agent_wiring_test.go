@@ -218,30 +218,27 @@ func TestIntegrationAccountDeletionRemovesTheAgentHomeAndLearning(t *testing.T) 
 	}
 }
 
-// The no-persist switch and the clarify timeout are test switches: read
-// only with DB_SCHEMA set, so a shipped API never turns Sensitive chats onto
-// the agent engine (Q-4.2) or shortens a question card's wait.
+// The clarify timeout is a test switch: read only with DB_SCHEMA set, so a
+// shipped API never shortens a question card's wait. Sensitive chats need
+// no switch: they always run no-persist (ADR 0029).
 func TestPhase4TestSwitchesNeedASchema(t *testing.T) {
 	env := func(values map[string]string) func(string) string {
 		return func(name string) string { return values[name] }
 	}
 	for name, values := range map[string]map[string]string{
 		"neither":     {},
-		"flag only":   {"TIMELY_AGENT_SENSITIVE_NO_PERSIST": "1", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "5"},
+		"flag only":   {"TIMELY_AGENT_CLARIFY_TIMEOUT_S": "5"},
 		"schema only": {"DB_SCHEMA": "wt_phase4"},
-		"bad values":  {"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_SENSITIVE_NO_PERSIST": "maybe", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "0"},
+		"bad values":  {"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "0"},
 		"too long":    {"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "86401"},
 	} {
-		if sensitiveNoPersist(env(values)) {
-			t.Errorf("%s: Sensitive chats would run on the agent engine", name)
-		}
 		if d := clarifyTimeout(env(values)); d != 0 {
 			t.Errorf("%s: clarify timeout %s, want the default", name, d)
 		}
 	}
-	on := env(map[string]string{"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_SENSITIVE_NO_PERSIST": "true", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "5"})
-	if !sensitiveNoPersist(on) || clarifyTimeout(on) != 5*time.Second {
-		t.Fatalf("with a schema: no-persist %v, timeout %s", sensitiveNoPersist(on), clarifyTimeout(on))
+	on := env(map[string]string{"DB_SCHEMA": "wt_phase4", "TIMELY_AGENT_CLARIFY_TIMEOUT_S": "5"})
+	if clarifyTimeout(on) != 5*time.Second {
+		t.Fatalf("with a schema: timeout %s", clarifyTimeout(on))
 	}
 }
 

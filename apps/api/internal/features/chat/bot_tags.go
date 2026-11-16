@@ -252,21 +252,6 @@ func (r *botRun) taint() []TaintSource {
 	return out
 }
 
-func replayBotRun(transcript []WireMessage) botRun {
-	var run botRun
-	called := map[string]string{}
-	for _, m := range transcript {
-		for _, tc := range m.ToolCalls {
-			called[tc.ID] = tc.Function.Name
-		}
-		if m.Role != "tool" {
-			continue
-		}
-		run.note(called[m.ToolCallID], []byte(m.Content))
-	}
-	return run
-}
-
 // note records one tool result as it reached the model, and reports
 // whether it carried third-party text.
 func (r *botRun) note(name string, content []byte) bool {

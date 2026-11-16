@@ -210,7 +210,7 @@ func TestIntegrationResolveTargetInARun(t *testing.T) {
 	c := planFixture(t, db)
 	c.Messages = []Message{message("user", "Move my dentist appointment next week to Thursday")}
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if !has(model.tools[0], targetTool) || !strings.Contains(model.seen[0][0].Content, "call resolve_target") {
@@ -230,7 +230,7 @@ func TestIntegrationResolveTargetInARun(t *testing.T) {
 	c = planFixture(t, db)
 	c.Messages = []Message{message("user", "Move my dentist appointment next week to Thursday")}
 	db.Save(&c)
-	if err := s.plan(context.Background(), &c); err != nil {
+	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
 	if has(off.tools[0], targetTool) || strings.Contains(off.seen[0][0].Content, "resolve_target") {

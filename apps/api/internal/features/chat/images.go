@@ -393,3 +393,55 @@ func (s *Service) readReceipt(ctx context.Context, messages []WireMessage) (imag
 	}
 	return extracted, nil
 }
+
+// maxTurnImages is the most photos one agent turn carries
+// (run.start.images, PROTOCOL.md 15.1).
+const maxTurnImages = 4
+
+// turnImages are the photos of this turn's messages (those since the
+// model's last reply, as sinceLastTurn reads them) as run.start.images:
+// at most maxTurnImages, each fitted under the size the worker takes. A
+// photo that expired or was discarded is left out: the turn still carries
+// what was read from it (imageNotice). Photos belong to one turn; later
+// turns read only the text.
+func (s *Service) turnImages(ctx context.Context, c *Conversation) ([]map[string]string, error) {
+	start := 0
+	for i := len(c.Messages) - 1; i >= 0; i-- {
+		if m := c.Messages[i]; m.Role == "assistant" && m.Kind == "" && !m.Cut {
+			start = i + 1
+			break
+		}
+	}
+	// A photo chat's extraction reply ("what the photos show") is Timely's,
+	// not a turn's: the person's question about those photos, before it, is
+	// what this turn answers, so its photos come with it.
+	if start == len(c.Messages) && c.ImageReview != nil {
+		for i := start - 1; i >= 0; i-- {
+			if c.Messages[i].Role == "user" {
+				start = i
+				break
+			}
+		}
+	}
+	out := []map[string]string{}
+	for _, m := range c.Messages[start:] {
+		for _, imageID := range m.ImageIDs {
+			if len(out) == maxTurnImages {
+				return out, nil
+			}
+			var a ImageAttachment
+			if err := s.db.WithContext(ctx).Where("id = ? AND user_id = ? AND conversation_id = ? AND deleted_at IS NULL AND expires_at > ?", imageID, c.UserID, c.ID, time.Now()).First(&a).Error; err != nil {
+				continue
+			}
+			data, err := os.ReadFile(imagePath(a.ID))
+			if err != nil {
+				continue
+			}
+			if data, err = sendableImage(ctx, a.ID, data); err != nil {
+				return nil, err
+			}
+			out = append(out, map[string]string{"mime": "image/jpeg", "data_b64": base64.StdEncoding.EncodeToString(data)})
+		}
+	}
+	return out, nil
+}

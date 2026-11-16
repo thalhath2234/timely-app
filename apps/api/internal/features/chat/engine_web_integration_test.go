@@ -22,9 +22,9 @@ import (
 // chatWith is chat with the row edited before it is queued.
 func (h *engineHarness) chatWith(text, permission, fixture string, jsonl []byte, edit func(*Conversation)) Conversation {
 	h.t.Helper()
-	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan", Engine: engineAgent,
+	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Agent", Status: "queued", Phase: "plan",
 		Permission: permission, Provider: "openrouter", Model: "stub-model", Client: "web", Context: []ContextChip{},
-		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Messages: []Message{message("user", text)}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	if edit != nil {
 		edit(&c)
 	}
@@ -39,7 +39,7 @@ func (h *engineHarness) chatWith(text, permission, fixture string, jsonl []byte,
 func (h *engineHarness) idleChat(edit func(*Conversation)) Conversation {
 	h.t.Helper()
 	c := Conversation{ID: id("chat_"), UserID: "user-a", Title: "Earlier", Status: "idle", Phase: "plan", Context: []ContextChip{},
-		Messages: []Message{message("user", "earlier")}, Plan: []Step{}, Snapshots: []Snapshot{}, Transcript: []WireMessage{}}
+		Messages: []Message{message("user", "earlier")}, Plan: []Step{}, Snapshots: []Snapshot{}}
 	edit(&c)
 	if err := h.db.Create(&c).Error; err != nil {
 		h.t.Fatal(err)
@@ -143,8 +143,8 @@ func TestIntegrationAgentEngineRunStartCarriesLearningAndWeb(t *testing.T) {
 	if !strings.Contains(block.SystemText, webSearchOn) {
 		t.Fatal("a run with the web lacks the web search line in its Timely block")
 	}
-	if got := lastMessage(c); got.AgentRun != start.Run || got.Engine != engineAgent {
-		t.Fatalf("reply agentRun %q engine %q, want run %q", got.AgentRun, got.Engine, start.Run)
+	if got := lastMessage(c); got.AgentRun != start.Run {
+		t.Fatalf("reply agentRun %q, want run %q", got.AgentRun, start.Run)
 	}
 }
 

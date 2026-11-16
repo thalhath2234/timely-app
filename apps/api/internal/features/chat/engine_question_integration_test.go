@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -498,46 +499,97 @@ func TestIntegrationAgentEngineChildCannotPropose(t *testing.T) {
 	}
 }
 
-// With the no-persist switch off (the default), Sensitive and photo chats
-// run classic whatever their engine choice, and Available says why.
-func TestIntegrationAgentEngineSensitiveAndPhotoChatsStayClassic(t *testing.T) {
+// A photo chat's plan turn runs on the agent engine (ADR 0029): run.start
+// carries the turn's photos as images with model.supports_vision, and the
+// chat (Sensitive, as every photo chat) runs no-persist with only the
+// timely and todo toolsets. The next turn carries no photos.
+func TestIntegrationAgentEnginePhotoChatSendsItsPhotos(t *testing.T) {
+	t.Setenv("CHAT_IMAGE_DIR", t.TempDir())
 	h := newEngineHarness(t)
-	photoMessage := func(c *Conversation) { c.Messages[0].ImageIDs = []string{"img_1"} }
-	receipt := func(c *Conversation) { c.ImageReview = &ImageReview{Status: "confirmed"} }
-	cases := map[string]func(*Conversation){
-		"sensitive":    func(c *Conversation) { c.Sensitive = true },
-		"photo phase":  func(c *Conversation) { c.Phase = "extract" },
-		"photo in it":  photoMessage,
-		"receipt chat": receipt,
-	}
-	reasons := map[string]string{"sensitive": "Sensitive chats use the classic engine", "photo phase": "Photos and receipts use the classic engine",
-		"photo in it": "Photos and receipts use the classic engine", "receipt chat": "Photos and receipts use the classic engine"}
-	for _, flag := range []bool{false, true} {
-		h.s.SetSensitiveNoPersist(flag)
-		for name, edit := range cases {
-			if flag && name == "sensitive" {
-				continue // the switch is for Sensitive chats only
-			}
-			c := h.chatWith("Add Buy milk", "supervised", "classic-"+name, lines(reply("agent", 0)), edit)
-			c = h.wait(c.ID, "claimed", func(c Conversation) bool { return c.RunEngine != "" })
-			if c.RunEngine != engineClassic {
-				t.Errorf("%s (switch %v): run engine %q", name, flag, c.RunEngine)
-			}
-			if err := h.e.Available(context.Background(), "user-a", &c); err == nil || err.Error() != reasons[name] {
-				t.Errorf("%s (switch %v): Available %v", name, flag, err)
-			}
-			h.wait(c.ID, "ended", ended)
+	var mu sync.Mutex
+	var asked []RunModelOptions
+	h.e.opts.Model = func(ctx context.Context, uid, provider, model string, opts RunModelOptions) (any, error) {
+		mu.Lock()
+		asked = append(asked, opts)
+		mu.Unlock()
+		m, err := testModel(ctx, uid, provider, model, opts)
+		if err != nil {
+			return nil, err
 		}
+		out := map[string]any{}
+		raw, _ := json.Marshal(m)
+		_ = json.Unmarshal(raw, &out)
+		out["supports_vision"] = opts.SupportsVision
+		return out, nil
 	}
-	if n := len(h.kit.ReceivedOf("run.start")); n != 0 {
-		t.Fatalf("%d run.starts for classic chats", n)
+	photo := []byte("\xff\xd8\xff\xe0 a photo of a plant")
+	imageID := id("img_")
+	c := h.chatWith("What plant is this?", "supervised", "photo", lines(reply("A fern.", 0)), func(c *Conversation) {
+		c.Sensitive = true
+		c.Messages[0].ImageIDs = []string{imageID, "img_gone"}
+		c.ImageReview = &ImageReview{ImageIDs: []string{imageID, "img_gone"}, Status: "review", Text: "A green plant with fronds"}
+		if err := os.WriteFile(imagePath(imageID), photo, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		a := ImageAttachment{ID: imageID, UserID: "user-a", ConversationID: &c.ID, Name: "plant.jpg", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}
+		if err := h.db.Create(&a).Error; err != nil {
+			t.Fatal(err)
+		}
+	})
+	c = h.wait(c.ID, "replied", statusIs("idle"))
+	type start struct {
+		Toolsets  []string `json:"toolsets"`
+		NoPersist bool     `json:"no_persist"`
+		Images    []struct {
+			Mime string `json:"mime"`
+			Data string `json:"data_b64"`
+		} `json:"images"`
+		Model struct {
+			SupportsVision bool `json:"supports_vision"`
+		} `json:"model"`
+		UserMessage string `json:"user_message"`
+		Flags       struct {
+			Sensitive bool `json:"sensitive"`
+			NoPersist bool `json:"no_persist"`
+		} `json:"flags"`
+	}
+	var first start
+	if err := h.kit.ReceivedOf("run.start")[0].Decode(&first); err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Images) != 1 || first.Images[0].Mime != "image/jpeg" || first.Images[0].Data != base64.StdEncoding.EncodeToString(photo) {
+		t.Fatalf("run.start images %+v, want the one photo still stored", first.Images)
+	}
+	if !first.Model.SupportsVision || !first.NoPersist || !first.Flags.NoPersist || !first.Flags.Sensitive || !slices.Equal(first.Toolsets, []string{"timely", "todo"}) {
+		t.Fatalf("photo run.start %+v", first)
+	}
+	if !strings.Contains(first.UserMessage, "A green plant with fronds") {
+		t.Fatalf("user_message %q lacks what was read from the photo", first.UserMessage)
+	}
+	if lastMessage(c).Content != "A fern." {
+		t.Fatalf("reply %+v", lastMessage(c))
+	}
+	if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"Does it need sun?"}`); code != 200 {
+		t.Fatalf("send: %d %s", code, body)
+	}
+	starts := h.kit.WaitReceived("run.start", 2, 20*time.Second)
+	var second start
+	if err := starts[1].Decode(&second); err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Images) != 0 || second.Model.SupportsVision || !second.NoPersist {
+		t.Fatalf("the next turn's run.start %+v: photos belong to one turn", second)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) == 0 || !asked[0].SupportsVision || !asked[0].Sensitive {
+		t.Fatalf("model options %+v", asked)
 	}
 }
 
-// With the test-only switch on, a Sensitive plan turn runs on the agent
-// engine as a no-persist run: flags.no_persist, toolsets timely and todo,
-// the whole conversation as history every turn, and the model's Sensitive
-// grant.
+// A Sensitive plan turn always runs on the agent engine as a no-persist run
+// (ADR 0029): no_persist, toolsets timely and todo, the whole conversation as
+// history every turn, and the model's Sensitive grant.
 func TestIntegrationAgentEngineSensitiveNoPersistRun(t *testing.T) {
 	h := newEngineHarness(t)
 	var mu sync.Mutex
@@ -549,15 +601,11 @@ func TestIntegrationAgentEngineSensitiveNoPersistRun(t *testing.T) {
 		return testModel(ctx, uid, provider, model, opts)
 	}
 	models := func() []RunModelOptions { mu.Lock(); defer mu.Unlock(); return slices.Clone(asked) }
-	h.s.SetSensitiveNoPersist(true)
 	c := h.chatWith("first", "supervised", "np", lines(reply("One.", 0)), func(c *Conversation) { c.Sensitive, c.WebSearch = true, true })
 	if err := h.e.Available(context.Background(), "user-a", &c); err != nil {
-		t.Fatalf("Available with the switch on: %v", err)
+		t.Fatalf("Available for a Sensitive chat: %v", err)
 	}
 	c = h.wait(c.ID, "replied", statusIs("idle"))
-	if c.RunEngine != engineAgent {
-		t.Fatalf("run engine %q", c.RunEngine)
-	}
 	if code, body := h.post("/chats/"+c.ID+"/messages", `{"content":"second"}`); code != 200 {
 		t.Fatalf("send: %d %s", code, body)
 	}

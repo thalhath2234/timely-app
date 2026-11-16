@@ -115,7 +115,7 @@ func closeQuestion(row *Conversation, answers map[string]any, outcome string) st
 	m.Kind = "question"
 	m.Question = &AnsweredQuestion{RequestID: q.RequestID, Questions: q.Questions, Answers: answers, Outcome: outcome}
 	if q.Run != "" {
-		m.Engine, m.AgentRun = engineAgent, q.Run
+		m.AgentRun = q.Run
 	}
 	row.Messages = append(row.Messages, m)
 	row.Question = ChatQuestion{}
