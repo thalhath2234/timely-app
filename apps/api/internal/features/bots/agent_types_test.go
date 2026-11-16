@@ -121,7 +121,8 @@ func TestIntegrationAgentBotsMigrationRoundTrip(t *testing.T) {
 	}
 	check(true, "after up")
 
-	must(t, goose.Down(sqlDB, "."))
+	// Down to just before 20261115120000_agent_bots.sql (later ones first).
+	must(t, goose.DownTo(sqlDB, ".", 20261115120000-1))
 	check(false, "after down")
 
 	must(t, goose.Up(sqlDB, "."))

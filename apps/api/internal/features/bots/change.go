@@ -593,7 +593,7 @@ func (s *Service) History(ctx context.Context, userID, idOrName string, q Histor
 				out.Checks = append(out.Checks, h)
 			}
 			if want(HistoryRuns) && c.Run != nil {
-				h.Run = c.Run
+				h.Run = publicRun(c.Run)
 				out.Runs = append(out.Runs, h)
 			}
 		}

@@ -1246,6 +1246,10 @@ func (s *Service) runInput(ctx context.Context, c checkRun, diffs []ReadingDiff,
 	// one gets its slug now, and the tick that makes the skill writes the
 	// seed into it (plan 9b.3).
 	slug, err := EnsureSkillSlug(db, b.UserID, b.ID)
+	if errors.Is(err, ErrNotFound) {
+		// A draft's Try: no saved Bot, so no skill of its own yet.
+		slug, err = "", nil
+	}
 	if err != nil {
 		return RunInput{}, err
 	}
