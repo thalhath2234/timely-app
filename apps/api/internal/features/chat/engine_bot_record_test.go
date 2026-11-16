@@ -12,7 +12,9 @@ import (
 // defaultModel is an account whose default AI provider is claude/sonnet.
 type defaultModel struct{}
 
-func (defaultModel) Resolve(context.Context, string) (string, string, error) { return "claude", "sonnet", nil }
+func (defaultModel) Resolve(context.Context, string) (string, string, error) {
+	return "claude", "sonnet", nil
+}
 func (defaultModel) Completer(context.Context, string, string, string) (Completer, error) {
 	return nil, errors.New("no completer in this test")
 }
