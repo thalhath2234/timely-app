@@ -1,18 +1,12 @@
 /**
- * Chat on the agent engine (phase 2 of docs/plans/2026-11-08-timely-agent-from-hermes.md):
- * the engine a chat runs on, its permission mode, the live activity and
- * streamed reply of an agent run, and the words both apps use for them.
+ * Chat on the agent engine, the only engine (docs/plans/2026-11-08-timely-agent-from-hermes.md,
+ * ADR 0029): a chat's permission mode, the live activity and streamed reply
+ * of an agent run, and the words both apps use for them.
  * Wire shapes mirror apps/api/internal/features/chat (model.go, prefs.go).
  */
 
 /** How much the agent may change without asking (plan 5.5b). */
 export type PermissionMode = "supervised" | "auto" | "full";
-
-/** A chat's own engine choice: "" follows the account's Settings → Agent → Engine. */
-export type ChatEngine = "" | "classic" | "agent";
-
-/** The engine an account's chats use by default (Classic until the person picks New). */
-export type AccountEngine = "classic" | "agent";
 
 /** Where Full Access may be turned on. */
 export type FullAccessAllowedOn = "desktop" | "devices";
@@ -52,7 +46,6 @@ export type HostApprovalRule = "devices" | "desktop";
 
 /** GET /agent/chat-settings. */
 export type AgentChatSettings = {
-  engine: AccountEngine;
   chatPermission: PermissionMode;
   botPermission: PermissionMode;
   fullAccessAllowedOn: FullAccessAllowedOn;
@@ -62,7 +55,8 @@ export type AgentChatSettings = {
   hostApprovalTimeoutMinutes?: number;
   /** The step-up that turned a Full Access default on ({} when none). */
   fullAccessDefault?: FullAccessRecord;
-  /** Whether the agent engine can run for this account now, and why not. */
+  /** Whether the agent runtime can run for this account now, and why not
+   * ("agent runtime missing"); chat has no other engine to fall back to. */
   engineAvailable: boolean;
   engineReason: string;
 };
@@ -72,12 +66,11 @@ export type AgentChatSettings = {
  * device needs the step-up (the desktop window; a phone that unlocked where
  * Full Access is allowed on any device): 403 otherwise. */
 export type AgentChatSettingsPatch = Partial<
-  Pick<AgentChatSettings, "engine" | "chatPermission" | "botPermission" | "fullAccessAllowedOn" | "hostApprovalRule" | "hostApprovalTimeoutMinutes">
+  Pick<AgentChatSettings, "chatPermission" | "botPermission" | "fullAccessAllowedOn" | "hostApprovalRule" | "hostApprovalTimeoutMinutes">
 > & { device?: HostDevice };
 
-/** The account defaults before anything is saved (Q-2.2, Q-P1, Q-5.1, Q-5.7). */
+/** The account defaults before anything is saved (Q-P1, Q-5.1, Q-5.7). */
 export const DEFAULT_CHAT_SETTINGS: Omit<AgentChatSettings, "engineAvailable" | "engineReason" | "fullAccessDefault"> = {
-  engine: "classic",
   chatPermission: "supervised",
   botPermission: "auto",
   fullAccessAllowedOn: "desktop",
@@ -177,38 +170,16 @@ export const AUTO_ASKS_BEFORE: readonly CriticalRow[] = [
   { item: 6, title: "Changes after reading outside content", detail: "A page, file or command output could have told it what to do" },
 ];
 
-export const ENGINE_COPY: Record<AccountEngine, { name: string; description: string }> = {
-  classic: { name: "Classic", description: "Timely’s assistant as it works today." },
-  agent: { name: "New", description: "The new agent engine: replies stream in as they are written." },
-};
-
-/** Claude Code and Codex are not Classic-only: New runs them through the
- * server's own CLI and its sign-in (phase 2 gateway, Q-4.1). Both apps say it
- * only when New can run: when it cannot, the reason row says why. */
-export const CLI_ON_NEW = "Claude Code and Codex also work on New, through the server’s CLI; their replies arrive in one piece.";
-
 /** The Claude Code and Codex cards' line in Settings › Agent; host is where
  * the CLI runs ("the server", or "this computer" in the desktop app). */
 export function cliProviderDescription(id: "claude" | "codex", host: string): string {
   return id === "claude"
-    ? `Uses the Claude Code CLI and its sign-in on ${host}. Works on Classic and New, with every built-in tool disabled.`
-    : `Uses the Codex CLI and its sign-in on ${host}. Works on Classic and New, in a read-only sandbox with the shell disabled.`;
+    ? `Uses the Claude Code CLI and its sign-in on ${host}, with every built-in tool disabled. Replies arrive in one piece.`
+    : `Uses the Codex CLI and its sign-in on ${host}, in a read-only sandbox with the shell disabled. Replies arrive in one piece.`;
 }
 
-/** What Timely learned and About you while chats run on Classic: learning, About you and
- * past-chat search happen only on the agent engine (plan 9b; Classic never reads them). */
-export const LEARNS_ON_AGENT_ONLY = `Timely learns only in chats on the ${ENGINE_COPY.agent.name} engine.`;
-export const CHOOSE_AGENT_ENGINE = "Choose it in Settings › Agent.";
-/** The phone's row title for that notice (a row title stays on one line). */
-export const LEARNING_NEEDS_AGENT = `Learning needs the ${ENGINE_COPY.agent.name} engine`;
-/** About you's hint: read at the start of every chat on the agent engine, never on Classic. */
+/** About you's hint: read at the start of every chat. */
 export const ABOUT_YOU_HINT = "Timely reads this at the start of every chat. Changes apply from your next chat.";
-export const ABOUT_YOU_CLASSIC_HINT = `Timely reads this only in chats on the ${ENGINE_COPY.agent.name} engine. ${CHOOSE_AGENT_ENGINE}`;
-
-/** errorAction of a run the agent engine could not start; the apps offer
- * USE_CLASSIC_LABEL, which sends PATCH {engine: "classic"} and then Retry. */
-export const USE_CLASSIC_ACTION = "use_classic";
-export const USE_CLASSIC_LABEL = "Use classic for this chat";
 
 /** A live run's reply as streamed so far. chars counts its code points. */
 export type ReplyDraft = { run: string; text: string; chars: number };

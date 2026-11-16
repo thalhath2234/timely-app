@@ -4,6 +4,11 @@
  * Pure, so scripts/bots.test.mjs runs it under Node.
  */
 
+import type { BotLearnedCategory } from "./agentLearning";
+
+/** agentLearning's BOT_LEARNED_CATEGORY; the type keeps the two the same with no runtime import. */
+const BOT_LEARNED: BotLearnedCategory = "bot_learned";
+
 export type AssistantTarget = { chat?: string; bot?: string; thread?: string };
 
 export const ASSISTANT_PATH = "/assistant";
@@ -52,15 +57,17 @@ export type AssistantNotification = {
 const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
 
 /**
- * A bot alert opens its Bot (the Assistant when it names none); a chat
- * notification opens its chat. Null for anything else.
+ * A bot alert, or a bot's staged suggestion (BOT_LEARNED_CATEGORY), opens its
+ * Bot (the Assistant when it names none); a chat notification opens its chat.
+ * Null for anything else.
  */
 export function notificationToAssistant(payload: AssistantNotification): string | null {
   const d = payload.data ?? {};
   const chat =
     str(payload.chatId) ?? str(d.chatId) ?? (payload.entityType === "chat" ? str(payload.entityId) : undefined);
   if (chat) return assistantHref({ chat });
-  if ((payload.category ?? str(d.category)) === "bot") {
+  const category = payload.category ?? str(d.category);
+  if (category === "bot" || category === BOT_LEARNED) {
     const bot = str(payload.botId) ?? str(d.botId) ?? (payload.entityType === "bot" ? str(payload.entityId) : undefined);
     return assistantHref({ bot });
   }

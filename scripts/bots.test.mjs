@@ -4,12 +4,9 @@ import {
   BOT_LIMITS,
   BRIEF_TIMES,
   FEEDBACK_REASONS,
-  HOW_SMART,
   MAX_BOT_TAGS,
+  HELD_DUPLICATE_LINE,
   PASS_FEEDBACK,
-  SMART_HINT,
-  aiHint,
-  alertAi,
   alsoSeenLine,
   botMarkKind,
   chainsOf,
@@ -17,17 +14,13 @@ import {
   checkTriggerLabel,
   filterLine,
   howItCame,
-  lessonsHint,
   sharedLine,
-  smartOptions,
   todayColumns,
   todayRows,
   topSpans,
   worksWith,
-  STARTERS,
   STRIKE_CODES,
   STRIKE_COPY,
-  againLine,
   answerMarkWatch,
   answerTone,
   answerWatchMeta,
@@ -79,15 +72,10 @@ import {
   notItMessage,
   previewCard,
   proposalFacts,
-  resetLine,
-  ruleLine,
-  ruleNote,
-  tellLine,
   cleanWatchInput,
   alertLink,
   runNowState,
   snoozePresets,
-  starterDraft,
   stripLegend,
   stripSummary,
   summaryLine,
@@ -139,7 +127,6 @@ function watch(over) {
     symbol: "",
     currency: "",
     readingCurrency: "",
-    rules: [],
     health: ok,
     lastReadingAt: ago(10),
     summary: "",
@@ -164,7 +151,6 @@ function bot(over) {
     pauseReason: null,
     origin: "app",
     originClient: "",
-    judgeMode: "rules",
     intervalMinutes: 30,
     urgent: false,
     desktop: true,
@@ -192,13 +178,10 @@ function bot(over) {
     sources: [],
     knowledge: null,
     aiChecksToday: 0,
-    suggestion: null,
     away: null,
     ...over,
   };
 }
-
-const below = (threshold) => ({ id: "brl_b", kind: "below", threshold, stepPercent: 5, resetPercent: 0.5 });
 
 const seed = {
   gpu: bot({
@@ -226,7 +209,6 @@ const seed = {
         read: "",
         url: "https://www.reddit.com/r/buildapcsales/.rss",
         site: "reddit.com",
-        rules: [{ id: "brl_g1", kind: "new_item", words: ["4070"], stepPercent: 0, resetPercent: 0 }],
         latestItem: { title: "RTX 4070 Super Founders Edition, $389", url: "https://reddit.com/x", publishedAt: ago(20) },
       }),
       watch({
@@ -235,7 +217,6 @@ const seed = {
         read: "",
         url: "https://slickdeals.net/newsearch.php?q=gpu&rss=1",
         site: "slickdeals.net",
-        rules: [{ id: "brl_g2", kind: "new_item", stepPercent: 0, resetPercent: 0 }],
       }),
     ],
   }),
@@ -258,7 +239,6 @@ const seed = {
         site: "ais.usvisa-info.com",
         health: { code: "cant_find", line: "The selector matched nothing on the page" },
         excerpt: "Earliest: 14 Jan 2027",
-        rules: [{ id: "brl_v", kind: "any_change", stepPercent: 0, resetPercent: 0 }],
       }),
     ],
   }),
@@ -284,7 +264,6 @@ const seed = {
         site: "flipkart.com",
         lastReadingAt: null,
         health: { code: "new", line: "Not checked yet" },
-        rules: [below(90000)],
         currency: "INR",
       }),
     ],
@@ -310,7 +289,6 @@ const seed = {
         url: "https://in.bookmyshow.com/events/coldplay-music-of-the-spheres/ET00412345",
         site: "bookmyshow.com",
         health: { code: "not_found", line: "The page is gone" },
-        rules: [{ id: "brl_c", kind: "any_change", stepPercent: 0, resetPercent: 0 }],
       }),
     ],
   }),
@@ -342,7 +320,6 @@ const seed = {
         title: "Sony WH-1000XM6 Wireless",
         value: 27499,
         summary: "₹27,499",
-        rules: [below(25000)],
         spark: [
           [1, 29990],
           [2, 27499],
@@ -368,7 +345,6 @@ const seed = {
         value: 68412,
         summary: "$68,412",
         dayChangePct: 2.4,
-        rules: [{ id: "brl_btc", kind: "above", threshold: 70000, stepPercent: 5, resetPercent: 0.5 }],
       }),
     ],
   }),
@@ -386,7 +362,6 @@ const seed = {
         site: "steampowered.com",
         excerpt: "Out of stock",
         lastChangedAt: ago(6 * 1440 + 30),
-        rules: [{ id: "brl_s", kind: "words_appear", words: ["Add to cart"], stepPercent: 0, resetPercent: 0 }],
       }),
     ],
   }),
@@ -408,7 +383,6 @@ const seed = {
         value: 182.4,
         summary: "$182.40",
         dayChangePct: 1.8,
-        rules: [{ id: "brl_n", kind: "move_pct", percent: 5, direction: "any", stepPercent: 0, resetPercent: 0 }],
       }),
     ],
   }),
@@ -430,7 +404,6 @@ const seed = {
         url: "https://go.dev/blog/feed.atom",
         site: "go.dev",
         latestItem: { title: "Go 1.26 is released", url: "https://go.dev/blog/go1.26", publishedAt: "2026-11-01T17:00:00Z" },
-        rules: [{ id: "brl_go", kind: "new_item", stepPercent: 0, resetPercent: 0 }],
       }),
     ],
   }),
@@ -446,7 +419,7 @@ describe("bots board over the seed", () => {
       "broken",
       "Last good read, 3 h ago",
       "Earliest: 14 Jan 2027",
-      "Tells you when it changes",
+      null,
       "Next 18:48",
       "ais.usvisa-info.com · One part of the page · every 30 min",
       ["bad", "Can’t read the page", "6 min ago"],
@@ -456,7 +429,7 @@ describe("bots board over the seed", () => {
       "waiting_ok",
       "Not checked yet",
       "Starts paused",
-      "Price is below ₹90,000",
+      null,
       "Made 40 min ago",
       "Made by Claude Code · 40 min ago",
       ["warn", "Waiting for your OK", null],
@@ -466,7 +439,7 @@ describe("bots board over the seed", () => {
       "stopped",
       "Since Nov 5, 21:40",
       "The page is gone",
-      "Tells you when it changes",
+      null,
       "Nov 5, 22:40",
       "bookmyshow.com · the page is gone",
       ["bad", "Paused after 5 strikes", null],
@@ -476,7 +449,7 @@ describe("bots board over the seed", () => {
       null,
       null,
       "₹27,499",
-      "₹2,499 above your line",
+      null,
       "Next 00:12",
       "amazon.in · Sony WH-1000XM6 Wireless · every 6 h",
       ["ok", "Working", "12 min ago"],
@@ -486,7 +459,7 @@ describe("bots board over the seed", () => {
       null,
       null,
       "$68,412",
-      "+2.4% today · $1,588 to go",
+      "+2.4% today",
       "No alerts yet",
       "BTC-USD · Coinbase · every 5 min",
       ["ok", "Working", "2 min ago"],
@@ -495,8 +468,8 @@ describe("bots board over the seed", () => {
       "watching",
       null,
       null,
-      "“Out of stock”",
-      "Tells you when “Add to cart” appears",
+      "Out of stock",
+      null,
       "No change in 6 days",
       "steampowered.com · One part of the page · every 30 min",
       ["ok", "Working", "9 min ago"],
@@ -506,7 +479,7 @@ describe("bots board over the seed", () => {
       null,
       null,
       "$182.40",
-      "+1.8% today · line ±5%",
+      "+1.8% today",
       "Next 18:27",
       "NVDA · Finnhub · every 15 min",
       ["off", "Snoozed", "until Mon 09:00"],
@@ -568,15 +541,10 @@ describe("bots board over the seed", () => {
     assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, feedback: "useful" } }, NOW), null);
     assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, held: "snoozed" } }, NOW), null);
     assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, createdAt: ago(49 * 60) } }, NOW), null);
-    for (const held of ["cap", "judged", "shared", "duplicate"]) {
+    for (const held of ["cap", "shared", "duplicate"]) {
       assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, held } }, NOW), null, `held ${held} is not a new alert`);
     }
-    assert.deepEqual(alertAi({ ...alert, held: "duplicate", aiState: "judged", aiWhy: "x" }), {
-      pill: null,
-      line: "Already told you",
-      short: "Already told you",
-      tone: "muted",
-    });
+    assert.equal(HELD_DUPLICATE_LINE, "Already told you");
   });
 
   test("a missing key needs you, ahead of an unrated alert", () => {
@@ -597,7 +565,7 @@ describe("bots board over the seed", () => {
   });
 
   test("the compact card", () => {
-    assert.deepEqual(miniValue(seed.headphones, NOW), { text: "₹27,499", change: "₹2,499 above" });
+    assert.deepEqual(miniValue(seed.headphones, NOW), { text: "₹27,499", change: null });
     assert.deepEqual(miniValue(seed.btc, NOW), { text: "$68,412", change: "+2.4%" });
     assert.deepEqual(miniValue(seed.steam, NOW), { text: "Out of stock", change: "same for 6 days" });
     assert.deepEqual(miniValue(seed.gpu, NOW), { text: "3", change: "new today" });
@@ -861,69 +829,19 @@ describe("watchCurrency", () => {
   });
 });
 
-describe("rules", () => {
-  const inr = { currency: "INR" };
-  test("rule lines", () => {
-    assert.equal(ruleLine(below(25000), inr), "Price is below ₹25,000");
-    assert.equal(ruleLine({ kind: "above", threshold: 70000 }, { currency: "USD" }), "Price is above $70,000");
-    assert.equal(ruleLine({ kind: "move_pct", percent: 5, direction: "any" }, inr), "Moves 5% either way");
-    assert.equal(ruleLine({ kind: "move_pct", percent: 2.5, direction: "down" }, inr), "Drops 2.5%");
-    assert.equal(ruleLine({ kind: "words_appear", words: ["Add to cart"] }, inr), "“Add to cart” appears");
-    assert.equal(ruleLine({ kind: "words_disappear", words: ["Sold out", "Coming soon"] }, inr), "“Sold out” or “Coming soon” disappears");
-    assert.equal(ruleLine({ kind: "any_change" }, inr), "Any change");
-    assert.equal(ruleLine({ kind: "new_item" }, inr), "A new post");
-    assert.equal(ruleLine({ kind: "below" }, inr), "Price is below …");
-    // A shop page that left its currency to the page reads it from the summary.
-    assert.equal(ruleLine(below(25000), seed.headphones.watches[0]), "Price is below ₹25,000");
+describe("reads", () => {
+  test("a Read is sent with only its kind's fields; rules are gone", () => {
+    const sent = cleanWatchInput({ kind: "page", url: " https://shop.example/p ", read: "product_price", rules: [{ kind: "below", threshold: 1 }] });
+    assert.deepEqual(sent, { kind: "page", url: "https://shop.example/p", read: "product_price" });
   });
 
-  test("stock words: in_stock and a rule that alerts in stock or not", () => {
-    assert.equal(ruleLine({ kind: "in_stock" }, inr), "Back in stock");
-    assert.equal(tellLine({ kind: "in_stock" }, inr), "when it is back in stock");
-    assert.equal(ruleLine({ ...below(90000), onlyInStock: false }, inr), "Price is below ₹90,000, in stock or not");
-    assert.equal(ruleLine({ ...below(90000), onlyInStock: true }, inr), "Price is below ₹90,000");
-    // An edit sends false back, so a saved "in stock or not" survives the editor.
-    const sent = cleanWatchInput({ kind: "page", url: "https://shop.example/p", read: "product_price", rules: [{ ...below(90000), onlyInStock: false }, { kind: "in_stock" }] });
-    assert.equal(sent.rules?.[0].onlyInStock, false);
-    assert.equal("onlyInStock" in (sent.rules?.[1] ?? {}), false);
-  });
-
-  test("rule notes under the editors' rows: Back in stock, and in stock or not", () => {
-    assert.equal(ruleNote({ kind: "in_stock" }), "When the page says it can be bought again");
-    assert.equal(ruleNote({ kind: "any_change" }), "Any change to what it reads");
-    assert.equal(ruleNote({ kind: "any_change", onlyInStock: false }), "Any change to what it reads, in stock or not");
-    assert.equal(ruleNote({ ...below(90000), onlyInStock: false }), "Alerts in stock or not");
-    assert.equal(ruleNote({ kind: "above", threshold: 1, onlyInStock: false }), "Alerts in stock or not");
-    assert.equal(ruleNote({ kind: "move_pct", percent: 5, onlyInStock: false }), "Alerts in stock or not");
-    // The default holds while sold out, so it needs no note.
-    assert.equal(ruleNote(below(90000)), "");
-    assert.equal(ruleNote({ ...below(90000), onlyInStock: true }), "");
-    assert.equal(ruleNote({ kind: "words_appear", words: ["Add to cart"] }), "");
-  });
-
-  test("tell lines read on from \"and tell you\"", () => {
-    assert.equal(tellLine(below(90000), inr), "when the price is below ₹90,000");
-    assert.equal(tellLine({ kind: "above", threshold: 70000 }, { currency: "USD" }), "when the price is above $70,000");
-    assert.equal(tellLine({ kind: "move_pct", percent: 5, direction: "any" }, inr), "when it moves 5% either way");
-    assert.equal(tellLine({ kind: "move_pct", percent: 2.5, direction: "down" }, inr), "when it drops 2.5%");
-    assert.equal(tellLine({ kind: "words_appear", words: ["Add to cart"] }, inr), "when “Add to cart” appears");
-    assert.equal(tellLine({ kind: "words_disappear", words: ["Sold out"] }, inr), "when “Sold out” disappears");
-    assert.equal(tellLine({ kind: "any_change" }, inr), "when it changes");
-    assert.equal(tellLine({ kind: "new_item" }, inr), "about each new post");
-    assert.equal(tellLine({ kind: "new_item", words: ["4070"] }, inr), "about each new post with “4070”");
-  });
-
-  test("again and reset lines", () => {
-    assert.equal(againLine(below(25000)), "Each further 5% drop");
-    assert.equal(againLine({ kind: "above", threshold: 1, stepPercent: 10 }), "Each further 10% rise");
-    assert.equal(againLine({ kind: "above", threshold: 1, stepPercent: 100 }), "Not again until it starts over");
-    assert.equal(againLine({ kind: "any_change" }), null);
-    assert.equal(resetLine(below(25000), inr), "Once the price is 0.5% back above your line (₹25,125)");
-    assert.equal(
-      resetLine({ kind: "above", threshold: 70000, resetPercent: 1 }, { currency: "USD" }),
-      "Once the price is 1% back below your line ($69,300)",
-    );
-    assert.equal(resetLine({ kind: "new_item" }, inr), null);
+  test("no rule, judge or lesson helper is left", async () => {
+    const mod = await import("../packages/contract/src/bots.ts");
+    for (const gone of ["ruleLine", "ruleNote", "tellLine", "againLine", "resetLine", "rulesFor", "defaultRules", "RULE_LABELS", "HOW_SMART", "SMART_HINT", "smartOptions", "aiHint", "alertAi", "lessonsHint", "lineOf", "rearmMeta", "STARTERS", "starterDraft"]) {
+      assert.equal(gone in mod, false, gone);
+    }
+    assert.equal("maxLessons" in BOT_LIMITS, false);
+    assert.equal("maxRulesPerWatch" in BOT_LIMITS, false);
   });
 });
 
@@ -968,7 +886,8 @@ describe("schedule", () => {
 
   test("limits the editor states", () => {
     assert.equal(BOT_LIMITS.maxBots, 25);
-    assert.deepEqual(limitRows()[3], ["Shop page", "Every 6 h at most"]);
+    assert.deepEqual(limitRows()[2], ["Shop page", "Every 6 h at most"]);
+    assert.equal(limitRows().some(([label]) => /rule/i.test(label)), false);
   });
 });
 
@@ -1056,67 +975,42 @@ describe("check strip", () => {
 });
 
 describe("drafts", () => {
-  test("a blank editor needs a name and a watch", () => {
+  test("a blank editor needs only a name: Reads are optional", () => {
     const d = emptyDraft();
-    assert.deepEqual(draftErrors(d), ["Give the bot a name", "Give the bot something to watch: a page, a feed or a price"]);
+    assert.deepEqual(draftErrors(d), ["Give the bot a name"]);
+    assert.deepEqual(draftErrors({ ...d, name: "Morning" }), []);
     assert.equal(d.desktop, true);
     assert.equal(emptyDraft({ desktop: false, phone: true, urgent: true }).urgent, true);
   });
 
-  test("starters", () => {
-    assert.deepEqual(
-      STARTERS.map((s) => s.id),
-      ["price_drop", "page_changed", "stock_move", "new_in_feed", "morning_brief"],
-    );
-    const brief = STARTERS[4];
-    assert.equal(brief.later, undefined, "the Morning brief is live");
-    assert.equal(brief.draft.kind, "brief");
-    assert.equal(brief.chatText, "Every morning at 08:00, sum up what my other bots found");
-    for (const s of STARTERS) assert.equal(s.draft.description, `${s.quote}.`, `${s.id} prefills its own words`);
-    assert.equal(STARTERS[2].rows[0][1], "Finnhub (free key)");
-    assert.equal(STARTERS[2].needsKey, "finnhub");
-
-    const drop = starterDraft(STARTERS[0]);
-    assert.deepEqual(draftErrors({ ...drop, name: "Headphones" }), ["Add the page’s link", "Give the price to watch for"]);
+  test("each Read is checked", () => {
+    const drop = { ...emptyDraft(), name: "Headphones", watches: [{ kind: "page", url: "", read: "product_price" }] };
+    assert.deepEqual(draftErrors(drop), ["Add the page’s link"]);
     drop.watches[0].url = "https://www.amazon.in/dp/B0";
-    drop.watches[0].rules[0].threshold = 25000;
-    assert.deepEqual(draftErrors({ ...drop, name: "Headphones" }), []);
-    assert.equal(STARTERS[0].draft.watches[0].url, "", "a starter's own draft is never changed");
+    assert.deepEqual(draftErrors(drop), []);
 
-    const stock = starterDraft(STARTERS[2]);
+    const stock = { ...emptyDraft(), name: "NVDA", watches: [{ kind: "price", source: "stock", symbol: "NVDA" }] };
     assert.deepEqual(draftErrors(stock), []);
     assert.deepEqual(draftErrors(stock, () => false), ["Stock prices need your free Finnhub key"]);
     assert.deepEqual(draftErrors(stock, () => true), []);
 
-    const part = starterDraft(STARTERS[1]);
-    part.name = "Visa dates";
-    part.watches[0].url = "https://example.com/dates";
+    const part = { ...emptyDraft(), name: "Visa dates", watches: [{ kind: "page", url: "https://example.com/dates", read: "selector", selector: "" }] };
     assert.deepEqual(draftErrors(part), ["Pick the part of the page to read"]);
-    assert.deepEqual(draftErrors({ ...starterDraft(STARTERS[3]), name: "Feed", watches: [{ kind: "feed", url: "go.dev" }] }), [
+    assert.deepEqual(draftErrors({ ...emptyDraft(), name: "Feed", watches: [{ kind: "feed", url: "go.dev" }] }), [
       "Use a full web address, like https://example.com",
     ]);
   });
 
-  test("intervals, limits and rule shapes", () => {
+  test("intervals and limits", () => {
     const shop = {
       ...emptyDraft(),
       name: "Shop",
       intervalMinutes: 60,
-      watches: [{ kind: "page", url: "https://a.in/x", read: "product_price", rules: [{ kind: "below", threshold: 5 }] }],
+      watches: [{ kind: "page", url: "https://a.in/x", read: "product_price" }],
     };
     assert.deepEqual(draftErrors(shop), ["Shop prices are checked every 6 hours at most"]);
-    const two = {
-      ...shop,
-      intervalMinutes: 360,
-      watches: [...shop.watches, { kind: "page", url: "https://a.in/y", read: "text", rules: [{ kind: "words_appear", words: [" "] }, { kind: "below", threshold: 1 }] }],
-    };
-    assert.deepEqual(draftErrors(two), ["Watch 2: Give the words to look for", "Watch 2: “Price is below” does not fit this watch"]);
-    const restock = { ...shop, intervalMinutes: 360, watches: [{ ...shop.watches[0], rules: [{ kind: "below", threshold: 90000 }, { kind: "in_stock" }] }] };
-    assert.deepEqual(draftErrors(restock), [], "a chat-made Back in stock rule still saves");
-    const textRestock = { ...restock, watches: [{ kind: "page", url: "https://a.in/y", read: "text", rules: [{ kind: "in_stock" }] }] };
-    assert.deepEqual(draftErrors(textRestock), ["“Back in stock” does not fit this watch"]);
-    const partRestock = { ...restock, watches: [{ kind: "page", url: "https://a.in/y", read: "selector_price", selector: ".p", rules: [{ kind: "in_stock" }] }] };
-    assert.deepEqual(draftErrors(partRestock), ["“Back in stock” does not fit this watch"]);
+    const two = { ...shop, intervalMinutes: 360, watches: [...shop.watches, { kind: "page", url: "", read: "text" }] };
+    assert.deepEqual(draftErrors(two), ["Watch 2: Add the page’s link"]);
     assert.deepEqual(draftErrors({ ...shop, intervalMinutes: 20000 }), ["Check at least once a week (10080 minutes)"]);
     assert.deepEqual(draftErrors({ ...shop, intervalMinutes: 360, name: "x".repeat(81) }), ["Keep the bot's name under 80 characters"]);
   });
@@ -1127,12 +1021,13 @@ describe("drafts", () => {
       description: " watch it ",
       intervalMinutes: 0,
       watches: [{ kind: "price", source: "stock", symbol: " nvda ", url: "ignored", rules: [{ kind: "move_pct", percent: 5, direction: "any" }] }],
+      judgeMode: "ai",
     });
     assert.deepEqual(input, {
       name: "NVDA moves",
       description: "watch it",
       intervalMinutes: 0,
-      watches: [{ kind: "price", source: "stock", symbol: "NVDA", rules: [{ kind: "move_pct", percent: 5, direction: "any" }] }],
+      watches: [{ kind: "price", source: "stock", symbol: "NVDA" }],
     });
   });
 
@@ -1143,21 +1038,13 @@ describe("drafts", () => {
     assert.deepEqual(toPatch(view, named), { name: "Sony under ₹24,000" });
     const quiet = { ...draftOf(view), phone: false, intervalMinutes: 720 };
     assert.deepEqual(toPatch(view, quiet), { phone: false, intervalMinutes: 720 });
-    const lower = draftOf(view);
-    lower.watches[0].rules[0].threshold = 24000;
-    assert.deepEqual(toPatch(view, lower), {
-      watches: [
-        {
-          id: "bwt_seed_sony",
-          kind: "page",
-          url: "https://www.amazon.in/Sony-WH-1000XM6/dp/B0",
-          read: "product_price",
-          rules: [{ id: "brl_b", kind: "below", threshold: 24000, stepPercent: 5, resetPercent: 0.5 }],
-        },
-      ],
+    const moved = draftOf(view);
+    moved.watches[0].url = "https://www.amazon.in/Sony-WH-1000XM6/dp/B1";
+    assert.deepEqual(toPatch(view, moved), {
+      watches: [{ id: "bwt_seed_sony", kind: "page", url: "https://www.amazon.in/Sony-WH-1000XM6/dp/B1", read: "product_price" }],
     });
-    // A feed's saved rules (stepPercent 0) compare equal to the draft's.
     assert.deepEqual(toPatch(seed.gpu, draftOf(seed.gpu)), {});
+    assert.equal("judgeMode" in draftOf(view), false);
   });
 });
 
@@ -1166,7 +1053,7 @@ describe("chat", () => {
     name: "Pixel Buds Pro 2 under ₹18,000",
     description: "",
     intervalMinutes: 0,
-    watches: [{ kind: "page", url: "https://www.amazon.in/dp/B0DFC8QZ4M", read: "product_price", rules: [{ kind: "below", threshold: 18000 }] }],
+    watches: [{ kind: "page", url: "https://www.amazon.in/dp/B0DFC8QZ4M", read: "product_price" }],
   };
   const preview = {
     watches: [
@@ -1194,7 +1081,7 @@ describe("chat", () => {
     const card = previewCard(args, preview, NOW);
     assert.equal(card.name, "Pixel Buds Pro 2 under ₹18,000");
     assert.equal(valueText(card), "₹19,999");
-    assert.equal(valueLine(card), "₹1,999 above your line");
+    assert.equal(valueLine(card), null);
     assert.equal(cardSub(card), "amazon.in · Product price · every 6 h");
     assert.equal(cardSub(card, { short: true }), "amazon.in · every 6 h");
     assert.deepEqual(healthLine(card, NOW, TZ), { tone: "primary", word: "Read once in chat", time: null });
@@ -1405,8 +1292,6 @@ describe("AI, links and briefs over the seed", () => {
     held: "",
     createdAt: ago(10),
     feedback: null,
-    aiState: "",
-    aiWhy: "",
     urgency: "normal",
     alsoSeenBy: [],
     sharedWith: null,
@@ -1438,15 +1323,12 @@ describe("AI, links and briefs over the seed", () => {
   const nvme = bot({
     id: "bot_seed_nvme",
     name: "Price check · NVMe",
-    judgeMode: "ai",
     intervalMinutes: 360,
     aiChecksToday: 15,
     knowledge: { kind: "sheet", id: "sht_wishlist", title: "Wishlist", missing: false },
     latestAlert: alertOf({
       id: "bal_nvme",
       title: "Price check · NVMe: Samsung 990 Pro 2TB at $99",
-      aiState: "judged",
-      aiWhy: "Under your $110 wishlist limit and well below its usual price",
       urgency: "high",
       via: [{ botId: "bot_seed_gpu", name: "GPU deals under $400", linkId: "blk_gpu_nvme", title: "Samsung 990 Pro 2TB NVMe, $99" }],
     }),
@@ -1459,39 +1341,14 @@ describe("AI, links and briefs over the seed", () => {
         currency: "USD",
         value: 99,
         summary: "$99",
-        rules: [below(110)],
       }),
     ],
   });
-  const sonyAi = {
-    ...seed.headphones,
-    judgeMode: "ai",
-    aiChecksToday: 12,
-    latestAlert: alertOf({
-      id: "bal_sony_new",
-      title: "Sony WH-1000XM6 under ₹25,000: below 25,000",
-      aiState: "unchecked",
-      aiWhy: "AI was unavailable; Timely asks again later",
-    }),
-  };
-  const heldBack = alertOf({ held: "judged", aiState: "judged", aiWhy: "a 0.4% wobble, below what you care about" });
   const btcSeen = alertOf({ id: "bal_btc", alsoSeenBy: [{ botId: "bot_seed_crypto", name: "Crypto mover" }] });
   const cryptoShared = alertOf({
     held: "shared",
     sharedWith: { alertId: "bal_btc", botId: "bot_seed_btc", name: "Bitcoin under $70,000" },
   });
-  const suggestion = {
-    id: "bsg_1",
-    line: "Only tell me about moves over 8%?",
-    button: "Raise to 8%",
-    reason: "too_small",
-    watchId: "bwt_seed_nvda",
-    ruleId: "brl_n",
-    rule: { kind: "move_pct", percent: 8, direction: "any" },
-    alertIds: ["bal_n1", "bal_n2", "bal_n3"],
-    createdAt: ago(60),
-  };
-  const nvdaSuggests = { ...seed.nvda, suggestion };
   const brief = bot({
     id: "bot_seed_brief",
     name: "Morning brief",
@@ -1512,7 +1369,6 @@ describe("AI, links and briefs over the seed", () => {
       items: 7,
       createdAt: "2026-11-07T08:01:00Z",
       feedback: "useful",
-      aiState: "judged",
     }),
   });
   const steamOnly = { ...seed.steam, briefOnly: true };
@@ -1530,7 +1386,7 @@ describe("AI, links and briefs over the seed", () => {
     links,
   };
 
-  test("limits, How smart and the new words", () => {
+  test("limits and the new words", () => {
     assert.equal(BOT_LIMITS.aiPerBot, 20);
     assert.equal(BOT_LIMITS.aiPerAccount, 200);
     assert.equal(BOT_LIMITS.chainSteps, 3);
@@ -1539,14 +1395,6 @@ describe("AI, links and briefs over the seed", () => {
       ["Passing on", "4 bots, 20 a day each"],
       ["Briefs", "Up to 8 bots, 5 items each"],
     ]);
-    assert.deepEqual(
-      HOW_SMART.map((h) => [h.id, h.label, !!h.later]),
-      [
-        ["rules", "Rules only", false],
-        ["ai", "AI judges", false],
-        ["research", "Research", true],
-      ],
-    );
     assert.deepEqual(PASS_FEEDBACK, { id: "not_passed", label: "Shouldn't have been passed on" });
     assert.deepEqual(
       FEEDBACK_REASONS.map((r) => r.id),
@@ -1556,9 +1404,9 @@ describe("AI, links and briefs over the seed", () => {
     assert.equal(BRIEF_TIMES.length, 18);
     assert.deepEqual([BRIEF_TIMES[0], BRIEF_TIMES[3], BRIEF_TIMES[17]], ["05:00", "08:00", "22:00"]);
     assert.equal(checkOutcomeLabel("passed"), "Passed on");
-    assert.equal(checkOutcomeLabel("judged_quiet"), "AI held it back");
-    assert.equal(checkOutcomeLabel("held_stock"), "Out of stock, held back");
-    assert.equal(checkOutcomeLabel("fired"), "Told you");
+    assert.equal(checkOutcomeLabel("alerted"), "Told you");
+    // An old rules check keeps its raw word; nothing names the judge or rules any more.
+    assert.equal(checkOutcomeLabel("judged_quiet"), "judged_quiet");
     assert.equal(checkTriggerLabel("pass"), "Passed on");
   });
 
@@ -1601,77 +1449,11 @@ describe("AI, links and briefs over the seed", () => {
     assert.equal(captionLine(brief, NOW, TZ, three), "From 4 bots");
   });
 
-  test("How smart choices and hints name no model", () => {
-    assert.deepEqual(smartOptions({ ai: ready }), [
-      { id: "rules", label: "Rules only", disabled: false },
-      { id: "ai", label: "AI judges", disabled: false },
-      { id: "research", label: "Research", disabled: true, tag: "Later" },
-    ]);
-    assert.deepEqual(smartOptions({ ai: noAi })[1], { id: "ai", label: "AI judges", disabled: true, tag: "Needs AI" });
-    const hint = aiHint(nvme, { ai: ready });
-    assert.equal(
-      hint,
-      "AI checks 15 of 20 today, on Anthropic API. AI looks at each change your rules spot and decides if it's worth telling you.",
-    );
-    assert.doesNotMatch(hint, /small-judge-model|model/i, "no model id in the UI");
-    assert.equal(aiHint(nvme, { ai: noAi }), "No AI provider yet, so this bot alerts on rules alone. Add one in Settings › Agent.");
-    assert.equal(aiHint(seed.gpu, { ai: ready }), "Rules cost nothing and never call an AI.");
-    assert.equal(aiHint({ judgeMode: "ai" }, { ai: ready }).startsWith("AI checks 0 of 20 today"), true, "a new bot has used none");
-    assert.equal(SMART_HINT, "AI judges looks at each change your rules spot and decides if it's worth telling you. Research comes later.");
-    assert.equal(
-      lessonsHint(nvme),
-      "The AI judge reads these each time it decides. Rules-only bots keep them for when you turn AI on. Remove one to forget it.",
-    );
-    assert.equal(lessonsHint(brief), "When Write it with AI is on, these shape how the brief is written. Remove one to forget it.");
-  });
-
   test("filter lines", () => {
     assert.equal(filterLine([]), "Everything it finds");
     assert.equal(filterLine(null), "Everything it finds");
     assert.equal(filterLine(["2TB NVMe"]), "mentions 2TB NVMe");
     assert.equal(filterLine(["2TB", " 4TB "]), "mentions 2TB or 4TB");
-  });
-
-  test("what AI did with each alert", () => {
-    assert.deepEqual(alertAi(nvme.latestAlert), {
-      pill: null,
-      line: "AI: Under your $110 wishlist limit and well below its usual price",
-      short: "AI: Under your $110 wishlist limit and well below its usual price",
-      tone: "default",
-    });
-    assert.deepEqual(alertAi(heldBack), {
-      pill: null,
-      line: "Held back by AI: a 0.4% wobble, below what you care about",
-      short: "Held back by AI: a 0.4% wobble, below what you care about",
-      tone: "muted",
-    });
-    assert.equal(alertAi(alertOf({ aiState: "rejudged", aiWhy: "Only a 0.2% move" })).line, "AI checked it later: Only a 0.2% move");
-    assert.deepEqual(alertAi(sonyAi.latestAlert), {
-      pill: "Not checked by AI",
-      line: "AI was unavailable; Timely asks again later",
-      short: "Not checked by AI · asks again later",
-      tone: "warning",
-    });
-    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI checks are used up for today" })).short, "Not checked by AI · AI checks used up today");
-    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "No AI provider is set up" })).short, "Not checked by AI · no AI provider");
-    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "Changed while AI was checking it" })).short, "Not checked by AI · changed while checking");
-    // A re-judge that stopped says why, and no longer "asks again later".
-    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI was unavailable" })).short, "Not checked by AI · AI was unavailable");
-    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI did not check it: all bots are paused" })).short, "Not checked by AI · all bots paused");
-    assert.equal(alertAi(alertOf({ aiState: "unchecked", aiWhy: "AI judging was turned off for this bot" })).short, "Not checked by AI · AI judging turned off");
-    assert.deepEqual(alertAi(alertOf({})), { pill: null, line: null, short: null, tone: "default" });
-    // A brief the AI could not write went out from the template and is never asked about again.
-    assert.deepEqual(alertAi(alertOf({ kind: "brief", aiState: "unchecked", aiWhy: "AI was unavailable; Timely asks again later" })), {
-      pill: "Not checked by AI",
-      line: "AI was unavailable, so this brief was written from the template",
-      short: "Not checked by AI · written from the template",
-      tone: "warning",
-    });
-    assert.equal(alertAi(alertOf({ kind: "brief", aiState: "unchecked", aiWhy: "" })).short, "Not checked by AI · written from the template");
-    assert.equal(
-      alertAi(alertOf({ kind: "brief", aiState: "unchecked", aiWhy: "AI checks are used up for today" })).short,
-      "Not checked by AI · AI checks used up today",
-    );
   });
 
   test("also seen and shared lines", () => {
@@ -1689,18 +1471,10 @@ describe("AI, links and briefs over the seed", () => {
         ["Found by", "GPU deals under $400"],
         ["Passed on", "mentions 2TB NVMe"],
         ["Checked by", "Price check · NVMe"],
-        ["Judged by", "AI"],
       ],
       unpass: { linkId: "blk_gpu_nvme" },
     });
-    assert.deepEqual(howItCame(sonyAi.latestAlert, sonyAi, all, links), {
-      rows: [
-        ["Checked by", "Sony WH-1000XM6 under ₹25,000"],
-        ["Judged by", "Not checked by AI"],
-      ],
-      unpass: null,
-    });
-    assert.deepEqual(howItCame(alertOf({}), seed.gpu, all, links).rows.at(-1), ["Judged by", "Rules only"]);
+    assert.deepEqual(howItCame(alertOf({}), seed.gpu, all, links), { rows: [["Checked by", "GPU deals under $400"]], unpass: null });
     const off = links.map((l) => (l.id === "blk_gpu_nvme" ? { ...l, enabled: false, offReason: "person" } : l));
     assert.equal(howItCame(nvme.latestAlert, nvme, all, off).unpass, null, "a switched-off link has nothing to turn off");
     // A bot's own links lack a longer chain's first step: the board's fill it in, its own win.
@@ -1745,7 +1519,8 @@ describe("AI, links and briefs over the seed", () => {
       "the header already counts alerts",
     );
     const quiet = { ...summary, aiChecksToday: 0, allPaused: true, links: briefLinks };
-    assert.deepEqual(todayRows(quiet, board), [{ id: "pause", label: "Pause all bots", kind: "switch", on: true }]);
+    assert.deepEqual(todayRows(quiet, []), [{ id: "pause", label: "Pause all bots", kind: "switch", on: true }]);
+    assert.deepEqual(todayRows(quiet, board)[1], { id: "ai", label: "AI checks", kind: "value", value: "0 of 200" }, "every bot runs on AI");
   });
 
   test("the header counts shared alerts", () => {
@@ -1808,32 +1583,20 @@ describe("AI, links and briefs over the seed", () => {
     assert.deepEqual(worksWith(steamOnly, links, all).briefOnly, { on: true, enabled: true });
   });
 
-  test("a suggested change needs you, after new alerts", () => {
-    assert.equal(needsReason(nvdaSuggests, NOW), "suggestion");
-    assert.deepEqual(
-      needsOrder([...board.filter((b) => b.id !== "bot_seed_nvda"), nvdaSuggests], NOW).map((b) => b.id),
-      ["bot_seed_gpu", "bot_seed_nvda", "bot_seed_visa", "bot_seed_pixel", "bot_seed_coldplay"],
-    );
-    assert.equal(fixAction(nvdaSuggests), "apply_suggestion");
-    assert.deepEqual(fixButtons(nvdaSuggests), {
-      primary: { action: "apply_suggestion", label: "Raise to 8%" },
-      secondary: { action: "dismiss_suggestion", label: "Not now" },
-    });
-    assert.deepEqual(fixCopy(nvdaSuggests), {
-      eyebrow: "Suggests a change",
-      title: "Only tell me about moves over 8%?",
-      meta: "After 3 Not useful alerts in a row",
-    });
-    // A broken bot is fixed first; a new alert is rated first.
-    const brokenToo = { ...seed.visa, suggestion };
-    assert.equal(needsReason(brokenToo, NOW), "broken");
-    assert.equal(fixAction(brokenToo), "pick_part");
-    assert.equal(needsReason({ ...seed.gpu, suggestion }, NOW), "new_alert");
-  });
-
   test("brief drafts", () => {
-    const draft = starterDraft(STARTERS[4]);
-    assert.equal(draft.description, "Each morning, sum up what my other bots found.");
+    const draft = {
+      name: "Morning brief",
+      description: "Each morning, sum up what my other bots found.",
+      intervalMinutes: 1440,
+      kind: "brief",
+      briefTime: "08:00",
+      briefAi: false,
+      sources: [],
+      watches: [],
+      desktop: true,
+      phone: true,
+      urgent: false,
+    };
     assert.deepEqual(draftErrors(draft), ["Pick at least one bot to sum up"]);
     draft.sources = ["bot_seed_gpu"];
     assert.deepEqual(draftErrors(draft), [], "a brief needs no watch");
@@ -1851,8 +1614,8 @@ describe("AI, links and briefs over the seed", () => {
       briefAi: false,
       briefTime: "08:00",
     });
-    // A watch bot's draft still needs a watch.
-    assert.deepEqual(draftErrors({ ...emptyDraft(), name: "x", sources: ["bot_seed_gpu"] }), ["Give the bot something to watch: a page, a feed or a price"]);
+    // A watch bot's Reads are optional.
+    assert.deepEqual(draftErrors({ ...emptyDraft(), name: "x", sources: ["bot_seed_gpu"] }), []);
 
     assert.deepEqual(toPatch(brief, draftOf(brief)), {});
     const fewer = { ...draftOf(brief), sources: ["bot_seed_gpu", "bot_seed_sony", "bot_seed_btc"] };
@@ -1867,13 +1630,13 @@ describe("AI, links and briefs over the seed", () => {
     assert.deepEqual(proposalFacts(draft), [["Sends", "Daily at 08:00"]]);
   });
 
-  test("watch drafts carry judging, knowledge and links", () => {
+  test("watch drafts carry knowledge and links", () => {
     const d = draftOf(nvme);
-    assert.equal(d.judgeMode, "ai");
+    assert.equal("judgeMode" in d, false);
     assert.deepEqual(d.knowledge, { kind: "sheet", id: "sht_wishlist" });
     assert.deepEqual(toPatch(nvme, d), {});
     assert.deepEqual(toPatch(nvme, { ...d, knowledge: null }), { knowledge: null });
-    assert.deepEqual(toPatch(seed.gpu, { ...draftOf(seed.gpu), judgeMode: "ai" }), { judgeMode: "ai" });
+    assert.deepEqual(toPatch(seed.gpu, { ...draftOf(seed.gpu), judgeMode: "ai" }), {}, "a judge mode is never sent");
     assert.deepEqual(toPatch(seed.gpu, { ...draftOf(seed.gpu), briefOnly: true }), { briefOnly: true });
 
     const withLinks = draftOf(seed.gpu, links);
@@ -1888,9 +1651,10 @@ describe("AI, links and briefs over the seed", () => {
       ],
     });
 
-    const args = { name: "Check", description: "", intervalMinutes: 0, judgeMode: "ai", watches: [{ kind: "price", source: "crypto", symbol: "BTC" }] };
-    assert.deepEqual(proposalFacts(args).at(-1), ["AI checks", "Up to 20 a day"]);
-    assert.equal(previewCard(args, null, NOW).judgeMode, "ai");
+    const args = { name: "Check", description: "", intervalMinutes: 0, watches: [{ kind: "price", source: "crypto", symbol: "BTC" }] };
+    assert.deepEqual(proposalFacts(args).at(-1), ["At most", "3 alerts a day"]);
+    const card = previewCard(args, null, NOW);
+    assert.equal("judgeMode" in card || "suggestion" in card, false);
   });
 });
 
@@ -2037,16 +1801,14 @@ describe("price history", () => {
     id: "bwt_two_btc",
     value: 71000,
     lastReadingAt: ago(3),
-    rules: [{ id: "brl_up", kind: "above", threshold: 72000, stepPercent: 5, resetPercent: 0.5 }],
   };
   const detail = (over = {}) => ({
     ...seed.headphones,
     checks: [],
     alerts: [],
-    lessons: [],
+    taught: { text: "", staged: [] },
     week: { checks: 0, alerts: 0 },
     alertsMonth: 0,
-    rearms: [],
     links: [],
     prices: [day(0, 29990), day(10, 26990, 24990), day(20, 27990), day(29, 27499), day(5, 70000, null, "bwt_two_btc"), day(29, 70500, null, "bwt_two_btc")],
     ...over,
@@ -2071,13 +1833,11 @@ describe("price history", () => {
         [lastClose, 27499],
         [now, 27499],
       ],
-      threshold: 25000,
       low: 24990,
       lowDay: "Oct 19",
       changePct: ((27499 - 29990) / 29990) * 100,
       since: "Oct 9",
-      good: true,
-      under: "₹2,499 above your line",
+      under: null,
       paused: false,
     });
   });
@@ -2092,7 +1852,6 @@ describe("price history", () => {
     assert.equal(fresh.low, null);
     assert.equal(fresh.lowDay, null);
     assert.equal(fresh.changePct, null);
-    assert.equal(fresh.good, false);
   });
 
   test("a picked watch, a missing one, and a bot without a price", () => {
@@ -2101,8 +1860,8 @@ describe("price history", () => {
     assert.equal(btc.watchId, "bwt_two_btc");
     assert.equal(btc.label, "BTC");
     assert.equal(btc.multiple, true, "two price watches; the feed is not one");
-    assert.equal(btc.threshold, 72000);
-    assert.equal(btc.good, true, "an above rule likes a rise");
+    assert.equal(btc.under, "+2.4% today", "a market price says its day");
+    assert.equal("threshold" in btc || "good" in btc, false, "no rule line, no rule colour");
     assert.equal(btc.points.at(-1)[1], 71000);
     assert.equal(priceHistory(d).watchId, "bwt_seed_sony");
     assert.equal(priceHistory(d, "bwt_gone").watchId, "bwt_seed_sony", "a missing watch falls back to the first");
@@ -2111,14 +1870,8 @@ describe("price history", () => {
     assert.equal(priceHistory(detail({ watches: [] })), null);
   });
 
-  test("good follows the rule, and paused is the bot's status", () => {
+  test("paused is the bot's status", () => {
     const d = detail();
-    const w = d.watches[0];
-    const rising = { prices: [day(0, 20000), day(29, 27499)] };
-    assert.equal(priceHistory(detail(rising)).good, false, "a below rule dislikes a rise");
-    assert.equal(priceHistory(detail({ ...rising, watches: [{ ...w, rules: [{ ...below(30000), kind: "above" }] }] })).good, true);
-    assert.equal(priceHistory(detail({ watches: [{ ...w, rules: [] }] })).good, false, "no rule, no colour");
-    assert.equal(priceHistory(detail({ watches: [{ ...w, rules: [] }] })).threshold, null);
     assert.equal(priceHistory(d).paused, false);
     assert.equal(priceHistory(detail({ status: "paused", pauseReason: "person" })).paused, true);
     assert.equal(priceHistory(d, undefined, { allPaused: true }).paused, true, "Pause all on");
@@ -2141,13 +1894,13 @@ describe("price history", () => {
   });
 
   test("niceTicks and priceDomain draw the old chart's range", () => {
-    for (const [points, threshold] of [
-      [series([29990, 26990, 24990, 27990, 27499]), 25000],
-      [series([68250.5, 70120, 71980.25, 69400]), null],
-      [series([0.982, 1.004, 1.019, 0.997]), 1.05],
+    for (const points of [
+      series([29990, 26990, 24990, 27990, 27499]),
+      series([68250.5, 70120, 71980.25, 69400]),
+      series([0.982, 1.004, 1.019, 0.997]),
     ]) {
-      const old = oldChart(points, threshold, 300, 130, 40);
-      const got = priceDomain(points, threshold);
+      const old = oldChart(points, null, 300, 130, 40);
+      const got = priceDomain(points);
       assert.deepEqual(got, { lo: old.lo, hi: old.hi, ticks: old.ticks });
       assert.deepEqual(niceTicks(got.lo, got.hi), old.ticks);
       assert.ok(got.ticks.length >= 2 && got.ticks.length <= 4, `${got.ticks.length} gridlines`);
@@ -2156,22 +1909,22 @@ describe("price history", () => {
 
   test("niceTicks stops on a huge price with a tiny span", () => {
     for (const e of [53, 58, 59, 64, 70]) {
-      const { ticks } = priceDomain(series([2 ** e, 2 ** e + 64]), null);
+      const { ticks } = priceDomain(series([2 ** e, 2 ** e + 64]));
       assert.ok(ticks.length >= 1 && ticks.length <= 8, `2^${e}: ${ticks.length} gridlines`);
     }
     assert.ok(niceTicks(2 ** 58, 2 ** 58 + 64).length <= 8);
   });
 
   test("priceChartGeometry", () => {
-    assert.equal(priceChartGeometry([], null, PHONE_BOX), null);
-    assert.equal(priceChartGeometry(series([100]), null, PHONE_BOX), null, "under two points");
+    assert.equal(priceChartGeometry([], PHONE_BOX), null);
+    assert.equal(priceChartGeometry(series([100]), PHONE_BOX), null, "under two points");
 
     const points = series([29990, 26990, 24990, 27990, 27499]);
-    const g = priceChartGeometry(points, 25000, PHONE_BOX);
-    const old = oldChart(points, 25000, 300, 130, 40);
+    const g = priceChartGeometry(points, PHONE_BOX);
+    const old = oldChart(points, null, 300, 130, 40);
     assert.equal(g.line, old.line, "the same line as the chart");
     assert.ok(g.area.startsWith(`${g.line} L`) && g.area.endsWith(" Z"));
-    assert.equal(g.thresholdY, old.y(25000));
+    assert.equal("thresholdY" in g, false);
     assert.deepEqual(g.low, { x: 40 + (2 / 4) * 252, y: old.y(24990), value: 24990 });
     assert.deepEqual(g.last, { x: 300 - 8, y: old.y(27499), value: 27499 }, "the newest point at the right edge");
     assert.deepEqual(g.grid, old.ticks.map((value) => ({ y: old.y(value), value })));
@@ -2186,32 +1939,24 @@ describe("price history", () => {
     );
     assert.deepEqual(g.xLabels.map((l) => l.anchor), ["start", "middle", "end"]);
     // A new bot's one close and its "now" reading: the middle would be the first day again.
-    const two = priceChartGeometry(series([100, 90]), null, PHONE_BOX);
+    const two = priceChartGeometry(series([100, 90]), PHONE_BOX);
     assert.deepEqual(two.xLabels.map((l) => [l.x, l.anchor]), [[40, "start"], [292, "end"]]);
     assert.deepEqual(two.xLabels.map((l) => l.label), priceDayLabels(series([100, 90])).map((l) => l.label));
     assert.equal(two.xLabels[1].label, "Today");
 
-    const wide = priceChartGeometry(points, 25000, { ...PHONE_BOX, width: 600 });
+    const wide = priceChartGeometry(points, { ...PHONE_BOX, width: 600 });
     assert.equal(wide.last.x, 600 - 8);
     assert.deepEqual(
-      [wide.thresholdY, wide.low.y, wide.last.y, wide.grid],
-      [g.thresholdY, g.low.y, g.last.y, g.grid],
+      [wide.low.y, wide.last.y, wide.grid],
+      [g.low.y, g.last.y, g.grid],
       "a wider box keeps every height",
     );
 
-    const flat = priceChartGeometry(series([100, 100, 100]), null, PHONE_BOX);
+    const flat = priceChartGeometry(series([100, 100, 100]), PHONE_BOX);
     const ys = [...flat.line.matchAll(/[ML][\d.]+ ([\d.]+)/g)].map((m) => m[1]);
     assert.deepEqual(new Set(ys).size, 1, "a flat series is one level line");
     assert.equal(flat.low.y, 8 + 102 / 2, "in the middle of the plot");
-    assert.equal(flat.thresholdY, null);
-    assert.deepEqual(priceDomain(series([100, 100, 100]), null), { lo: 98, hi: 102, ticks: niceTicks(98, 102) });
-
-    const high = priceChartGeometry(series([100, 110, 120]), 150, PHONE_BOX);
-    const plain = priceDomain(series([100, 110, 120]), null);
-    const widened = priceDomain(series([100, 110, 120]), 150);
-    assert.ok(widened.hi > 150 && widened.hi > plain.hi, "a line above the prices widens the range");
-    assert.ok(high.thresholdY < high.last.y, "and is drawn above them");
-    assert.ok(high.thresholdY >= 8);
+    assert.deepEqual(priceDomain(series([100, 100, 100])), { lo: 98, hi: 102, ticks: niceTicks(98, 102) });
   });
 });
 
@@ -2280,5 +2025,18 @@ describe("agent bots and the Assistant tab", async () => {
     assert.equal(asst.notificationToAssistant({ category: "bot" }), "/assistant");
     assert.equal(asst.notificationToAssistant({ entityType: "chat", entityId: "c2" }), "/assistant?chat=c2");
     assert.equal(asst.notificationToAssistant({ category: "digest" }), null);
+    // A bot's staged suggestion push opens that bot's page.
+    assert.equal(asst.notificationToAssistant({ category: "bot_learned", botId: "bot_1" }), "/assistant?bot=bot_1");
+    assert.equal(asst.notificationToAssistant({ data: { category: "bot_learned", botId: "bot_2" } }), "/assistant?bot=bot_2");
+  });
+
+  test("a bot's own skill and what it was taught", () => {
+    const src = readFileSync(new URL("../packages/contract/src/bots.ts", import.meta.url), "utf8");
+    assert.match(src, /skillSlug\?: string;/);
+    assert.match(src, /export type BotTaught = \{ text: string; staged: LearningEvent\[\] \};/);
+    assert.match(src, /taught: BotTaught;/);
+    for (const gone of [/\bRuleKind\b/, /\bJudgeMode\b/, /\bLesson\b/, /\bSuggestion\b/, /\bBotEngine\b/, /judgeMode/, /\blessons\??:/, /\brearms?\b/i]) {
+      assert.doesNotMatch(src, gone, String(gone));
+    }
   });
 });

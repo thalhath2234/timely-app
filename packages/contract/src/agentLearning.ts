@@ -426,6 +426,23 @@ export function pendingCard(
   };
 }
 
+/**
+ * The notification category of a bot's staged suggestion: one push per
+ * suggestion (quiet hours apply), and tapping it opens that bot's page.
+ */
+export const BOT_LEARNED_CATEGORY = "bot_learned";
+export type BotLearnedCategory = typeof BOT_LEARNED_CATEGORY;
+
+/** The push title of a bot's staged suggestion: "Deals feed learned something - Keep?". */
+export function botLearnedPush(botName: string): string {
+  return `${botName} learned something - Keep?`;
+}
+
+/** The bot page group that holds its skill's "What you taught me" text and its staged suggestions. */
+export const BOT_TAUGHT_TITLE = "What this bot was taught";
+/** The row with the person's own words in the bot's skill. */
+export const TAUGHT_TEXT_ROW = "What you taught me";
+
 /** Why a staged change waits, in one line. */
 export const WAIT_WHY = {
   bot: "A bot suggested this, so it waits for you.",

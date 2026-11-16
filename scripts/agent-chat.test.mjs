@@ -7,13 +7,10 @@ import {
   ALWAYS_BLOCKED_NOTE,
   AUTO_ASKS_BEFORE,
   DEFAULT_CHAT_SETTINGS,
-  ENGINE_COPY,
   FULL_ACCESS_CONFIRM,
   FULL_ACCESS_PHONE_NOTE,
   PERMISSION_COPY,
   PERMISSION_MODES,
-  USE_CLASSIC_ACTION,
-  USE_CLASSIC_LABEL,
   QUESTION_CARD_TITLES,
   QUESTION_CLOSED,
   QUESTION_LIMITS,
@@ -21,6 +18,7 @@ import {
   QUESTION_STATUS_WORD,
   answerProblem,
   answerSummary,
+  cliProviderDescription,
   applyDelta,
   newChatAccess,
   cleanAnswers,
@@ -163,19 +161,23 @@ describe("permission copy", () => {
     assert.match(ALWAYS_BLOCKED_NOTE, /every mode/);
   });
 
-  test("defaults and engine words", () => {
+  test("defaults: one engine, so no engine choice", () => {
     assert.deepEqual(DEFAULT_CHAT_SETTINGS, {
-      engine: "classic",
       chatPermission: "supervised",
       botPermission: "auto",
       fullAccessAllowedOn: "desktop",
       hostApprovalRule: "devices",
       hostApprovalTimeoutMinutes: 60,
     });
-    assert.equal(ENGINE_COPY.classic.name, "Classic");
-    assert.equal(ENGINE_COPY.agent.name, "New");
-    assert.equal(USE_CLASSIC_ACTION, "use_classic");
-    assert.equal(USE_CLASSIC_LABEL, "Use classic for this chat");
+    assert.equal("engine" in DEFAULT_CHAT_SETTINGS, false);
+  });
+
+  test("the CLI provider lines never name Classic or New", () => {
+    for (const id of ["claude", "codex"]) {
+      const line = cliProviderDescription(id, "the server");
+      assert.match(line, /on the server/);
+      assert.doesNotMatch(line, /Classic|New/);
+    }
   });
 });
 

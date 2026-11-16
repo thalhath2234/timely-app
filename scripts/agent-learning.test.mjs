@@ -24,6 +24,10 @@ import {
   learnedOffSummary,
   originWords,
   categoryWords,
+  BOT_LEARNED_CATEGORY,
+  BOT_TAUGHT_TITLE,
+  TAUGHT_TEXT_ROW,
+  botLearnedPush,
 } from "../packages/contract/src/agentLearning.ts";
 
 let seq = 0;
@@ -187,6 +191,13 @@ describe("pendingCard", () => {
     );
     assert.equal(card.title, "Keep what Deals feed learned?");
     assert.match(card.why, /bot/);
+  });
+
+  test("a bot's feedback review is staged as the bot's own suggestion", () => {
+    const staged = ev({ status: "staged", pendingId: "p", botId: "bot_1", origin: "bot", reason: "bot", subject: "bot-deals-feed", action: "patched" });
+    const card = pendingCard([staged], "Deals feed");
+    assert.deepEqual(card.items.map((i) => i.pendingId), ["p"]);
+    assert.equal(pendingItemWhy(staged), "A bot suggested this, so it waits for you.");
   });
 
   test("nothing staged, no card", () => {
@@ -387,5 +398,17 @@ describe("Settings → Agent row with learning off", () => {
   test("says learning is off, and still counts what waits", () => {
     assert.equal(learnedOffSummary(0), "Learning is off");
     assert.equal(learnedOffSummary(2), "Learning is off · 2 waiting");
+  });
+});
+
+describe("bot learning words", () => {
+  test("one push per staged bot suggestion, under its own category", () => {
+    assert.equal(BOT_LEARNED_CATEGORY, "bot_learned");
+    assert.equal(botLearnedPush("Deals feed"), "Deals feed learned something - Keep?");
+  });
+
+  test("the bot page group", () => {
+    assert.equal(BOT_TAUGHT_TITLE, "What this bot was taught");
+    assert.equal(TAUGHT_TEXT_ROW, "What you taught me");
   });
 });
