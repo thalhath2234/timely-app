@@ -1189,8 +1189,9 @@ func (e *WorkerEngine) ContinueBot(uid, cid string, h HostRequest, lease string)
 // pre_approved call is exactly the card's (tool and arguments hash), run
 // once. Its bot.run goes out only while the thread row still runs under the
 // answer's lease, and the lease is renewed while it runs, so a Stop or
-// Delete ends it. Its reports are saved as alerts on the card's Check through
-// SaveContinuation, when it is set.
+// Delete ends it. A browser call takes the browser lease first and does not
+// run while a chat holds it. Its reports are saved as alerts on the card's
+// Check through SaveContinuation, when it is set.
 func (a *BotAgent) continueCard(ctx context.Context, uid, cid string, h HostRequest, lease string) {
 	s := a.e.s
 	runID := botContinuationRun(h)
@@ -1228,6 +1229,19 @@ func (a *BotAgent) continueCard(ctx context.Context, uid, cid string, h HostRequ
 	spec.fields["pre_approved"] = map[string]any{"tool": h.Tool, "args_hash": h.ArgsHash}
 	spec.fence = func() bool { return s.botRowHolds(ctx, uid, cid, runID, lease) }
 	spec.renew = func() bool { return s.renewLease(ctx, uid, cid, lease) }
+	// The approved call runs without a gate.ask, so a browser call takes the
+	// browser lease here, as a tick's does at its gate. A chat holding it
+	// wins, as it does over a tick: the step does not run and the card reads
+	// Not run with "browser busy" (no strike; the next check may ask again).
+	if browserClass(h.Tool) {
+		if !a.lease.TryAcquireBot(uid, spec.wireCheck) {
+			finish(false, continuationBusy)
+			return
+		}
+		// forget lets it go once the run registered; this covers a run that
+		// never did (no worker, a fence).
+		defer a.lease.Release(uid, BotHolder(spec.wireCheck))
+	}
 	rctx, cancel := context.WithTimeout(ctx, botDeadline+botGrace)
 	res, err := a.run(rctx, uid, spec)
 	cancel()
@@ -1244,6 +1258,10 @@ func (a *BotAgent) continueCard(ctx context.Context, uid, cid string, h HostRequ
 		}
 	}
 }
+
+// continuationBusy is the Bot thread's line for a browser step that did not
+// run because a chat held the browser.
+const continuationBusy = "Browser busy: a chat is using the browser, so this step did not run. The bot can ask again on its next check."
 
 // continuationPrompt is what a continuation asks: exactly the approved call,
 // then a report or [SILENT].
