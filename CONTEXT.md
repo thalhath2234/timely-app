@@ -135,10 +135,6 @@ _Avoid_: embed (that is a video or page from a link), widget, dashboard in a doc
 An item from a doc's checklist shown in a Reply card, a Described card or a Live block. Its tick box ticks the item in the doc and its words open the doc. The row shows the item as the doc has it now, and a tick changes only that item, so an older copy of the doc never overwrites newer edits (ADR 0017).
 _Avoid_: task (a checklist item is not a Task), todo
 
-**Engine**:
-What runs a chat's turns: Classic (Timely's own loop, the default) or New (the agent engine, a Hermes-derived agent in a per-account worker, ADR 0026). Each account picks one in Settings → Agent; a chat can be set to the other. Private photo chats, Sensitive chats and applying approved changes always run on Classic. When New can't run a chat, the run fails with the reason and "Use classic for this chat"; Timely never switches engines on its own.
-_Avoid_: backend, provider (that is the Agent provider), model
-
 **Permission mode**:
 How much a chat's agent may do without asking: Supervised (every change waits for Approve), Auto (changes apply at once with Undo, except the Critical list), or Full Access (no Host card for commands, files or code, or for a tool of an MCP server set to Use; a browser call and a tool of a server set to Ask me first still show a card in every mode; turning it on needs a confirmation from the desktop window, or from an unlocked phone when Settings allows Full Access on any device, that names what it lifts, and it never lifts the floors: wiping the disk or system and handing out keys). A Full Access that was not confirmed acts as Auto, and a new chat made from any other device takes Auto, not the account's Full Access default. New chats take the account's default (Supervised unless changed); each chat can be switched from the composer chip. A looser mode never approves a change already waiting; a stricter one holds the next.
 _Avoid_: autonomy level, trust level, YOLO (in copy)
@@ -261,9 +257,13 @@ _Avoid_: run (an Agent run is a chat attempt), scan, poll
 The notification a Bot sends, in its own notification category, with Useful and Not useful. Its numbers come from the Check's readings, never from the agent's words. With no AI provider or during an outage, the Bot records readings and sends no alert. It is also posted into the Bot thread, and an alert that repeats within 7 days is held as a duplicate.
 _Avoid_: Reminder (a Reminder is a timed ping the person set), notification (alone)
 
-**Lesson**:
-A short line a Bot keeps from a Useful or Not useful answer on one of its alerts, read by the Bot's agent on later Checks. Code writes it from the person's own answer and note, never from text the AI or a page wrote. Up to 20 per Bot, each removable.
-_Avoid_: memory, training, feedback (alone)
+**Bot skill**:
+A Bot's own learned skill, named `bot-<slug>` from the Bot's name when it is first made and kept when the Bot is renamed. It loads into every Check of that Bot. Its "What you taught me" part holds what the person said in feedback. A Feedback review is the only thing that changes it, and only after the person taps Keep.
+_Avoid_: lesson (the old per-Bot lines it replaced), memory, training
+
+**Feedback review**:
+The agent's look back over one Bot alert's Check after the person wrote a note on it or answered Not useful, limited to that Bot's own Bot skill. Its result is always a staged change shown under "What this bot was taught" and in Waiting for you, and nothing applies until Keep. A plain Useful with no note starts none.
+_Avoid_: retraining, lesson
 
 **Starter**:
 A ready-made Bot prompt on the empty Assistant page, one for each Hermes blueprint plus Price drop, Page changed, Stock move, New in a feed and Morning brief, that opens a new Bot thread with the setup filled in. A Starter that needs a connector Timely lacks says what it needs and stays off.
