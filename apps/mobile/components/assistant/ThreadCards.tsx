@@ -213,7 +213,10 @@ export function DraftSetupCard({
       <Text style={styles.eyebrow}>New Bot</Text>
       <Text style={styles.title}>{item.name}</Text>
       <ListGroup>
-        <ListRow title="Prompt" meta={promptPreview(f.prompt, 140)} chevron={false} />
+        {/* A wrapped subtitle gets the same 14 pt above and below its text as a one-line row. */}
+        <View style={styles.firstTallRow}>
+          <ListRow title="Prompt" meta={promptPreview(f.prompt, 140)} chevron={false} />
+        </View>
         <ListRow title="Runs" trailing={scheduleWords(f.schedule)} chevron={false} />
         <ListRow title="When" trailing={gateWords(f.gate)} chevron={false} />
         <ListRow title="Tools" meta={toolsSummary(f.tools)} chevron={false} />
@@ -234,6 +237,7 @@ const styles = createThemedStyleSheet(() => ({
   answer: { maxWidth: "92%", gap: 4 },
   card: { backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14, gap: 8 },
   muted: { opacity: 0.7 },
+  firstTallRow: { paddingVertical: 6 },
   pending: { borderColor: colors.warning },
   head: { flexDirection: "row", alignItems: "center", gap: 6 },
   eyebrow: { color: colors.mutedForeground, fontSize: 11, fontWeight: "600", letterSpacing: 0.8, textTransform: "uppercase" },

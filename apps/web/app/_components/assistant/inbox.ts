@@ -18,6 +18,30 @@ export type InboxChat = ChatSummary & { kind?: string; botId?: string };
 export type ThreadNeeds = "parked" | "change" | "review" | "draft";
 export type BotNeeds = NeedsReason | "thread" | ThreadNeeds;
 
+/** A new Bot not yet created: its draft thread. */
+export type DraftItem = {
+  type: "draft";
+  id: string;
+  title: string;
+  at: number;
+  unread: boolean;
+  thread: BotThreadSummary;
+  needs: "draft";
+  href: string;
+  waiting?: number;
+};
+
+/** The older drafts folded into one row ("3 unfinished Bots") that opens to list them. */
+export type DraftsItem = {
+  type: "drafts";
+  id: string;
+  title: string;
+  at: number;
+  unread: boolean;
+  drafts: DraftItem[];
+  needs: null;
+};
+
 export type InboxItem =
   | { type: "chat"; id: string; title: string; at: number; unread: boolean; chat: InboxChat; needs: boolean }
   | {
@@ -33,17 +57,14 @@ export type InboxItem =
       /** Parked steps, changes and Review cards waiting in its thread. */
       waiting?: number;
     }
-  | {
-      type: "draft";
-      id: string;
-      title: string;
-      at: number;
-      unread: boolean;
-      thread: BotThreadSummary;
-      needs: "draft";
-      href: string;
-      waiting?: number;
-    };
+  | DraftItem
+  | DraftsItem;
+
+/** Id of the one summary row for older drafts. */
+export const OLDER_DRAFTS_ID = "older-drafts";
+
+/** "1 unfinished Bot", "3 unfinished Bots". */
+export const unfinishedWords = (count: number): string => `${count} unfinished ${count === 1 ? "Bot" : "Bots"}`;
 
 /** Words for why a Bot needs the person. */
 export const BOT_NEEDS_WORDS: Record<BotNeeds, string> = {
@@ -129,6 +150,17 @@ export function botNeedsLine(item: Extract<InboxItem, { type: "bot" | "draft" }>
   return item.waiting && item.waiting > 1 ? `${words} · ${item.waiting} waiting` : words;
 }
 
+const draftItem = (thread: BotThreadSummary): DraftItem => ({
+  type: "draft",
+  id: thread.id,
+  title: thread.title || "New bot",
+  at: ms(thread.updatedAt),
+  unread: thread.unread,
+  thread,
+  needs: "draft",
+  href: assistantHref({ bot: thread.botId ?? thread.id, thread: thread.id }),
+});
+
 /**
  * Puts what Bot threads wait on into an inbox. A Bot with a parked step, a
  * change waiting for one tap or a Review card moves to Needs you and opens
@@ -157,21 +189,29 @@ export function applyBotThreads(inbox: Inbox, threads: readonly BotThreadSummary
       at: Math.max(item.at, ms(thread.updatedAt)),
     };
   });
-  const known = new Set(items.filter((i) => i.type === "draft").map((i) => i.id));
-  for (const thread of drafts) {
-    if (known.has(thread.id)) continue;
-    items.push({
-      type: "draft",
-      id: thread.id,
-      title: thread.title || "New bot",
-      at: ms(thread.updatedAt),
-      unread: thread.unread,
-      thread,
-      needs: "draft",
-      href: assistantHref({ bot: thread.botId ?? thread.id, thread: thread.id }),
+  // Abandoned drafts pile up: the newest is a row of its own, the older ones
+  // fold into one summary row. Drafts already in the inbox stay in the count.
+  const byId = new Map<string, BotThreadSummary>();
+  for (const item of items) {
+    if (item.type === "draft") byId.set(item.id, item.thread);
+    if (item.type === "drafts") for (const d of item.drafts) byId.set(d.id, d.thread);
+  }
+  for (const thread of drafts) if (!byId.has(thread.id)) byId.set(thread.id, thread);
+  const kept: InboxItem[] = items.filter((i) => i.type !== "draft" && i.type !== "drafts");
+  const [newest, ...older] = [...byId.values()].sort((a, b) => ms(b.updatedAt) - ms(a.updatedAt));
+  if (newest) kept.push(draftItem(newest));
+  if (older.length) {
+    kept.push({
+      type: "drafts",
+      id: OLDER_DRAFTS_ID,
+      title: unfinishedWords(older.length),
+      at: ms(older[0].updatedAt),
+      unread: false,
+      drafts: older.map(draftItem),
+      needs: null,
     });
   }
-  return sortInbox(items);
+  return sortInbox(kept);
 }
 
 /**
@@ -218,9 +258,16 @@ export function buildInbox(
 export function filterInbox(inbox: Inbox, query: string): Inbox {
   const q = query.trim().toLowerCase();
   if (!q) return inbox;
-  const keep = (i: InboxItem) =>
+  const has = (i: InboxItem) =>
     i.title.toLowerCase().includes(q) || (i.type === "bot" && i.bot.description.toLowerCase().includes(q));
-  return { needs: inbox.needs.filter(keep), recent: inbox.recent.filter(keep) };
+  // The summary row matches through the drafts inside it, and keeps only those.
+  const narrow = (items: InboxItem[]): InboxItem[] =>
+    items.flatMap<InboxItem>((i) => {
+      if (i.type !== "drafts") return has(i) ? [i] : [];
+      const drafts = i.drafts.filter(has);
+      return drafts.length ? [{ ...i, title: unfinishedWords(drafts.length), drafts }] : [];
+    });
+  return { needs: narrow(inbox.needs), recent: narrow(inbox.recent) };
 }
 
 /** How many rows wait on the person: the nav badge. */

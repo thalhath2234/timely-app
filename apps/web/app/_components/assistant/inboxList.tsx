@@ -9,7 +9,7 @@ import {
   type MouseEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { LogoSpinner } from "@/app/_components/_ui/timelyLogo";
 import { SkeletonRows } from "@/app/_components/_ui/skeleton";
 import LoadError from "@/app/_components/_ui/loadError";
@@ -21,7 +21,7 @@ import { openContextMenu } from "@/app/_store/contextMenuStore";
 import { useBotIcons } from "@/app/utils/hooks/bots";
 import { useBotThreads } from "@/app/utils/hooks/chat";
 import { cn } from "@/app/utils/cn";
-import { applyBotThreads, botNeedsLine, filterInbox, type Inbox, type InboxItem } from "./inbox";
+import { applyBotThreads, botNeedsLine, filterInbox, type DraftsItem, type Inbox, type InboxItem } from "./inbox";
 
 const TONE = {
   primary: "text-primary",
@@ -185,6 +185,35 @@ function Row({ item, selected, icons, onOpen, onRename, onDelete }: Rowish & { i
   );
 }
 
+/** The older unfinished drafts as one row that opens to list them in place. */
+function DraftsRow({ item, ...row }: Rowish & { item: DraftsItem }) {
+  const [open, setOpen] = useState(false);
+  const Chevron = open ? ChevronDown : ChevronRight;
+  return (
+    <>
+      <div role="listitem" className="group relative flex items-center gap-1 pr-1.5 transition-colors hover:bg-muted/60">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`${item.title}, ${open ? "hide" : "show"}`}
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+        >
+          <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-muted text-muted-foreground">
+            <Bot className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-medium leading-5">{item.title}</span>
+            <span className="block truncate text-xs leading-4 text-muted-foreground">New bots you didn’t finish</span>
+          </span>
+          <Chevron className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      </div>
+      {open ? item.drafts.map((draft) => <Row key={`draft:${draft.id}`} item={draft} {...row} />) : null}
+    </>
+  );
+}
+
 function Group({ label, count, items, ...row }: Rowish & { label: string; count?: number; items: InboxItem[] }) {
   if (!items.length) return null;
   return (
@@ -194,9 +223,13 @@ function Group({ label, count, items, ...row }: Rowish & { label: string; count?
         {count ? <span className="rounded-full bg-warning/15 px-1.5 text-[11px] font-medium normal-case tracking-normal text-warning">{count}</span> : null}
       </p>
       <div role="list" className="divide-y divide-border overflow-hidden rounded-[12px] border border-border bg-card">
-        {items.map((item) => (
-          <Row key={`${item.type}:${item.id}`} item={item} {...row} />
-        ))}
+        {items.map((item) =>
+          item.type === "drafts" ? (
+            <DraftsRow key={`${item.type}:${item.id}`} item={item} {...row} />
+          ) : (
+            <Row key={`${item.type}:${item.id}`} item={item} {...row} />
+          ),
+        )}
       </div>
     </section>
   );
@@ -252,7 +285,7 @@ export function InboxList({
   );
   const icons = useBotIcons(sites).data;
   const open = (item: InboxItem) => {
-    if (item.type !== "chat" && item.href) router.push(item.href, { scroll: false });
+    if ((item.type === "bot" || item.type === "draft") && item.href) router.push(item.href, { scroll: false });
     else onOpen(item);
   };
   const empty = !loading && !listed.needs.length && !listed.recent.length;

@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Text, View } from "react-native";
-import { Bot, MessageCircle } from "lucide-react-native";
+import { Bot, ChevronDown, ChevronRight, MessageCircle } from "lucide-react-native";
 import { ListGroup, ListRow } from "../settings/SettingsList";
 import { CountPill } from "../bots/Pill";
 import { BotMark } from "../bots/BotMark";
@@ -16,12 +17,16 @@ function Row({
   onOpenChat,
   onOpenBot,
   onOpenDraft,
+  draftsOpen,
+  onToggleDrafts,
 }: {
   item: InboxItem;
   now: number;
   onOpenChat: (id: string) => void;
   onOpenBot: (id: string) => void;
   onOpenDraft: (id: string) => void;
+  draftsOpen: boolean;
+  onToggleDrafts: () => void;
 }) {
   const when = item.at ? relativeTime(new Date(item.at).toISOString(), now) : "";
   const dot = item.unread ? <View accessibilityLabel="Unread" style={styles.dot} /> : null;
@@ -58,6 +63,21 @@ function Row({
         chevron={false}
         accessibilityLabel={`Open Bot ${item.title}`}
         onPress={() => onOpenBot(item.id)}
+      />
+    );
+  }
+  if (item.type === "drafts") {
+    // The older drafts fold into this one row; it opens to list them in place.
+    const Chevron = draftsOpen ? ChevronDown : ChevronRight;
+    return (
+      <ListRow
+        title={item.title}
+        meta="New Bots you didn’t finish"
+        leading={tile(<Bot size={18} color={colors.mutedForeground} />)}
+        trailing={<Chevron size={16} color={colors.mutedForeground} />}
+        chevron={false}
+        accessibilityLabel={`${item.title}, ${draftsOpen ? "hide" : "show"}`}
+        onPress={onToggleDrafts}
       />
     );
   }
@@ -99,8 +119,21 @@ export function AssistantInbox({
   onOpenBot: (id: string) => void;
   onOpenDraft: (id: string) => void;
 }) {
-  const rows = (items: InboxItem[]) =>
-    items.map((item) => <Row key={`${item.type}-${item.id}`} item={item} now={now} onOpenChat={onOpenChat} onOpenBot={onOpenBot} onOpenDraft={onOpenDraft} />);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const row = (item: InboxItem) => (
+    <Row
+      key={`${item.type}-${item.id}`}
+      item={item}
+      now={now}
+      onOpenChat={onOpenChat}
+      onOpenBot={onOpenBot}
+      onOpenDraft={onOpenDraft}
+      draftsOpen={draftsOpen}
+      onToggleDrafts={() => setDraftsOpen((open) => !open)}
+    />
+  );
+  // An open summary row lists its drafts right under it, in the same group.
+  const rows = (items: InboxItem[]) => items.flatMap((item) => [row(item), ...(item.type === "drafts" && draftsOpen ? item.drafts.map(row) : [])]);
   return (
     <>
       {inbox.needs.length ? (

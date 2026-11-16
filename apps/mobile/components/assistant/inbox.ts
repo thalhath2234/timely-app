@@ -32,10 +32,22 @@ export type InboxThread = {
 
 export type BotNeeds = NeedsReason | "thread";
 
+export type DraftItem = { type: "draft"; id: string; title: string; at: number; unread: boolean; thread: InboxThread; needs: null };
+
+/** The older new-Bot drafts folded into one row ("3 unfinished Bots") that opens to list them. */
+export type DraftsItem = { type: "drafts"; id: string; title: string; at: number; unread: boolean; drafts: DraftItem[]; needs: null };
+
 export type InboxItem =
   | { type: "chat"; id: string; title: string; at: number; unread: boolean; chat: InboxChat; needs: boolean }
   | { type: "bot"; id: string; title: string; at: number; unread: boolean; bot: BotView; needs: BotNeeds | null; thread?: InboxThread }
-  | { type: "draft"; id: string; title: string; at: number; unread: boolean; thread: InboxThread; needs: null };
+  | DraftItem
+  | DraftsItem;
+
+/** Id of the one summary row for older drafts. */
+export const OLDER_DRAFTS_ID = "older-drafts";
+
+/** "1 unfinished Bot", "3 unfinished Bots". */
+export const unfinishedWords = (count: number): string => `${count} unfinished ${count === 1 ? "Bot" : "Bots"}`;
 
 /** Words for why a Bot needs the person. */
 export const BOT_NEEDS_WORDS: Record<BotNeeds, string> = {
@@ -62,6 +74,16 @@ const ms = (iso: string | null | undefined) => {
   const t = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(t) ? 0 : t;
 };
+
+const draftItem = (t: InboxThread): DraftItem => ({
+  type: "draft",
+  id: t.id,
+  title: t.title || "New Bot",
+  at: ms(t.updatedAt),
+  unread: false,
+  thread: t,
+  needs: null,
+});
 
 /** A Bot's own thread is a chat of kind 'bot_thread'; it lives under its Bot, not among the chats. */
 export function isBotThread(chat: Pick<InboxChat, "kind" | "botId">): boolean {
@@ -134,9 +156,19 @@ export function buildInbox(chats: InboxChat[], bots: BotView[], threads: InboxTh
       needs: thread && threadNeedsYou(thread) ? "thread" : reason,
     });
   }
-  for (const t of threads) {
-    if (!t.draft) continue;
-    items.push({ type: "draft", id: t.id, title: t.title || "New Bot", at: ms(t.updatedAt), unread: false, thread: t, needs: null });
+  // Abandoned drafts pile up: the newest is a row of its own, the older ones fold into one summary row.
+  const [newest, ...older] = threads.filter((t) => t.draft).sort((a, b) => ms(b.updatedAt) - ms(a.updatedAt));
+  if (newest) items.push(draftItem(newest));
+  if (older.length) {
+    items.push({
+      type: "drafts",
+      id: OLDER_DRAFTS_ID,
+      title: unfinishedWords(older.length),
+      at: ms(older[0].updatedAt),
+      unread: false,
+      drafts: older.map(draftItem),
+      needs: null,
+    });
   }
   const isNeeds = (i: InboxItem) => (i.type === "chat" ? i.needs : i.type === "bot" ? i.needs !== null : false);
   const rank = (i: InboxItem) => (i.type === "bot" && i.needs ? NEEDS_RANK[i.needs] : 0);
@@ -154,9 +186,16 @@ export function buildInbox(chats: InboxChat[], bots: BotView[], threads: InboxTh
 export function filterInbox(inbox: Inbox, query: string): Inbox {
   const q = query.trim().toLowerCase();
   if (!q) return inbox;
-  const keep = (i: InboxItem) =>
+  const has = (i: InboxItem) =>
     i.title.toLowerCase().includes(q) || (i.type === "bot" && i.bot.description.toLowerCase().includes(q));
-  return { needs: inbox.needs.filter(keep), recent: inbox.recent.filter(keep) };
+  // The summary row matches through the drafts inside it, and keeps only those.
+  const narrow = (items: InboxItem[]): InboxItem[] =>
+    items.flatMap<InboxItem>((i) => {
+      if (i.type !== "drafts") return has(i) ? [i] : [];
+      const drafts = i.drafts.filter(has);
+      return drafts.length ? [{ ...i, title: unfinishedWords(drafts.length), drafts }] : [];
+    });
+  return { needs: narrow(inbox.needs), recent: narrow(inbox.recent) };
 }
 
 /** How many rows wait on the person: the tab badge. */
