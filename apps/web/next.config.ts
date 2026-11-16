@@ -24,6 +24,9 @@ const nextConfig: NextConfig = {
     "127.0.0.1",
     ...(process.env.DEV_ORIGINS ?? "").split(",").map((host) => host.trim()).filter(Boolean),
   ],
+  // The dev-only Next.js indicator defaults to bottom-left, over the sidebar's
+  // account button.
+  devIndicators: { position: "bottom-right" },
 };
 
 export default nextConfig;
