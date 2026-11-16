@@ -568,7 +568,15 @@ describe("bots board over the seed", () => {
     assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, feedback: "useful" } }, NOW), null);
     assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, held: "snoozed" } }, NOW), null);
     assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, createdAt: ago(49 * 60) } }, NOW), null);
-    assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, held: "cap" } }, NOW), "new_alert");
+    for (const held of ["cap", "judged", "shared", "duplicate"]) {
+      assert.equal(needsReason({ ...seed.gpu, latestAlert: { ...alert, held } }, NOW), null, `held ${held} is not a new alert`);
+    }
+    assert.deepEqual(alertAi({ ...alert, held: "duplicate", aiState: "judged", aiWhy: "x" }), {
+      pill: null,
+      line: "Already told you",
+      short: "Already told you",
+      tone: "muted",
+    });
   });
 
   test("a missing key needs you, ahead of an unrated alert", () => {
