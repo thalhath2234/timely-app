@@ -64,7 +64,7 @@ function StarterCard({
           <Clock className="size-3" />
           {scheduleWords(starter.schedule)}
         </p>
-        <p className="line-clamp-3 text-[13px] leading-5 text-muted-foreground">
+        <p className="text-[13px] leading-5 text-muted-foreground">
           {starter.prompt}
         </p>
       </div>

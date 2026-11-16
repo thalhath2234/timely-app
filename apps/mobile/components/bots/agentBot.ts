@@ -33,7 +33,51 @@ export function weekdaysWords(days: number[]): string {
   return set.map((d) => DAY_SHORT[d]).join(", ");
 }
 
-/** The Bot's schedule in words: "Every 30 minutes", "Weekdays at 9:00 AM", "On a schedule (cron)". */
+/** A cron day-of-week field ("*", "1-5", "1,3") as weekdays (0 = Sunday), or null. */
+function cronDays(field: string): number[] | null {
+  if (field === "*") return [0, 1, 2, 3, 4, 5, 6];
+  const out: number[] = [];
+  for (const part of field.split(",")) {
+    const m = /^(\d)(?:-(\d))?$/.exec(part);
+    if (!m) return null;
+    const a = Number(m[1]);
+    const b = m[2] === undefined ? a : Number(m[2]);
+    if (a > 7 || b > 7 || a > b) return null;
+    for (let d = a; d <= b; d++) out.push(d % 7);
+  }
+  return out;
+}
+
+const hourWords = (h: number): string => `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
+
+/** A five-field cron in plain words; "On a custom schedule" when it can't be read. */
+export function cronWords(cron: string): string {
+  const custom = "On a custom schedule";
+  const f = cron.trim().split(/\s+/);
+  if (f.length !== 5 || f[2] !== "*" || f[3] !== "*") return custom;
+  const [min, hour, , , dow] = f;
+  const days = cronDays(dow);
+  if (!days || !/^\d{1,2}$/.test(min) || Number(min) > 59) return custom;
+  const suffix = new Set(days).size === 7 ? "" : `, ${weekdaysWords(days).toLowerCase()}`;
+  let m = /^\*\/(\d{1,2})$/.exec(hour);
+  if (m && min === "0" && Number(m[1]) > 0 && Number(m[1]) < 24) {
+    const n = Number(m[1]);
+    return `${n === 1 ? "Every hour" : `Every ${n} hours`}${suffix}`;
+  }
+  m = /^(\d{1,2})-(\d{1,2})(?:\/(\d{1,2}))?$/.exec(hour);
+  if (m && min === "0") {
+    const [a, b, n] = [Number(m[1]), Number(m[2]), Number(m[3] ?? 1)];
+    if (a < b && b < 24 && n > 0) {
+      const lead = n === 1 ? "Hourly" : `Every ${n} hours`;
+      return `${lead}, ${hourWords(a)} to ${hourWords(b)}${suffix}`;
+    }
+    return custom;
+  }
+  if (/^\d{1,2}$/.test(hour) && Number(hour) < 24) return `${weekdaysWords(days)} at ${clockWords(`${hour}:${min.padStart(2, "0")}`)}`;
+  return custom;
+}
+
+/** The Bot's schedule in words: "Every 30 minutes", "Weekdays at 9:00 AM", "Every 6 hours". */
 export function scheduleWords(schedule: BotSchedule | Record<string, never> | null | undefined): string {
   const s = (schedule ?? {}) as Partial<{ everyMinutes: number; dailyAt: string; weekdays: number[]; cron: string }>;
   if (typeof s.everyMinutes === "number" && s.everyMinutes > 0) {
@@ -43,7 +87,7 @@ export function scheduleWords(schedule: BotSchedule | Record<string, never> | nu
     return `Every ${n} minutes`;
   }
   if (s.dailyAt) return `${weekdaysWords(s.weekdays ?? [])} at ${clockWords(s.dailyAt)}`;
-  if (s.cron) return `On a schedule (${s.cron})`;
+  if (s.cron) return cronWords(s.cron);
   return "Not scheduled";
 }
 

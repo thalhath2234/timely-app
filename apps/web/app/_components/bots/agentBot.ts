@@ -89,13 +89,69 @@ export function agentOutcomeWords(c: AgentCheck): string {
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** "Every 30 min", "Weekdays at 09:00", "Mon, Wed at 18:00", or the cron text. */
+/** Weekdays as the dailyAt branch words them: "Daily", "Weekdays", "Mon, Wed". */
+function daysWords(days: number[]): string {
+  const set = days.join(",");
+  if (set === "0,1,2,3,4,5,6") return "Daily";
+  if (set === "1,2,3,4,5") return "Weekdays";
+  return days.map((d) => DAYS[d]).join(", ");
+}
+
+/** A cron day-of-week field ("*", "1-5", "1,3") as sorted weekdays, or null. */
+function cronDays(field: string): number[] | null {
+  if (field === "*") return [0, 1, 2, 3, 4, 5, 6];
+  const out = new Set<number>();
+  for (const part of field.split(",")) {
+    const m = /^(\d)(?:-(\d))?$/.exec(part);
+    if (!m) return null;
+    const a = Number(m[1]);
+    const b = m[2] === undefined ? a : Number(m[2]);
+    if (a > 7 || b > 7 || a > b) return null;
+    for (let d = a; d <= b; d++) out.add(d % 7);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+
+function hourWords(h: number): string {
+  return `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** A five-field cron in plain words; "On a custom schedule" when it can't be read. */
+export function cronWords(cron: string): string {
+  const custom = "On a custom schedule";
+  const f = cron.trim().split(/\s+/);
+  if (f.length !== 5 || f[2] !== "*" || f[3] !== "*") return custom;
+  const [min, hour, , , dow] = f;
+  const days = cronDays(dow);
+  if (!days || !/^\d{1,2}$/.test(min) || Number(min) > 59) return custom;
+  const suffix = days.length === 7 ? "" : `, ${daysWords(days).toLowerCase()}`;
+  let m = /^\*\/(\d{1,2})$/.exec(hour);
+  if (m && min === "0" && Number(m[1]) > 0 && Number(m[1]) < 24) {
+    const n = Number(m[1]);
+    return `${n === 1 ? "Every hour" : `Every ${n} hours`}${suffix}`;
+  }
+  m = /^(\d{1,2})-(\d{1,2})(?:\/(\d{1,2}))?$/.exec(hour);
+  if (m && min === "0") {
+    const [a, b, n] = [Number(m[1]), Number(m[2]), Number(m[3] ?? 1)];
+    if (a < b && b < 24 && n > 0) {
+      const lead = n === 1 ? "Hourly" : `Every ${n} hours`;
+      return `${lead}, ${hourWords(a)} to ${hourWords(b)}${suffix}`;
+    }
+    return custom;
+  }
+  if (/^\d{1,2}$/.test(hour) && Number(hour) < 24) {
+    return `${daysWords(days)} at ${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
+  }
+  return custom;
+}
+
+/** "Every 30 min", "Weekdays at 09:00", "Mon, Wed at 18:00", or the cron in words. */
 export function scheduleWords(s: BotSchedule): string {
   if ("everyMinutes" in s) {
     const every = everyLabel(s.everyMinutes);
     return every.charAt(0).toUpperCase() + every.slice(1);
   }
-  if ("cron" in s) return s.cron;
+  if ("cron" in s) return cronWords(s.cron);
   const days = [...s.weekdays].sort((a, b) => a - b);
   const set = days.join(",");
   const when =
