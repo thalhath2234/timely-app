@@ -49,9 +49,7 @@ func TestContractLimits(t *testing.T) {
 	}{
 		{"maxBots", key("maxBots"), MaxBots},
 		{"maxWatches", key("maxWatches"), MaxWatches},
-		{"maxRulesPerWatch", key("maxRulesPerWatch"), MaxRulesPerWatch},
 		{"alertsPerDay", key("alertsPerDay"), AlertsPerDay},
-		{"maxLessons", key("maxLessons"), MaxLessons},
 		{"maxStrikes", key("maxStrikes"), MaxStrikes},
 		{"maxNameLen", key("maxNameLen"), MaxNameLen},
 		{"maxDescriptionLen", key("maxDescriptionLen"), MaxDescriptionLen},

@@ -1,6 +1,6 @@
 /**
  * Bots, as the web and phone apps draw them: the wire types of `/bots`, the
- * limits the API keeps, and the pure rules both apps share so the board says
+ * limits the API keeps, and the pure helpers both apps share so the board says
  * the same thing on both: which group a bot sits in, what its card says, how
  * a fix reads, how often it may be checked, and the starters. Nothing here
  * fetches or renders; each app draws these with its own kit.
@@ -9,6 +9,8 @@
  * models.go, validate.go, preview.go, ask.go, keys.go). Where they disagree,
  * the server wins.
  */
+
+import type { LearningEvent } from "./agentLearning";
 
 // ── Wire types ──
 
@@ -20,48 +22,17 @@ export const INJECTION_LINE = "Stopped: a page tried to instruct it";
 export type BotOrigin = "app" | "chat" | "mcp";
 export type WatchKind = "page" | "feed" | "price";
 export type ReadMode = "text" | "selector" | "product_price" | "selector_price";
-export type RuleKind = "any_change" | "above" | "below" | "move_pct" | "words_appear" | "words_disappear" | "new_item" | "in_stock";
 /**
  * Whether a shop page says its product can be bought (schema.org offer
  * availability). "unknown" when the page says nothing; an unknown never holds
  * an alert. Only a page read as product_price has one.
  */
 export type Availability = "in_stock" | "out_of_stock" | "preorder" | "backorder" | "limited" | "discontinued" | "unknown";
-export type MoveDirection = "up" | "down" | "any";
-/** How smart a bot is: rules alone, or rules that spot and an AI that judges (Research is Later). */
-export type JudgeMode = "rules" | "ai";
 /** A watch bot reads pages, feeds and prices; a brief sums up other bots once a day. */
 export type BotKind = "watch" | "brief";
-/** How urgent an alert is: the AI judge's word, or high for an Urgent bot. */
+/** How urgent an alert is: the bot's word, or high for an Urgent bot. */
 export type Urgency = "low" | "normal" | "high";
-/** What the AI judge did with an alert: nothing (rules only), judged, not reached, or judged later. */
-export type AiState = "" | "judged" | "unchecked" | "rejudged";
-
-/** One condition on a watch. The server fills `id`, `stepPercent` and `resetPercent`. */
-export type Rule = {
-  id?: string;
-  kind: RuleKind;
-  /** above and below. */
-  threshold?: number;
-  /** move_pct. */
-  percent?: number;
-  /** move_pct. */
-  direction?: MoveDirection;
-  /** above/below: fire again after a further this-much move; 0 means 5. */
-  stepPercent?: number;
-  /** above/below: re-arm once this far back past the line; 0 means 0.5. */
-  resetPercent?: number;
-  /** words_appear, words_disappear, and new_item (optional filter). */
-  words?: string[];
-  /**
-   * Price rules on a product_price page: stay quiet while the page says it is
-   * out of stock or discontinued, and fire once it can be bought. Left out
-   * means true; the server keeps only false.
-   */
-  onlyInStock?: boolean;
-};
-
-/** One watch as a client sends it. A watch that keeps its id keeps its readings. */
+/** One watch (a Read) as a client sends it. A watch that keeps its id keeps its readings. */
 export type WatchInput = {
   id?: string;
   kind: WatchKind;
@@ -72,14 +43,12 @@ export type WatchInput = {
   source?: string;
   symbol?: string;
   currency?: string;
-  /** Left out on an edit: the watch keeps its rules. Empty on create: the defaults. */
-  rules?: Rule[];
 };
 
 /** A Pass to link as a client sends it. `botId` is the bot that checks what this one finds (an id or a name). */
 export type LinkInput = { id?: string; botId: string; filter: string[]; enabled?: boolean };
 
-/** The doc or sheet the AI judge reads each check, as data. */
+/** The doc or sheet a bot reads each run, as data. */
 export type KnowledgeInput = { kind: "doc" | "sheet"; id: string };
 
 /**
@@ -91,7 +60,6 @@ export type BotInput = {
   name: string;
   description: string;
   intervalMinutes: number;
-  judgeMode?: JudgeMode;
   urgent?: boolean;
   desktop?: boolean;
   phone?: boolean;
@@ -117,7 +85,6 @@ export type BotPatch = {
   name?: string;
   description?: string;
   intervalMinutes?: number;
-  judgeMode?: JudgeMode;
   urgent?: boolean;
   desktop?: boolean;
   phone?: boolean;
@@ -156,10 +123,10 @@ export type Feedback = "useful" | "not_useful";
 export type FeedbackReason = "" | "too_small" | "not_wanted" | "already_knew" | "not_passed";
 /**
  * Where an alert went: sent (""), kept while snoozed, over the day's cap,
- * held back by the AI judge, or folded into another bot's alert on the same
- * thing ("Also seen by").
+ * folded into another bot's alert on the same thing ("Also seen by"), or
+ * already told within 7 days.
  */
-export type AlertHeld = "" | "snoozed" | "cap" | "judged" | "shared" | "duplicate";
+export type AlertHeld = "" | "snoozed" | "cap" | "shared" | "duplicate";
 
 /** A bot by id and name. */
 export type BotRef = { botId: string; name: string };
@@ -178,9 +145,6 @@ export type AlertBrief = {
   held: AlertHeld;
   createdAt: string;
   feedback: Feedback | null;
-  aiState: AiState;
-  /** The judge's line, or why it was not checked. */
-  aiWhy: string;
   urgency: Urgency;
   /** Other bots that saw the same thing the same day. */
   alsoSeenBy: BotRef[];
@@ -203,7 +167,6 @@ export type WatchView = {
   currency: string;
   /** The last reading's currency, "" before the first read. For a page it wins over the hint. */
   readingCurrency: string;
-  rules: Rule[];
   health: Health;
   lastReadingAt: string | null;
   /** "₹27,499", "12 items", "Text, 4,210 characters". */
@@ -216,7 +179,7 @@ export type WatchView = {
   title: string;
   /** The last price read, for price readings. */
   value: number | null;
-  /** ≤160 characters: the selected text, the line with a rule's word, or a feed's newest title. */
+  /** ≤160 characters: the selected text, or a feed's newest title. */
   excerpt: string;
   latestItem: ItemBrief | null;
   /** Detail only: the newest 5 feed items. */
@@ -230,25 +193,8 @@ export type WatchView = {
 /** One mark per check, oldest first. */
 export type StripMark = "n" | "c" | "f" | "x" | "o";
 
-/** The doc or sheet a bot's AI judge reads. `missing` when it was deleted or archived. */
+/** The doc or sheet a bot reads. `missing` when it was deleted or archived. */
 export type KnowledgeView = { kind: "doc" | "sheet"; id: string; title: string; missing: boolean };
-
-/** A better rule a rules-only bot suggests after three Not useful alerts in a row. */
-export type Suggestion = {
-  id: string;
-  /** "Only tell me about moves over 8%?" */
-  line: string;
-  /** "Raise to 8%". */
-  button: string;
-  reason: string;
-  watchId?: string;
-  ruleId?: string;
-  rule?: Rule;
-  intervalMinutes?: number;
-  judgeMode?: JudgeMode;
-  alertIds: string[];
-  createdAt: string;
-};
 
 /** Why a bot missed checks: Timely was closed, the computer slept, or Pause all was on. */
 export type AwayReason = "closed" | "asleep" | "all_paused";
@@ -265,7 +211,6 @@ export type BotView = {
   origin: BotOrigin;
   /** The outside app's name (its API key's name) when origin is mcp, else "". */
   originClient: string;
-  judgeMode: JudgeMode;
   intervalMinutes: number;
   urgent: boolean;
   desktop: boolean;
@@ -302,7 +247,11 @@ export type BotView = {
   sources: string[];
   knowledge: KnowledgeView | null;
   aiChecksToday: number;
-  suggestion: Suggestion | null;
+  /**
+   * The bot's own skill is `bot-<skillSlug>`: made from its name when the
+   * skill is first made, never changed on a rename. Absent until then.
+   */
+  skillSlug?: string;
   /** Checks it missed while Timely was closed, the computer slept or Pause all was on, until a check reads something; else null. */
   away: AwayView | null;
 };
@@ -326,7 +275,7 @@ export type LinkView = {
   createdAt: string;
 };
 
-/** The account's AI provider as the judge uses it. No model ids are shown to the person. */
+/** The account's AI provider as its bots use it. No model ids are shown to the person. */
 export type AiStatus = {
   ready: boolean;
   provider: string;
@@ -374,17 +323,14 @@ export type CheckOutcome =
   | "unchanged"
   | "not_modified"
   | "changed"
-  | "fired"
   | "offline"
   | "rate_limited"
   | "site_busy"
   | "robots"
   | "strike"
   | "superseded"
-  | "judged_quiet"
   | "passed"
-  | "held_stock"
-  // Agent bots (engine 'agent'): what one tick came to.
+  // What one agent tick came to.
   | "silent"
   | "alerted"
   | "skipped"
@@ -393,8 +339,6 @@ export type CheckOutcome =
   | "no_ai"
   | "duplicate";
 
-export type FiredRule = { watchId: string; ruleId: string; kind: RuleKind };
-
 export type CheckView = {
   id: string;
   trigger: CheckTrigger;
@@ -402,20 +346,15 @@ export type CheckView = {
   outcome: CheckOutcome;
   errorKind: string;
   error: string;
-  fired: FiredRule[] | null;
   /** The first check after a gap: how long the bot was paused, and why; else null. */
   away: AwayView | null;
-  /** held_stock: why nobody was told ("Price is below ₹90,000, but the page says it is out of stock"). */
-  note?: string;
 };
 
 /** The numbers behind an alert. */
 export type AlertFigures = {
-  rule?: RuleKind;
   price?: number;
   currency?: string;
   was?: number;
-  threshold?: number;
   changePct?: number;
   items?: number;
   /** "Paused for 9 hours while Timely was closed": the alert's catch-up line, also the body's last line. */
@@ -440,13 +379,11 @@ export type AlertView = {
   feedbackReason: FeedbackReason;
   feedbackNote: string;
   feedbackAt: string | null;
-  aiState: AiState;
-  aiWhy: string;
   urgency: Urgency;
   alsoSeenBy: BotRef[];
   sharedWith: SharedRef | null;
   via: ViaStep[];
-  /** A brief: its rules-made lines (figures.lines), shown beside an AI-written body. */
+  /** A brief: its template lines (figures.lines), shown beside an AI-written body. */
   lines: string[];
 };
 
@@ -463,23 +400,23 @@ export type PriceDay = {
   close: number | null;
 };
 
-export type Lesson = { id: string; botId: string; alertId: string | null; text: string; createdAt: string };
-
-/** A below/above rule that armed again without an alert ("Armed again, no alert"). */
-export type Rearm = { at: string; watchId: string; ruleId: string; value: number; currency: string };
+/**
+ * "What this bot was taught": the "What you taught me" text of the bot's own
+ * skill (`bot-<skillSlug>`), and the changes a feedback review suggested to
+ * it, waiting for Keep or Discard (status staged, origin bot, this bot's id).
+ */
+export type BotTaught = { text: string; staged: LearningEvent[] };
 
 /** `GET /bots/:id`. */
 export type BotDetail = BotView & {
   checks: CheckView[] | null;
   alerts: AlertView[] | null;
   prices: PriceDay[] | null;
-  lessons: Lesson[] | null;
+  taught: BotTaught;
   /** The last 7 days; alerts of kind alert. */
   week: { checks: number; alerts: number };
   /** Alerts in the last 30 days. */
   alertsMonth: number;
-  /** The last 30 days, newest first, at most 5. */
-  rearms: Rearm[] | null;
   /** Every link from or to this bot. */
   links: LinkView[] | null;
 };
@@ -507,8 +444,12 @@ export type Finding = {
   createdAt: string;
 };
 
-/** `POST /bots/:id/alerts/:alertId/feedback`: the alert, and the lesson the rating wrote. */
-export type RateResult = AlertView & { lesson: Lesson | null };
+/**
+ * `POST /bots/:id/alerts/:alertId/feedback`: the rated alert. A note, or Not
+ * useful, also starts a feedback review whose suggestion arrives staged in
+ * `BotDetail.taught`.
+ */
+export type RateResult = AlertView;
 
 /** `POST /bots/:id/alerts/:alertId/feedback`. */
 export type FeedbackInput =
@@ -618,9 +559,7 @@ export type BotAnswer = {
 export const BOT_LIMITS = {
   maxBots: 25,
   maxWatches: 5,
-  maxRulesPerWatch: 5,
   alertsPerDay: 3,
-  maxLessons: 20,
   maxStrikes: 5,
   maxNameLen: 80,
   maxDescriptionLen: 2000,
@@ -645,7 +584,6 @@ export function limitRows(): [string, string][] {
   return [
     ["Bots", `Up to ${L.maxBots}`],
     ["Watches per bot", `Up to ${L.maxWatches}`],
-    ["Rules per watch", `Up to ${L.maxRulesPerWatch}`],
     ["Shop page", `Every ${L.minEveryMinutes.shop / 60} h at most`],
     ["Pages and feeds", `Every ${L.minEveryMinutes.page} min at most`],
     ["Prices", `Every ${L.minEveryMinutes.price} min at most`],
@@ -847,11 +785,6 @@ export function formatMoney(v: number, currency: string): string {
   return `${sign}${s} ${currency}`;
 }
 
-/** "5", "0.5", "12.25": a percent without trailing zeros. */
-function pctNumber(p: number): string {
-  return String(Number(p.toFixed(2)));
-}
-
 /** "+2.4%" / "−8.3%" (a true minus). */
 export function signedPct(p: number): string {
   const s = Math.abs(p).toFixed(1);
@@ -897,43 +830,6 @@ const isShop = (w: KindRead) =>
   w.kind === "page" && (w.read === "product_price" || w.read === "selector_price");
 const isPartRead = (w: { read?: ReadMode | "" }) => w.read === "selector" || w.read === "selector_price";
 
-/** The rule kinds that fit a watch, in the order the editor offers them. */
-export function rulesFor(w: KindRead): RuleKind[] {
-  switch (readingKind(w)) {
-    case "feed":
-      return ["new_item"];
-    case "price":
-      return ["below", "above", "move_pct", "any_change"];
-  }
-  return ["any_change", "words_appear", "words_disappear"];
-}
-
-/**
- * The rules a watch saved without any gets, the API's DefaultRules: any change
- * on a page, a new post on a feed, a 5% drop on a shop price and a 5% move
- * either way on a market price.
- */
-export function defaultRules(w: KindRead): Rule[] {
-  switch (readingKind(w)) {
-    case "feed":
-      return [{ kind: "new_item" }];
-    case "price":
-      return [{ kind: "move_pct", percent: 5, direction: w.kind === "page" ? "down" : "any" }];
-  }
-  return [{ kind: "any_change" }];
-}
-
-export const RULE_LABELS: Record<RuleKind, string> = {
-  below: "Price is below",
-  above: "Price is above",
-  move_pct: "Moves by a percent",
-  any_change: "Any change",
-  words_appear: "Words appear",
-  words_disappear: "Words disappear",
-  new_item: "A new post",
-  in_stock: "Back in stock",
-};
-
 /** The page read modes, as the "Reads" row offers them. */
 export const READ_OPTIONS: { id: ReadMode; label: string }[] = [
   { id: "text", label: "Readable text" },
@@ -941,16 +837,6 @@ export const READ_OPTIONS: { id: ReadMode; label: string }[] = [
   { id: "product_price", label: "Shop price" },
   { id: "selector_price", label: "One price on the page" },
 ];
-
-/** "How smart". Research is Later. */
-export const HOW_SMART: { id: JudgeMode | "research"; label: string; later?: true }[] = [
-  { id: "rules", label: "Rules only" },
-  { id: "ai", label: "AI judges" },
-  { id: "research", label: "Research", later: true },
-];
-
-/** The How smart chooser's own hint (web menu and phone sheet). */
-export const SMART_HINT = "AI judges looks at each change your rules spot and decides if it's worth telling you. Research comes later.";
 
 /** The "Not useful" reasons. */
 export const FEEDBACK_REASONS: { id: Exclude<FeedbackReason, "">; label: string }[] = [
@@ -1055,12 +941,6 @@ export function feedSources(bot: Pick<BotView, "watches">): string | null {
   return names.length ? [...new Set(names)].join(", ") : null;
 }
 
-/** The threshold a watch's first below/above rule draws as a line, if any. */
-export function lineOf(w: Pick<WatchInput, "rules">): number | null {
-  const r = (w.rules ?? []).find((x) => (x.kind === "below" || x.kind === "above") && x.threshold != null);
-  return r?.threshold ?? null;
-}
-
 // ── Schedule ──
 
 /** The shortest interval a watch may be checked at, in minutes. */
@@ -1139,86 +1019,6 @@ export function everyLabel(minutes: number): string {
   return `every ${minutes} min`;
 }
 
-// ── Rules ──
-
-const quoted = (words: string[] | undefined) => (words ?? []).map((w) => `“${w}”`).join(" or ");
-
-/**
- * A rule as a row label: "Price is below ₹25,000", "Moves 5% either way",
- * "“Add to cart” appears", "Any change", "A new post".
- */
-export function ruleLine(rule: Rule, watch: Pick<WatchView, "currency" | "summary"> | Pick<WatchInput, "currency">): string {
-  const cur = "summary" in watch ? watchCurrency(watch) : (watch.currency ?? "");
-  const money = (v: number | undefined) => (v == null ? "…" : formatMoney(v, cur));
-  const anyStock = rule.onlyInStock === false ? ", in stock or not" : "";
-  switch (rule.kind) {
-    case "in_stock":
-      return "Back in stock";
-    case "below":
-      return `Price is below ${money(rule.threshold)}${anyStock}`;
-    case "above":
-      return `Price is above ${money(rule.threshold)}${anyStock}`;
-    case "move_pct": {
-      const p = rule.percent == null ? "…" : pctNumber(rule.percent);
-      if (rule.direction === "up") return `Rises ${p}%${anyStock}`;
-      if (rule.direction === "down") return `Drops ${p}%${anyStock}`;
-      return `Moves ${p}% either way${anyStock}`;
-    }
-    case "words_appear":
-      return `${quoted(rule.words) || "Words"} appears`;
-    case "words_disappear":
-      return `${quoted(rule.words) || "Words"} disappears`;
-    case "new_item":
-      return rule.words?.length ? `A new post with ${quoted(rule.words)}` : "A new post";
-  }
-  return `Any change${anyStock}`;
-}
-
-/**
- * The small line under a rule's first row in the editors, "" when the row
- * says it all: what Back in stock and Any change watch for, and that a
- * price rule saved with onlyInStock false alerts in stock or not.
- */
-export function ruleNote(rule: Rule): string {
-  const anyStock = rule.onlyInStock === false;
-  switch (rule.kind) {
-    case "in_stock":
-      return "When the page says it can be bought again";
-    case "any_change":
-      return anyStock ? "Any change to what it reads, in stock or not" : "Any change to what it reads";
-    case "below":
-    case "above":
-    case "move_pct":
-      return anyStock ? "Alerts in stock or not" : "";
-  }
-  return "";
-}
-
-/**
- * A rule as the clause after "tell you": "when the price is below ₹90,000",
- * "when it moves 5% either way", "about each new post". Reads on from "It
- * would read <site> every 6 hours and tell you …".
- */
-export function tellLine(rule: Rule, watch: Pick<WatchView, "currency" | "summary"> | Pick<WatchInput, "currency">): string {
-  const line = ruleLine(rule, watch);
-  const lower = line.charAt(0).toLowerCase() + line.slice(1);
-  switch (rule.kind) {
-    case "below":
-    case "above":
-      return `when the ${lower}`;
-    case "move_pct":
-      return `when it ${lower}`;
-    case "words_appear":
-    case "words_disappear":
-      return `when ${line}`;
-    case "new_item":
-      return rule.words?.length ? `about each new post with ${quoted(rule.words)}` : "about each new post";
-    case "in_stock":
-      return "when it is back in stock";
-  }
-  return "when it changes";
-}
-
 /**
  * Where a new alert's link button goes. A feed alert carries the feed's own
  * address, so it opens the newest post when that post has a web address
@@ -1238,37 +1038,9 @@ export function alertLink(
   return isWebAddress(alert.url) ? { url: alert.url, label: "Open page", post: false } : null;
 }
 
-const stepOf = (r: Rule) => r.stepPercent || 5;
-const resetOf = (r: Rule) => r.resetPercent || 0.5;
-
-/** "Each further 5% drop" (below) / "Each further 5% rise" (above); null for other rules. */
-export function againLine(rule: Rule): string | null {
-  if (rule.kind !== "below" && rule.kind !== "above") return null;
-  const step = stepOf(rule);
-  if (step >= 100) return "Not again until it starts over";
-  return `Each further ${pctNumber(step)}% ${rule.kind === "below" ? "drop" : "rise"}`;
-}
-
-/** The "Tell me again" choices for a below/above rule, as stepPercent values. */
-export function againOptions(rule: Rule): { value: number; label: string }[] {
-  if (rule.kind !== "below" && rule.kind !== "above") return [];
-  return [5, 10, 100].map((value) => ({ value, label: againLine({ ...rule, stepPercent: value }) ?? "" }));
-}
-
-/** "Once the price is 0.5% back above your line (₹25,125)"; null for other rules. */
-export function resetLine(rule: Rule, watch: Pick<WatchView, "currency" | "summary"> | Pick<WatchInput, "currency">): string | null {
-  if (rule.kind !== "below" && rule.kind !== "above") return null;
-  const reset = resetOf(rule);
-  const side = rule.kind === "below" ? "above" : "below";
-  if (rule.threshold == null) return `Once the price is ${pctNumber(reset)}% back ${side} your line`;
-  const cur = "summary" in watch ? watchCurrency(watch) : (watch.currency ?? "");
-  const at = rule.kind === "below" ? rule.threshold * (1 + reset / 100) : rule.threshold * (1 - reset / 100);
-  return `Once the price is ${pctNumber(reset)}% back ${side} your line (${formatMoney(Math.round(at * 100) / 100, cur)})`;
-}
-
 // ── The board ──
 
-export type NeedsReason = "new_alert" | "suggestion" | "broken" | "waiting_ok" | "stopped" | "needs_key";
+export type NeedsReason = "new_alert" | "broken" | "waiting_ok" | "stopped" | "needs_key";
 export type BoardGroup = "needs" | "watching" | "paused";
 
 const STRIKES = new Set<string>(STRIKE_CODES);
@@ -1288,7 +1060,6 @@ export function needsReason(bot: BotView, now: Date): NeedsReason | null {
   if (a && a.feedback === null && !a.held && at !== null && now.getTime() - at < NEW_ALERT_FOR) {
     return "new_alert";
   }
-  if (bot.suggestion) return "suggestion";
   return null;
 }
 
@@ -1298,9 +1069,9 @@ export function boardGroup(bot: BotView, now: Date): BoardGroup {
   return bot.status === "paused" ? "paused" : "watching";
 }
 
-const NEEDS_RANK: Record<NeedsReason, number> = { new_alert: 0, suggestion: 1, broken: 2, needs_key: 3, waiting_ok: 4, stopped: 5 };
+const NEEDS_RANK: Record<NeedsReason, number> = { new_alert: 0, broken: 1, needs_key: 2, waiting_ok: 3, stopped: 4 };
 
-/** The "Needs you" bots in order: new alerts, suggested changes, broken, keys, waiting, stopped, then newest change. */
+/** The "Needs you" bots in order: new alerts, broken, keys, waiting, stopped, then newest change. */
 export function needsOrder(bots: BotView[], now: Date): BotView[] {
   return bots
     .map((bot) => ({ bot, reason: needsReason(bot, now) }))
@@ -1347,9 +1118,7 @@ export type FixAction =
   | "change_source"
   | "check_now"
   | "turn_on"
-  | "resume"
-  | "apply_suggestion"
-  | "dismiss_suggestion";
+  | "resume";
 export type FixButton = { action: FixAction | "edit"; label: string };
 
 const FIX_LABELS: Record<FixAction, string> = {
@@ -1360,8 +1129,6 @@ const FIX_LABELS: Record<FixAction, string> = {
   check_now: "Check now",
   turn_on: "Turn on",
   resume: "Resume",
-  apply_suggestion: "Apply",
-  dismiss_suggestion: "Not now",
 };
 
 const isStopped = (bot: BotView) => bot.status === "paused" && bot.pauseReason === "strikes";
@@ -1373,8 +1140,6 @@ export function fixAction(bot: BotView): FixAction {
   if (isInjectionStopped(bot)) return "resume";
   // A brief reads nothing, so nothing on it breaks: it is resumed or run.
   if (isBrief(bot)) return bot.status === "paused" ? "resume" : "check_now";
-  const broken = bot.health.code === "needs_key" || (bot.strikes > 0 && STRIKES.has(bot.health.code));
-  if (bot.suggestion && bot.status === "active" && !broken) return "apply_suggestion";
   const w = primaryWatch(bot);
   const code = bot.health.code;
   let action: FixAction = "resume";
@@ -1414,12 +1179,6 @@ export function fixAction(bot: BotView): FixAction {
  */
 export function fixButtons(bot: BotView): { primary: FixButton; secondary: FixButton } {
   const action = fixAction(bot);
-  if (action === "apply_suggestion" && bot.suggestion) {
-    return {
-      primary: { action, label: bot.suggestion.button },
-      secondary: { action: "dismiss_suggestion", label: FIX_LABELS.dismiss_suggestion },
-    };
-  }
   const primary: FixButton = { action, label: FIX_LABELS[action] };
   const notFoundPick = action === "pick_part" && bot.health.code === "not_found";
   const wantsEdit = bot.status === "paused" || notFoundPick || action === "check_now";
@@ -1474,9 +1233,6 @@ export const STRIKE_COPY: Record<StrikeCode, { why: string; stopped: string }> =
 
 /** The copy of a fix: eyebrow, title and the meta line under it. */
 export function fixCopy(bot: BotView): { eyebrow: string; title: string; meta: string } {
-  if (fixAction(bot) === "apply_suggestion" && bot.suggestion) {
-    return { eyebrow: "Suggests a change", title: bot.suggestion.line, meta: "After 3 Not useful alerts in a row" };
-  }
   if (isInjectionStopped(bot)) {
     return {
       eyebrow: "Paused itself",
@@ -1648,8 +1404,6 @@ export const isBotId = (v: unknown): v is string => typeof v === "string" && /^b
 
 // ── Card lines ──
 
-const firstRule = (w: WatchView | undefined, kinds: RuleKind[]) => w?.rules.find((r) => kinds.includes(r.kind));
-
 const MAX_STRIKE_DELAY_MIN = 24 * 60;
 
 /** The wait after a failed check, as the API's StrikeDelay (schedule.go). */
@@ -1733,10 +1487,7 @@ export function cardValue(bot: BotView): CardValue {
     const title = w.latestItem?.title || w.excerpt;
     return { kind: "text", text: title ? `“${title}”` : "No posts yet", tone: "default" };
   }
-  if (w.excerpt) {
-    const words = firstRule(w, ["words_appear", "words_disappear"]);
-    return { kind: "text", text: words ? `“${w.excerpt}”` : w.excerpt, tone: "default" };
-  }
+  if (w.excerpt) return { kind: "text", text: w.excerpt, tone: "default" };
   if (w.summary) return { kind: "text", text: w.summary, tone: "default" };
   return { kind: "text", text: bot.lastCheckAt ? "Nothing read yet" : "Waiting for its first check", tone: "default" };
 }
@@ -1744,36 +1495,14 @@ export function cardValue(bot: BotView): CardValue {
 export const valueKind = (bot: BotView): CardValue["kind"] => cardValue(bot).kind;
 export const valueText = (bot: BotView): string => cardValue(bot).text;
 
-/**
- * The line under a card's value: "₹2,499 above your line", "+2.4% today ·
- * $1,588 to go", "3 new today", "Tells you when “Add to cart” appears".
- */
+/** The line under a card's value: "+2.4% today" (a market price), "3 new today" (a feed), "Sums up 3 bots" (a brief). */
 export function valueLine(bot: BotView): string | null {
   if (isBrief(bot)) return `Sums up ${plural(sourcesOf(bot).length, "bot")}`;
   const w = primaryWatch(bot);
   if (!w) return null;
   if (w.kind === "feed") return bot.itemsToday > 0 ? `${bot.itemsToday} new today` : null;
-  if (isPriceReading(w)) {
-    const cur = watchCurrency(w);
-    const day = w.kind === "price" && w.dayChangePct != null ? `${signedPct(w.dayChangePct)} today` : null;
-    const r = firstRule(w, ["below", "above", "move_pct"]);
-    if (w.value == null) return r ? ruleLine(r, w) : null;
-    if (r && (r.kind === "below" || r.kind === "above") && r.threshold != null) {
-      const gap = formatMoney(Math.abs(w.value - r.threshold), cur);
-      let line: string;
-      if (r.kind === "below") line = w.value > r.threshold ? `${gap} above your line` : `${gap} under your line`;
-      else line = w.value < r.threshold ? `${gap} to go` : `${gap} over your line`;
-      return day ? `${day} · ${line}` : line;
-    }
-    if (r?.kind === "move_pct" && r.percent != null) {
-      const band = r.direction === "up" ? `+${pctNumber(r.percent)}` : r.direction === "down" ? `−${pctNumber(r.percent)}` : `±${pctNumber(r.percent)}`;
-      return day ? `${day} · line ${band}%` : `Line ${band}%`;
-    }
-    return day;
-  }
-  const words = firstRule(w, ["words_appear", "words_disappear"]);
-  if (words) return `Tells you when ${ruleLine(words, w)}`;
-  return "Tells you when it changes";
+  if (isPriceReading(w)) return w.kind === "price" && w.dayChangePct != null ? `${signedPct(w.dayChangePct)} today` : null;
+  return null;
 }
 
 /** The compact card's value and the change under it: "₹27,499" / "₹2,499 above". */
@@ -1785,14 +1514,7 @@ export function miniValue(bot: BotView, now: Date): { text: string; change: stri
   const v = cardValue(bot);
   if (isPriceReading(w)) {
     if (w.value == null) return null;
-    const cur = watchCurrency(w);
     if (w.kind === "price" && w.dayChangePct != null) return { text: v.text, change: signedPct(w.dayChangePct) };
-    const r = firstRule(w, ["below", "above"]);
-    if (r?.threshold != null) {
-      const gap = formatMoney(Math.abs(w.value - r.threshold), cur);
-      const above = w.value > r.threshold;
-      return { text: v.text, change: r.kind === "below" ? (above ? `${gap} above` : `${gap} under`) : above ? `${gap} over` : `${gap} to go` };
-    }
     return { text: v.text, change: null };
   }
   if (w.kind === "feed") return bot.itemsToday > 0 ? { text: String(bot.itemsToday), change: "new today" } : null;
@@ -2008,91 +1730,8 @@ export function summaryLine(list: BotsList, now: Date, variant: "desktop" | "pho
   return parts.join(" · ");
 }
 
-// ── AI judging ──
-
-/** The How smart choices: Research is Later, and AI judges needs an AI provider. */
-export function smartOptions(summary: Pick<BotsSummary, "ai">): { id: JudgeMode | "research"; label: string; disabled: boolean; tag?: string }[] {
-  return HOW_SMART.map((h) => {
-    if (h.later) return { id: h.id, label: h.label, disabled: true, tag: "Later" };
-    if (h.id === "ai" && !summary.ai?.ready) return { id: h.id, label: h.label, disabled: true, tag: "Needs AI" };
-    return { id: h.id, label: h.label, disabled: false };
-  });
-}
-
-/** The How smart group's hint for this bot (no model ids). */
-export function aiHint(bot: { judgeMode?: string; aiChecksToday?: number }, summary: Pick<BotsSummary, "ai">): string {
-  if (bot.judgeMode !== "ai") return "Rules cost nothing and never call an AI.";
-  if (!summary.ai?.ready) return "No AI provider yet, so this bot alerts on rules alone. Add one in Settings › Agent.";
-  const on = summary.ai.label ? `, on ${summary.ai.label}` : "";
-  return `AI checks ${bot.aiChecksToday ?? 0} of ${BOT_LIMITS.aiPerBot} today${on}. AI looks at each change your rules spot and decides if it's worth telling you.`;
-}
-
-/** The Lessons group's hint: a watch bot's judge reads them; a brief's AI writer does. */
-export function lessonsHint(bot: { kind?: BotKind }): string {
-  if (isBrief(bot)) return "When Write it with AI is on, these shape how the brief is written. Remove one to forget it.";
-  return "The AI judge reads these each time it decides. Rules-only bots keep them for when you turn AI on. Remove one to forget it.";
-}
-
 /** A held `duplicate` alert: the same finding was told within 7 days. */
 export const HELD_DUPLICATE_LINE = "Already told you";
-
-export type AlertAi = {
-  /** "Not checked by AI" on an alert the judge did not reach. */
-  pill: "Not checked by AI" | null;
-  /** The full line under an alert. */
-  line: string | null;
-  /** The one-line card form: "Not checked by AI · asks again later". */
-  short: string | null;
-  tone: "default" | "muted" | "warning";
-};
-
-/** The short reasons of an unchecked alert, by the API's words (plan.go, rejudge.go). */
-const UNCHECKED_SHORT: [RegExp, string][] = [
-  [/asks again later/i, "asks again later"],
-  [/used up/i, "AI checks used up today"],
-  [/^Choose which AI provider/i, "no AI provider chosen"],
-  [/^No AI provider/i, "no AI provider"],
-  [/^Changed while/i, "changed while checking"],
-  [/^AI was unavailable$/i, "AI was unavailable"],
-  [/all bots are paused/i, "all bots paused"],
-  [/judging was turned off/i, "AI judging turned off"],
-];
-
-/**
- * What the AI judge did with an alert, as its pill and lines; all null on a
- * rules-only alert. A brief the AI could not write was sent from the template
- * and is never asked about again, so it never says "asks again later".
- */
-export function alertAi(alert: Pick<AlertBrief, "aiState" | "aiWhy" | "held"> & Partial<Pick<AlertBrief, "kind">>): AlertAi {
-  const why = (alert.aiWhy ?? "").trim();
-  if (alert.held === "duplicate") return { pill: null, line: HELD_DUPLICATE_LINE, short: HELD_DUPLICATE_LINE, tone: "muted" };
-  switch (alert.aiState) {
-    case "judged": {
-      if (alert.held === "judged") {
-        const line = why ? `Held back by AI: ${why}` : "Held back by AI";
-        return { pill: null, line, short: line, tone: "muted" };
-      }
-      const line = why ? `AI: ${why}` : null;
-      return { pill: null, line, short: line, tone: "default" };
-    }
-    case "rejudged": {
-      const line = why ? `AI checked it later: ${why}` : "AI checked it later";
-      return { pill: null, line, short: line, tone: "muted" };
-    }
-    case "unchecked": {
-      const brief = alert.kind === "brief";
-      const retry = /asks again later/i.test(why);
-      const reason = brief && (retry || !why) ? "written from the template" : UNCHECKED_SHORT.find(([re]) => re.test(why))?.[1];
-      return {
-        pill: "Not checked by AI",
-        line: brief && retry ? "AI was unavailable, so this brief was written from the template" : why || null,
-        short: reason ? `Not checked by AI · ${reason}` : "Not checked by AI",
-        tone: "warning",
-      };
-    }
-  }
-  return { pill: null, line: null, short: null, tone: "default" };
-}
 
 /** "Also seen by Price check" / "Also seen by Price check and 1 more"; null when no other bot saw it. */
 export function alsoSeenLine(alert: Pick<AlertBrief, "alsoSeenBy">): string | null {
@@ -2131,7 +1770,7 @@ export function chainLinks(board: LinkView[] | null | undefined, own: LinkView[]
 }
 
 export function howItCame(
-  alert: Pick<AlertBrief, "via" | "aiState">,
+  alert: Pick<AlertBrief, "via">,
   bot: Pick<BotView, "name">,
   botsById: BotNames | undefined,
   links: LinkView[] | null | undefined,
@@ -2145,8 +1784,6 @@ export function howItCame(
     rows.push(["Passed on", link ? filterLine(link.filter) : "By a link that is gone"]);
   }
   rows.push(["Checked by", bot.name]);
-  const judged = alert.aiState === "judged" || alert.aiState === "rejudged" ? "AI" : alert.aiState === "unchecked" ? "Not checked by AI" : "Rules only";
-  rows.push(["Judged by", judged]);
   const last = via[via.length - 1];
   const link = last?.linkId ? byId.get(last.linkId) : undefined;
   return { rows, unpass: link?.enabled ? { linkId: link.id } : null };
@@ -2201,10 +1838,10 @@ export type TodayRow =
   | { id: string; label: string; kind: "value"; value: string }
   | { id: string; label: string; kind: "link"; value: "Off"; action: "Turn on" };
 
-/** The board's Today group: Pause all, AI checks, Passed on, and each switched-off link. */
-export function todayRows(summary: BotsSummary, bots: (Pick<BotView, "id" | "name"> & Partial<Pick<BotView, "judgeMode">>)[]): TodayRow[] {
+/** The board's Today group: Pause all, AI checks (once there is a bot), Passed on, and each switched-off link. */
+export function todayRows(summary: BotsSummary, bots: Pick<BotView, "id" | "name">[]): TodayRow[] {
   const rows: TodayRow[] = [{ id: "pause", label: "Pause all bots", kind: "switch", on: !!summary.allPaused }];
-  if (bots.some((b) => b.judgeMode === "ai") || summary.aiChecksToday > 0) {
+  if (bots.length > 0 || summary.aiChecksToday > 0) {
     rows.push({ id: "ai", label: "AI checks", kind: "value", value: `${summary.aiChecksToday} of ${summary.aiCap}` });
   }
   const pass = passLinks(summary.links);
@@ -2279,16 +1916,13 @@ const OUTCOME_LABELS: Record<CheckOutcome, string> = {
   unchanged: "No change",
   not_modified: "No change",
   changed: "Changed",
-  fired: "Told you",
   offline: "Offline",
   rate_limited: "The site asked to wait",
   site_busy: "Site busy",
   robots: "The site asks not to be read",
   strike: "Failed",
   superseded: "Skipped",
-  judged_quiet: "AI held it back",
   passed: "Passed on",
-  held_stock: "Out of stock, held back",
   silent: "Nothing to tell",
   alerted: "Told you",
   skipped: "Skipped",
@@ -2303,7 +1937,7 @@ export function checkOutcomeWords(outcome: CheckOutcome | (string & {})): string
   return OUTCOME_LABELS[outcome as CheckOutcome] ?? outcome;
 }
 
-/** A check's outcome in words: "Told you", "AI held it back", "Passed on". */
+/** A check's outcome in words: "Told you", "Nothing to tell", "Passed on". */
 export function checkOutcomeLabel(outcome: CheckOutcome | (string & {})): string {
   return OUTCOME_LABELS[outcome as CheckOutcome] ?? outcome;
 }
@@ -2520,17 +2154,13 @@ export type PriceHistoryModel = {
   value: number | null;
   /** Daily closes as [unixSeconds, value], oldest first, then the newest reading when it is newer. */
   points: [number, number][];
-  /** The line the watch's first below/above rule draws. */
-  threshold: number | null;
   low: number | null;
   /** "Oct 29". */
   lowDay: string | null;
   changePct: number | null;
   /** "Oct 9". */
   since: string | null;
-  /** The change is the way the rule wants (down for below, up for above). */
-  good: boolean;
-  /** The line after "Now · ": "₹2,499 above your line". */
+  /** The line after "Now · ": "+2.4% today". */
   under: string | null;
   /** The bot is paused, or Pause all is on (`allPaused`). */
   paused: boolean;
@@ -2551,8 +2181,6 @@ export function priceHistory(detail: BotDetail, watchId?: string, opts: { allPau
     if (!points.length || at > points[points.length - 1][0]) points.push([at, w.value]);
   }
   const stats = priceStats(detail.prices, w.id);
-  const rule = w.rules.find((r) => r.kind === "below" || r.kind === "above");
-  const good = stats?.changePct != null && rule ? (rule.kind === "below" ? stats.changePct < 0 : stats.changePct > 0) : false;
   return {
     watchId: w.id,
     label: (w.kind === "price" ? w.symbol : w.site) || watchTitle(w),
@@ -2560,12 +2188,10 @@ export function priceHistory(detail: BotDetail, watchId?: string, opts: { allPau
     currency: watchCurrency(w),
     value: w.value,
     points,
-    threshold: lineOf(w),
     low: stats?.low ?? null,
     lowDay: stats?.lowDay ?? null,
     changePct: stats?.changePct ?? null,
     since: stats?.since ?? null,
-    good,
     under: valueLine({ ...detail, watches: [w] }),
     paused: detail.status === "paused" || !!opts.allPaused,
   };
@@ -2628,10 +2254,9 @@ export function niceTicks(lo: number, hi: number): number[] {
   return ticks;
 }
 
-/** A price chart's value range: the points and the line, padded by 8% (2% of a flat value, else 1), and its gridlines. */
-export function priceDomain(points: [number, number][], threshold: number | null): { lo: number; hi: number; ticks: number[] } {
+/** A price chart's value range: the points, padded by 8% (2% of a flat value, else 1), and its gridlines. */
+export function priceDomain(points: [number, number][]): { lo: number; hi: number; ticks: number[] } {
   const values = points.map(([, v]) => v);
-  if (threshold != null) values.push(threshold);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const pad = (max - min) * 0.08 || Math.abs(max) * 0.02 || 1;
@@ -2645,7 +2270,6 @@ export type PriceChartGeometry = {
   /** SVG path data. */
   line: string;
   area: string;
-  thresholdY: number | null;
   low: { x: number; y: number; value: number };
   last: { x: number; y: number; value: number };
   grid: { y: number; value: number }[];
@@ -2682,11 +2306,10 @@ export function priceDayLabels(points: [number, number][]): PriceDayLabel[] {
  */
 export function priceChartGeometry(
   points: [number, number][],
-  threshold: number | null,
   box: { width: number; height: number; left: number; right: number; top: number; bottom: number },
 ): PriceChartGeometry | null {
   if (points.length < 2) return null;
-  const { lo, hi, ticks } = priceDomain(points, threshold);
+  const { lo, hi, ticks } = priceDomain(points);
   const plotW = Math.max(0, box.width - box.left - box.right);
   const plotH = Math.max(0, box.height - box.bottom - box.top);
   const t0 = points[0][0];
@@ -2704,7 +2327,6 @@ export function priceChartGeometry(
   return {
     line,
     area,
-    thresholdY: threshold != null ? y(threshold) : null,
     low: { x: x(points[low][0]), y: y(points[low][1]), value: points[low][1] },
     last: { x: x(t1), y: y(points[last][1]), value: points[last][1] },
     grid: ticks.map((value) => ({ y: y(value), value })),
@@ -2723,152 +2345,11 @@ export function alertMeta(alert: Pick<AlertView, "createdAt" | "figures">, tz?: 
   return at;
 }
 
-/** "Oct 30, 08:12 · back above ₹25,125, so it can tell you next time". */
-export function rearmMeta(rearm: Rearm, rule: Rule | undefined, tz?: string): string {
-  const side = rule?.kind === "above" ? "below" : "above";
-  return `${dateTime(rearm.at, tz)} · back ${side} ${formatMoney(rearm.value, rearm.currency)}, so it can tell you next time`;
-}
-
-// ── Starters ──
-
-export type StarterId = "price_drop" | "page_changed" | "stock_move" | "new_in_feed" | "morning_brief";
-
-export type Starter = {
-  id: StarterId;
-  /** A lucide icon name. */
-  icon: "trending-down" | "globe" | "chart-candlestick" | "rss" | "sunrise";
-  name: string;
-  /** The starter card's sub line. */
-  sub: string;
-  /** The add tile's sub line. */
-  tileSub: string;
-  /** The words in quotes on the card. */
-  quote: string;
-  rows: [string, string][];
-  /** What "Describe in chat" puts in the composer. */
-  chatText: string | null;
-  /** What Use opens the editor with; null when it cannot be made yet. */
-  draft: BotInput | null;
-  needsKey?: "finnhub";
-  later?: true;
-};
-
-/** A starter's draft; its description is the starter's own words, so the New bot editor opens with them. */
-const draftOfStarter = (name: string, description: string, interval: number, watch: WatchInput): BotInput => ({
-  name,
-  description,
-  intervalMinutes: interval,
-  watches: [watch],
-});
-
-export const STARTERS: Starter[] = [
-  {
-    id: "price_drop",
-    icon: "trending-down",
-    name: "Price drop",
-    sub: "Page price · every 6 h",
-    tileSub: "A shop page’s price",
-    quote: "Tell me when this product drops under a price",
-    rows: [
-      ["Watches", "A shop page’s price"],
-      ["Tells me when", "Below your price"],
-      ["You fill in", "Link, price"],
-    ],
-    chatText: "Tell me when the price on this page drops under ",
-    draft: draftOfStarter("", "Tell me when this product drops under a price.", 360, { kind: "page", url: "", read: "product_price", rules: [{ kind: "below" }] }),
-  },
-  {
-    id: "page_changed",
-    icon: "globe",
-    name: "Page changed",
-    sub: "One part of a page · every 30 min",
-    tileSub: "One part of a page",
-    quote: "Tell me when this part of a page changes",
-    rows: [
-      ["Watches", "One part of a page"],
-      ["Tells me when", "It changes"],
-      ["You fill in", "Link, the part"],
-    ],
-    chatText: "Tell me when this part of a page changes: ",
-    draft: draftOfStarter("", "Tell me when this part of a page changes.", 30, { kind: "page", url: "", read: "selector", selector: "", rules: [{ kind: "any_change" }] }),
-  },
-  {
-    id: "stock_move",
-    icon: "chart-candlestick",
-    name: "Stock move",
-    sub: "Stock price · every 15 min",
-    tileSub: "Moves 5% in a day",
-    quote: "Tell me if NVDA moves more than 5% in a day",
-    rows: [
-      ["Watches", "Finnhub (free key)"],
-      ["Tells me when", "Moves 5% either way"],
-      ["You fill in", "Symbol"],
-    ],
-    chatText: "Tell me if NVDA moves more than 5% in a day",
-    draft: draftOfStarter("NVDA moves 5% in a day", "Tell me if NVDA moves more than 5% in a day.", 0, {
-      kind: "price",
-      source: "stock",
-      symbol: "NVDA",
-      rules: [{ kind: "move_pct", percent: 5, direction: "any" }],
-    }),
-    needsKey: "finnhub",
-  },
-  {
-    id: "new_in_feed",
-    icon: "rss",
-    name: "New in a feed",
-    sub: "Feed · every 30 min",
-    tileSub: "RSS or Atom posts",
-    quote: "Tell me about new posts in this feed",
-    rows: [
-      ["Watches", "An RSS or Atom feed"],
-      ["Tells me when", "A new post appears"],
-      ["You fill in", "Feed link"],
-    ],
-    chatText: "Tell me about new posts in this feed: ",
-    draft: draftOfStarter("", "Tell me about new posts in this feed.", 0, { kind: "feed", url: "", rules: [{ kind: "new_item" }] }),
-  },
-  {
-    id: "morning_brief",
-    icon: "sunrise",
-    name: "Morning brief",
-    sub: "Brief · daily at 08:00",
-    tileSub: "Sums up your bots",
-    quote: "Each morning, sum up what my other bots found",
-    rows: [
-      ["Gathers", "Your other bots’ findings"],
-      ["Tells me when", "Every morning at 08:00"],
-      ["You fill in", "Which bots, the time"],
-    ],
-    chatText: "Every morning at 08:00, sum up what my other bots found",
-    draft: {
-      name: "Morning brief",
-      description: "Each morning, sum up what my other bots found.",
-      intervalMinutes: 1440,
-      kind: "brief",
-      briefTime: "08:00",
-      briefAi: false,
-      sources: [],
-      watches: [],
-    },
-  },
-];
-
-export function starterById(id: string | null | undefined): Starter | undefined {
-  return STARTERS.find((s) => s.id === id);
-}
-
 // ── Drafts ──
 
 /** A blank editor: no watch yet, alerts from the person's defaults. */
 export function emptyDraft(defaults: BotSettings = DEFAULT_BOT_SETTINGS): BotInput {
   return { name: "", description: "", intervalMinutes: 0, ...defaults, watches: [] };
-}
-
-/** A starter's draft with the person's alert defaults, copied so edits never touch STARTERS. */
-export function starterDraft(starter: Starter, defaults: BotSettings = DEFAULT_BOT_SETTINGS): BotInput | null {
-  if (!starter.draft) return null;
-  return { ...(JSON.parse(JSON.stringify(starter.draft)) as BotInput), ...defaults };
 }
 
 const trimmed = (s: string | undefined) => (s ?? "").trim();
@@ -2880,22 +2361,6 @@ const isWebAddress = (url: string) => {
   } catch {
     return false;
   }
-};
-
-const fieldsOf = (r: Rule): Rule => {
-  const out: Rule = { kind: r.kind };
-  if (r.id) out.id = r.id;
-  if (r.threshold != null) out.threshold = r.threshold;
-  if (r.percent != null) out.percent = r.percent;
-  if (r.direction) out.direction = r.direction;
-  if (r.kind === "below" || r.kind === "above") {
-    out.stepPercent = r.stepPercent || 5;
-    out.resetPercent = r.resetPercent || 0.5;
-  }
-  const words = (r.words ?? []).map((w) => w.trim()).filter(Boolean);
-  if (words.length) out.words = words;
-  if (r.onlyInStock === false) out.onlyInStock = false;
-  return out;
 };
 
 /** A watch ready to send: trimmed, with only the fields its kind takes. */
@@ -2913,7 +2378,6 @@ export function cleanWatchInput(w: WatchInput): WatchInput {
       if (isPartRead(out)) out.selector = trimmed(w.selector);
     }
   }
-  if (w.rules) out.rules = w.rules.map(fieldsOf);
   return out;
 }
 
@@ -2937,7 +2401,6 @@ export function draftErrors(draft: BotInput, hasKey?: (source: string) => boolea
     return out;
   }
   const ws = draft.watches;
-  if (ws.length === 0) out.push("Give the bot something to watch: a page, a feed or a price");
   if (ws.length > BOT_LIMITS.maxWatches) out.push(`A bot can watch up to ${BOT_LIMITS.maxWatches} things`);
   ws.forEach((w, i) => {
     const name = ws.length > 1 ? `Watch ${i + 1}: ` : "";
@@ -2953,18 +2416,6 @@ export function draftErrors(draft: BotInput, hasKey?: (source: string) => boolea
       if (!url) add(w.kind === "feed" ? "Add the feed’s link" : "Add the page’s link");
       else if (!isWebAddress(url)) add("Use a full web address, like https://example.com");
       if (w.kind === "page" && isPartRead(w) && !trimmed(w.selector)) add("Pick the part of the page to read");
-    }
-    const rules = w.rules ?? [];
-    if (rules.length > BOT_LIMITS.maxRulesPerWatch) add(`A watch can have up to ${BOT_LIMITS.maxRulesPerWatch} rules`);
-    // The editors don't offer in_stock yet, but a bot made in chat can carry it.
-    const fits: RuleKind[] = w.kind === "page" && w.read === "product_price" ? [...rulesFor(w), "in_stock"] : rulesFor(w);
-    for (const r of rules) {
-      if (!fits.includes(r.kind)) add(`“${RULE_LABELS[r.kind]}” does not fit this watch`);
-      else if ((r.kind === "below" || r.kind === "above") && !(r.threshold != null && r.threshold > 0)) add("Give the price to watch for");
-      else if (r.kind === "move_pct" && !(r.percent != null && r.percent > 0 && r.percent <= 1000)) add("Give the percent it should move");
-      else if ((r.kind === "words_appear" || r.kind === "words_disappear") && !(r.words ?? []).some((x) => x.trim())) {
-        add("Give the words to look for");
-      }
     }
   });
   const every = draft.intervalMinutes;
@@ -2994,7 +2445,6 @@ export function toInput(draft: BotInput): BotInput {
     watches: brief ? [] : draft.watches.map(cleanWatchInput),
   };
   if (draft.kind) out.kind = draft.kind;
-  if (draft.judgeMode) out.judgeMode = draft.judgeMode;
   for (const k of ["urgent", "desktop", "phone"] as const) if (draft[k] !== undefined) out[k] = draft[k];
   if (draft.knowledge !== undefined) out.knowledge = draft.knowledge ? { kind: draft.knowledge.kind, id: draft.knowledge.id } : null;
   if (draft.passesTo) out.passesTo = cleanLinks(draft.passesTo);
@@ -3013,7 +2463,7 @@ function savedPasses(botId: string, links: LinkView[]): LinkInput[] {
 
 /** A saved watch as an editable input. */
 export function watchInputOf(w: WatchView): WatchInput {
-  const out: WatchInput = { id: w.id, kind: w.kind, rules: w.rules.map(fieldsOf) };
+  const out: WatchInput = { id: w.id, kind: w.kind };
   if (w.kind === "price") {
     out.source = w.source;
     out.symbol = w.symbol;
@@ -3037,7 +2487,6 @@ export function draftOf(view: BotView, links?: LinkView[] | null): BotInput {
     name: view.name,
     description: view.description,
     intervalMinutes: view.intervalMinutes,
-    judgeMode: view.judgeMode,
     urgent: view.urgent,
     desktop: view.desktop,
     phone: view.phone,
@@ -3069,7 +2518,6 @@ export function toPatch(view: BotView, draft: BotInput, links?: LinkView[] | nul
   if (next.name !== view.name) patch.name = next.name;
   if (next.description !== view.description) patch.description = next.description;
   if (!brief && next.intervalMinutes && next.intervalMinutes !== view.intervalMinutes) patch.intervalMinutes = next.intervalMinutes;
-  if (next.judgeMode && next.judgeMode !== (view.judgeMode || "rules")) patch.judgeMode = next.judgeMode;
   for (const k of ["urgent", "desktop", "phone"] as const) {
     if (next[k] !== undefined && next[k] !== view[k]) patch[k] = next[k];
   }
@@ -3114,7 +2562,6 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
       symbol: w.symbol ?? "",
       currency: w.currency || p?.currency || "",
       readingCurrency: p?.ok ? p.currency : "",
-      rules: (w.rules ?? []).map(fieldsOf),
       health: p && !p.ok && p.health ? p.health : { code: "new", line: "" },
       lastReadingAt: p?.ok ? p.at : null,
       summary: p?.ok ? p.summary : "",
@@ -3137,7 +2584,6 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
     pauseReason: null,
     origin: "chat",
     originClient: "",
-    judgeMode: args.judgeMode === "ai" ? "ai" : "rules",
     intervalMinutes: brief ? 1440 : args.intervalMinutes || defaultMinutes(watches),
     urgent: !!args.urgent,
     desktop: args.desktop ?? true,
@@ -3165,12 +2611,11 @@ export function previewCard(args: BotInput, preview?: PreviewResult | null, now:
     sources: brief ? [...(args.sources ?? [])] : [],
     knowledge: null,
     aiChecksToday: 0,
-    suggestion: null,
     away: null,
   };
 }
 
-/** The rows beside a proposal's card: First check, Then, At most (and AI checks); a brief's Sends. */
+/** The rows beside a proposal's card: First check, Then, At most; a brief's Sends. */
 export function proposalFacts(args: BotInput): [string, string][] {
   if (args.kind === "brief") return [["Sends", `Daily at ${args.briefTime || DEFAULT_BRIEF_TIME}`]];
   const every = args.intervalMinutes || defaultMinutes(args.watches ?? []);
@@ -3179,7 +2624,6 @@ export function proposalFacts(args: BotInput): [string, string][] {
     ["Then", `Every ${intervalLabel(every).replace(/^1 /, "")}`],
     ["At most", `${BOT_LIMITS.alertsPerDay} alerts a day`],
   ];
-  if (args.judgeMode === "ai") rows.push(["AI checks", `Up to ${BOT_LIMITS.aiPerBot} a day`]);
   return rows;
 }
 
@@ -3391,9 +2835,8 @@ export function answerWatchMeta(w: Pick<AnswerWatch, "excerpt" | "items">): stri
   return w.excerpt || w.items?.[0]?.title || "";
 }
 
-// ── Agent bots (engine 'agent', phase 6) ──
+// ── Agent bots ──
 
-export type BotEngine = "rules" | "agent";
 export type BotPermission = "supervised" | "auto" | "full";
 export type BotGate = "changed" | "always";
 export type McpMode = "use" | "ask" | "off";
@@ -3415,7 +2858,6 @@ export type AgentBotTools = {
 };
 
 export type AgentBotFields = {
-  engine: BotEngine;
   prompt: string;
   schedule: BotSchedule;
   timezone: string;
@@ -3485,10 +2927,7 @@ export type AgentStarter = {
 const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 const WORKDAYS = [1, 2, 3, 4, 5];
 
-/**
- * One Starter per Hermes blueprint (apps/agent/hermes/cron/blueprint_catalog.py).
- * Named AGENT_STARTERS because STARTERS above is the rules-engine catalog.
- */
+/** One Starter per Hermes blueprint (apps/agent/hermes/cron/blueprint_catalog.py). */
 export const AGENT_STARTERS: AgentStarter[] = [
   { key: "morning-brief", title: "Morning briefing", prompt: "Produce a concise morning briefing: today's calendar events, the local weather and any urgent items. Keep it short and scannable.", schedule: { dailyAt: "08:00", weekdays: EVERY_DAY } },
   { key: "important-mail", title: "Important-mail monitor", prompt: "Check my inbox for new messages since the last run. Tell me only about mail that needs a reply today, is from my manager or family, or mentions a deadline. Otherwise stay silent.", schedule: { everyMinutes: 30 }, needs: "email" },
