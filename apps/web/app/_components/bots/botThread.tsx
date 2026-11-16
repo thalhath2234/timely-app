@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, ExternalLink, MessageCircle, Undo2 } from "lucide-react";
-import { changedLine } from "@timely/contract/bots";
+import { BOT_FULL_ACCESS_NOTE, changedLine } from "@timely/contract/bots";
 import {
   hostWaiting,
   type HostChoice,
@@ -376,7 +376,7 @@ function SetupCard({
         [
           "Permission",
           f.permission === "full"
-            ? "Full Access"
+            ? `Full Access. ${BOT_FULL_ACCESS_NOTE}`
             : f.permission === "supervised"
               ? "Supervised"
               : "Auto",

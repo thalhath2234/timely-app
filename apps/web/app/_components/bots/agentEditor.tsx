@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import {
   BOT_LIMITS,
+  botPermissionNote,
   watchTitle,
   type WatchInput,
   type WatchView,
@@ -461,7 +462,18 @@ export function AgentEditor({
           </ListRow>
           <ListRow
             label="Permission"
-            meta={PERMISSION_COPY[value.permission].short}
+            meta={
+              botPermissionNote(value.permission) ? (
+                <span
+                  className="text-warning-text"
+                  data-testid="bot-full-access-note"
+                >
+                  {botPermissionNote(value.permission)}
+                </span>
+              ) : (
+                PERMISSION_COPY[value.permission].short
+              )
+            }
             wrapMeta
           >
             <Select

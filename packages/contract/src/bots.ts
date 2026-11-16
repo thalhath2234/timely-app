@@ -3432,6 +3432,17 @@ export type AgentBotFields = {
 
 const PERMISSION_RANK: Record<BotPermission, number> = { supervised: 0, auto: 1, full: 2 };
 
+/**
+ * Shown wherever a Bot's permission is Full Access. Bots have no step-up
+ * yet, so the API runs a Full Access Bot as Auto (chat/bot_policy.go).
+ */
+export const BOT_FULL_ACCESS_NOTE = "Runs as Auto until you confirm Full Access";
+
+/** The note a Bot's permission carries, or "" when it runs as set. */
+export function botPermissionNote(mode: BotPermission | string | undefined): string {
+  return mode === "full" ? BOT_FULL_ACCESS_NOTE : "";
+}
+
 type Reach = Pick<AgentBotFields, "permission"> & { tools: Pick<AgentBotTools, "browserSites" | "useMemory"> };
 
 /**

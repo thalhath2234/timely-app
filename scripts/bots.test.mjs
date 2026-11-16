@@ -2255,6 +2255,14 @@ describe("agent bots and the Assistant tab", async () => {
     assert.equal(bots.widensBot({ ...base, prompt: "drop below 50" }, { ...base, prompt: "drop below 40" }), false);
   });
 
+  test("botPermissionNote: Full Access runs as Auto until confirmed", () => {
+    assert.equal(bots.botPermissionNote("full"), bots.BOT_FULL_ACCESS_NOTE);
+    assert.equal(bots.BOT_FULL_ACCESS_NOTE, "Runs as Auto until you confirm Full Access");
+    assert.equal(bots.botPermissionNote("auto"), "");
+    assert.equal(bots.botPermissionNote("supervised"), "");
+    assert.equal(bots.botPermissionNote(undefined), "");
+  });
+
   test("legacyToAssistant keeps deep links", () => {
     const f = asst.legacyToAssistant;
     assert.equal(f("/chat", ""), "/assistant");
