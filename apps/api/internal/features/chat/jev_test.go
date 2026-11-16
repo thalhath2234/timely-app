@@ -94,17 +94,16 @@ func has(list []string, name string) bool {
 	return false
 }
 
-func TestIntegrationTriageNarrowsToolsAndHints(t *testing.T) {
+// Triage sets the reply language before the turn; the turn's reads run as
+// the model asks for them.
+func TestIntegrationTriageSetsTheLanguage(t *testing.T) {
 	db := integrationDB(t)
-	jev, _ := fakeJev(t, map[string]any{
-		"area": choice("calendar", 0.95), "change": yesNo(0.03), "web": yesNo(0.1), "unclear": yesNo(0.1),
-		"scope": choice("none", 0.9), "language": choice("es", 0.92),
-	})
-	model := &toolsModel{scripted: scripted{responses: []WireMessage{
-		call("get_context", map[string]any{}),
+	jev, _ := fakeJev(t, map[string]any{"language": choice("es", 0.92)})
+	model := &scripted{responses: []WireMessage{
+		call("get_calendar", map[string]any{}),
 		call("get_doc", map[string]string{"docId": "doc_1"}),
 		{Role: "assistant", Content: "Mañana tienes dos eventos."},
-	}}}
+	}}
 	s := New(db, readCatalog, model)
 	s.SetDecisions(jev)
 	c := planFixture(t, db)
@@ -113,52 +112,39 @@ func TestIntegrationTriageNarrowsToolsAndHints(t *testing.T) {
 	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
-	if !has(model.tools[0], "get_calendar") || !has(model.tools[0], "get_context") || has(model.tools[0], "get_doc") {
-		t.Fatalf("first call should offer calendar tools only: %v", model.tools[0])
-	}
-	if !has(model.tools[2], "get_doc") {
-		t.Fatalf("calling a left-out tool must offer everything again: %v", model.tools[2])
-	}
-	if model.seen[1][len(model.seen[1])-1].Role != "tool" || strings.Contains(model.seen[2][len(model.seen[2])-1].Content, "error") {
-		t.Fatalf("the left-out tool must still run: %+v", model.seen[2][len(model.seen[2])-1])
-	}
-	prompt := ""
-	for _, m := range model.seen[0] {
-		prompt += m.Content + "\n"
-	}
-	if !strings.Contains(prompt, "reads as a question") || !strings.Contains(prompt, "also work when called by name: get_doc, list_docs") {
-		t.Fatalf("hints missing from the prompt: %s", prompt[len(prompt)-600:])
+	if results := lastToolResults(model.seen[len(model.seen)-1]); len(results) != 2 || strings.Contains(strings.Join(results, ""), "error") {
+		t.Fatalf("tool results %v", results)
 	}
 	if c.Language != "es" || c.Status != "idle" {
 		t.Fatalf("language %q status %q", c.Language, c.Status)
 	}
 }
 
+// With Jev off or unsure the turn runs as it would without it: no language
+// is set and the model reads no classifier hint.
 func TestIntegrationTriageOffOrUnsureChangesNothing(t *testing.T) {
 	db := integrationDB(t)
 	for name, jev := range map[string]Decider{
 		"no keys": decide.New(nil, func(context.Context, string) (decide.Keys, error) { return decide.Keys{Enabled: true}, nil }, decide.NewClient(nil)),
 		"unsure": func() Decider {
-			d, _ := fakeJev(t, map[string]any{"area": choice("calendar", 0.5), "change": yesNo(0.4)})
+			d, _ := fakeJev(t, map[string]any{"language": choice("es", 0.5)})
 			return d
 		}(),
 	} {
-		model := &toolsModel{scripted: scripted{responses: []WireMessage{{Role: "assistant", Content: "Hi."}}}}
+		model := &scripted{responses: []WireMessage{{Role: "assistant", Content: "Hi."}}}
 		s := New(db, readCatalog, model)
 		s.SetDecisions(jev)
 		c := planFixture(t, db)
+		c.Messages = []Message{message("user", "Hola, what is next")}
+		db.Save(&c)
 		if err := playTurn(context.Background(), s, &c); err != nil {
 			t.Fatal(err)
 		}
-		offered := len(model.tools[0])
-		if has(model.tools[0], targetTool) {
-			offered-- // offered whenever Jev has keys, sure or not
-		}
-		if offered != 5 { // four read tools and propose_changes
-			t.Fatalf("%s: every tool must be offered: %v", name, model.tools[0])
+		if c.Language != "" || c.Status != "idle" {
+			t.Fatalf("%s: language %q status %q", name, c.Language, c.Status)
 		}
 		for _, m := range model.seen[0] {
-			if strings.Contains(m.Content, "classifier") || strings.Contains(m.Content, "called by name") {
+			if strings.Contains(m.Content, "classifier") {
 				t.Fatalf("%s: no hint expected, got %q", name, m.Content)
 			}
 		}

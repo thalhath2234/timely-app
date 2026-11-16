@@ -582,8 +582,8 @@ func TestIntegrationAgentEnginePhotoChatSendsItsPhotos(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(asked) == 0 || !asked[0].SupportsVision || !asked[0].Sensitive {
-		t.Fatalf("model options %+v", asked)
+	if !slices.ContainsFunc(asked, func(o RunModelOptions) bool { return o.SupportsVision && o.Sensitive }) {
+		t.Fatalf("model options %+v: the photo turn never asked for a model that reads photos", asked)
 	}
 }
 

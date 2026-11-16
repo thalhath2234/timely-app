@@ -28,10 +28,9 @@ import (
 // WorkerEngine is the agent engine (ADR 0026, plan 3.4 and 5.4): chat turns
 // run in the account's Hermes worker, which agenthost supervises. Go keeps
 // the record (agent_conversations) and every decision about Timely data: the
-// worker's model reads Timely through tool.call (toolCall, the code classic
-// uses) and changes it only by recording one propose_changes, which this
-// engine holds or applies after run.done with the same checkpoint classic
-// uses (finishTurn, ADR 0007, Q-2.4).
+// worker's model reads Timely through tool.call (toolCall) and changes it
+// only by recording one propose_changes, which this engine holds or applies
+// after run.done (finishTurn, ADR 0007, Q-2.4).
 //
 // One follower goroutine per live run takes that run's worker messages in
 // order (the supervisor's Handler hands them over one at a time per worker,
@@ -420,25 +419,9 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		}
 		return NeedsSettings(err.Error())
 	}
-	// Jev's similar-chat pointer and language run before the turn (plan
-	// 5.6); toolsets are fixed per conversation.
-	language := ""
-	if len(latestTags(c)) == 0 {
-		if tri, ok := e.s.triage(ctx, c); ok {
-			if tri.similar != nil {
-				return e.s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
-					if tri.language != "" {
-						row.Language = tri.language
-					}
-					m := message("assistant", tri.similar.Title)
-					m.Kind, m.Chat = "similar", tri.similar
-					row.Messages = append(row.Messages, m)
-					row.Status = "choose"
-					return notify(tx, row, tr(row.Language, txtPushChoose))
-				})
-			}
-			language = tri.language
-		}
+	language, waits, err := e.s.triageTurn(ctx, c)
+	if waits || err != nil {
+		return err
 	}
 	// A worker rendered for another host-allowed state (the account was
 	// turned on or off in Settings → Server since it started) refuses or
@@ -484,7 +467,7 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 	setup.toolsets = runToolsets(setup, tools.web.on)
 	if tools.web.on {
 		// The timely web backend searches with the chat's own provider
-		// (Q-3.8), as classic's web_search does.
+		// (Q-3.8).
 		toolCtx = e.s.withRunCompleter(toolCtx, c)
 	}
 	block := timelyBlock(c, tools, hostAllowed)
@@ -619,6 +602,34 @@ func (e *WorkerEngine) Start(ctx context.Context, c *Conversation) error {
 		}
 	}
 	return nil
+}
+
+// triageTurn runs Jev's similar-chat pointer and language before a turn
+// (plan 5.6; toolsets are fixed per conversation). When an earlier chat asks
+// the same, the chat waits for the person's choice (waits, status
+// "choose") and no turn runs; else language is the message's language, or
+// "" when Jev is unsure or off. A message that tags a Bot is not triaged.
+func (s *Service) triageTurn(ctx context.Context, c *Conversation) (language string, waits bool, err error) {
+	if len(latestTags(c)) > 0 {
+		return "", false, nil
+	}
+	tri, ok := s.triage(ctx, c)
+	if !ok {
+		return "", false, nil
+	}
+	if tri.similar == nil {
+		return tri.language, false, nil
+	}
+	return "", true, s.checkpoint(ctx, c, func(tx *gorm.DB, row *Conversation) error {
+		if tri.language != "" {
+			row.Language = tri.language
+		}
+		m := message("assistant", tri.similar.Title)
+		m.Kind, m.Chat = "similar", tri.similar
+		row.Messages = append(row.Messages, m)
+		row.Status = "choose"
+		return notify(tx, row, tr(row.Language, txtPushChoose))
+	})
 }
 
 // clearRun takes a run that never started off the row.
@@ -1060,7 +1071,7 @@ var errUnchanged = errors.New("nothing to save")
 // Forget implements AgentEngine (after Delete): session.delete in the
 // account's worker, once the chat's run is over. The request waits in
 // agent_session_forgets until it is done. With no worker running (an idle
-// account, or one back on Classic) agent-forget does it on the home at once
+// account) agent-forget does it on the home at once
 // (review round 8): the desktop folder backup copies the home raw, so the
 // chat must not wait there for the account's next agent run.
 func (e *WorkerEngine) Forget(uid, cid string) {

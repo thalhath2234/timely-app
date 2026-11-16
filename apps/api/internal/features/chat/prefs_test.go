@@ -292,23 +292,23 @@ func TestIntegrationChatSettings(t *testing.T) {
 	code, body := serve(t, s, "GET", "/agent/chat-settings", ``)
 	var got map[string]any
 	_ = json.Unmarshal(body, &got)
-	if code != 200 || got["engine"] != "classic" || got["chatPermission"] != "supervised" || got["botPermission"] != "auto" ||
-		got["fullAccessAllowedOn"] != "desktop" || got["engineAvailable"] != false || got["engineReason"] != "not available" {
+	if _, has := got["engine"]; code != 200 || has || got["chatPermission"] != "supervised" || got["botPermission"] != "auto" ||
+		got["fullAccessAllowedOn"] != "desktop" || got["engineAvailable"] != false || got["engineReason"] != "agent runtime missing" {
 		t.Fatalf("defaults: %d %s", code, body)
 	}
-	for _, bad := range []string{`{"engine":"turbo"}`, `{"chatPermission":"reckless"}`, `{"botPermission":""}`, `{"fullAccessAllowedOn":"phone"}`} {
+	for _, bad := range []string{`{"chatPermission":"reckless"}`, `{"botPermission":""}`, `{"fullAccessAllowedOn":"phone"}`} {
 		if code, _ := serve(t, s, "PATCH", "/agent/chat-settings", bad); code != 400 {
 			t.Errorf("%s: %d", bad, code)
 		}
 	}
-	if code, body := serve(t, s, "PATCH", "/agent/chat-settings", `{"engine":"agent","chatPermission":"Auto"}`); code != 200 || !strings.Contains(string(body), `"chatPermission":"auto"`) {
+	if code, body := serve(t, s, "PATCH", "/agent/chat-settings", `{"chatPermission":"Auto"}`); code != 200 || !strings.Contains(string(body), `"chatPermission":"auto"`) {
 		t.Fatalf("patch: %d %s", code, body)
 	}
 	s.SetAgentEngine(&fakeEngine{})
 	code, body = serve(t, s, "GET", "/agent/chat-settings", ``)
 	got = nil
 	_ = json.Unmarshal(body, &got)
-	if code != 200 || got["engine"] != "agent" || got["chatPermission"] != "auto" || got["botPermission"] != "auto" || got["engineAvailable"] != true {
+	if code != 200 || got["chatPermission"] != "auto" || got["botPermission"] != "auto" || got["engineAvailable"] != true {
 		t.Fatalf("after patch: %d %s", code, body)
 	}
 

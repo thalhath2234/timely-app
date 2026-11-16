@@ -4,9 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/jpeg"
 	"io"
 	"io/fs"
 	"net/http"
@@ -157,7 +162,11 @@ func stubModelAt(rec *modelRecorder) func(context.Context, string, string, strin
 				base = rec.sensitiveURL
 			}
 		}
-		return map[string]any{"provider": "custom", "model": "stub-model", "base_url": base, "api_key": key, "api_mode": "chat_completions"}, nil
+		m := map[string]any{"provider": "custom", "model": "stub-model", "base_url": base, "api_key": key, "api_mode": "chat_completions"}
+		if opts.SupportsVision {
+			m["supports_vision"] = true
+		}
+		return m, nil
 	}
 }
 
@@ -552,12 +561,10 @@ func changedPaths(before, after map[string]string) []string {
 	return out
 }
 
-// A Sensitive chat with the test-only no-persist switch on: two turns with
-// tool calls on the real worker leave the account's agent home byte for
-// byte as it was, every model call carries the Sensitive grant, and the
-// second turn's model saw the first (Go sends the whole conversation). With
-// the switch off the same kind of chat runs classic and never reaches the
-// worker.
+// A Sensitive chat always runs no-persist (ADR 0029): two turns with tool
+// calls on the real worker leave the account's agent home byte for byte as
+// it was, every model call carries the Sensitive grant, and the second
+// turn's model saw the first (Go sends the whole conversation).
 func TestIntegrationAgentEngineRealWorkerSensitiveNoPersist(t *testing.T) {
 	rt := realRuntime(t)
 	h, rec := realHarness(t, rt, rt)
@@ -623,6 +630,54 @@ func TestIntegrationAgentEngineRealWorkerSensitiveNoPersist(t *testing.T) {
 	}
 	if !saw {
 		t.Fatal("the second turn's model never saw the first turn")
+	}
+}
+
+// A photo chat on the real worker (ADR 0029, PROTOCOL.md 15.1): the turn's
+// photo reaches the model as an image_url part of the user message, through
+// the Sensitive grant (a photo chat is Sensitive, so the run is no-persist),
+// and the reply comes back as the chat's.
+func TestIntegrationAgentEngineRealWorkerPhotoChat(t *testing.T) {
+	rt := realRuntime(t)
+	t.Setenv("CHAT_IMAGE_DIR", t.TempDir())
+	h, rec := realHarness(t, rt, rt)
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	draw.Draw(img, img.Bounds(), &image.Uniform{C: color.RGBA{R: 255, A: 255}}, image.Point{}, draw.Src)
+	var photo bytes.Buffer
+	if err := jpeg.Encode(&photo, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	imageID := id("img_")
+	c := h.realChat(stubScript("tag-photo", obj{"text": "A red square."}), "supervised", func(c *Conversation) {
+		c.Sensitive = true
+		c.Messages[0].ImageIDs = []string{imageID}
+		c.ImageReview = &ImageReview{ImageIDs: []string{imageID}, Status: "review", Text: "A red square"}
+		if err := os.WriteFile(imagePath(imageID), photo.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		a := ImageAttachment{ID: imageID, UserID: "user-a", ConversationID: &c.ID, Name: "red.jpg", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}
+		if err := h.db.Create(&a).Error; err != nil {
+			t.Fatal(err)
+		}
+	})
+	c = h.waitLong(c.ID, "replied", statusIs("idle"))
+	if got := lastMessage(c).Content; got != "A red square." {
+		t.Fatalf("reply %q (error %q)", got, c.Error)
+	}
+	calls := rec.with("tag-photo")
+	if len(calls) == 0 {
+		t.Fatal("the photo turn never reached the model")
+	}
+	dataURL := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(photo.Bytes())
+	sent := false
+	for _, call := range calls {
+		if call.Auth != "Bearer "+grantSensitive {
+			t.Fatalf("the photo chat used %q", call.Auth)
+		}
+		sent = sent || (bytes.Contains(call.Body, []byte(`"image_url"`)) && bytes.Contains(call.Body, []byte(dataURL)))
+	}
+	if !sent {
+		t.Fatalf("no model call carried the photo as an image_url part: %s", calls[0].Body[:min(len(calls[0].Body), 2000)])
 	}
 }
 

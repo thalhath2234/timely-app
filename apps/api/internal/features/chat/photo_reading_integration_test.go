@@ -35,11 +35,20 @@ func (unreadablePhotoCompleters) Completer(context.Context, string, string, stri
 	return nil, errors.New("Anthropic API is not connected. Add its key in Settings → Agent")
 }
 
+// settingsEngine fails every run the way WorkerEngine.Start does when the
+// run's provider cannot be used: fixed in Settings → Agent.
+type settingsEngine struct{ *fakeEngine }
+
+func (settingsEngine) Start(context.Context, *Conversation) error {
+	return NeedsSettings("Anthropic API is not connected. Add its key in Settings → Agent")
+}
+
 // A failed run stores what the person can do; Try again clears it (GC20).
 func TestIntegrationFailedRunSaysWhatToDo(t *testing.T) {
 	db := integrationDB(t)
 	s := New(db, nil, nil)
 	s.SetCompleters(unreadablePhotoCompleters{})
+	s.SetAgentEngine(settingsEngine{&fakeEngine{}})
 	c := runFixture(t, db, nil)
 	c.Status, c.Lease, c.Phase = "queued", "", "plan"
 	c.Messages = []Message{message("user", "hi")}

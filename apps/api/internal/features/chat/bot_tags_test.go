@@ -215,8 +215,8 @@ func lastToolResults(seen []WireMessage) []string {
 	return out
 }
 
-// A tagged message only answers: it is offered the bot reads alone, and the
-// loop refuses everything else the model calls, never widening the tools.
+// A tagged message only answers: the run refuses every call outside the bot
+// reads, propose_changes included, and the reply carries the Bot's answer.
 func TestIntegrationTaggedMessageOnlyAnswers(t *testing.T) {
 	db := integrationDB(t)
 	called := []string{}
@@ -242,16 +242,6 @@ func TestIntegrationTaggedMessageOnlyAnswers(t *testing.T) {
 	db.Save(&c)
 	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
-	}
-	for i, tools := range model.tools {
-		for _, name := range tools {
-			if !answerTools[name] {
-				t.Errorf("call %d offers %s: %v", i, name, tools)
-			}
-		}
-		if !has(tools, "ask_bot") || !has(tools, "get_context") || has(tools, "propose_changes") {
-			t.Errorf("call %d tools %v", i, tools)
-		}
 	}
 	results := lastToolResults(model.seen[len(model.seen)-1])
 	if len(results) != 6 {
@@ -291,9 +281,6 @@ func TestIntegrationTaggedMessageOnlyAnswers(t *testing.T) {
 	db.Save(&c)
 	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
-	}
-	if !has(model.tools[0], "propose_changes") || !has(model.tools[0], "web_search") {
-		t.Fatalf("a follow-up without a tag offers %v", model.tools[0])
 	}
 	if last := c.Messages[len(c.Messages)-1]; len(last.BotAnswers) != 0 {
 		t.Fatalf("an answer without ask_bot carries %s", raw(last.BotAnswers))

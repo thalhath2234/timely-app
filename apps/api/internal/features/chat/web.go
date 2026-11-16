@@ -25,7 +25,7 @@ import (
 // PROTOCOL.md section 10.7). The model calls Hermes' web_search and
 // web_extract; with no search key in Settings their backend is timely_web,
 // which asks Go through tool.call. Go searches with the chat provider's own
-// search (the run's Completer, the same path classic's web_search takes) and
+// search (the run's Completer) and
 // reads pages through the netguard fetcher. Both results carry third-party
 // text (outside): the chat is tainted, so its next proposal is held for
 // review (ADR 0007). Timely puts no rule of its own on where a tainted chat
@@ -234,7 +234,7 @@ func searchResults(answer WireMessage, limit int) []webResult {
 }
 
 // webSearch is the timely backend's web_search: the chat provider's own
-// search, within classic's caps (maxSearches a run, maxSearchFailures
+// search, within Timely's caps (maxSearches a run, maxSearchFailures
 // failures).
 func (s *Service) webSearch(ctx context.Context, run *toolRun, args json.RawMessage) (result any, outside bool, err error) {
 	if !canSearch(ctx) {

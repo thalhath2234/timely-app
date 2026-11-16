@@ -301,10 +301,10 @@ func TestIntegrationWebSearchSkipsBlankQueriesAndStopsAfterFailures(t *testing.T
 	}
 }
 
-func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T) {
+// A write tool called directly never runs: the model is told to propose it.
+func TestIntegrationDirectWritesAreRedirected(t *testing.T) {
 	db := integrationDB(t)
 	model := &scripted{responses: []WireMessage{
-		{Role: "assistant"},
 		call("capture_inbox_item", map[string]string{"name": "Start a podcast"}),
 		{Role: "assistant", Content: "Proposed."},
 	}}
@@ -321,10 +321,7 @@ func TestIntegrationEmptyReplyIsRetriedAndDirectWritesAreRedirected(t *testing.T
 	if c.Status != "idle" || c.Messages[len(c.Messages)-1].Content != "Proposed." {
 		t.Fatalf("run did not finish with the reply: %s %+v", c.Status, c.Messages)
 	}
-	if last := model.seen[1][len(model.seen[1])-1]; !strings.Contains(last.Content, "your last reply was empty") {
-		t.Fatalf("empty reply was not nudged: %+v", last)
-	}
-	if last := model.seen[2][len(model.seen[2])-1]; last.Role != "tool" || !strings.Contains(last.Content, "never called directly") || !strings.Contains(last.Content, "propose_changes") {
+	if last := model.seen[1][len(model.seen[1])-1]; last.Role != "tool" || !strings.Contains(last.Content, "never called directly") || !strings.Contains(last.Content, "propose_changes") {
 		t.Fatalf("direct write was not redirected to a proposal: %+v", last)
 	}
 }
@@ -383,12 +380,12 @@ func TestIntegrationDeviceTimezoneReachesTools(t *testing.T) {
 	if seen != "Asia/Tokyo" {
 		t.Fatalf("tool saw timezone %q", seen)
 	}
-	// The clock follows the stored conversation, out of the cached system prompt.
+	// The turn's clock notice names the device zone.
 	prompt := ""
 	for _, m := range model.seen[0] {
 		prompt += m.Content + "\n"
 	}
-	if !strings.Contains(prompt, "Asia/Tokyo (from their device") || strings.Contains(model.seen[0][0].Content, "Asia/Tokyo") {
+	if !strings.Contains(prompt, "Asia/Tokyo (from their device") {
 		t.Fatal("the prompt's clock notice lacks the device timezone")
 	}
 	if !strings.Contains(prompt, "Current get_context result") || !strings.Contains(prompt, "2026-10-02T20:47:00+09:00") {

@@ -213,15 +213,12 @@ func TestIntegrationResolveTargetInARun(t *testing.T) {
 	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
 	}
-	if !has(model.tools[0], targetTool) || !strings.Contains(model.seen[0][0].Content, "call resolve_target") {
-		t.Fatal("resolve_target must be offered with its prompt line")
-	}
 	answer := model.seen[1][len(model.seen[1])-1]
 	if answer.Role != "tool" || !strings.Contains(answer.Content, `"pick":"evt_next"`) {
 		t.Fatalf("tool answer %s", answer.Content)
 	}
 
-	// Off: not offered, no prompt line, and calling it by name fails.
+	// Off: calling it by name fails.
 	off := &toolsModel{scripted: scripted{responses: []WireMessage{
 		call(targetTool, map[string]string{"kind": "event", "name": "dentist"}),
 		{Role: "assistant", Content: "Which one?"},
@@ -232,9 +229,6 @@ func TestIntegrationResolveTargetInARun(t *testing.T) {
 	db.Save(&c)
 	if err := playTurn(context.Background(), s, &c); err != nil {
 		t.Fatal(err)
-	}
-	if has(off.tools[0], targetTool) || strings.Contains(off.seen[0][0].Content, "resolve_target") {
-		t.Fatal("resolve_target must not be offered without Jev")
 	}
 	if !strings.Contains(off.seen[1][len(off.seen[1])-1].Content, "Unknown tool") {
 		t.Fatalf("calling it without Jev must fail: %s", off.seen[1][len(off.seen[1])-1].Content)

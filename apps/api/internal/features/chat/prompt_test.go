@@ -54,15 +54,11 @@ func TestCacheTailMarksACopy(t *testing.T) {
 	}
 }
 
-// Each message used to resend a system prompt with the clock in it (so it
-// never cached) and spend a whole call on get_context first.
-func TestIntegrationPromptKeepsAStablePrefixAndReadsContextUpFront(t *testing.T) {
+// A turn's input carries the clock and the current get_context result, read
+// up front, so the model answers without spending a call on get_context.
+func TestIntegrationTurnInputReadsContextUpFront(t *testing.T) {
 	db := integrationDB(t)
-	model := &scripted{responses: []WireMessage{
-		{Role: "assistant", Content: "You have two projects."},
-		call("get_doc", map[string]string{"docId": "doc_1"}),
-		{Role: "assistant", Content: "It is the plan."},
-	}}
+	model := &scripted{responses: []WireMessage{{Role: "assistant", Content: "You have two projects."}}}
 	contextReads := 0
 	s := New(db, func(*gorm.DB) agent.Catalog {
 		return agent.Catalog{
@@ -70,13 +66,9 @@ func TestIntegrationPromptKeepsAStablePrefixAndReadsContextUpFront(t *testing.T)
 				contextReads++
 				return map[string]any{"projects": []string{"Home", "Work"}}, nil
 			}},
-			"get_doc": {Call: func(context.Context, string, json.RawMessage) (any, error) {
-				return map[string]string{"id": "doc_1", "title": "Plan"}, nil
-			}},
 		}
 	}, model)
 	c := planFixture(t, db)
-	c.WebSearch = true
 	c.Messages = []Message{message("user", "Hello"), message("assistant", "Hi!"), message("user", "How many projects do I have?")}
 	if err := db.Save(&c).Error; err != nil {
 		t.Fatal(err)
@@ -87,48 +79,9 @@ func TestIntegrationPromptKeepsAStablePrefixAndReadsContextUpFront(t *testing.T)
 	if len(model.seen) != 1 || contextReads != 1 || c.Messages[len(c.Messages)-1].Content != "You have two projects." {
 		t.Fatalf("one call answers with the context read up front: %d calls, %d reads, %+v", len(model.seen), contextReads, c.Messages)
 	}
-	first := model.seen[0]
-	system := first[0]
-	if !system.Cache || strings.Contains(system.Content, "Current UTC time") || !strings.Contains(system.Content, "Web search is on in this chat") {
-		t.Fatalf("the system prompt is cached, holds no clock, and puts web lookups in scope: cache=%v", system.Cache)
-	}
-	marked := []string{}
-	stored, clock, current := -1, -1, -1
-	for i, m := range first {
-		if m.Cache {
-			marked = append(marked, m.Content[:min(len(m.Content), 20)])
-		}
-		switch {
-		case m.Content == "How many projects do I have?":
-			stored = i
-		case strings.Contains(m.Content, "Current UTC time"):
-			clock = i
-		case strings.Contains(m.Content, "Current get_context result") && strings.Contains(m.Content, "Work"):
-			current = i
-		}
-	}
-	if stored < 0 || !first[stored].Cache || clock <= stored || current <= stored {
-		t.Fatalf("the stored conversation ends the cached prefix, the clock and context follow: stored %d clock %d context %d", stored, clock, current)
-	}
-	if len(marked) != 3 || !first[len(first)-1].Cache {
-		t.Fatalf("marks on the system prompt, the stored conversation and the tail: %q", marked)
-	}
-
-	// The next message starts with the same system prompt, and within its
-	// run only the newest message carries the tail mark.
-	c.Messages = append(c.Messages, message("user", "What is doc 1?"))
-	c.Status = "running"
-	if err := db.Save(&c).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := playTurn(context.Background(), s, &c); err != nil {
-		t.Fatal(err)
-	}
-	if len(model.seen) != 3 || model.seen[1][0].Content != system.Content || model.seen[2][0].Content != system.Content {
-		t.Fatalf("the system prompt is byte-identical on every call: %d calls", len(model.seen))
-	}
-	turn := model.seen[2]
-	if last := turn[len(turn)-1]; last.Role != "tool" || !last.Cache || turn[len(turn)-2].Cache {
-		t.Fatalf("the newest tool result is the tail mark: %+v", turn[len(turn)-2:])
+	input := model.seen[0][0].Content
+	asked, clock, current := strings.Index(input, "How many projects do I have?"), strings.Index(input, "Current UTC time"), strings.Index(input, "Current get_context result")
+	if asked < 0 || clock <= asked || current <= clock || strings.Contains(input, "Hello") || !strings.Contains(input[current:], "Work") {
+		t.Fatalf("the turn's input is the new message, then the clock and the context: %q", input)
 	}
 }

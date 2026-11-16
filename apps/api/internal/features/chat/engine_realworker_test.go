@@ -138,7 +138,7 @@ func TestIntegrationAgentEngineRealWorker(t *testing.T) {
 	}
 
 	// 5. Review round 8: a chat deleted while the account has no worker
-	// (reaped after its idle minutes, or back on Classic) leaves the home at
+	// (reaped after its idle minutes) leaves the home at
 	// once through agent-forget, not at the account's next agent run: the
 	// desktop folder backup copies state.db raw.
 	const word = "zqxjvwombatlentil"

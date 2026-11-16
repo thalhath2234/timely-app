@@ -221,7 +221,7 @@ func TestTypedAnswerIsHeldToTheAnswerLimit(t *testing.T) {
 
 // A failed turn shows Timely's own error text: Hermes' transport prefix
 // ("HTTP 424:") that the gateway's status code puts in front of it is not for
-// the person (classic shows the same failure without it).
+// the person.
 func TestFailedTurnTextDropsHermesTransportPrefix(t *testing.T) {
 	for _, c := range []struct{ in, text, action string }{
 		{"HTTP 424: Claude failed: no rule matched", "Claude failed: no rule matched", ActionRetry},

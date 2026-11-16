@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"gorm.io/gorm"
 )
 
-// playTurn plays one agent-engine turn of c without a worker, the way the
-// engine's follower answers it (engine_agent.go toolCall and done): the
+// playTurn plays one agent-engine turn of c without a worker, the way Start
+// and the engine's follower run it (engine_agent.go triageTurn, toolCall and
+// done): the
 // service's provider stands in for the worker's model, each tool call it
 // makes goes through toolCall, a propose_changes through
 // prepareAgentProposal (a recorded proposal ends the turn), and the turn
@@ -15,6 +18,18 @@ import (
 // then every tool result as a tool message, so a test can read what each
 // call returned from the model's last request.
 func playTurn(ctx context.Context, s *Service, c *Conversation) error {
+	language, waits, err := s.triageTurn(ctx, c)
+	if waits || err != nil {
+		return err
+	}
+	if language != "" {
+		if err := s.checkpoint(ctx, c, func(_ *gorm.DB, row *Conversation) error {
+			row.Language = language
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
 	toolCtx, run := s.newToolRun(ctx, c)
 	run.load(c, "run_test")
 	run.web.on = c.WebSearch && !c.Sensitive && !run.answerOnly

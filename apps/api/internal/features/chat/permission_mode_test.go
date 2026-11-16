@@ -125,7 +125,7 @@ func createCatalog(*gorm.DB) agent.Catalog {
 	}
 }
 
-// On classic, a Supervised chat holds a direct single create for Approve
+// A Supervised chat holds a direct single create for Approve
 // and an Auto chat applies it at once, marked autoApplied.
 func TestIntegrationSupervisedHoldsAndAutoApplies(t *testing.T) {
 	db := integrationDB(t)
@@ -190,7 +190,7 @@ func TestIntegrationPermissionSwitches(t *testing.T) {
 	}
 }
 
-// A classic run that read a bot's page text taints the chat: that proposal
+// A run that read a bot's page text taints the chat: that proposal
 // and every later one in it are held, even in Auto.
 func TestIntegrationOutsideReadTaintsTheChat(t *testing.T) {
 	db := integrationDB(t)
@@ -216,23 +216,3 @@ func TestIntegrationOutsideReadTaintsTheChat(t *testing.T) {
 	}
 }
 
-// The chat's engine waits for the current run; an empty one follows the
-// account again.
-func TestIntegrationChatEngineSwitch(t *testing.T) {
-	db := integrationDB(t)
-	s := New(db, createCatalog, nil)
-	c := planFixture(t, db) // running
-	if code, _ := serve(t, s, "PATCH", "/chats/"+c.ID, `{"engine":"agent"}`); code != 409 {
-		t.Fatalf("engine changed mid-run: %d", code)
-	}
-	db.Model(&Conversation{}).Where("id = ?", c.ID).Update("status", "idle")
-	if code, body := serve(t, s, "PATCH", "/chats/"+c.ID, `{"engine":"agent"}`); code != 200 || !strings.Contains(string(body), `"engine":"agent"`) {
-		t.Fatalf("PATCH engine: %d %s", code, body)
-	}
-	if code, _ := serve(t, s, "PATCH", "/chats/"+c.ID, `{"engine":"turbo"}`); code != 400 {
-		t.Fatalf("an unknown engine: %d", code)
-	}
-	if code, body := serve(t, s, "PATCH", "/chats/"+c.ID, `{"engine":""}`); code != 200 || !strings.Contains(string(body), `"engine":""`) {
-		t.Fatalf("back to the account: %d %s", code, body)
-	}
-}

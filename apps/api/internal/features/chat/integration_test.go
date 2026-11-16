@@ -424,8 +424,19 @@ func (r *recordingCompleters) Resolve(context.Context, string) (string, string, 
 	return "openrouter", "default-model", nil
 }
 func (r *recordingCompleters) Completer(_ context.Context, _, provider, model string) (Completer, error) {
-	r.got <- [2]string{provider, model}
 	return nil, fmt.Errorf("stop here")
+}
+
+// providerEngine is an agent engine that records the provider and model a
+// run starts with, then fails the run.
+type providerEngine struct {
+	*fakeEngine
+	got chan [2]string
+}
+
+func (p providerEngine) Start(_ context.Context, c *Conversation) error {
+	p.got <- [2]string{c.Provider, c.Model}
+	return fmt.Errorf("stop here")
 }
 
 func TestIntegrationChosenModelOverridesDefault(t *testing.T) {
@@ -433,6 +444,7 @@ func TestIntegrationChosenModelOverridesDefault(t *testing.T) {
 	s := New(db, nil, nil)
 	rec := &recordingCompleters{got: make(chan [2]string, 4)}
 	s.SetCompleters(rec)
+	s.SetAgentEngine(providerEngine{fakeEngine: &fakeEngine{}, got: rec.got})
 	e := echo.New()
 	g := e.Group("")
 	g.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
