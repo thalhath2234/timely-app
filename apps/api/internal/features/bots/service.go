@@ -63,6 +63,9 @@ type Service struct {
 	// threads posts an agent Bot's alerts into its Bot thread (SetThreadPoster);
 	// nil posts nothing.
 	threads ThreadPoster
+	// stopper stops a Bot's live ticks in the agent worker (SetStopper); nil
+	// stops nothing.
+	stopper func(userID, botID string)
 	// CheckSlots is how many checks run at once in the bot_check lane; the
 	// wiring sets it to AgentCheckSlots once agent Bots run, so long runs never
 	// starve passes. Zero reads as CheckSlots.
@@ -106,7 +109,7 @@ func (s *Service) WithDB(db *gorm.DB, q *jobs.Queue) *Service {
 		store: NewStore(db), db: db, queue: q,
 		fetch: s.fetch, keys: s.keys, keyStore: s.keyStore, live: s.live, now: s.now,
 		askPoll: s.askPoll, askWait: s.askWait, sleep: s.sleep, judge: s.judge,
-		agent: s.agent, threads: s.threads, CheckSlots: s.CheckSlots,
+		agent: s.agent, threads: s.threads, stopper: s.stopper, CheckSlots: s.CheckSlots,
 		rnd: rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), rand.Uint64())),
 	}
 }
@@ -129,6 +132,22 @@ func (s *Service) SetAgent(a Agent) { s.agent = a }
 // SetThreadPoster gives agent Bots the place their alerts are posted into, a
 // Bot thread each (Q-B6). nil posts nothing.
 func (s *Service) SetThreadPoster(t ThreadPoster) { s.threads = t }
+
+// SetStopper gives Pause, Delete and Pause all the way to stop a Bot's live
+// ticks (chat's BotAgent.StopBot), so nothing more of a tick runs once its Bot
+// is paused or deleted. nil stops nothing.
+func (s *Service) SetStopper(stop func(userID, botID string)) { s.stopper = stop }
+
+// stopTicks stops the live ticks of the Bots, after the change that paused or
+// deleted them committed.
+func (s *Service) stopTicks(userID string, botIDs ...string) {
+	if s.stopper == nil {
+		return
+	}
+	for _, id := range botIDs {
+		s.stopper(userID, id)
+	}
+}
 
 // AgentCheckSlots is how many checks run at once once agent Bots run: long
 // runs take two lane slots instead of three (ADR 0027).
@@ -184,7 +203,11 @@ func (s *Service) Update(ctx context.Context, userID, idOrName string, p Patch, 
 }
 
 func (s *Service) Pause(ctx context.Context, userID, idOrName, reason string) (View, error) {
-	return s.store.Pause(ctx, userID, idOrName, reason, s.now())
+	v, err := s.store.Pause(ctx, userID, idOrName, reason, s.now())
+	if err == nil {
+		s.stopTicks(userID, v.ID)
+	}
+	return v, err
 }
 
 func (s *Service) Resume(ctx context.Context, userID, id string, o Origin) (View, error) {
@@ -196,7 +219,15 @@ func (s *Service) Snooze(ctx context.Context, userID, id string, until *time.Tim
 }
 
 func (s *Service) Delete(ctx context.Context, userID, id string) error {
-	return s.store.Delete(ctx, userID, id)
+	b, err := findBot(s.db.WithContext(ctx), userID, id, false)
+	if err != nil {
+		return err
+	}
+	if err := s.store.Delete(ctx, userID, b.ID); err != nil {
+		return err
+	}
+	s.stopTicks(userID, b.ID)
+	return nil
 }
 
 func (s *Service) List(ctx context.Context, userID string) (BotList, error) {
@@ -264,8 +295,18 @@ func (s *Service) SetAlertDefaults(ctx context.Context, userID string, d models.
 }
 
 // SetAllPaused turns "Pause all bots" on or off.
+// Turning it on stops every live tick of the person's agent Bots.
 func (s *Service) SetAllPaused(ctx context.Context, userID string, paused bool) (bool, error) {
-	return s.store.SetAllPaused(ctx, userID, paused, s.now())
+	on, err := s.store.SetAllPaused(ctx, userID, paused, s.now())
+	if err != nil || !paused || s.stopper == nil {
+		return on, err
+	}
+	var ids []string
+	if err := s.db.WithContext(ctx).Model(&Bot{}).Where("user_id = ? AND engine = ?", userID, EngineAgent).Pluck("id", &ids).Error; err != nil {
+		return on, err
+	}
+	s.stopTicks(userID, ids...)
+	return on, nil
 }
 
 func (s *Service) Findings(ctx context.Context, userID string, q FindingQuery) ([]Finding, error) {

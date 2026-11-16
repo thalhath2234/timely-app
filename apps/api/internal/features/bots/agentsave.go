@@ -543,6 +543,13 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 			return err
 		}
 		end := endOf(run)
+		// A Bot paused (or Pause all turned on) while its tick ran tells
+		// nobody: the Check is recorded, its reports raise no alert.
+		paused, err := accountPaused(tx, b.UserID)
+		if err != nil {
+			return err
+		}
+		quiet := paused || b.Status != StatusActive
 		cws, moved, closed, read, err := saveAgentReads(tx, c, cur, end.consume, done)
 		if err != nil {
 			return err
@@ -565,7 +572,7 @@ func (s *Service) saveAgent(ctx context.Context, c checkRun, run agentRun) ([]st
 		// A chat that took the browser mid-tick ends it browser_busy, but what
 		// the run had already reported is kept: its alerts go out as usual and
 		// the Check stays browser_busy.
-		if end.kind == endOK || (end.kind == endBusy && run.ran) {
+		if !quiet && (end.kind == endOK || (end.kind == endBusy && run.ran)) {
 			res, err := s.saveReports(tx, reportSave{
 				bot: b, checkID: c.checkID, chainID: c.chainID, depth: c.depth, now: done,
 				away: awayLineOf(check.AwaySecs, check.AwayReason),
