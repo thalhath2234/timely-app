@@ -489,7 +489,7 @@ export type BotThreadLine = {
   after?: string;
   undoToken?: string;
   undone?: boolean;
-  /** pending_change: browser_site, memory or permission. */
+  /** pending_change: browser_site, memory, permission, egress or mcp. */
   reason?: string;
   /** pending_change: pending, approved or discarded. */
   state?: string;

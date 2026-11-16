@@ -209,6 +209,8 @@ export function pendingTitle(reason: string | undefined): string {
   if (reason === "browser_site") return "Read a site on your signed-in browser";
   if (reason === "memory") return "Use your memory and About you";
   if (reason === "permission") return "Run with looser permission";
+  if (reason === "egress") return "Reach a new site";
+  if (reason === "mcp") return "Use a tool server";
   return "Give the Bot more reach";
 }
 

@@ -16,6 +16,8 @@ export const PENDING_REASON: Record<Line<"pending_change">["reason"], string> = 
   browser_site: "A new signed-in site",
   memory: "Memory and About you on",
   permission: "A looser permission",
+  egress: "A new site to reach",
+  mcp: "A tool server turned on",
 };
 
 /** The person's own message: right-aligned, in the accent. */

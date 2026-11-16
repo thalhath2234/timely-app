@@ -154,7 +154,7 @@ export type BotThreadLine =
       at: string;
       before: string;
       after: string;
-      reason: "browser_site" | "memory" | "permission";
+      reason: "browser_site" | "memory" | "permission" | "egress" | "mcp";
       /** "pending" until the person answers. */
       state?: string;
     }
