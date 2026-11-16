@@ -499,6 +499,20 @@ def build_agent(msg: dict[str, Any], session_id: str, trace: Trace):
     return agent
 
 
+def usage_of(agent: Any, msg: dict[str, Any]) -> dict[str, Any]:
+    """``bot.done.usage`` (PROTOCOL.md 13.2): Hermes' session counters under the keys Go's ``botDone.Usage``
+    reads (``input_tokens``, ``output_tokens``, ``iterations``).
+
+    The counters are what the provider reported. On the Claude Code CLI provider they stay 0: the CLI
+    answers through Go's gateway (``provider/gateway.go``), whose ``chat.Completer`` reply carries no token
+    counts, so every response it sends says ``usage`` 0 and nothing on this side knows the real numbers.
+    A count is never estimated here."""
+    cost = getattr(agent, "session_estimated_cost_usd", None)
+    return {**_session_tokens(agent), "iterations": int(getattr(agent, "session_api_calls", 0) or 0),
+            "model": str((msg.get("model") or {}).get("model") or ""),
+            "estimated_cost_usd": float(cost) if isinstance(cost, (int, float)) else None}
+
+
 def watchdog(run: Run, trace: Trace, deadline_s: float, finished: threading.Event,
              why: dict[str, str], inactivity_s: float = float(policy.BOT_INACTIVITY_S)) -> None:
     """End the tick at Go's wall-clock deadline or after ``inactivity_s`` without progress."""
@@ -571,9 +585,7 @@ def run_tick(run: Run, emit: Callable[[str, dict], None], hermes: Any = None) ->
         stopped = bool(run.stop_reason) or bool(result.get("interrupted"))
         error = str(result.get("error") or "") if _failed(result) else ""
         api_calls = int(getattr(agent, "session_api_calls", 0) or 0)
-        cost = getattr(agent, "session_estimated_cost_usd", None)
-        done["usage"] = {**_session_tokens(agent), "iterations": api_calls, "model": str((msg.get("model") or {}).get("model") or ""),
-                         "estimated_cost_usd": float(cost) if isinstance(cost, (int, float)) else None}
+        done["usage"] = usage_of(agent, msg)
         if why.get("class"):
             done.update(error_class=why["class"], error=f"the tick ended: {why['class']}")
         elif stopped:

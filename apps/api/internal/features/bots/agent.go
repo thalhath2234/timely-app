@@ -116,6 +116,9 @@ type AgentResult struct {
 	// ErrorClass is "" for a run that finished, else one of the Class*
 	// constants.
 	ErrorClass string
+	// Model is the model that actually ran: the Bot's own, or the account
+	// default it followed. Zero when unknown (the run never reached a model).
+	Model ModelChoice
 	// RetryAfter is how long the provider asked Timely to wait when the run
 	// ended ClassRateLimited (a 429's Retry-After). Zero when it said nothing;
 	// the tick then holds the next check for rateHold. Ignored for any other

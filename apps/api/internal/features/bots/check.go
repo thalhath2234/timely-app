@@ -1197,6 +1197,10 @@ func (s *Service) runAgent(ctx context.Context, c checkRun, ws []Watch, passed *
 	res, rerr := s.agent.Run(rctx, b.UserID, in)
 	cancel()
 	run.res, run.err = res, rerr
+	if res.Model.Provider != "" {
+		// A Bot that follows the account default names no model of its own.
+		run.model = res.Model
+	}
 	run.class = runClass(res, rerr)
 	run.ran = run.class != classNoAI
 	if run.class == classNoAI {
