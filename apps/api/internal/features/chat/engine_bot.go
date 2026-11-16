@@ -77,8 +77,9 @@ type BotAgent struct {
 	notes BotNotes
 	lease *BrowserLease
 	// SaveContinuation keeps what a Run once continuation found on the Check
-	// whose card it ran (its reports become that Check's alerts); nil keeps
-	// only the Bot thread's line.
+	// whose card it ran: its reports become that Check's alerts, notified and
+	// posted into the Bot thread (bots.Service.SaveContinuation, wired in
+	// cmd). nil keeps only the Bot thread's "Reported" line.
 	SaveContinuation func(ctx context.Context, userID, botID, checkID string, res bots.AgentResult) error
 
 	mu sync.Mutex
@@ -1188,7 +1189,8 @@ func (e *WorkerEngine) ContinueBot(uid, cid string, h HostRequest, lease string)
 // pre_approved call is exactly the card's (tool and arguments hash), run
 // once. Its bot.run goes out only while the thread row still runs under the
 // answer's lease, and the lease is renewed while it runs, so a Stop or
-// Delete ends it. What it found is saved on the card's Check.
+// Delete ends it. Its reports are saved as alerts on the card's Check through
+// SaveContinuation, when it is set.
 func (a *BotAgent) continueCard(ctx context.Context, uid, cid string, h HostRequest, lease string) {
 	s := a.e.s
 	runID := botContinuationRun(h)
