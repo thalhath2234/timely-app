@@ -2,11 +2,13 @@
 
 - ``bot_note_get``, ``bot_note_set``, ``bot_note_delete``, ``bot_report`` and ``bot_browser_read``
   (``tools.py``, ``browser.py``), toolset ``timely_bot``, offered only to a Bot tick (``run_bot``).
+- ``bot_browser_exec`` and ``bot_browser_dialog`` (``script.py``), same toolset: offered only through the
+  gate, every call parks in Needs you, and only a continuation's ``pre_approved`` call runs (Q-B2).
 - the ``cronjob_manage`` shim (``cronjob_shim.py``), registered with ``override=True`` in toolset
   ``timely_schedule`` (the managed config grants ``plugins.entries.timely_bot.allow_tool_override`` to
   this plugin only): "create a job" becomes a ``create_bot`` / ``update_bot`` proposal.
-- ``transform_tool_result``: a page ``bot_browser_read`` returned and the notes ``bot_note_get``
-  returned reach the model wrapped as untrusted data (agent-written notes count as untrusted).
+- ``transform_tool_result``: a page ``bot_browser_read`` returned, a script's or dialog's output and the
+  notes ``bot_note_get`` returned reach the model wrapped as untrusted data (agent-written notes count as untrusted).
 - ``egress.py`` and ``runctx.py``: the bot egress policy ``timely_gate`` applies in a tick.
 
 Everything the tick may reach is decided in ``timely_gate`` (``egress.decide``) before these tools
@@ -19,7 +21,7 @@ import logging
 from typing import Any
 
 PLUGIN = "timely_bot"
-UNTRUSTED_RESULTS = ("bot_browser_read", "bot_note_get")
+UNTRUSTED_RESULTS = ("bot_browser_read", "bot_note_get", "bot_browser_exec", "bot_browser_dialog")
 
 logger = logging.getLogger("timely_agent.plugins.timely_bot")
 registered: list[str] = []  # what register() added, for the self-test

@@ -22,7 +22,9 @@ import (
 // new Bot's draft thread create_bot_draft. It makes no Timely writes, reads
 // no web beyond what the Bot already reaches and offers no host tools. A
 // change applies at once and the thread says "Changed: X -> Y" with Undo; a
-// change that widens the Bot's reach (bots.Widens) waits for one tap.
+// change that widens the Bot's reach (bots.Widens) waits for one tap, and
+// after the turn read page text (bot_history) so does a new egress host or
+// tool server (bots.TaintedWidenReason).
 //
 // The turn runs here, on the account's provider, and not through the chat
 // lanes: the lanes' toolsets are the whole chat's.
@@ -212,6 +214,10 @@ var errNoThreadBots = errors.New("Bots are not available")
 type threadTurn struct {
 	uid, cid, botID string
 	draft           bool
+	// readPages is set once the turn calls bot_history, whose text was read
+	// from pages: from then on a change_bot that adds an egress host or a
+	// tool server waits for one tap too, like a new browser site.
+	readPages bool
 }
 
 // startThreadTurn runs the turn for the person's latest message in the
@@ -465,6 +471,7 @@ func (s *Service) threadTool(ctx context.Context, st *threadTurn, name string, a
 			}
 			q.Since = t
 		}
+		st.readPages = true
 		h, err := s.threadBots.History(ctx, st.uid, st.botID, q)
 		if err != nil {
 			return fail(err)
@@ -506,7 +513,7 @@ func (s *Service) threadChange(ctx context.Context, st *threadTurn, args json.Ra
 	if err != nil {
 		return map[string]any{"error": err.Error()}
 	}
-	change := bots.ChangeInput{Name: in.Patch.Name, Description: in.Patch.Description, AgentInput: agentIn, From: in.From, To: in.To}
+	change := bots.ChangeInput{Name: in.Patch.Name, Description: in.Patch.Description, AgentInput: agentIn, From: in.From, To: in.To, AfterPageText: st.readPages}
 	res, err := s.threadBots.Change(ctx, st.uid, st.botID, change, false)
 	if err != nil {
 		return map[string]any{"error": clip(err.Error(), 400)}

@@ -44,8 +44,27 @@ type BotRunCtx struct {
 // Check records "browser busy" (the lease, browser_lease.go).
 const hostBrowserBusy = "browser busy"
 
+// The bot's own gate-only browser tools (Q-B2): a script on the signed-in
+// browser and an answer to a page's dialog. Each maps to the Hermes tool it
+// runs in a continuation. Every call parks in Needs you, in every mode, Full
+// Access included: Go never allows one, and the worker runs it only as the
+// pre_approved call of a continuation (Run once).
+var botScriptTools = map[string]string{
+	"bot_browser_exec":   "browser_exec",
+	"bot_browser_dialog": "browser_dialog",
+}
+
+// botScriptTool reports a gate-only bot browser tool.
+func botScriptTool(tool string) bool {
+	_, ok := botScriptTools[strings.ToLower(strings.TrimSpace(tool))]
+	return ok
+}
+
 // browserClass reports whether a bot tool uses the browser.
 func browserClass(tool string) bool {
+	if botScriptTool(tool) {
+		return true
+	}
 	switch agent.ClassifyBotTool(tool) {
 	case agent.BotToolBrowserRead, agent.BotToolBrowserAct:
 		return true
@@ -120,7 +139,7 @@ func botURLs(tool string, args map[string]any) []string {
 			add(s)
 		}
 	}
-	if tool == "browser_exec" {
+	if tool == "browser_exec" || tool == "bot_browser_exec" {
 		if s, ok := args["code"].(string); ok {
 			add(navigationTarget(s))
 		}
@@ -134,6 +153,24 @@ func botURLs(tool string, args map[string]any) []string {
 func botHostDecision(b BotRunCtx, tool string, args map[string]any) hostDecision {
 	if args == nil {
 		args = map[string]any{}
+	}
+	if botScriptTool(tool) {
+		// Always parked, whatever the mode: a script or a dialog answer on
+		// the signed-in profile can submit, send or sign in.
+		urls := botURLs(tool, args)
+		why := "Supervised parks this for you"
+		switch agent.BotMode(b.Permission, b.FullAccessOK) {
+		case agent.Auto:
+			why = "Auto parks this for you"
+		case agent.Full:
+			why = "Full Access still asks you first"
+		}
+		d := hostDecision{verdict: agent.BotApprove, reason: why + ": a script or action in your signed-in browser", card: botCard(tool, args, urls)}
+		d.card.Reason = d.reason
+		if len(urls) > 0 {
+			d.action = agent.HostAction{Kind: agent.HostFetch, URL: urls[0]}
+		}
+		return d
 	}
 	class := agent.ClassifyBotTool(tool)
 	// The hardline floor holds in every mode: a terminal or code call is a
@@ -261,6 +298,10 @@ func (e *WorkerEngine) gateBotMCP(r *agentRun, m agenthost.Message, ask gateAsk)
 // botCard is the card parked in Needs you for a call a bot's mode holds. It
 // shows the call's real arguments, as a chat card does.
 func botCard(tool string, args map[string]any, urls []string) HostCard {
+	if hermes, ok := botScriptTools[tool]; ok {
+		_, card, _ := hostCall(hermes, args, "", "", "")
+		return card
+	}
 	if tool != "bot_browser_read" {
 		_, card, _ := hostCall(tool, args, "", "", "")
 		return card

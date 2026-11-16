@@ -1,5 +1,6 @@
-"""The Bot tick's own tools: ``bot_note_get``, ``bot_note_set``, ``bot_note_delete``, ``bot_report`` and
-``bot_browser_read`` (plan 7.5, Q-B2). Registered by ``timely_bot.register`` under toolset ``timely_bot``.
+"""The Bot tick's own tools: ``bot_note_get``, ``bot_note_set``, ``bot_note_delete``, ``bot_report``,
+``bot_browser_read``, and the gate-only ``bot_browser_exec`` and ``bot_browser_dialog`` (``script.py``)
+(plan 7.5, Q-B2). Registered by ``timely_bot.register`` under toolset ``timely_bot``.
 
 The note and report tools are ``tool.call`` requests to Go, scoped to this bot and check (the message
 carries ``bot {bot_id, check_id, dry_run}``). In a dry run ("Try it now") nothing is written: note writes
@@ -19,7 +20,7 @@ import logging
 from typing import Any, Callable, Optional
 
 from timely_agent import bridge, policy
-from timely_agent.plugins.timely_bot import runctx
+from timely_agent.plugins.timely_bot import runctx, script
 
 logger = logging.getLogger("timely_agent.plugins.timely_bot")
 
@@ -297,3 +298,7 @@ HANDLERS: dict[str, Callable[..., str]] = {
     "bot_note_get": note_get, "bot_note_set": note_set, "bot_note_delete": note_delete,
     "bot_report": report, "bot_browser_read": browser_read,
 }
+
+# The gate-only script and dialog tools (``script.py``, Q-B2): every call parks; a continuation runs one.
+SCHEMAS.update(script.SCHEMAS)
+HANDLERS.update(script.HANDLERS)

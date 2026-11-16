@@ -22,16 +22,21 @@ type Reach struct {
 	BrowserSites []string
 	// UseMemory is memory and About you.
 	UseMemory bool
+	// Egress are the extra hosts its outbound URL tools may reach, and MCP
+	// its tool servers' modes. Adding either waits for a tap only after the
+	// turn read page text (ChangeInput.AfterPageText).
+	Egress []string
+	MCP    map[string]string
 }
 
 // ReachOf is a stored Bot's reach.
 func ReachOf(b Bot) Reach {
-	return Reach{Permission: b.Permission, BrowserSites: b.Tools.BrowserSites, UseMemory: b.UseMemory}
+	return Reach{Permission: b.Permission, BrowserSites: b.Tools.BrowserSites, UseMemory: b.UseMemory, Egress: b.Tools.Egress, MCP: b.Tools.MCP}
 }
 
 // reachOfFields is the reach a checked change would leave.
 func reachOfFields(f AgentFields) Reach {
-	return Reach{Permission: f.Permission, BrowserSites: f.Tools.BrowserSites, UseMemory: f.Tools.UseMemory}
+	return Reach{Permission: f.Permission, BrowserSites: f.Tools.BrowserSites, UseMemory: f.Tools.UseMemory, Egress: f.Tools.Egress, MCP: f.Tools.MCP}
 }
 
 // The reasons a change waits for one tap (the contract's pending_change
@@ -40,7 +45,14 @@ const (
 	WidenBrowserSite = "browser_site"
 	WidenMemory      = "memory"
 	WidenPermission  = "permission"
+	// WidenEgress and WidenMCP hold a new egress host or a looser tool server
+	// for a tap, only in a thread turn that read page text.
+	WidenEgress = "egress"
+	WidenMCP    = "mcp"
 )
+
+// mcpRank orders a tool server's modes from off (or absent) to use.
+var mcpRank = map[string]int{"off": 0, "ask": 1, "use": 2}
 
 // permissionRank orders the modes from the tightest to the loosest.
 var permissionRank = map[string]int{PermissionSupervised: 0, PermissionAuto: 1, PermissionFull: 2}
@@ -74,6 +86,40 @@ func WidenReason(before, after Reach) string {
 // one tap.
 func Widens(before, after Reach) bool { return WidenReason(before, after) != "" }
 
+// TaintedWidenReason is WidenReason for a change asked for after page text
+// was read in the same turn: a new egress host or a tool server turned on
+// (off to ask or use, or ask to use) waits for the tap as well, so text a
+// page wrote can't open the Bot a way out.
+func TaintedWidenReason(before, after Reach) string {
+	if r := WidenReason(before, after); r != "" {
+		return r
+	}
+	had := map[string]bool{}
+	for _, h := range before.Egress {
+		had[strings.ToLower(strings.TrimSpace(h))] = true
+	}
+	for _, h := range after.Egress {
+		if !had[strings.ToLower(strings.TrimSpace(h))] {
+			return WidenEgress
+		}
+	}
+	for name, mode := range after.MCP {
+		if mcpRank[mode] > mcpRank[before.MCP[name]] {
+			return WidenMCP
+		}
+	}
+	return ""
+}
+
+// WidenReason is why this change, from before to after, waits for a tap:
+// TaintedWidenReason when it was asked for after page text, else WidenReason.
+func (in ChangeInput) WidenReason(before, after Reach) string {
+	if in.AfterPageText {
+		return TaintedWidenReason(before, after)
+	}
+	return WidenReason(before, after)
+}
+
 // ChangeInput is one change to an agent Bot: its name or description and the
 // agent fields. From and To are the model's own words for it ("alert under
 // 90000", "alert under 85000"); without them the line is made from the fields
@@ -84,6 +130,11 @@ type ChangeInput struct {
 	AgentInput
 	From string `json:"from,omitempty"`
 	To   string `json:"to,omitempty"`
+	// AfterPageText is set by a Bot thread turn that read page text
+	// (bot_history) before asking for this change: then a new egress host or
+	// tool server waits for the tap too. It is never stored, so the person's
+	// tap on the held change applies it.
+	AfterPageText bool `json:"-"`
 }
 
 // Set reports whether the change sets anything.
@@ -125,7 +176,8 @@ func (r ChangeResult) Line() string {
 // Change changes an agent Bot's name, description and agent fields at once.
 // A change that widens its reach (WidenReason) is not applied unless tapped is
 // set (the person's tap, or Undo putting back what the person had); it comes
-// back Pending instead. The change goes through CleanAgent as a chat's
+// back Pending instead. After page text (in.AfterPageText) a new egress host
+// or tool server waits as well. The change goes through CleanAgent as a chat's
 // edit, so every bound holds, and a rules Bot is refused (convert it first).
 func (s *Service) Change(ctx context.Context, userID, idOrName string, in ChangeInput, tapped bool) (ChangeResult, error) {
 	if !in.Set() {
@@ -152,7 +204,7 @@ func (s *Service) Change(ctx context.Context, userID, idOrName string, in Change
 	if res.Before == "" && res.After == "" {
 		return ChangeResult{}, invalid("That is already how the bot is set")
 	}
-	if reason := WidenReason(ReachOf(cur), reachOfFields(next)); reason != "" && !tapped {
+	if reason := in.WidenReason(ReachOf(cur), reachOfFields(next)); reason != "" && !tapped {
 		res.Pending, res.Reason = true, reason
 		return res, nil
 	}

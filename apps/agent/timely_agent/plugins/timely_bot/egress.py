@@ -12,8 +12,11 @@ not depend on prompt text, only on the run's tool policy and taint:
 (d) after taint, ``web_search`` is blocked (a query string is an outbound channel).
 
 Full Access (``permission: full``, sent by Go only after the step-up) lifts (a), (c) and (d); it
-never lifts (b). Everything that passes the floor is then asked of Go (``gate.ask`` with a ``bot``
-context), which answers allow, approve (the step parks in Needs you) or block.
+never lifts (b). The gate-only script tools (``bot_browser_exec``, ``bot_browser_dialog``) always go to
+Go with ``park: true``, in every mode, unless the call is the running continuation's ``pre_approved``
+one, which ``decide`` marks so its handler runs it once (``script.py``). Everything that passes the
+floor is then asked of Go (``gate.ask`` with a ``bot`` context), which answers allow, approve (the
+step parks in Needs you) or block.
 
 ``decide`` returns a :class:`Decision`: ``block`` (nothing runs, the message goes to the model),
 ``allow`` (a Timely tool of the bot's own, no Go round trip) or ``ask`` (``bot`` is the context
@@ -29,9 +32,13 @@ from timely_agent import policy
 from timely_agent.plugins.timely_bot import runctx
 
 BROWSER_READ = "bot_browser_read"
-BOT_TOOLS = ("bot_note_get", "bot_note_set", "bot_note_delete", "bot_report", BROWSER_READ)
-# Offered to a Bot only through the gate, and every call parks (Q-B2): a script, a dialog.
-PARK_ALWAYS = ("browser_exec", "browser_cdp", "browser_dialog")
+# The Bot's own gate-only script and dialog tools (``script.py``): every call parks, and only a
+# continuation's pre_approved call runs (Q-B2).
+SCRIPT_TOOLS = policy.BOT_SCRIPT_TOOLS
+BOT_TOOLS = ("bot_note_get", "bot_note_set", "bot_note_delete", "bot_report", BROWSER_READ, *SCRIPT_TOOLS)
+# Every call parks (Q-B2): a script, a dialog. Hermes' own browser_exec, browser_cdp and browser_dialog are
+# never offered to a tick (they need terminal or a static CDP URL); a call to one still only parks.
+PARK_ALWAYS = ("browser_exec", "browser_cdp", "browser_dialog", *SCRIPT_TOOLS)
 # Never reach a Bot tick (plan 7.5 "Never" rows; terminal, file and code are host tools).
 NEVER = frozenset({
     "terminal", "process", "process_manage", "read_file", "search_files", "write_file", "patch",
@@ -64,6 +71,15 @@ class Decision:
 
 def _block(message: str) -> Decision:
     return Decision("block", message)
+
+
+def continuation_call(tool: str, args: Mapping[str, Any]) -> bool:
+    """Whether this call is exactly the one the running continuation's ``pre_approved`` names."""
+    from timely_agent import bridge
+    run = bridge.current_run.get()
+    pre = getattr(run, "pre_approved", None) if run is not None else None
+    return (isinstance(pre, dict) and pre.get("tool") == tool
+            and pre.get("args_hash") == policy.args_hash(dict(args)))
 
 
 def tainted_flag(tainted: Any) -> bool:
@@ -106,6 +122,9 @@ def decide(bot: runctx.BotRun, tool: str, args: Mapping[str, Any] | None, *, tai
         if not bot.full and not bot.is_bot_host(host):
             return _block(OFF_HOST.format(host=host, tool=tool))
         ctx.update(host=host, granted=bot.is_granted(host))
+        return Decision("ask", bot=ctx)
+    if tool in SCRIPT_TOOLS and continuation_call(tool, args):
+        bot.allow_script(tool, policy.args_hash(args))  # the gate runs it as the pre_approved call
         return Decision("ask", bot=ctx)
     if tool in PARK_ALWAYS:
         ctx["park"] = True

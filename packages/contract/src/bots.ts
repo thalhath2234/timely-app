@@ -3449,7 +3449,7 @@ export function widensBot(before: Reach, after: Reach): boolean {
 export type BotThreadItem =
   | { kind: "alert"; id: string; at: string; alertId: string; title: string; body: string }
   | { kind: "change"; id: string; at: string; before: string; after: string; undoToken: string }
-  | { kind: "pending_change"; id: string; at: string; before: string; after: string; reason: "browser_site" | "memory" | "permission" }
+  | { kind: "pending_change"; id: string; at: string; before: string; after: string; reason: "browser_site" | "memory" | "permission" | "egress" | "mcp" }
   | { kind: "answer"; id: string; at: string; text: string }
   | { kind: "draft_setup"; id: string; at: string; name: string; fields: AgentBotFields };
 
