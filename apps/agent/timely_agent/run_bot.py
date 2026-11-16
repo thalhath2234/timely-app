@@ -447,9 +447,23 @@ def result_ok(result: Any) -> tuple[bool, str]:
         data = json.loads(stripped)
     except ValueError:
         return True, ""
-    if isinstance(data, dict) and data.get("error"):
-        return False, str(data["error"])[:200]
+    if not isinstance(data, dict):
+        return True, ""
+    if data.get("error"):
+        return False, _refusal_note(str(data["error"]))
+    if data.get("success") is False:
+        return False, _refusal_note(str(data.get("message") or "failed"))
+    items = data.get("results")
+    if isinstance(items, list) and items and all(isinstance(i, dict) and i.get("error") for i in items):
+        return False, _refusal_note(str(items[0]["error"]))
     return True, ""
+
+
+def _refusal_note(reason: str) -> str:
+    """The note for a failed read; a URL-safety or private-address refusal starts 'Blocked: ' (Go reads it as refused)."""
+    if not reason.startswith("Blocked:") and ("private" in reason.lower() or "url safety" in reason.lower()):
+        reason = f"Blocked: {reason}"
+    return reason[:200]
 
 
 def build_agent(msg: dict[str, Any], session_id: str, trace: Trace):
