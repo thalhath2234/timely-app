@@ -28,7 +28,7 @@ import { useAssistant } from "../chat/AssistantProvider";
 import HostCard from "../chat/HostCard";
 import { AlertCard, AnswerBubble, ChangeCard, DraftSetupCard, PendingCard, UserBubble } from "./ThreadCards";
 import { draftSetup, parkedStep, threadIsEmpty, threadRows } from "./threadRows";
-import { useBotThread, useRefreshAssistant } from "./useAssistantData";
+import { threadWorking, useBotThread, useRefreshAssistant } from "./useAssistantData";
 
 const say = (message: string) => useToastStore.getState().show(message);
 
@@ -174,7 +174,7 @@ export function BotThread({
   const rows = useMemo(() => threadRows(view?.thread.messages, view?.items, sending), [view, sending]);
   const setup = draftSetup(view?.items);
   const busy = act.isPending || create.isPending || doInChat.isPending;
-  const running = view?.summary.status === "running" || view?.summary.status === "queued";
+  const running = threadWorking(view?.summary);
   const name = view?.summary.title || title || "New Bot";
 
   const renderLine = (line: BotThreadLine) => {

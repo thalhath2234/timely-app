@@ -817,6 +817,9 @@ type ThreadSummary struct {
 	PendingChanges int       `json:"pendingChanges"`
 	ReviewCards    int       `json:"reviewCards"`
 	NeedsYou       bool      `json:"needsYou"`
+	// Working is true while the thread's own turn answers the person's last
+	// message. Thread turns never set Status, so the apps read this instead.
+	Working bool `json:"working,omitempty"`
 }
 
 // ThreadView is GET /chat/bot-threads/:id: the thread, why it needs the
@@ -841,6 +844,7 @@ func (s *Service) summaryOf(row Conversation, reviewCards int) ThreadSummary {
 		}
 	}
 	out.NeedsYou = out.ParkedSteps+out.PendingChanges+out.ReviewCards > 0
+	_, out.Working = s.threadRuns.Load(row.ID)
 	return out
 }
 

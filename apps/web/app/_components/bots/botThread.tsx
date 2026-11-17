@@ -17,6 +17,7 @@ import {
 } from "@/app/_components/_ui/groupedList";
 import { SkeletonCards } from "@/app/_components/_ui/skeleton";
 import TimelyLogo from "@/app/_components/_ui/timelyLogo";
+import ChatText from "@/app/_components/chat/chatText";
 import HostCard from "@/app/_components/chat/hostCard";
 import {
   answerDevice,
@@ -487,7 +488,9 @@ export function BotThread({
   const threadId = view?.thread.id ?? "";
   const entries = useMemo(() => (view ? entriesOf(view) : []), [view]);
   const working =
-    view?.thread.status === "queued" || view?.thread.status === "running";
+    !!view?.summary.working ||
+    view?.thread.status === "queued" ||
+    view?.thread.status === "running";
   const host = view?.thread;
   const parked: HostRequest | undefined =
     host && hostWaiting(host) ? host.hostRequest : undefined;
@@ -552,9 +555,10 @@ export function BotThread({
             ) : (
               <BotSide key={entry.id}>
                 {entry.line.kind === "answer" ? (
-                  <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-                    {entry.line.text}
-                  </p>
+                  <ChatText
+                    text={entry.line.text ?? ""}
+                    className="text-foreground"
+                  />
                 ) : entry.line.kind === "change" ? (
                   <ChangeCard id={threadId} line={entry.line} />
                 ) : entry.line.kind === "pending_change" ? (

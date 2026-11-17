@@ -238,7 +238,9 @@ export function useBotThread(id?: string | null) {
     enabled: !!id,
     retry: (count, error) => !isChatGone(error) && count < 3,
     refetchInterval: (q) =>
-      isBusy(q.state.data?.thread.status) ? 1500 : IDLE_POLL,
+      q.state.data?.summary.working || isBusy(q.state.data?.thread.status)
+        ? 1500
+        : IDLE_POLL,
     refetchOnWindowFocus: true,
     staleTime: 3000,
   });

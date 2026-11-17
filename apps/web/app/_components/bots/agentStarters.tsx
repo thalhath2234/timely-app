@@ -116,18 +116,21 @@ export function AgentStarterGrid({
  */
 export function NewBotThread({
   starter,
+  draft,
   onClose,
   onCreated,
   onUnfinished,
 }: {
   /** A Starter's key from ?new=1&starter=<key>. */
   starter?: string | null;
+  /** An unfinished draft thread's id: it opens as it was left. */
+  draft?: string | null;
   onClose: () => void;
   onCreated: (botId: string) => void;
   onUnfinished?: (unfinished: Unfinished) => void;
 }) {
   const start = useNewBotDraft();
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(draft ?? null);
   const [text, setText] = useState("");
   const frameRef = useRef<HTMLElement>(null);
   const begun = useRef(false);
@@ -176,7 +179,14 @@ export function NewBotThread({
         <CloseButton onClose={onClose} />
       </header>
       {draftId ? (
-        <BotThread id={draftId} onCreated={onCreated} />
+        <BotThread
+          id={draftId}
+          onCreated={(botId) => {
+            // Created: nothing is left unfinished, so opening the Bot asks nothing.
+            onUnfinished?.(null);
+            onCreated(botId);
+          }}
+        />
       ) : start.isPending ? (
         <div className="p-6">
           <SkeletonCards />

@@ -2,6 +2,7 @@ import { Linking, Text, View } from "react-native";
 import { ArrowUpRight, Bell, MessageSquare, ShieldAlert, Undo2 } from "lucide-react-native";
 import { botPermissionNote, changedLine, hostOf } from "@timely/contract/bots";
 import AnimatedPressable from "../ui/AnimatedPressable";
+import { ChatText } from "../chat/shared";
 import { Button } from "../ui/primitives";
 import { ListGroup, ListRow } from "../settings/SettingsList";
 import type { BotThreadLine } from "../../lib/api/chat";
@@ -35,9 +36,7 @@ export function UserBubble({ text }: { text: string }) {
 export function AnswerBubble({ text }: { text: string }) {
   return (
     <View style={styles.answer}>
-      <Text selectable style={styles.body}>
-        {text}
-      </Text>
+      <ChatText text={text} onLink={(href) => (/^https?:\/\//i.test(href) ? void Linking.openURL(href) : undefined)} />
     </View>
   );
 }

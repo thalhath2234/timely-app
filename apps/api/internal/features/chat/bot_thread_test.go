@@ -160,3 +160,23 @@ func TestPatchBecomesAgentInput(t *testing.T) {
 		t.Fatalf("input %+v", in)
 	}
 }
+
+// A thread whose turn is answering reads as working, since thread turns never
+// set the row's Status; the apps show "Working" and poll fast from it.
+func TestThreadSummaryWorking(t *testing.T) {
+	s := &Service{}
+	row := Conversation{ID: "chat_w", Kind: KindBotThread}
+	if s.summaryOf(row, 0).Working {
+		t.Fatal("idle thread reads as working")
+	}
+	if !s.beginThreadTurn(row.ID) {
+		t.Fatal("turn did not begin")
+	}
+	if !s.summaryOf(row, 0).Working {
+		t.Fatal("thread with a running turn does not read as working")
+	}
+	s.threadRuns.Delete(row.ID)
+	if s.summaryOf(row, 0).Working {
+		t.Fatal("finished turn still reads as working")
+	}
+}

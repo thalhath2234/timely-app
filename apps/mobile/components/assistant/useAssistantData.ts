@@ -39,6 +39,11 @@ export function useBotThreads(enabled = true) {
   });
 }
 
+/** The thread's turn is answering, or its run is queued or running. */
+export function threadWorking(summary: BotThreadSummary | undefined): boolean {
+  return !!summary && (!!summary.working || summary.status === "running" || summary.status === "queued");
+}
+
 /** One Bot's thread (by the Bot's id, made on first ask) or a draft thread (by its own id). */
 export function useBotThread(id: string | null | undefined, live = true) {
   return useQuery({
@@ -47,7 +52,7 @@ export function useBotThread(id: string | null | undefined, live = true) {
     enabled: !!id,
     staleTime: 0,
     // While the Bot's turn runs the reply is on its way.
-    refetchInterval: (query) => (!live ? false : (query.state.data as BotThreadView | undefined)?.summary.status === "running" ? 1500 : 6000),
+    refetchInterval: (query) => (!live ? false : threadWorking((query.state.data as BotThreadView | undefined)?.summary) ? 1500 : 6000),
   });
 }
 

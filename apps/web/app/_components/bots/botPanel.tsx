@@ -593,13 +593,14 @@ function EditPanel({
 /**
  * The right-side panel of the Assistant for a Bot: an agent Bot (check
  * strip, Try it now, grouped-row editor and its Bot thread, with
- * ?bot=<id>&thread=1 opening the thread), a rules Bot (its editor and rail,
+ * ?bot=<id>&thread=<1 or the thread's id> opening the thread), a rules Bot (its editor and rail,
  * with a Switch to agent card), or New bot, which starts as its thread.
  */
 export function BotPanel({
   mode,
   botId,
   starter,
+  draft,
   listed,
   order,
   now,
@@ -611,6 +612,8 @@ export function BotPanel({
   botId?: string | null;
   /** A Starter's blueprint key (?new=1&starter=<key>). */
   starter?: string | null;
+  /** An unfinished New bot draft thread to reopen. */
+  draft?: string | null;
   /** The bot as the board has it, drawn while its detail loads. */
   listed?: BotView;
   order: string[];
@@ -623,8 +626,9 @@ export function BotPanel({
   const query = useBot(mode === "edit" ? botId : null);
   const router = useRouter();
   const params = useSearchParams();
-  // ?bot=<id>&thread=1 is this Bot's own thread.
-  const tab = params.get("thread") === "1" ? "thread" : "setup";
+  // ?bot=<id>&thread=1 (or the thread's own id, from a notification) is
+  // this Bot's own thread.
+  const tab = params.get("thread") ? "thread" : "setup";
   // Which nav button opened the next bot, for EditPanel's focus.
   const [via, setVia] = useState<{ id: string; on: "prev" | "next" } | null>(
     null,
@@ -635,6 +639,7 @@ export function BotPanel({
       <NewBotThread
         key={starter ?? "blank"}
         starter={starter}
+        draft={draft}
         onClose={onClose}
         onCreated={onSelect}
         onUnfinished={onUnfinished}

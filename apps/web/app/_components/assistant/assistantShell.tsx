@@ -29,8 +29,7 @@ import { InboxList } from "./inboxList";
 type Open =
   | { kind: "chat"; id: string }
   | { kind: "bot"; id: string }
-  | { kind: "thread"; id: string; bot: string }
-  | { kind: "new-bot"; starter: string | null }
+  | { kind: "new-bot"; starter: string | null; draft: string | null }
   | { kind: "new-chat" };
 
 function readOpen(params: URLSearchParams): Open {
@@ -38,20 +37,20 @@ function readOpen(params: URLSearchParams): Open {
   const bot = params.get("bot");
   const thread = params.get("thread");
   if (chat) return { kind: "chat", id: chat };
-  // thread=1 is "this Bot's thread"; the Bot panel hosts it. Any other value
-  // is the thread's own conversation id.
-  if (bot && thread && thread !== "1")
-    return { kind: "thread", id: thread, bot };
+  // A new Bot's draft has no Bot yet: its row links the draft thread as both.
+  if (bot && thread === bot)
+    return { kind: "new-bot", starter: null, draft: thread };
+  // Any other thread value opens the Bot panel on the Bot's own thread.
   if (bot) return { kind: "bot", id: bot };
   if (params.get("new") === "1")
-    return { kind: "new-bot", starter: params.get("starter") };
+    return { kind: "new-bot", starter: params.get("starter"), draft: null };
   return { kind: "new-chat" };
 }
 
 function selectedKey(open: Open): string | null {
   if (open.kind === "chat") return `chat:${open.id}`;
-  if (open.kind === "bot" || open.kind === "thread")
-    return `bot:${open.kind === "bot" ? open.id : open.bot}`;
+  if (open.kind === "bot") return `bot:${open.id}`;
+  if (open.kind === "new-bot" && open.draft) return `draft:${open.draft}`;
   return null;
 }
 
@@ -151,10 +150,15 @@ function Shell() {
     pane = now ? (
       <div className="h-full min-h-0 md:p-3">
         <BotPanel
-          key={open.kind === "new-bot" ? `new-${open.starter ?? ""}` : "edit"}
+          key={
+            open.kind === "new-bot"
+              ? `new-${open.starter ?? ""}-${open.draft ?? ""}`
+              : "edit"
+          }
           mode={open.kind === "new-bot" ? "new" : "edit"}
           botId={open.kind === "bot" ? open.id : null}
           starter={open.kind === "new-bot" ? open.starter : null}
+          draft={open.kind === "new-bot" ? open.draft : null}
           listed={
             open.kind === "bot"
               ? bots.data?.bots.find((b) => b.id === open.id)
@@ -171,8 +175,7 @@ function Shell() {
       <SkeletonCards className="m-6" />
     );
   } else {
-    const id =
-      open.kind === "chat" ? open.id : open.kind === "thread" ? open.id : null;
+    const id = open.kind === "chat" ? open.id : null;
     pane = (
       <Conversation
         key={id || "new"}

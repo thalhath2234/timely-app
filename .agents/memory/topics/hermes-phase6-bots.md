@@ -12,5 +12,7 @@ Accepted gaps: Claude CLI/Codex Bot runs record 0 tokens (gateway gives no count
 
 Gotcha: `make verify-agent-runs` reads guards by exact code text (anchors in `.agents/skills/verify-agent-runs/tools/coverage.go`). Changing a guarded line's wording (e.g. a return value) makes the guard read FALSE and TLC prints a real-looking counterexample. Check the function first; if the guard is still there, update the anchor, run `ARGS=--mutants`, commit, then `ARGS=--resync`.
 
+Gotcha: a Bot thread or New bot draft turn (`RunThreadTurn`) runs in a goroutine tracked only in `threadRuns` and never sets the row's `status`; the apps read `summary.working` from GET /chat/bot-threads/:id to show "Working" and poll fast. Draft rows link `?bot=<draft id>&thread=<draft id>`, which the web shell opens in the New bot panel (fixed 2026-11-17 on fix/bot-draft-thread after the draft opened as a generic chat Change card).
+
 **Why:** the job's report.md still shows the old "review failed" state; the work after it happened outside the orchestrate script.
 **How to apply:** before reopening phase 6, check `git log orchestrate/hermes-phase6`; phase 6 left: Claude CLI token counts (or "unknown"), a live page-read proof (fetcher seam), real-phone and real-profile checks, and the exit criterion (owner converts Bots, two weeks). Next phase 7.

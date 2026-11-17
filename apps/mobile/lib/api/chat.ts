@@ -143,6 +143,8 @@ export type BotThreadSummary = {
   pendingChanges: number;
   reviewCards: number;
   needsYou: boolean;
+  /** The thread's own turn is answering the last message. */
+  working?: boolean;
 };
 
 export type BotThreadLine =
