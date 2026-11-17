@@ -38,11 +38,19 @@ export default function ModelMenu({
   value,
   onChange,
   disabled,
+  placement = "composer",
 }: {
   value: ModelChoice;
   onChange: (next: ModelChoice) => void;
   disabled?: boolean;
+  /**
+   * "composer": icon only while the tool row is narrow, menu opens up from
+   * the left edge. "row": the value at the right of a grouped row, always
+   * named, menu opens up from the right edge so it stays in the panel.
+   */
+  placement?: "composer" | "row";
 }) {
+  const row = placement === "row";
   const providers = useAgentProviders();
   const ready = readyProviders(providers.data);
   const defaultId = providers.data?.defaultProvider;
@@ -128,10 +136,17 @@ export default function ModelMenu({
       >
         <Cpu className="size-4 shrink-0" />
         {/* Icon only while the composer's tool row is narrow; the label still names the model. */}
-        <span className="hidden min-w-0 truncate @lg/tools:inline">
+        <span
+          className={cn(
+            "min-w-0 truncate",
+            !row && "hidden @lg/tools:inline",
+          )}
+        >
           {current}
         </span>
-        <ChevronDown className="hidden size-3 shrink-0 @lg/tools:block" />
+        <ChevronDown
+          className={cn("size-3 shrink-0", !row && "hidden @lg/tools:block")}
+        />
       </button>
       {open && (
         <div
@@ -144,7 +159,10 @@ export default function ModelMenu({
             e.stopPropagation();
             setOpen(false);
           }}
-          className="absolute bottom-full left-0 z-30 mb-2 flex max-h-[min(28rem,70vh)] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
+          className={cn(
+            "absolute z-30 flex max-h-[min(28rem,70vh)] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg",
+            row ? "bottom-full right-0 mb-2" : "bottom-full left-0 mb-2",
+          )}
         >
           <button
             type="button"

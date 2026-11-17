@@ -489,6 +489,7 @@ export function AgentEditor({
           </ListRow>
           <ListRow label="Model">
             <ModelMenu
+              placement="row"
               value={{ provider: value.modelProvider, model: value.model }}
               onChange={(next) =>
                 patch({ modelProvider: next.provider, model: next.model })
