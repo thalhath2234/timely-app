@@ -81,12 +81,12 @@ func TestDiffAndInverse(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, after := diffOf(b, next, in).words()
-	for _, want := range []string{`prompt "Alert under 90000"`, "schedule every 6h", "permission auto", "memory off"} {
+	for _, want := range []string{`prompt "Alert under 90000"`, "schedule every 6 hours", "permission auto", "memory off"} {
 		if !strings.Contains(before, want) {
 			t.Errorf("before %q lacks %q", before, want)
 		}
 	}
-	for _, want := range []string{`prompt "Alert under 85000"`, "schedule every 1h", "permission supervised", "memory on"} {
+	for _, want := range []string{`prompt "Alert under 85000"`, "schedule every hour", "permission supervised", "memory on"} {
 		if !strings.Contains(after, want) {
 			t.Errorf("after %q lacks %q", after, want)
 		}
@@ -146,9 +146,9 @@ func TestPromptWordsShowWhatMoved(t *testing.T) {
 
 func TestScheduleWords(t *testing.T) {
 	cases := map[string]Schedule{
-		"every 6h":         {EveryMinutes: 360},
-		"every 45m":        {EveryMinutes: 45},
-		"every 2d":         {EveryMinutes: 2 * 24 * 60},
+		"every 6 hours":    {EveryMinutes: 360},
+		"every 45 minutes": {EveryMinutes: 45},
+		"every 48 hours":   {EveryMinutes: 2 * 24 * 60},
 		"daily at 09:00":   {DailyAt: "09:00", Weekdays: []int{0, 1, 2, 3, 4, 5, 6}},
 		"Mon Tue at 09:00": {DailyAt: "09:00", Weekdays: []int{1, 2}},
 		"cron 0 9 * * *":   {Cron: "0 9 * * *"},
@@ -209,5 +209,26 @@ func TestTaintedWidenReasonHoldsEgressAndMCP(t *testing.T) {
 	var back ChangeInput
 	if err := json.Unmarshal(b, &back); err != nil || back.AfterPageText {
 		t.Fatalf("stored %s: %+v %v", b, back, err)
+	}
+}
+
+// The model's words stand in only for free text; a setting such as a
+// schedule raised to its floor is said as it was saved.
+func TestMovesFreeText(t *testing.T) {
+	if !(moves{{label: "prompt"}, {label: "name"}}).freeText() {
+		t.Fatal("prompt and name are free text")
+	}
+	if (moves{{label: "prompt"}, {label: "schedule"}}).freeText() {
+		t.Fatal("a schedule move is a setting")
+	}
+	b := agentBotFixture()
+	ws := []Watch{{Kind: "page", URL: "https://example.com/"}}
+	next, err := CleanAgent(AgentInput{Schedule: rawJSON(`"every 5m"`)}, &b, ws, OriginChat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := diffOf(b, next, ChangeInput{})
+	if _, after := m.words(); !strings.Contains(after, "every 15 minutes") || m.freeText() {
+		t.Fatalf("a 5-minute ask on a page Read reads %q", after)
 	}
 }

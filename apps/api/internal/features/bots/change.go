@@ -196,7 +196,10 @@ func (s *Service) Change(ctx context.Context, userID, idOrName string, in Change
 	res := ChangeResult{Inverse: inverseOf(cur, in)}
 	moves := diffOf(cur, next, in)
 	res.Before, res.After = moves.words()
-	if in.From != "" || in.To != "" {
+	// The model's own words only stand in for free text (a prompt, a name):
+	// a setting is said as it was saved, which can differ from what was asked
+	// (a schedule raised to its Reads' floor).
+	if (in.From != "" || in.To != "") && moves.freeText() {
 		if from, to := lineEnd(in.From), lineEnd(in.To); from != "" && to != "" {
 			res.Before, res.After = from, to
 		}
@@ -324,6 +327,17 @@ func (m moves) words() (before, after string) {
 		a = append(a, strings.TrimSpace(mv.label+" "+mv.to))
 	}
 	return strings.Join(b, ", "), strings.Join(a, ", ")
+}
+
+// freeText is true when every move is a free-text field (name, description,
+// prompt), whose line the model may word itself.
+func (m moves) freeText() bool {
+	for _, mv := range m {
+		if mv.label != "name" && mv.label != "description" && mv.label != "prompt" {
+			return false
+		}
+	}
+	return true
 }
 
 // maxMoveWords bounds one field's words in a line.
@@ -478,13 +492,7 @@ func modelWords(f AgentFields) string {
 func scheduleWords(s Schedule) string {
 	switch s.Kind() {
 	case ScheduleEvery:
-		switch {
-		case s.EveryMinutes%(24*60) == 0:
-			return fmt.Sprintf("every %dd", s.EveryMinutes/(24*60))
-		case s.EveryMinutes%60 == 0:
-			return fmt.Sprintf("every %dh", s.EveryMinutes/60)
-		}
-		return fmt.Sprintf("every %dm", s.EveryMinutes)
+		return everyWords(s.EveryMinutes)
 	case ScheduleDaily:
 		if len(s.Weekdays) == 0 || len(s.Weekdays) == 7 {
 			return "daily at " + s.DailyAt

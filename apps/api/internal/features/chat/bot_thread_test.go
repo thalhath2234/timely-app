@@ -180,3 +180,20 @@ func TestThreadSummaryWorking(t *testing.T) {
 		t.Fatal("finished turn still reads as working")
 	}
 }
+
+// A reply that only repeats the change cards is dropped; one that adds
+// anything is kept.
+func TestRestatesCard(t *testing.T) {
+	for reply, want := range map[string]bool{
+		"Changed: every 6 hours -> every 5 minutes. Undo is available.": true,
+		"changed: a -> b\n- Changed: c -> d":                            true,
+		"Waiting for your tap: memory off -> on":                        true,
+		"":                                                              true,
+		"Changed: a -> b\nNote: 5 minutes is below this page's 15-minute minimum.": false,
+		"Which timezone are you in?": false,
+	} {
+		if got := restatesCard(reply); got != want {
+			t.Errorf("restatesCard(%q) = %v, want %v", reply, got, want)
+		}
+	}
+}
